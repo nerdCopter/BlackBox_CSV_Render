@@ -51,65 +51,49 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Simulation parameters - these could be read from a config or command line
         let set_point = 10.0; // Example setpoint
+        let dt = 0.0001; //Small Time step to see more details
 
         let mut time_data: Vec<f64> = Vec::new();
         let mut response_data: Vec<f64> = Vec::new();
-
-        // Reset the CSV reader to start from the beginning for each axis
-        let file = std::fs::File::open(input_file)?;
-        let mut reader = ReaderBuilder::new()
-            .has_headers(true)
-            .from_reader(file);
 
         // initial values for simulation
         let mut previous_error = 0.0;
         let mut integral = 0.0;
         let mut process_variable = 0.0; // start at zero.
-        //let mut time = 0.0; //Time is now read from file
-        let mut previous_time_us = 0.0;
+        let mut time = 0.0;
 
-        let time_idx = header_indices[0];
-        let p_idx = header_indices[1 + axis_index];
-        let i_idx = header_indices[4 + axis_index];
-        let d_idx = header_indices[7 + axis_index];
-        let mut first_record = true;
+        // Get Kp, Ki, Kd values from first line in CSV
+        let kp;
+        let ki;
+        let kd;
 
-        while let Some(record) = reader.records().next() {
-            let record = record?;
+        {
+            let file = std::fs::File::open(input_file)?;
+            let mut reader = ReaderBuilder::new().has_headers(true).from_reader(file);
+            let record = reader.records().next().unwrap()?; // Get first record
+            let p_idx = header_indices[1 + axis_index].unwrap();
+            let i_idx = header_indices[4 + axis_index].unwrap();
+            let d_idx = header_indices[7 + axis_index].unwrap();
 
-            if let (Some(time_idx_unwrapped), Some(p_idx_unwrapped), Some(i_idx_unwrapped), Some(d_idx_unwrapped)) = (time_idx, p_idx, i_idx, d_idx) {
-                if let (Some(time_str), Some(p_str), Some(i_str), Some(d_str)) = (record.get(time_idx_unwrapped), record.get(p_idx_unwrapped), record.get(i_idx_unwrapped), record.get(d_idx_unwrapped)) {
+            kp = record.get(p_idx).unwrap().trim().parse::<f64>().unwrap_or(0.0);
+            ki = record.get(i_idx).unwrap().trim().parse::<f64>().unwrap_or(0.0);
+            kd = record.get(d_idx).unwrap().trim().parse::<f64>().unwrap_or(0.0);
+        }
 
-                    let time_us = time_str.trim().parse::<f64>().unwrap_or(0.0);
-                    let kp = p_str.trim().parse::<f64>().unwrap_or(0.0);
-                    let ki = i_str.trim().parse::<f64>().unwrap_or(0.0);
-                    let kd = d_str.trim().parse::<f64>().unwrap_or(0.0);
+        // Simulate the PID response over time
+        while time < 5.0 { // Simulate for 5 seconds
+            let error = set_point - process_variable;
 
-                    // Time step will be from the difference of time of CSV records
-                    let dt;
-                    if first_record {
-                        dt = 0.0;
-                        first_record = false;
-                    }
-                    else {
-                        dt = (time_us - previous_time_us) / 1_000_000.0; //seconds
-                    }
+            integral += error * dt;
+            let derivative = (error - previous_error) / dt;
+            let output = kp * error + ki * integral + kd * derivative;
 
-                    let error = set_point - process_variable;
+            process_variable += output * dt;
 
-                    integral += error * dt;
-                    let derivative = (error - previous_error) / dt;
-                    let output = kp * error + ki * integral + kd * derivative;
-
-                    process_variable += output * dt;
-
-                    let time = time_us / 1_000_000.0; // to seconds
-                    time_data.push(time);
-                    response_data.push(process_variable);
-                    previous_error = error;
-                    previous_time_us = time_us;
-                }
-            }
+            time_data.push(time);
+            response_data.push(process_variable);
+            previous_error = error;
+            time += dt;
         }
 
         // Plotting the step response for this axis
@@ -121,7 +105,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .x_label_area_size(40)
             .y_label_area_size(40)
             .build_cartesian_2d(
-                0.0..time_data.last().copied().unwrap_or(10.0), // Adjust x-axis range
+                0.0..time_data.last().copied().unwrap_or(5.0), // Adjust x-axis range
                 0.0..response_data.iter().copied().fold(0.0, f64::max) * 1.1, // Adjust y-axis range
             )
             .unwrap();
