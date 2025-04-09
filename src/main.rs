@@ -17,7 +17,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input_path = Path::new(input_file);
     let root_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
 
-
     // Open the CSV file
     let file = std::fs::File::open(input_file)?;
     let mut reader = ReaderBuilder::new()
@@ -31,8 +30,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // List of headers we are interested in
     let target_headers = [
         "time (us)",
-        "axisP[0]", "axisP[1]", "axisP[2]", 
-        "axisI[0]", "axisI[1]", "axisI[2]", 
+        "axisP[0]", "axisP[1]", "axisP[2]",
+        "axisI[0]", "axisI[1]", "axisI[2]",
         "axisD[0]", "axisD[1]", "axisD[2]",
     ];
 
@@ -47,71 +46,71 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Target header indices: {:?}", header_indices);
 
     for axis_index in 0..3 {
-        //Prepare output filename for this axis
+        // Prepare output filename for this axis
         let output_file = format!("{}_axis{}_step_response.png", root_name, axis_index);
 
         // Simulation parameters - these could be read from a config or command line
         let set_point = 10.0; // Example setpoint
-        let dt = 0.1; // Time step - keep this consistent
-
 
         let mut time_data: Vec<f64> = Vec::new();
         let mut response_data: Vec<f64> = Vec::new();
 
-
-             // Reset the CSV reader to start from the beginning for each axis
-            let file = std::fs::File::open(input_file)?;
-            let mut reader = ReaderBuilder::new()
-                .has_headers(true)
-                .from_reader(file);
-
-
+        // Reset the CSV reader to start from the beginning for each axis
+        let file = std::fs::File::open(input_file)?;
+        let mut reader = ReaderBuilder::new()
+            .has_headers(true)
+            .from_reader(file);
 
         // initial values for simulation
         let mut previous_error = 0.0;
         let mut integral = 0.0;
-        let mut process_variable = 0.0; //start at zero.
-        let mut time = 0.0;
+        let mut process_variable = 0.0; // start at zero.
+        //let mut time = 0.0; //Time is now read from file
+        let mut previous_time_us = 0.0;
 
-
+        let time_idx = header_indices[0];
+        let p_idx = header_indices[1 + axis_index];
+        let i_idx = header_indices[4 + axis_index];
+        let d_idx = header_indices[7 + axis_index];
+        let mut first_record = true;
 
         while let Some(record) = reader.records().next() {
-                let record = record?;
+            let record = record?;
 
-                let time_idx = header_indices[0];
-                let p_idx = header_indices[1 + axis_index];
-                let i_idx = header_indices[4 + axis_index];
-                let d_idx = header_indices[7 + axis_index];
+            if let (Some(time_idx_unwrapped), Some(p_idx_unwrapped), Some(i_idx_unwrapped), Some(d_idx_unwrapped)) = (time_idx, p_idx, i_idx, d_idx) {
+                if let (Some(time_str), Some(p_str), Some(i_str), Some(d_str)) = (record.get(time_idx_unwrapped), record.get(p_idx_unwrapped), record.get(i_idx_unwrapped), record.get(d_idx_unwrapped)) {
 
+                    let time_us = time_str.trim().parse::<f64>().unwrap_or(0.0);
+                    let kp = p_str.trim().parse::<f64>().unwrap_or(0.0);
+                    let ki = i_str.trim().parse::<f64>().unwrap_or(0.0);
+                    let kd = d_str.trim().parse::<f64>().unwrap_or(0.0);
 
+                    // Time step will be from the difference of time of CSV records
+                    let dt;
+                    if first_record {
+                        dt = 0.0;
+                        first_record = false;
+                    }
+                    else {
+                        dt = (time_us - previous_time_us) / 1_000_000.0; //seconds
+                    }
 
-            if let (Some(time_idx_unwrapped),Some(p_idx_unwrapped), Some(i_idx_unwrapped), Some(d_idx_unwrapped)) = (time_idx, p_idx, i_idx, d_idx){
-                   if let (Some(time_str), Some(p_str), Some(i_str), Some(d_str)) = (record.get(time_idx_unwrapped), record.get(p_idx_unwrapped), record.get(i_idx_unwrapped), record.get(d_idx_unwrapped)){
+                    let error = set_point - process_variable;
 
-                        let time_us = time_str.trim().parse::<f64>().unwrap_or(0.0);
-                        let kp = p_str.trim().parse::<f64>().unwrap_or(0.0);
-                        let ki = i_str.trim().parse::<f64>().unwrap_or(0.0);
-                        let kd = d_str.trim().parse::<f64>().unwrap_or(0.0);
+                    integral += error * dt;
+                    let derivative = (error - previous_error) / dt;
+                    let output = kp * error + ki * integral + kd * derivative;
 
+                    process_variable += output * dt;
 
-
-                       let error = set_point - process_variable;
-
-                       integral += error * dt;
-                       let derivative = (error - previous_error) / dt;
-                       let output = kp * error + ki * integral + kd * derivative;
-
-                       process_variable += output * dt;
-
-
-                        time_data.push(time);
-                        response_data.push(process_variable);
-                       previous_error = error;
-                      time += dt;
-                  }
+                    let time = time_us / 1_000_000.0; // to seconds
+                    time_data.push(time);
+                    response_data.push(process_variable);
+                    previous_error = error;
+                    previous_time_us = time_us;
+                }
             }
-          }
-
+        }
 
         // Plotting the step response for this axis
         let root_area = BitMapBackend::new(&output_file, (800, 600)).into_drawing_area();
