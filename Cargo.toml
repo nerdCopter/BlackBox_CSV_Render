@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 advanced-pid = "0.2.2"
 plotters = "0.3"
+csv = "1.1"
