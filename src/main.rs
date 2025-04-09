@@ -33,6 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "axisP[0]", "axisP[1]", "axisP[2]",
         "axisI[0]", "axisI[1]", "axisI[2]",
         "axisD[0]", "axisD[1]", "axisD[2]",
+        "setpoint[0]", "setpoint[1]", "setpoint[2]", "setpoint[3]",
     ];
 
     // Find indices of target headers in the CSV file (trim spaces for matching)
@@ -49,20 +50,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Prepare output filename for this axis
         let output_file = format!("{}_axis{}_step_response.png", root_name, axis_index);
 
-        // Simulation parameters - these could be read from a config or command line
-        let set_point = 10.0; // Example setpoint
-        let dt = 0.0001; //Small Time step to see more details
-
         let mut time_data: Vec<f64> = Vec::new();
         let mut response_data: Vec<f64> = Vec::new();
 
         // initial values for simulation
+        let dt = 0.001; // Small Time step to see more details
         let mut previous_error = 0.0;
         let mut integral = 0.0;
         let mut process_variable = 0.0; // start at zero.
         let mut time = 0.0;
+        let mut set_point: f64 = 0.0;
 
-        // Get Kp, Ki, Kd values from first line in CSV
+        // Get Kp, Ki, Kd and SetPoint values from first line in CSV
         let kp;
         let ki;
         let kd;
@@ -78,15 +77,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             kp = record.get(p_idx).unwrap().trim().parse::<f64>().unwrap_or(0.0);
             ki = record.get(i_idx).unwrap().trim().parse::<f64>().unwrap_or(0.0);
             kd = record.get(d_idx).unwrap().trim().parse::<f64>().unwrap_or(0.0);
+             match axis_index {
+                    0 => set_point = record.get(header_indices[10].unwrap()).unwrap().trim().parse::<f64>().unwrap_or(0.0),
+                    1 => set_point = record.get(header_indices[11].unwrap()).unwrap().trim().parse::<f64>().unwrap_or(0.0),
+                    2 => set_point = record.get(header_indices[12].unwrap()).unwrap().trim().parse::<f64>().unwrap_or(0.0),
+                    _ => {},
+            }
         }
 
         // Simulate the PID response over time
         while time < 5.0 { // Simulate for 5 seconds
             let error = set_point - process_variable;
 
-            integral += error * dt;
-            let derivative = (error - previous_error) / dt;
-            let output = kp * error + ki * integral + kd * derivative;
+            integral += ki * error * dt; // Ki * error * dt
+            let derivative = kd * (error - previous_error) / dt; // Kd * (error - previous_error) / dt
+            let output = kp * error + integral + derivative; // kp * error + integral + derivative
 
             process_variable += output * dt;
 
@@ -95,6 +100,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             previous_error = error;
             time += dt;
         }
+
+        // Find the maximum value of response_data for setting y-axis range.
+        let max_response = response_data.iter().copied().fold(0.0, f64::max);
 
         // Plotting the step response for this axis
         let root_area = BitMapBackend::new(&output_file, (800, 600)).into_drawing_area();
@@ -106,7 +114,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .y_label_area_size(40)
             .build_cartesian_2d(
                 0.0..time_data.last().copied().unwrap_or(5.0), // Adjust x-axis range
-                0.0..response_data.iter().copied().fold(0.0, f64::max) * 1.1, // Adjust y-axis range
+                0.0..max_response * 1.1, // Adjust y-axis range
             )
             .unwrap();
 
