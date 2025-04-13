@@ -28,40 +28,38 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Header Definition and Index Mapping ---
     // Headers needed: time and the P, I, D *terms* (components of the output)
-    // These strings MUST match the *trimmed* headers in the CSV
     let target_headers = [
         // Time (Essential for X-axis)
         "time (us)",    // 0
-        // P Term Components
+        // P Term Components (Essential)
         "axisP[0]",     // 1
         "axisP[1]",     // 2
         "axisP[2]",     // 3
-        // I Term Components
+        // I Term Components (Essential)
         "axisI[0]",     // 4
         "axisI[1]",     // 5
         "axisI[2]",     // 6
-        // D Term Components
+        // D Term Components (Essential, except AxisD[2])
         "axisD[0]",     // 7
         "axisD[1]",     // 8
-        "axisD[2]",     // 9 (Now considered optional, defaults to 0 if missing)
+        "axisD[2]",     // 9 - Optional, defaults to 0 if missing
     ];
+
+    // Flag to track if AxisD[2] header exists
+    let mut axis_d2_header_found = false;
 
     let header_indices = { // Scope for header reading
         let file = File::open(input_file)?;
-        // Configure reader to trim whitespace from headers and fields
         let mut reader = ReaderBuilder::new()
             .has_headers(true)
-            .trim(csv::Trim::All) // Crucial: trims whitespace from headers AND fields
+            .trim(csv::Trim::All)
             .from_reader(BufReader::new(file));
 
-        // Get the headers (already trimmed by the ReaderBuilder)
         let header_record = reader.headers()?.clone();
-        println!("Headers found in CSV (trimmed): {:?}", header_record);
+        println!("Headers found in CSV: {:?}", header_record);
 
-        // Find the indices by comparing target_headers to the trimmed header_record
         let indices: Vec<Option<usize>> = target_headers
             .iter()
-            // No need for .trim() here anymore, ReaderBuilder did it
             .map(|&target_header| {
                 header_record.iter().position(|h| h == target_header)
             })
@@ -69,35 +67,42 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         println!("Indices map (Target Header -> CSV Index):");
         let mut essential_headers_found = true;
-        let mut missing_essential_headers: Vec<String> = Vec::new(); // Collect truly essential missing headers
 
-        // Check headers (indices 0-9)
-        for i in 0..=9 { // Loop through all target headers
+        // Check essential headers (indices 0 through 8)
+        for i in 0..=8 { // Check up to axisD[1]
             let name = target_headers[i];
-            let is_axisd2 = i == 9; // Check if it's the axisD[2] header index
-
-            match indices[i] {
-                Some(idx) => {
-                    println!("  '{}' (Target Index {}): Found at index {}", name, i, idx);
-                }
-                None => {
-                    if is_axisd2 {
-                         // Optional header axisD[2] is missing
-                         println!("  '{}' (Target Index {}): Not Found (Optional - Will default D term to 0).", name, i);
-                         // Do *not* mark essential_headers_found as false for this specific header
-                    } else {
-                         // An essential header (0-8) is missing
-                         essential_headers_found = false;
-                         println!("  '{}' (Target Index {}): Not Found (Essential!)", name, i);
-                         missing_essential_headers.push(format!("'{}'", name));
-                    }
-                }
-            };
+             let found_status = match indices[i] {
+                 Some(idx) => format!("Found at index {}", idx),
+                 None => {
+                    essential_headers_found = false;
+                    "Not Found (Essential!)".to_string()
+                 }
+             };
+             println!("  '{}' (Target Index {}): {}", name, i, found_status);
         }
 
+        // Check optional header AxisD[2] (index 9) separately
+        let axis_d2_name = target_headers[9];
+        let axis_d2_status = match indices[9] {
+            Some(idx) => {
+                axis_d2_header_found = true; // Mark as found
+                format!("Found at index {}", idx)
+            }
+            None => {
+                // Not found, but this is okay. We'll default to 0.
+                "Not Found (Optional, will default to 0.0)".to_string()
+            }
+        };
+        println!("  '{}' (Target Index {}): {}", axis_d2_name, 9, axis_d2_status);
+
+
         if !essential_headers_found {
-             // Construct error message using only the essential missing ones
-             return Err(format!("Error: Missing essential headers needed for PID output calculation: {}. Please check CSV file and target_headers array. Aborting.", missing_essential_headers.join(", ")).into());
+             // Construct a more specific error message
+             let missing_essentials: Vec<String> = (0..=8)
+                 .filter(|&i| indices[i].is_none())
+                 .map(|i| format!("'{}'", target_headers[i]))
+                 .collect();
+             return Err(format!("Error: Missing essential headers: {}. Aborting.", missing_essentials.join(", ")).into());
         }
         indices // Return indices
     };
@@ -108,10 +113,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("\nReading P/I/D term data from CSV...");
     { // Scope for the reader
         let file = File::open(input_file)?;
-        // Use the same trimming settings for reading data rows
         let mut reader = ReaderBuilder::new()
             .has_headers(true)
-            .trim(csv::Trim::All) // Ensure fields are also trimmed
+            .trim(csv::Trim::All)
             .from_reader(BufReader::new(file));
 
         for (row_index, result) in reader.records().enumerate() {
@@ -119,45 +123,49 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Ok(record) => {
                     let mut current_row_data = LogRowData::default();
 
-                    // Helper to parse f64 field safely
-                    let mut parse_f64 = |target_idx: usize| -> Option<f64> {
-                        header_indices.get(target_idx) // Use .get() for safety
-                            .and_then(|opt_idx| opt_idx.as_ref()) // Get Option<&usize> if Some
-                            .and_then(|&csv_idx| record.get(csv_idx)) // Get Option<&str> field value
-                            // No need to trim here, ReaderBuilder already did
-                            .and_then(|val_str| val_str.parse::<f64>().ok()) // Parse
+                    // Helper to parse f64 field safely using the resolved header index
+                    let mut parse_f64_by_target_idx = |target_idx: usize| -> Option<f64> {
+                        header_indices.get(target_idx) // Get Option<Option<usize>>
+                            .and_then(|opt_csv_idx| opt_csv_idx.as_ref()) // Get Option<&usize>
+                            .and_then(|&csv_idx| record.get(csv_idx)) // Get Option<&str>
+                            .and_then(|val_str| val_str.parse::<f64>().ok()) // Get Option<f64>
                     };
 
+
                     // --- Parse Time ---
-                    let time_us = parse_f64(0); // Target index 0 = "time (us)"
+                    let time_us = parse_f64_by_target_idx(0); // Target index 0 = "time (us)"
                     if let Some(t_us) = time_us {
                          current_row_data.time_sec = Some(t_us / 1_000_000.0);
                     } else {
+                         // Time is essential, skip row if missing or invalid
                          eprintln!("Warning: Skipping row {} due to missing or invalid 'time (us)'", row_index + 1);
-                         continue; // Skip entire row if time is missing
+                         continue;
                     }
 
                     // --- Parse P, I, D Terms for each axis ---
                     for axis in 0..3 {
-                        // P term indices: 1, 2, 3
-                        current_row_data.p_term[axis] = parse_f64(1 + axis);
-                        // I term indices: 4, 5, 6
-                        current_row_data.i_term[axis] = parse_f64(4 + axis);
+                        // P term indices: 1, 2, 3 (Essential)
+                        current_row_data.p_term[axis] = parse_f64_by_target_idx(1 + axis);
+                        // I term indices: 4, 5, 6 (Essential)
+                        current_row_data.i_term[axis] = parse_f64_by_target_idx(4 + axis);
 
-                        // D term indices: 7, 8, 9
-                        let d_target_idx = 7 + axis; // This will be 7, 8, or 9
-                        if d_target_idx == 9 && header_indices[d_target_idx].is_none() {
-                            // Special case: axisD[2] header is missing, default D term to 0.0
-                            current_row_data.d_term[axis] = Some(0.0);
+                        // D term indices: 7, 8, 9 (Handle axis 2 specially)
+                        let d_target_idx = 7 + axis;
+                        if axis == 2 && !axis_d2_header_found {
+                             // Special case: AxisD[2] header was missing, default to 0.0
+                             current_row_data.d_term[axis] = Some(0.0);
                         } else {
-                            // Parse normally for axis 0, 1, or for axis 2 if header exists
-                            // parse_f64 will return None if the header (and thus index) is missing
-                            // (except for the special case handled above)
-                            current_row_data.d_term[axis] = parse_f64(d_target_idx);
+                             // Normal case: Parse using the found index (if header exists)
+                             // or handle missing essential D[0]/D[1] header (will result in None)
+                             // or handle parse error for D[2] even if header exists (will result in None)
+                             current_row_data.d_term[axis] = parse_f64_by_target_idx(d_target_idx);
                         }
                     }
 
-                    // Add the fully parsed row data to our main vector
+                     // Add the fully parsed row data to our main vector
+                     // Note: If essential P/I/D[0]/D[1] terms were missing *in this row*
+                     // (even if headers exist), they will be None here. The plotting
+                     // filter_map will handle skipping such rows for the affected axis.
                     all_log_data.push(current_row_data);
                 }
                 Err(e) => {
@@ -168,6 +176,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     } // Reader goes out of scope, file is closed
 
     println!("Finished reading {} data rows.", all_log_data.len());
+    if !axis_d2_header_found {
+        println!("INFO: 'axisD[2]' header was not found in the CSV. Used 0.0 as default value for Axis 2 D-term calculation.");
+    }
+
 
     if all_log_data.is_empty() {
         println!("No valid data rows read, cannot generate plots.");
@@ -182,15 +194,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Processing Axis {}...", axis_index);
 
         // Calculate PID output (P+I+D) for each time step where all components are available
+        // This logic remains the same. If D[2] was defaulted to Some(0.0), it will be included.
+        // If any *other* P/I/D term was None (due to missing header or parse error),
+        // the row will be skipped for that axis's plot by filter_map.
         let pid_output_data: Vec<(f64, f64)> = all_log_data.iter().filter_map(|row| {
             // Ensure we have time and all three terms for this axis
-            // Note: d_term[2] will be Some(0.0) if the header was missing due to the modification above
             if let (Some(time), Some(p), Some(i), Some(d)) =
                 (row.time_sec, row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
             {
                 Some((time, p + i + d)) // Calculate total PID output
             } else {
-                None // Skip row if any *other* component (time, P, I, D[0], D[1]) is missing
+                None // Skip row if any essential component for this axis is missing for this row
             }
         }).collect();
 
