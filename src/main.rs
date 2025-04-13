@@ -6,13 +6,14 @@ use std::path::Path;
 use std::fs::File;
 use std::io::BufReader;
 
-// Structure to hold the data needed for calculating PID output per row
+// Structure to hold the data needed for calculating PID output and step response per row
 #[derive(Debug, Default, Clone)]
 struct LogRowData {
     time_sec: Option<f64>,
-    p_term: [Option<f64>; 3], // Assumes axisP[x] is the P *term*
-    i_term: [Option<f64>; 3], // Assumes axisI[x] is the I *term*
-    d_term: [Option<f64>; 3], // Assumes axisD[x] is the D *term*
+    p_term: [Option<f64>; 3],   // Assumes axisP[x] is the P *term*
+    i_term: [Option<f64>; 3],   // Assumes axisI[x] is the I *term*
+    d_term: [Option<f64>; 3],   // Assumes axisD[x] is the D *term*
+    setpoint: [Option<f64>; 3], // Assumes setpoint[x] is the target value
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -27,26 +28,31 @@ fn main() -> Result<(), Box<dyn Error>> {
     let root_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
 
     // --- Header Definition and Index Mapping ---
-    // Headers needed: time and the P, I, D *terms* (components of the output)
+    // Headers needed: time, P/I/D terms, and setpoints
     let target_headers = [
         // Time (Essential for X-axis)
         "time (us)",    // 0
-        // P Term Components (Essential)
+        // P Term Components (Essential for PID plot)
         "axisP[0]",     // 1
         "axisP[1]",     // 2
         "axisP[2]",     // 3
-        // I Term Components (Essential)
+        // I Term Components (Essential for PID plot)
         "axisI[0]",     // 4
         "axisI[1]",     // 5
         "axisI[2]",     // 6
-        // D Term Components (Essential, except AxisD[2])
+        // D Term Components (Essential for PID plot, except AxisD[2])
         "axisD[0]",     // 7
         "axisD[1]",     // 8
-        "axisD[2]",     // 9 - Optional, defaults to 0 if missing
+        "axisD[2]",     // 9 - Optional, defaults to 0 if missing for PID plot
+        // Setpoint Components (Essential for Step Response plot)
+        "setpoint[0]",  // 10
+        "setpoint[1]",  // 11
+        "setpoint[2]",  // 12
     ];
 
-    // Flag to track if AxisD[2] header exists
+    // Flags to track if specific headers exist
     let mut axis_d2_header_found = false;
+    let mut setpoint_header_found = [false; 3]; // Track presence for each axis
 
     let header_indices = { // Scope for header reading
         let file = File::open(input_file)?;
@@ -66,16 +72,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect();
 
         println!("Indices map (Target Header -> CSV Index):");
-        let mut essential_headers_found = true;
+        let mut essential_pid_headers_found = true;
 
-        // Check essential headers (indices 0 through 8)
+        // Check essential headers for PID plot (indices 0 through 8)
         for i in 0..=8 { // Check up to axisD[1]
             let name = target_headers[i];
              let found_status = match indices[i] {
                  Some(idx) => format!("Found at index {}", idx),
                  None => {
-                    essential_headers_found = false;
-                    "Not Found (Essential!)".to_string()
+                    essential_pid_headers_found = false;
+                    format!("Not Found (Essential for PID Plot!)")
                  }
              };
              println!("  '{}' (Target Index {}): {}", name, i, found_status);
@@ -89,20 +95,37 @@ fn main() -> Result<(), Box<dyn Error>> {
                 format!("Found at index {}", idx)
             }
             None => {
-                // Not found, but this is okay. We'll default to 0.
-                "Not Found (Optional, will default to 0.0)".to_string()
+                // Not found, but this is okay for PID plot. We'll default to 0.
+                format!("Not Found (Optional for PID plot, will default to 0.0)")
             }
         };
         println!("  '{}' (Target Index {}): {}", axis_d2_name, 9, axis_d2_status);
 
+        // Check setpoint headers (indices 10, 11, 12) - essential for step response
+        for axis in 0..3 {
+            let target_idx = 10 + axis;
+            let name = target_headers[target_idx];
+            let status = match indices[target_idx] {
+                 Some(idx) => {
+                    setpoint_header_found[axis] = true; // Mark as found for this axis
+                    format!("Found at index {}", idx)
+                 }
+                 None => {
+                    format!("Not Found (Essential for Step Response Plot Axis {})", axis)
+                 }
+            };
+            println!("  '{}' (Target Index {}): {}", name, target_idx, status);
+        }
 
-        if !essential_headers_found {
-             // Construct a more specific error message
+
+        if !essential_pid_headers_found {
+             // Construct a more specific error message for PID plot headers
              let missing_essentials: Vec<String> = (0..=8)
                  .filter(|&i| indices[i].is_none())
                  .map(|i| format!("'{}'", target_headers[i]))
                  .collect();
-             return Err(format!("Error: Missing essential headers: {}. Aborting.", missing_essentials.join(", ")).into());
+             // We can still proceed if only step-response headers are missing, but PID ones are crucial.
+             return Err(format!("Error: Missing essential headers for PID plot: {}. Aborting.", missing_essentials.join(", ")).into());
         }
         indices // Return indices
     };
@@ -110,7 +133,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // --- Data Reading and Storage ---
     let mut all_log_data: Vec<LogRowData> = Vec::new();
 
-    println!("\nReading P/I/D term data from CSV...");
+    println!("\nReading P/I/D term and Setpoint data from CSV...");
     { // Scope for the reader
         let file = File::open(input_file)?;
         let mut reader = ReaderBuilder::new()
@@ -121,10 +144,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         for (row_index, result) in reader.records().enumerate() {
             match result {
                 Ok(record) => {
-                    let mut current_row_data = LogRowData::default();
+                    let mut current_row_data = LogRowData::default(); // Needs to be mutable to fill its fields
 
                     // Helper to parse f64 field safely using the resolved header index
-                    let mut parse_f64_by_target_idx = |target_idx: usize| -> Option<f64> {
+                    // No 'mut' needed here as the closure binding isn't reassigned
+                    let parse_f64_by_target_idx = |target_idx: usize| -> Option<f64> {
                         header_indices.get(target_idx) // Get Option<Option<usize>>
                             .and_then(|opt_csv_idx| opt_csv_idx.as_ref()) // Get Option<&usize>
                             .and_then(|&csv_idx| record.get(csv_idx)) // Get Option<&str>
@@ -142,30 +166,32 @@ fn main() -> Result<(), Box<dyn Error>> {
                          continue;
                     }
 
-                    // --- Parse P, I, D Terms for each axis ---
+                    // --- Parse P, I, D Terms and Setpoint for each axis ---
                     for axis in 0..3 {
-                        // P term indices: 1, 2, 3 (Essential)
+                        // P term indices: 1, 2, 3 (Essential for PID plot)
                         current_row_data.p_term[axis] = parse_f64_by_target_idx(1 + axis);
-                        // I term indices: 4, 5, 6 (Essential)
+                        // I term indices: 4, 5, 6 (Essential for PID plot)
                         current_row_data.i_term[axis] = parse_f64_by_target_idx(4 + axis);
 
-                        // D term indices: 7, 8, 9 (Handle axis 2 specially)
+                        // D term indices: 7, 8, 9 (Handle axis 2 specially for PID plot)
                         let d_target_idx = 7 + axis;
                         if axis == 2 && !axis_d2_header_found {
                              // Special case: AxisD[2] header was missing, default to 0.0
                              current_row_data.d_term[axis] = Some(0.0);
                         } else {
-                             // Normal case: Parse using the found index (if header exists)
-                             // or handle missing essential D[0]/D[1] header (will result in None)
-                             // or handle parse error for D[2] even if header exists (will result in None)
+                             // Normal case for D terms
                              current_row_data.d_term[axis] = parse_f64_by_target_idx(d_target_idx);
                         }
+
+                        // Setpoint indices: 10, 11, 12 (Essential for Step Response plot)
+                        let setpoint_target_idx = 10 + axis;
+                        // Only parse if the header for this specific axis was found
+                        if setpoint_header_found[axis] {
+                            current_row_data.setpoint[axis] = parse_f64_by_target_idx(setpoint_target_idx);
+                        } // else it remains None
                     }
 
                      // Add the fully parsed row data to our main vector
-                     // Note: If essential P/I/D[0]/D[1] terms were missing *in this row*
-                     // (even if headers exist), they will be None here. The plotting
-                     // filter_map will handle skipping such rows for the affected axis.
                     all_log_data.push(current_row_data);
                 }
                 Err(e) => {
@@ -177,7 +203,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Finished reading {} data rows.", all_log_data.len());
     if !axis_d2_header_found {
-        println!("INFO: 'axisD[2]' header was not found in the CSV. Used 0.0 as default value for Axis 2 D-term calculation.");
+        println!("INFO: 'axisD[2]' header was not found. Used 0.0 as default value for Axis 2 D-term calculation in PID Output plot.");
+    }
+    for axis in 0..3 {
+        if !setpoint_header_found[axis] {
+             println!("INFO: 'setpoint[{}]' header was not found. Step Response plot for Axis {} cannot be generated.", axis, axis);
+        }
     }
 
 
@@ -187,90 +218,183 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
 
-    // --- Plotting Calculated PID Output ---
-    println!("\n--- Generating Calculated PID Output Plots (P+I+D vs Time) ---");
+    // --- Plotting Loop for Each Axis ---
+    println!("\n--- Generating Plots for Each Axis ---");
 
     for axis_index in 0..3 {
         println!("Processing Axis {}...", axis_index);
 
-        // Calculate PID output (P+I+D) for each time step where all components are available
-        // This logic remains the same. If D[2] was defaulted to Some(0.0), it will be included.
-        // If any *other* P/I/D term was None (due to missing header or parse error),
-        // the row will be skipped for that axis's plot by filter_map.
-        let pid_output_data: Vec<(f64, f64)> = all_log_data.iter().filter_map(|row| {
-            // Ensure we have time and all three terms for this axis
-            if let (Some(time), Some(p), Some(i), Some(d)) =
-                (row.time_sec, row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
-            {
-                Some((time, p + i + d)) // Calculate total PID output
+        // --- 1. Calculate and Plot PID Output (P+I+D vs Time) ---
+        { // Scope for PID Output Plot
+            println!("  Generating Calculated PID Output plot (P+I+D vs Time)...");
+            // Calculate PID output (P+I+D) for each time step where all PID components are available
+            let pid_output_data: Vec<(f64, f64)> = all_log_data.iter().filter_map(|row| {
+                // Ensure we have time and all three PID terms for this axis
+                if let (Some(time), Some(p), Some(i), Some(d)) =
+                    (row.time_sec, row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
+                {
+                    Some((time, p + i + d)) // Calculate total PID output
+                } else {
+                    None // Skip row if any PID component is missing for this row
+                }
+            }).collect();
+
+
+            if pid_output_data.is_empty() {
+                println!("  Skipping Axis {} Calculated PID Output Plot: No rows found with complete P, I, and D term data.", axis_index);
             } else {
-                None // Skip row if any essential component for this axis is missing for this row
+                // --- Determine Plot Ranges ---
+                let (time_min, time_max) = pid_output_data.iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _)| (min_t.min(*t), max_t.max(*t)));
+
+                let (output_min, output_max) = pid_output_data.iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_v, max_v), (_, v)| (min_v.min(*v), max_v.max(*v)));
+
+                // Add padding
+                let y_range = (output_max - output_min).abs();
+                let y_padding = if y_range < 1e-6 { 0.5 } else { y_range * 0.1 };
+                let final_y_min = output_min - y_padding;
+                let final_y_max = output_max + y_padding;
+
+                // --- Setup Plot ---
+                let output_file = format!("{}_axis{}_calculated_pid_output.png", root_name, axis_index);
+                let root_area = BitMapBackend::new(&output_file, (1024, 768)).into_drawing_area();
+                root_area.fill(&WHITE)?;
+
+                let title = format!("Axis {} Calculated PID Output (Sum of P, I, D Terms)", axis_index);
+
+                let mut chart = ChartBuilder::on(&root_area)
+                    .caption(title, ("sans-serif", 30))
+                    .margin(15)
+                    .x_label_area_size(50)
+                    .y_label_area_size(70)
+                    .build_cartesian_2d(
+                        time_min..time_max,
+                        final_y_min..final_y_max,
+                    )?;
+
+                chart.configure_mesh()
+                    .x_desc("Time (s)")
+                    .y_desc(format!("Axis {} Calculated PID Output", axis_index))
+                    .x_labels(10)
+                    .y_labels(10)
+                    .light_line_style(&WHITE.mix(0.7))
+                    .draw()?;
+
+                // --- Draw Series ---
+                chart.draw_series(LineSeries::new(
+                    pid_output_data, // Use the calculated (time, P+I+D) vector
+                    &GREEN,
+                ))?
+                .label("PID Output (P+I+D)")
+                .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &GREEN));
+
+                chart.configure_series_labels()
+                    .position(SeriesLabelPosition::UpperRight)
+                    .background_style(&WHITE.mix(0.8))
+                    .border_style(&BLACK)
+                    .draw()?;
+
+                println!("  Axis {} calculated PID output plot saved as '{}'.", axis_index, output_file);
             }
-        }).collect();
+        } // End scope for PID Output Plot
 
 
-        if pid_output_data.is_empty() {
-            println!("Skipping Axis {}: No rows found with complete P, I, and D term data.", axis_index);
-            continue;
-        }
+        // --- 2. Calculate and Plot Step Response (Setpoint vs PID Output) ---
+        { // Scope for Step Response Plot
+            println!("  Generating Step Response plot (Setpoint vs PID Output)...");
 
-        // --- Determine Plot Ranges ---
-         let (time_min, time_max) = pid_output_data.iter()
-             .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _)| (min_t.min(*t), max_t.max(*t)));
+            // First, check if the required setpoint header for this axis exists
+            if !setpoint_header_found[axis_index] {
+                println!("  Skipping Axis {} Step Response Plot: Missing 'setpoint[{}]' header.", axis_index, axis_index);
+                continue; // Skip to the next axis
+            }
 
-         let (output_min, output_max) = pid_output_data.iter()
-              .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_v, max_v), (_, v)| (min_v.min(*v), max_v.max(*v)));
+            // Prepare data: requires time, setpoint, AND P, I, D terms for PID output calculation
+            let step_response_data: Vec<(f64, f64, f64)> = all_log_data.iter().filter_map(|row| {
+                if let (Some(time), Some(setpoint), Some(p), Some(i), Some(d)) =
+                    (row.time_sec, row.setpoint[axis_index], row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
+                {
+                    Some((time, setpoint, p + i + d)) // (time, setpoint, pid_output)
+                } else {
+                    None // Skip row if any required component (time, setpoint, P, I, D) is missing
+                }
+            }).collect();
+
+             if step_response_data.is_empty() {
+                println!("  Skipping Axis {} Step Response Plot: No rows found with complete data (time, setpoint[{}], P, I, D).", axis_index, axis_index);
+                continue; // Skip to the next axis
+            }
+
+            // --- Determine Plot Ranges ---
+            let (time_min, time_max) = step_response_data.iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _, _)| (min_t.min(*t), max_t.max(*t)));
+
+            // Find min/max across *both* setpoint and pid_output
+            let (y_min, y_max) = step_response_data.iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_y, max_y), (_, s, p)| {
+                    (min_y.min(*s).min(*p), max_y.max(*s).max(*p))
+                });
+
+            // Add padding
+            let y_range = (y_max - y_min).abs();
+            let y_padding = if y_range < 1e-6 { 0.5 } else { y_range * 0.1 };
+            let final_y_min = y_min - y_padding;
+            let final_y_max = y_max + y_padding;
 
 
-        // Add padding
-        let y_range = (output_max - output_min).abs();
-        let y_padding = if y_range < 1e-6 { 0.5 } else { y_range * 0.1 };
-        let final_y_min = output_min - y_padding;
-        let final_y_max = output_max + y_padding;
+            // --- Setup Plot ---
+            let output_file = format!("{}_axis{}_step_response.png", root_name, axis_index);
+            let root_area = BitMapBackend::new(&output_file, (1024, 768)).into_drawing_area();
+            root_area.fill(&WHITE)?;
 
+            let title = format!("Axis {} Step Response (Setpoint vs PID Output)", axis_index);
 
-        // --- Setup Plot ---
-        let output_file = format!("{}_axis{}_calculated_pid_output.png", root_name, axis_index);
-        let root_area = BitMapBackend::new(&output_file, (1024, 768)).into_drawing_area();
-        root_area.fill(&WHITE)?;
+            let mut chart = ChartBuilder::on(&root_area)
+                .caption(title, ("sans-serif", 30))
+                .margin(15)
+                .x_label_area_size(50)
+                .y_label_area_size(70)
+                .build_cartesian_2d(
+                    time_min..time_max,
+                    final_y_min..final_y_max, // Use combined range
+                )?;
 
-        let title = format!("Axis {} Calculated PID Output (Sum of P, I, D Terms from Log)", axis_index);
+            chart.configure_mesh()
+                .x_desc("Time (s)")
+                .y_desc(format!("Axis {} Value", axis_index))
+                .x_labels(10)
+                .y_labels(10)
+                .light_line_style(&WHITE.mix(0.7))
+                .draw()?;
 
-        let mut chart = ChartBuilder::on(&root_area)
-            .caption(title, ("sans-serif", 30))
-            .margin(15)
-            .x_label_area_size(50)
-            .y_label_area_size(70)
-            .build_cartesian_2d(
-                time_min..time_max,
-                final_y_min..final_y_max,
-            )?;
+            // --- Draw Series ---
 
-        chart.configure_mesh()
-            .x_desc("Time (s)")
-            .y_desc(format!("Axis {} Calculated PID Output", axis_index))
-            .x_labels(10)
-            .y_labels(10)
-            .light_line_style(&WHITE.mix(0.7))
-            .draw()?;
+            // Draw Setpoint Line (Blue)
+            chart.draw_series(LineSeries::new(
+                step_response_data.iter().map(|(t, s, _p)| (*t, *s)), // Map to (time, setpoint)
+                &BLUE,
+            ))?
+            .label("Setpoint")
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
 
-        // --- Draw Series ---
+            // Draw Calculated PID Output Line (Red) - using the same data source
+            chart.draw_series(LineSeries::new(
+                step_response_data.iter().map(|(t, _s, p)| (*t, *p)), // Map to (time, pid_output)
+                &RED,
+            ))?
+            .label("PID Output (P+I+D)")
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
 
-        // Draw Calculated PID Output Line (Green)
-        chart.draw_series(LineSeries::new(
-            pid_output_data, // Use the calculated (time, P+I+D) vector
-            &GREEN,
-        ))?
-        .label("PID Output (P+I+D)")
-        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &GREEN));
+            chart.configure_series_labels()
+                .position(SeriesLabelPosition::UpperRight)
+                .background_style(&WHITE.mix(0.8))
+                .border_style(&BLACK)
+                .draw()?;
 
-        chart.configure_series_labels()
-            .position(SeriesLabelPosition::UpperRight)
-            .background_style(&WHITE.mix(0.8))
-            .border_style(&BLACK)
-            .draw()?;
+            println!("  Axis {} step response plot saved as '{}'.", axis_index, output_file);
 
-        println!("Axis {} calculated PID output plot saved as '{}'.", axis_index, output_file);
+        } // End scope for Step Response Plot
 
     } // End axis plotting loop
 
