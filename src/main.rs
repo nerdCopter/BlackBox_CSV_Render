@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // List of headers we are interested in
     let target_headers = [
-        "time (us)",
+        "loopIteration", "time (us)",
         "axisP[0]", "axisP[1]", "axisP[2]",
         "axisI[0]", "axisI[1]", "axisI[2]",
         "axisD[0]", "axisD[1]", "axisD[2]",
