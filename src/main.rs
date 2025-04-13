@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // D Term Components
         "axisD[0]",     // 7
         "axisD[1]",     // 8
-        "axisD[2]",     // 9
+        "axisD[2]",     // 9 (Now considered optional, defaults to 0 if missing)
     ];
 
     let header_indices = { // Scope for header reading
@@ -69,27 +69,35 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         println!("Indices map (Target Header -> CSV Index):");
         let mut essential_headers_found = true;
-        // Check essential headers (indices 0-9)
-        for i in 0..=9 {
+        let mut missing_essential_headers: Vec<String> = Vec::new(); // Collect truly essential missing headers
+
+        // Check headers (indices 0-9)
+        for i in 0..=9 { // Loop through all target headers
             let name = target_headers[i];
-             let found_status = match indices[i] {
-                 Some(idx) => format!("Found at index {}", idx),
-                 None => {
-                    essential_headers_found = false;
-                    format!("'{}' Not Found (Essential!)", name) // More specific error
-                 }
-             };
-             println!("  '{}' (Target Index {}): {}", name, i, found_status);
+            let is_axisd2 = i == 9; // Check if it's the axisD[2] header index
+
+            match indices[i] {
+                Some(idx) => {
+                    println!("  '{}' (Target Index {}): Found at index {}", name, i, idx);
+                }
+                None => {
+                    if is_axisd2 {
+                         // Optional header axisD[2] is missing
+                         println!("  '{}' (Target Index {}): Not Found (Optional - Will default D term to 0).", name, i);
+                         // Do *not* mark essential_headers_found as false for this specific header
+                    } else {
+                         // An essential header (0-8) is missing
+                         essential_headers_found = false;
+                         println!("  '{}' (Target Index {}): Not Found (Essential!)", name, i);
+                         missing_essential_headers.push(format!("'{}'", name));
+                    }
+                }
+            };
         }
 
         if !essential_headers_found {
-             // Construct a more detailed error message
-             let missing_headers: Vec<String> = target_headers.iter().enumerate()
-                 .filter_map(|(i, &name)| {
-                     if i <= 9 && indices[i].is_none() { Some(format!("'{}'", name)) } else { None }
-                 })
-                 .collect();
-             return Err(format!("Error: Missing essential headers needed for PID output calculation: {}. Please check CSV file and target_headers array. Aborting.", missing_headers.join(", ")).into());
+             // Construct error message using only the essential missing ones
+             return Err(format!("Error: Missing essential headers needed for PID output calculation: {}. Please check CSV file and target_headers array. Aborting.", missing_essential_headers.join(", ")).into());
         }
         indices // Return indices
     };
@@ -135,8 +143,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                         current_row_data.p_term[axis] = parse_f64(1 + axis);
                         // I term indices: 4, 5, 6
                         current_row_data.i_term[axis] = parse_f64(4 + axis);
+
                         // D term indices: 7, 8, 9
-                        current_row_data.d_term[axis] = parse_f64(7 + axis);
+                        let d_target_idx = 7 + axis; // This will be 7, 8, or 9
+                        if d_target_idx == 9 && header_indices[d_target_idx].is_none() {
+                            // Special case: axisD[2] header is missing, default D term to 0.0
+                            current_row_data.d_term[axis] = Some(0.0);
+                        } else {
+                            // Parse normally for axis 0, 1, or for axis 2 if header exists
+                            // parse_f64 will return None if the header (and thus index) is missing
+                            // (except for the special case handled above)
+                            current_row_data.d_term[axis] = parse_f64(d_target_idx);
+                        }
                     }
 
                     // Add the fully parsed row data to our main vector
@@ -166,12 +184,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Calculate PID output (P+I+D) for each time step where all components are available
         let pid_output_data: Vec<(f64, f64)> = all_log_data.iter().filter_map(|row| {
             // Ensure we have time and all three terms for this axis
+            // Note: d_term[2] will be Some(0.0) if the header was missing due to the modification above
             if let (Some(time), Some(p), Some(i), Some(d)) =
                 (row.time_sec, row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
             {
                 Some((time, p + i + d)) // Calculate total PID output
             } else {
-                None // Skip row if any component is missing
+                None // Skip row if any *other* component (time, P, I, D[0], D[1]) is missing
             }
         }).collect();
 
