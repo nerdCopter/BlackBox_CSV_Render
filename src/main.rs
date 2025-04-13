@@ -6,17 +6,13 @@ use std::path::Path;
 use std::fs::File;
 use std::io::BufReader;
 
-// Helper struct to hold data for a single row
+// Structure to hold the data needed for calculating PID output per row
 #[derive(Debug, Default, Clone)]
-struct RowData {
-    loop_iteration: Option<u64>,
-    time_us: Option<f64>,
-    axis_p: [Option<f64>; 3],
-    axis_i: [Option<f64>; 3],
-    axis_d: [Option<f64>; 3],
-    setpoint: [Option<f64>; 3],
-    gyro_adc: [Option<f64>; 3],     // New field
-    gyro_unfilt: [Option<f64>; 3],  // New field
+struct LogRowData {
+    time_sec: Option<f64>,
+    p_term: [Option<f64>; 3], // Assumes axisP[x] is the P *term*
+    i_term: [Option<f64>; 3], // Assumes axisI[x] is the I *term*
+    d_term: [Option<f64>; 3], // Assumes axisD[x] is the D *term*
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -31,123 +27,120 @@ fn main() -> Result<(), Box<dyn Error>> {
     let root_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
 
     // --- Header Definition and Index Mapping ---
-    // Headers we want to find and read
+    // Headers needed: time and the P, I, D *terms* (components of the output)
+    // These strings MUST match the *trimmed* headers in the CSV
     let target_headers = [
-        // Essential
-        "loopIteration", // 0
-        "time (us)",    // 1
-        // Axis 0 PID + Setpoint
-        "axisP[0]",     // 2
-        "axisI[0]",     // 3
-        "axisD[0]",     // 4
-        "setpoint[0]",  // 5
-        // Axis 1 PID + Setpoint
-        "axisP[1]",     // 6
-        "axisI[1]",     // 7
+        // Time (Essential for X-axis)
+        "time (us)",    // 0
+        // P Term Components
+        "axisP[0]",     // 1
+        "axisP[1]",     // 2
+        "axisP[2]",     // 3
+        // I Term Components
+        "axisI[0]",     // 4
+        "axisI[1]",     // 5
+        "axisI[2]",     // 6
+        // D Term Components
+        "axisD[0]",     // 7
         "axisD[1]",     // 8
-        "setpoint[1]",  // 9
-        // Axis 2 PID + Setpoint
-        "axisP[2]",     // 10
-        "axisI[2]",     // 11
-        "axisD[2]",     // 12
-        "setpoint[2]",  // 13
-        // Gyro ADC (New)
-        "gyroADC[0]",   // 14
-        "gyroADC[1]",   // 15
-        "gyroADC[2]",   // 16
-        // Gyro Unfiltered (New)
-        "gyroUnfilt[0]",// 17
-        "gyroUnfilt[1]",// 18
-        "gyroUnfilt[2]",// 19
-        // Optional setpoint[3]
-        "setpoint[3]",  // 20
+        "axisD[2]",     // 9
     ];
 
-    let (_headers, header_indices) = { // Renamed headers to _headers as it's not used directly after this block
+    let header_indices = { // Scope for header reading
         let file = File::open(input_file)?;
+        // Configure reader to trim whitespace from headers and fields
         let mut reader = ReaderBuilder::new()
             .has_headers(true)
-            .trim(csv::Trim::All)
-            .from_reader(BufReader::new(file)); // Use BufReader
+            .trim(csv::Trim::All) // Crucial: trims whitespace from headers AND fields
+            .from_reader(BufReader::new(file));
 
+        // Get the headers (already trimmed by the ReaderBuilder)
         let header_record = reader.headers()?.clone();
-        println!("Headers found in CSV: {:?}", header_record);
+        println!("Headers found in CSV (trimmed): {:?}", header_record);
 
+        // Find the indices by comparing target_headers to the trimmed header_record
         let indices: Vec<Option<usize>> = target_headers
             .iter()
+            // No need for .trim() here anymore, ReaderBuilder did it
             .map(|&target_header| {
                 header_record.iter().position(|h| h == target_header)
             })
             .collect();
 
         println!("Indices map (Target Header -> CSV Index):");
-        let mut all_found = true;
-        for (i, name) in target_headers.iter().enumerate() {
-             // Check if the header is one of the essential ones we absolutely need for printing/sim
-             let is_essential = i <= 19; // Indices 0-19 are now used in printing
+        let mut essential_headers_found = true;
+        // Check essential headers (indices 0-9)
+        for i in 0..=9 {
+            let name = target_headers[i];
              let found_status = match indices[i] {
                  Some(idx) => format!("Found at index {}", idx),
                  None => {
-                    if is_essential { all_found = false; } // Mark if an essential one is missing
-                    "Not Found".to_string()
+                    essential_headers_found = false;
+                    format!("'{}' Not Found (Essential!)", name) // More specific error
                  }
              };
              println!("  '{}' (Target Index {}): {}", name, i, found_status);
         }
-        if !all_found {
-             eprintln!("Warning: Not all target headers (up to index 19) were found. Data extraction and printing might be incomplete.");
+
+        if !essential_headers_found {
+             // Construct a more detailed error message
+             let missing_headers: Vec<String> = target_headers.iter().enumerate()
+                 .filter_map(|(i, &name)| {
+                     if i <= 9 && indices[i].is_none() { Some(format!("'{}'", name)) } else { None }
+                 })
+                 .collect();
+             return Err(format!("Error: Missing essential headers needed for PID output calculation: {}. Please check CSV file and target_headers array. Aborting.", missing_headers.join(", ")).into());
         }
-        (header_record, indices) // Return headers and indices
+        indices // Return indices
     };
 
     // --- Data Reading and Storage ---
-    let mut all_data: Vec<RowData> = Vec::new();
-    println!("\nReading data from CSV...");
+    let mut all_log_data: Vec<LogRowData> = Vec::new();
+
+    println!("\nReading P/I/D term data from CSV...");
     { // Scope for the reader
         let file = File::open(input_file)?;
+        // Use the same trimming settings for reading data rows
         let mut reader = ReaderBuilder::new()
             .has_headers(true)
-            .trim(csv::Trim::All)
+            .trim(csv::Trim::All) // Ensure fields are also trimmed
             .from_reader(BufReader::new(file));
 
         for (row_index, result) in reader.records().enumerate() {
             match result {
                 Ok(record) => {
-                    let mut row_data = RowData::default();
+                    let mut current_row_data = LogRowData::default();
 
-                    // Helper to parse a value safely
-                    let mut parse_field = |target_idx: usize| -> Option<f64> {
-                        header_indices.get(target_idx) // Use get for safety
-                            .and_then(|opt_idx| opt_idx.as_ref()) // Get Option<&usize>
-                            .and_then(|&csv_idx| record.get(csv_idx)) // Get Option<&str>
+                    // Helper to parse f64 field safely
+                    let mut parse_f64 = |target_idx: usize| -> Option<f64> {
+                        header_indices.get(target_idx) // Use .get() for safety
+                            .and_then(|opt_idx| opt_idx.as_ref()) // Get Option<&usize> if Some
+                            .and_then(|&csv_idx| record.get(csv_idx)) // Get Option<&str> field value
+                            // No need to trim here, ReaderBuilder already did
                             .and_then(|val_str| val_str.parse::<f64>().ok()) // Parse
                     };
-                    // Helper to parse u64
-                     let mut parse_u64_field = |target_idx: usize| -> Option<u64> {
-                        header_indices.get(target_idx)
-                            .and_then(|opt_idx| opt_idx.as_ref())
-                            .and_then(|&csv_idx| record.get(csv_idx))
-                            .and_then(|val_str| val_str.parse::<u64>().ok())
-                    };
 
-
-                    // Extract data using helpers
-                    row_data.loop_iteration = parse_u64_field(0); // target_headers[0] = "loopIteration"
-                    row_data.time_us = parse_field(1);         // target_headers[1] = "time (us)"
-
-                    for axis in 0..3 {
-                        // PID + Setpoint Indices: P=2,6,10; I=3,7,11; D=4,8,12; SP=5,9,13
-                        row_data.axis_p[axis] = parse_field(2 + axis * 4);
-                        row_data.axis_i[axis] = parse_field(3 + axis * 4);
-                        row_data.axis_d[axis] = parse_field(4 + axis * 4);
-                        row_data.setpoint[axis] = parse_field(5 + axis * 4);
-
-                        // Gyro Indices: ADC=14,15,16; Unfilt=17,18,19
-                        row_data.gyro_adc[axis] = parse_field(14 + axis);   // New
-                        row_data.gyro_unfilt[axis] = parse_field(17 + axis); // New
+                    // --- Parse Time ---
+                    let time_us = parse_f64(0); // Target index 0 = "time (us)"
+                    if let Some(t_us) = time_us {
+                         current_row_data.time_sec = Some(t_us / 1_000_000.0);
+                    } else {
+                         eprintln!("Warning: Skipping row {} due to missing or invalid 'time (us)'", row_index + 1);
+                         continue; // Skip entire row if time is missing
                     }
 
-                    all_data.push(row_data);
+                    // --- Parse P, I, D Terms for each axis ---
+                    for axis in 0..3 {
+                        // P term indices: 1, 2, 3
+                        current_row_data.p_term[axis] = parse_f64(1 + axis);
+                        // I term indices: 4, 5, 6
+                        current_row_data.i_term[axis] = parse_f64(4 + axis);
+                        // D term indices: 7, 8, 9
+                        current_row_data.d_term[axis] = parse_f64(7 + axis);
+                    }
+
+                    // Add the fully parsed row data to our main vector
+                    all_log_data.push(current_row_data);
                 }
                 Err(e) => {
                     eprintln!("Warning: Skipping row {} due to CSV read error: {}", row_index + 1, e);
@@ -156,184 +149,97 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     } // Reader goes out of scope, file is closed
 
-    println!("Finished reading {} data rows.", all_data.len());
+    println!("Finished reading {} data rows.", all_log_data.len());
 
-    // --- Columnar Printing ---
-    if !all_data.is_empty() {
-        println!("\n--- Extracted Data ---");
-
-        // Define column widths (adjust as needed)
-        const W_ITER: usize = 12;
-        const W_TIME: usize = 15;
-        const W_PID: usize = 10;
-        const W_SP: usize = 12;
-        const W_GYRO: usize = 10; // Width for gyro values
-
-        // Build Header String Dynamically (more maintainable)
-        let header = format!(
-            "{:<iter$} {:<time$} | {:<pid$} {:<pid$} {:<pid$} {:<sp$} | {:<pid$} {:<pid$} {:<pid$} {:<sp$} | {:<pid$} {:<pid$} {:<pid$} {:<sp$} | {:<gyro$} {:<gyro$} {:<gyro$} | {:<gyro$} {:<gyro$} {:<gyro$}",
-            "LoopIter", "Time (us)",
-            "P[0]", "I[0]", "D[0]", "SP[0]",
-            "P[1]", "I[1]", "D[1]", "SP[1]",
-            "P[2]", "I[2]", "D[2]", "SP[2]",
-            "ADC[0]", "ADC[1]", "ADC[2]",       // New Headers
-            "Unfilt[0]", "Unfilt[1]", "Unfilt[2]", // New Headers
-            iter = W_ITER, time = W_TIME, pid = W_PID, sp = W_SP, gyro = W_GYRO
-        );
-        println!("{}", header);
-        println!("{}", "-".repeat(header.len())); // Separator line matching header length
-
-        // Print Data Rows
-        for data in &all_data {
-            // Helper to format Option<T>
-            fn fmt_opt<T: std::fmt::Display>(opt: &Option<T>, default: &str) -> String {
-                opt.as_ref().map_or(default.to_string(), |v| format!("{}", v))
-            }
-            fn fmt_opt_f64(opt: &Option<f64>, default: &str, precision: usize) -> String {
-                opt.as_ref().map_or(default.to_string(), |v| format!("{:.prec$}", v, prec = precision))
-            }
-
-            // Build Data Row String Dynamically
-             let data_row = format!(
-                "{:<iter$} {:<time$} | {:<pid$} {:<pid$} {:<pid$} {:<sp$} | {:<pid$} {:<pid$} {:<pid$} {:<sp$} | {:<pid$} {:<pid$} {:<pid$} {:<sp$} | {:<gyro$} {:<gyro$} {:<gyro$} | {:<gyro$} {:<gyro$} {:<gyro$}",
-                fmt_opt(&data.loop_iteration, "N/A"),
-                fmt_opt_f64(&data.time_us, "N/A", 1), // time with 1 decimal
-                // Axis 0
-                fmt_opt_f64(&data.axis_p[0], "N/A", 3),
-                fmt_opt_f64(&data.axis_i[0], "N/A", 3),
-                fmt_opt_f64(&data.axis_d[0], "N/A", 3),
-                fmt_opt_f64(&data.setpoint[0], "N/A", 3),
-                // Axis 1
-                fmt_opt_f64(&data.axis_p[1], "N/A", 3),
-                fmt_opt_f64(&data.axis_i[1], "N/A", 3),
-                fmt_opt_f64(&data.axis_d[1], "N/A", 3),
-                fmt_opt_f64(&data.setpoint[1], "N/A", 3),
-                // Axis 2
-                fmt_opt_f64(&data.axis_p[2], "N/A", 3),
-                fmt_opt_f64(&data.axis_i[2], "N/A", 3),
-                fmt_opt_f64(&data.axis_d[2], "N/A", 3),
-                fmt_opt_f64(&data.setpoint[2], "N/A", 3),
-                 // Gyro ADC (New)
-                fmt_opt_f64(&data.gyro_adc[0], "N/A", 3),
-                fmt_opt_f64(&data.gyro_adc[1], "N/A", 3),
-                fmt_opt_f64(&data.gyro_adc[2], "N/A", 3),
-                // Gyro Unfilt (New)
-                fmt_opt_f64(&data.gyro_unfilt[0], "N/A", 3),
-                fmt_opt_f64(&data.gyro_unfilt[1], "N/A", 3),
-                fmt_opt_f64(&data.gyro_unfilt[2], "N/A", 3),
-                // Width arguments
-                iter = W_ITER, time = W_TIME, pid = W_PID, sp = W_SP, gyro = W_GYRO
-            );
-            println!("{}", data_row);
-        }
-        println!("{}\n", "-".repeat(header.len())); // Footer line
-    } else {
-        println!("No data read from CSV, skipping columnar print and simulation.");
-        return Ok(()); // Exit early if no data
+    if all_log_data.is_empty() {
+        println!("No valid data rows read, cannot generate plots.");
+        return Ok(());
     }
 
-    // --- Simulation and Plotting (Using FIRST row's data for PID parameters) ---
-    println!("--- Starting Simulation Based on FIRST Data Row's PID Parameters ---");
 
-    // Get PID parameters from the *first* row of the stored data
-    let first_data_row = all_data.first().ok_or("No data rows available for simulation parameters")?;
+    // --- Plotting Calculated PID Output ---
+    println!("\n--- Generating Calculated PID Output Plots (P+I+D vs Time) ---");
 
     for axis_index in 0..3 {
-        println!("\n--- Simulating Axis {} ---", axis_index);
+        println!("Processing Axis {}...", axis_index);
 
-        // Extract Kp, Ki, Kd, Setpoint from the first row's data for the specific axis
-        // Use 0.0 as default if data wasn't present/parsable in the first row
-        let kp = first_data_row.axis_p[axis_index].unwrap_or(0.0);
-        let ki = first_data_row.axis_i[axis_index].unwrap_or(0.0);
-        let kd = first_data_row.axis_d[axis_index].unwrap_or(0.0);
-        let set_point = first_data_row.setpoint[axis_index].unwrap_or(0.0);
-
-        println!("  Using parameters from first row for Axis {}:", axis_index);
-        println!("    Kp: {}", kp);
-        println!("    Ki: {}", ki);
-        println!("    Kd: {}", kd);
-        println!("    Setpoint: {}", set_point);
-
-        // Prepare output filename
-        let output_file = format!("{}_axis{}_simulated_step_response.png", root_name, axis_index);
+        // Calculate PID output (P+I+D) for each time step where all components are available
+        let pid_output_data: Vec<(f64, f64)> = all_log_data.iter().filter_map(|row| {
+            // Ensure we have time and all three terms for this axis
+            if let (Some(time), Some(p), Some(i), Some(d)) =
+                (row.time_sec, row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
+            {
+                Some((time, p + i + d)) // Calculate total PID output
+            } else {
+                None // Skip row if any component is missing
+            }
+        }).collect();
 
 
-        // --- Simulation part (unchanged logic) ---
-        let mut time_data: Vec<f64> = Vec::new();
-        let mut response_data: Vec<f64> = Vec::new();
-        let dt = 0.001; // Simulation time step
-        let mut previous_error = 0.0;
-        let mut integral = 0.0;
-        let mut process_variable = 0.0; // start at zero.
-        let mut time = 0.0;
-        let simulation_duration = 5.0; // Simulate for 5 seconds
-
-        while time < simulation_duration {
-            let error = set_point - process_variable;
-            let proportional_term = kp * error;
-            integral += ki * error * dt;
-            let derivative_term = if dt > 0.0 { kd * (error - previous_error) / dt } else { 0.0 };
-            let output = proportional_term + integral + derivative_term;
-            process_variable += output * dt;
-
-            time_data.push(time);
-            response_data.push(process_variable);
-            previous_error = error;
-            time += dt;
+        if pid_output_data.is_empty() {
+            println!("Skipping Axis {}: No rows found with complete P, I, and D term data.", axis_index);
+            continue;
         }
 
-        // --- Plotting part (unchanged logic, except filename) ---
-        let min_response = response_data.iter().copied().fold(f64::INFINITY, f64::min);
-        let max_response = response_data.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        let y_range_padding = (max_response - min_response).abs() * 0.1 + 0.1; // Add small base padding
-        let y_min = min_response - y_range_padding;
-        let y_max = max_response + y_range_padding;
-        // Adjust y-axis range to potentially include 0 and the setpoint nicely
-        let final_y_min = if set_point >= 0.0 && y_min > 0.0 { 0.0f64.min(y_min) } else { y_min };
-        let final_y_max = if set_point > 0.0 { set_point.max(y_max) * 1.1 } else { y_max };
+        // --- Determine Plot Ranges ---
+         let (time_min, time_max) = pid_output_data.iter()
+             .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _)| (min_t.min(*t), max_t.max(*t)));
+
+         let (output_min, output_max) = pid_output_data.iter()
+              .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_v, max_v), (_, v)| (min_v.min(*v), max_v.max(*v)));
 
 
-        let root_area = BitMapBackend::new(&output_file, (800, 600)).into_drawing_area();
+        // Add padding
+        let y_range = (output_max - output_min).abs();
+        let y_padding = if y_range < 1e-6 { 0.5 } else { y_range * 0.1 };
+        let final_y_min = output_min - y_padding;
+        let final_y_max = output_max + y_padding;
+
+
+        // --- Setup Plot ---
+        let output_file = format!("{}_axis{}_calculated_pid_output.png", root_name, axis_index);
+        let root_area = BitMapBackend::new(&output_file, (1024, 768)).into_drawing_area();
         root_area.fill(&WHITE)?;
 
+        let title = format!("Axis {} Calculated PID Output (Sum of P, I, D Terms from Log)", axis_index);
+
         let mut chart = ChartBuilder::on(&root_area)
-            .caption(format!("Simulated Axis {} Step Response (Kp={}, Ki={}, Kd={}, SP={})", axis_index, kp, ki, kd, set_point), ("sans-serif", 30))
-            .margin(10)
-            .x_label_area_size(40)
-            .y_label_area_size(60)
+            .caption(title, ("sans-serif", 30))
+            .margin(15)
+            .x_label_area_size(50)
+            .y_label_area_size(70)
             .build_cartesian_2d(
-                0.0..simulation_duration,
+                time_min..time_max,
                 final_y_min..final_y_max,
             )?;
 
         chart.configure_mesh()
             .x_desc("Time (s)")
-            .y_desc("Simulated Process Variable")
+            .y_desc(format!("Axis {} Calculated PID Output", axis_index))
+            .x_labels(10)
+            .y_labels(10)
+            .light_line_style(&WHITE.mix(0.7))
             .draw()?;
 
-        chart.draw_series(LineSeries::new(
-            vec![(0.0, set_point), (simulation_duration, set_point)],
-            &BLUE.mix(0.5),
-        ))?
-        .label(format!("Setpoint ({})", set_point))
-        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE.mix(0.5)));
+        // --- Draw Series ---
 
-
+        // Draw Calculated PID Output Line (Green)
         chart.draw_series(LineSeries::new(
-            time_data.into_iter().zip(response_data),
-            &RED,
+            pid_output_data, // Use the calculated (time, P+I+D) vector
+            &GREEN,
         ))?
-        .label("Simulated Response")
-        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+        .label("PID Output (P+I+D)")
+        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &GREEN));
 
         chart.configure_series_labels()
+            .position(SeriesLabelPosition::UpperRight)
             .background_style(&WHITE.mix(0.8))
             .border_style(&BLACK)
             .draw()?;
 
-        println!("Axis {} simulated step response plot saved as '{}'.", axis_index, output_file);
+        println!("Axis {} calculated PID output plot saved as '{}'.", axis_index, output_file);
 
-    } // End axis simulation loop
+    } // End axis plotting loop
 
     Ok(())
 }
