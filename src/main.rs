@@ -17,6 +17,34 @@ struct LogRowData {
     setpoint: [Option<f64>; 3],   // Target setpoint value for each axis. Assumes CSV header like "setpoint[0]".
 }
 
+// Define constants for plot dimensions
+const PLOT_WIDTH: u32 = 1920;
+const PLOT_HEIGHT: u32 = 1080;
+
+// Helper function to calculate plot range with padding
+fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
+    let range = (max_val - min_val).abs();
+    // Add a slightly larger padding for potentially smaller subplot value ranges
+    let padding = if range < 1e-6 { 0.5 } else { range * 0.15 };
+    (min_val - padding, max_val + padding)
+}
+
+// Helper function to draw "Data Unavailable" message
+fn draw_unavailable_message(
+    area: &DrawingArea<BitMapBackend, plotters::coord::Shift>,
+    axis_index: usize,
+    plot_type: &str,
+) -> Result<(), Box<dyn Error>> {
+    let message = format!("Axis {} {} Data Unavailable", axis_index, plot_type);
+    area.draw(&Text::new(
+        message,
+        (50, 50), // Position of the text within the subplot
+        ("sans-serif", 20).into_font().color(&RED), // Style
+    ))?;
+    Ok(())
+}
+
+
 fn main() -> Result<(), Box<dyn Error>> {
     // --- Argument Parsing ---
     // Get command-line arguments passed to the program.
@@ -234,207 +262,197 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    // --- Data Preparation for Plots ---
+    // These vectors will hold the plot data specific to each axis.
+    let mut pid_output_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut setpoint_vs_pidsum_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    // Flags to track if data is actually available to plot for each axis/type.
+    let mut pid_data_available = [false; 3];
+    let mut setpoint_data_available = [false; 3];
 
-    // --- Plotting Loop for Each Axis ---
-    println!("\n--- Generating Plots for Each Axis ---");
-
-    // Generate plots for each of the three axes (0, 1, 2).
-    for axis_index in 0..3 {
-        println!("Processing Axis {}...", axis_index);
-
-        // --- 1. Calculate and Plot PIDsum (P+I+D vs Time) ---
-        { // Scope specifically for the PIDsum plot generation.
-            println!("  Generating PIDsum plot (P+I+D vs Time)...");
-
-            // Filter and transform the raw data into plot points (time, pid_sum).
-            // Only include rows where time, P, I, and D terms for the current axis are all present (Some).
-            let pid_output_data: Vec<(f64, f64)> = all_log_data.iter().filter_map(|row| {
-                if let (Some(time), Some(p), Some(i), Some(d)) =
-                    // Ensure all necessary components for this axis exist in the row data.
-                    (row.time_sec, row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
+    // Iterate through the collected log data once to populate data for all axes
+    for row in &all_log_data {
+        if let Some(time) = row.time_sec {
+            for axis_index in 0..3 {
+                // PIDsum data
+                if let (Some(p), Some(i), Some(d)) =
+                    (row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
                 {
-                    // Calculate the sum P + I + D.
-                    Some((time, p + i + d))
-                } else {
-                    // If any component is missing (None), exclude this row from the plot data.
-                    None
+                    pid_output_data[axis_index].push((time, p + i + d));
+                    if !pid_data_available[axis_index] { // Only set true once
+                         pid_data_available[axis_index] = true;
+                    }
                 }
-            }).collect();
 
-            // Check if we have any valid data points to plot for PIDsum.
-            if pid_output_data.is_empty() {
-                println!("  Skipping Axis {} PIDsum Plot: No rows found with complete P, I, and D term data.", axis_index);
-            } else {
-                // --- Determine Plot Ranges ---
-                // Find the minimum and maximum time values for the X-axis range.
-                let (time_min, time_max) = pid_output_data.iter()
+                // Setpoint vs PIDsum data
+                if setpoint_header_found[axis_index] { // Only process if setpoint header exists
+                    if let (Some(setpoint), Some(p), Some(i), Some(d)) =
+                        (row.setpoint[axis_index], row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
+                    {
+                        setpoint_vs_pidsum_data[axis_index].push((time, setpoint, p + i + d));
+                         if !setpoint_data_available[axis_index] { // Only set true once
+                            setpoint_data_available[axis_index] = true;
+                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Generate Stacked PIDsum Plot ---
+    println!("\n--- Generating Stacked PIDsum Plot (All Axes) ---");
+    if pid_data_available.iter().any(|&x| x) { // Check if data exists for at least one axis
+        let output_file_pidsum = format!("{}_PIDsum_stacked.png", root_name);
+        let root_area_pidsum = BitMapBackend::new(&output_file_pidsum, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
+        root_area_pidsum.fill(&WHITE)?;
+
+        // Split the drawing area into 3 vertical parts
+        let sub_plot_areas = root_area_pidsum.split_evenly((3, 1)); // 3 rows, 1 column
+        // Define the color for PIDsum plots outside the loop
+        let pidsum_plot_color = Palette99::pick(1); // Use Green consistently
+
+        for axis_index in 0..3 {
+            let area = &sub_plot_areas[axis_index]; // Get the drawing area for the current axis
+
+            if pid_data_available[axis_index] {
+                // Determine ranges *specifically for this axis*
+                let (time_min, time_max) = pid_output_data[axis_index].iter()
                     .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _)| (min_t.min(*t), max_t.max(*t)));
-                // Find the minimum and maximum PIDsum values for the Y-axis range.
-                let (output_min, output_max) = pid_output_data.iter()
+                let (output_min, output_max) = pid_output_data[axis_index].iter()
                     .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_v, max_v), (_, v)| (min_v.min(*v), max_v.max(*v)));
-                // Calculate padding for the Y-axis to prevent data points touching the border.
-                let y_range = (output_max - output_min).abs();
-                let y_padding = if y_range < 1e-6 { 0.5 } else { y_range * 0.1 }; // Add small fixed padding if range is near zero.
-                let final_y_min = output_min - y_padding;
-                let final_y_max = output_max + y_padding;
 
-                // --- Setup Plot ---
-                let output_file = format!("{}_axis{}_PIDsum.png", root_name, axis_index);
-                // Create a drawing backend targeting a PNG file.
-                let root_area = BitMapBackend::new(&output_file, (1024, 768)).into_drawing_area();
-                root_area.fill(&WHITE)?; // Fill the background with white.
+                // Handle case where axis has only one data point or no range
+                 if time_min.is_infinite() || output_min.is_infinite() {
+                     draw_unavailable_message(area, axis_index, "PIDsum")?;
+                     continue;
+                 }
 
-                // Configure the chart title and margins.
-                let title = format!("Axis {} PIDsum (P+I+D)", axis_index);
-                let mut chart = ChartBuilder::on(&root_area)
-                    .caption(title, ("sans-serif", 30))
-                    .margin(15) // Margin around the plot area.
-                    .x_label_area_size(50) // Space for X-axis labels.
-                    .y_label_area_size(70) // Space for Y-axis labels and title.
-                    .build_cartesian_2d(
-                        time_min..time_max,         // X-axis range (time).
-                        final_y_min..final_y_max    // Y-axis range (PIDsum with padding).
-                    )?;
+                let (final_time_min, final_time_max) = (time_min, time_max);
+                let (final_pidsum_min, final_pidsum_max) = calculate_range(output_min, output_max);
 
-                // Configure the appearance of the axis labels and grid lines.
+                let mut chart = ChartBuilder::on(area)
+                    .caption(format!("Axis {} PIDsum (P+I+D)", axis_index), ("sans-serif", 20)) // Smaller caption
+                    .margin(5) // Reduced margin
+                    .x_label_area_size(30) // Reduced label area
+                    .y_label_area_size(50) // Reduced label area
+                    .build_cartesian_2d(final_time_min..final_time_max, final_pidsum_min..final_pidsum_max)?;
+
                 chart.configure_mesh()
-                    .x_desc("Time (s)") // X-axis label text.
-                    .y_desc(format!("Axis {} PIDsum", axis_index)) // Y-axis label text.
-                    .x_labels(10) // Number of labels on the X-axis.
-                    .y_labels(10) // Number of labels on the Y-axis.
-                    .light_line_style(&WHITE.mix(0.7)) // Style for light grid lines.
-                    .draw()?; // Draw the mesh (grid and labels).
-
-                // --- Draw Series ---
-                // Draw the PIDsum data as a green line series.
-                chart.draw_series(LineSeries::new(pid_output_data, &GREEN))?
-                    .label("PIDsum (P+I+D)") // Label for the legend.
-                    // Define how the legend marker should look (a short green line).
-                    .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &GREEN));
-
-                // Configure and draw the legend.
-                chart.configure_series_labels()
-                    .position(SeriesLabelPosition::UpperRight) // Place legend in the top-right.
-                    .background_style(&WHITE.mix(0.8)) // Semi-transparent white background.
-                    .border_style(&BLACK) // Black border around the legend.
+                    .x_desc("Time (s)")
+                    .y_desc("PIDsum")
+                    .x_labels(10) // Fewer labels might be needed
+                    .y_labels(5)
+                    .light_line_style(&WHITE.mix(0.7))
+                    .label_style(("sans-serif", 12)) // Smaller label font
                     .draw()?;
 
-                println!("  Axis {} PIDsum plot saved as '{}'.", axis_index, output_file);
+                chart.draw_series(LineSeries::new(
+                    pid_output_data[axis_index].iter().cloned(),
+                    &pidsum_plot_color, // Use the color defined outside
+                ))?;
+                // No legend needed as title indicates the content
+
+            } else {
+                println!("  INFO: No PIDsum data available for Axis {}. Drawing placeholder.", axis_index);
+                draw_unavailable_message(area, axis_index, "PIDsum")?;
             }
-        } // End scope for PIDsum Plot
+        }
+        root_area_pidsum.present()?;
+        println!("  Stacked PIDsum plot saved as '{}'.", output_file_pidsum);
+
+    } else {
+        println!("  Skipping Stacked PIDsum Plot: No PIDsum data available for any axis.");
+    }
 
 
-        // --- 2. Calculate and Plot Setpoint vs PIDsum ---
-        { // Scope specifically for the Setpoint vs PIDsum plot generation.
-            println!("  Generating Setpoint vs PIDsum plot...");
+    // --- Generate Stacked Setpoint vs PIDsum Plot ---
+    println!("\n--- Generating Stacked Setpoint vs PIDsum Plot (All Axes) ---");
+    if setpoint_data_available.iter().any(|&x| x) { // Check if data exists for at least one axis
+        let output_file_setpoint = format!("{}_SetpointVsPIDsum_stacked.png", root_name);
+        let root_area_setpoint = BitMapBackend::new(&output_file_setpoint, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
+        root_area_setpoint.fill(&WHITE)?;
 
-            // First, check if the required setpoint header for this specific axis was found earlier.
-            if !setpoint_header_found[axis_index] {
-                println!("  Skipping Axis {} Setpoint vs PIDsum Plot: Missing 'setpoint[{}]' header.", axis_index, axis_index);
-                continue; // Skip the rest of the plotting logic for this axis and move to the next axis.
+        // Split the drawing area into 3 vertical parts
+        let sub_plot_areas = root_area_setpoint.split_evenly((3, 1)); // 3 rows, 1 column
+        // Define colors outside the loop to ensure they live long enough
+        let setpoint_plot_color = Palette99::pick(2); // Blue
+        let pidsum_vs_setpoint_color = Palette99::pick(0); // Red
+
+        for axis_index in 0..3 {
+             let area = &sub_plot_areas[axis_index]; // Get the drawing area for the current axis
+
+            if setpoint_data_available[axis_index] {
+                // Determine ranges *specifically for this axis*
+                let (time_min, time_max) = setpoint_vs_pidsum_data[axis_index].iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _, _)| (min_t.min(*t), max_t.max(*t)));
+                let (val_min, val_max) = setpoint_vs_pidsum_data[axis_index].iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_y, max_y), (_, s, p)| {
+                        (min_y.min(*s).min(*p), max_y.max(*s).max(*p))
+                    });
+
+                 // Handle case where axis has only one data point or no range
+                 if time_min.is_infinite() || val_min.is_infinite() {
+                     draw_unavailable_message(area, axis_index, "Setpoint/PIDsum")?;
+                     continue;
+                 }
+
+                let (final_time_min, final_time_max) = (time_min, time_max);
+                let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+
+                let mut chart = ChartBuilder::on(area)
+                    .caption(format!("Axis {} Setpoint vs PIDsum", axis_index), ("sans-serif", 20))
+                    .margin(5)
+                    .x_label_area_size(30)
+                    .y_label_area_size(50)
+                    .build_cartesian_2d(final_time_min..final_time_max, final_value_min..final_value_max)?;
+
+                chart.configure_mesh()
+                    .x_desc("Time (s)")
+                    .y_desc("Value")
+                    .x_labels(10)
+                    .y_labels(5)
+                    .light_line_style(&WHITE.mix(0.7))
+                    .label_style(("sans-serif", 12))
+                    .draw()?;
+
+                // Draw Setpoint Line (Blue)
+                // Use the color defined outside the loop
+                let sp_color_ref = &setpoint_plot_color;
+                chart.draw_series(LineSeries::new(
+                    setpoint_vs_pidsum_data[axis_index].iter().map(|(t, s, _p)| (*t, *s)),
+                    sp_color_ref,
+                ))?
+                .label("Setpoint")
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], sp_color_ref)); // Pass reference
+
+                // Draw PIDsum Line (Red)
+                // Use the color defined outside the loop
+                let pid_color_ref = &pidsum_vs_setpoint_color;
+                chart.draw_series(LineSeries::new(
+                    setpoint_vs_pidsum_data[axis_index].iter().map(|(t, _s, p)| (*t, *p)),
+                    pid_color_ref,
+                ))?
+                .label("PIDsum")
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], pid_color_ref)); // Pass reference
+
+                chart.configure_series_labels()
+                    .position(SeriesLabelPosition::UpperRight)
+                    .background_style(&WHITE.mix(0.8))
+                    .border_style(&BLACK)
+                    .label_font(("sans-serif", 12)) // Smaller legend font
+                    .draw()?;
+
+            } else {
+                println!("  INFO: No Setpoint vs PIDsum data available for Axis {}. Drawing placeholder.", axis_index);
+                 draw_unavailable_message(area, axis_index, "Setpoint/PIDsum")?;
             }
+        }
+        root_area_setpoint.present()?;
+        println!("  Stacked Setpoint vs PIDsum plot saved as '{}'.", output_file_setpoint);
 
-            // Prepare data: Filter rows where time, setpoint, P, I, AND D terms for the current axis are all present.
-            // We need P, I, D to recalculate the PIDsum for comparison on the same plot.
-            let setpoint_vs_pidsum_data: Vec<(f64, f64, f64)> = all_log_data.iter().filter_map(|row| { // (time, setpoint, pidsum)
-                if let (Some(time), Some(setpoint), Some(p), Some(i), Some(d)) =
-                    (row.time_sec, row.setpoint[axis_index], row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
-                {
-                    // Store time, the setpoint value, and the calculated PID sum.
-                    Some((time, setpoint, p + i + d))
-                } else {
-                    // Exclude rows missing any of these required components.
-                    None
-                }
-            }).collect();
-
-             // Check if we have any valid data points to plot after filtering.
-             if setpoint_vs_pidsum_data.is_empty() {
-                println!("  Skipping Axis {} Setpoint vs PIDsum Plot: No rows found with complete data (time, setpoint[{}], P, I, D).", axis_index, axis_index);
-                continue; // Skip to the next axis.
-            }
-
-            // --- Determine Plot Ranges ---
-            // Find the min/max time values for the X-axis (same logic as before).
-            let (time_min, time_max) = setpoint_vs_pidsum_data.iter()
-                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _, _)| (min_t.min(*t), max_t.max(*t)));
-
-            // Find min/max Y values by considering *both* the setpoint and the PIDsum values in the data.
-            // This ensures the Y-axis range encompasses both lines.
-            let (y_min, y_max) = setpoint_vs_pidsum_data.iter()
-                .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_y, max_y), (_, s, p)| {
-                    // Update min_y with the minimum of current min_y, setpoint (s), and pidsum (p).
-                    // Update max_y with the maximum of current max_y, setpoint (s), and pidsum (p).
-                    (min_y.min(*s).min(*p), max_y.max(*s).max(*p))
-                });
-
-            // Calculate Y-axis padding based on the combined range of setpoint and PIDsum.
-            let y_range = (y_max - y_min).abs();
-            let y_padding = if y_range < 1e-6 { 0.5 } else { y_range * 0.1 };
-            let final_y_min = y_min - y_padding;
-            let final_y_max = y_max + y_padding;
-
-
-            // --- Setup Plot ---
-            // Define the output filename for this plot.
-            let output_file = format!("{}_axis{}_setpoint_vs_pidsum.png", root_name, axis_index);
-            let root_area = BitMapBackend::new(&output_file, (1024, 768)).into_drawing_area();
-            root_area.fill(&WHITE)?;
-
-            // Configure the chart title and margins.
-            let title = format!("Axis {} Setpoint vs PIDsum", axis_index);
-
-            let mut chart = ChartBuilder::on(&root_area)
-                .caption(title, ("sans-serif", 30))
-                .margin(15)
-                .x_label_area_size(50)
-                .y_label_area_size(70)
-                .build_cartesian_2d(
-                    time_min..time_max,         // X-axis range (time).
-                    final_y_min..final_y_max,   // Y-axis range (encompassing setpoint and PIDsum).
-                )?;
-
-            // Configure the mesh (grid and labels).
-            chart.configure_mesh()
-                .x_desc("Time (s)")
-                .y_desc(format!("Axis {} Value", axis_index)) // Generic Y-axis label as it shows two different values.
-                .x_labels(10)
-                .y_labels(10)
-                .light_line_style(&WHITE.mix(0.7))
-                .draw()?;
-
-            // --- Draw Series ---
-
-            // Draw Setpoint Line (Blue)
-            // Map the collected data to (time, setpoint) tuples for plotting.
-            chart.draw_series(LineSeries::new(
-                setpoint_vs_pidsum_data.iter().map(|(t, s, _p)| (*t, *s)), // Extract (time, setpoint).
-                &BLUE, // Use blue color for the setpoint line.
-            ))?
-            .label("Setpoint") // Legend label.
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE)); // Blue legend marker.
-
-            // Draw Calculated PIDsum Line (Red)
-            // Map the collected data to (time, pidsum) tuples for plotting.
-            chart.draw_series(LineSeries::new(
-                setpoint_vs_pidsum_data.iter().map(|(t, _s, p)| (*t, *p)), // Extract (time, pidsum).
-                &RED, // Use red color for the PIDsum line.
-            ))?
-            .label("PIDsum (P+I+D)") // Legend label.
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED)); // Red legend marker.
-
-            // Configure and draw the legend for both series.
-            chart.configure_series_labels()
-                .position(SeriesLabelPosition::UpperRight)
-                .background_style(&WHITE.mix(0.8))
-                .border_style(&BLACK)
-                .draw()?;
-
-            println!("  Axis {} setpoint vs pidsum plot saved as '{}'.", axis_index, output_file);
-
-        } // End scope for Setpoint vs PIDsum Plot
-
-    } // End axis plotting loop
+    } else {
+        println!("  Skipping Stacked Setpoint vs PIDsum Plot: No Setpoint vs PIDsum data available for any axis.");
+    }
 
     Ok(()) // Indicate successful execution.
 }
