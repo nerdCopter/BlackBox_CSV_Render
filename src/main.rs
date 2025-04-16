@@ -6,6 +6,8 @@ use std::path::Path; // For working with file paths.
 use std::fs::File; // For file operations (opening files).
 use std::io::BufReader; // For buffered reading, improving file I/O performance.
 use std::collections::VecDeque; // For efficient moving average window.
+use std::f64::INFINITY; // Used for finding min/max ranges.
+use std::f64::NEG_INFINITY; // Used for finding min/max ranges.
 
 // --- Dependencies for Step Response Calculation ---
 use realfft::num_complex::Complex32; // Complex number type for FFT results.
@@ -15,10 +17,11 @@ use realfft::RealFftPlanner; // FFT planner for real-valued signals.
 /// Uses `Option<f64>` to handle potentially missing or unparseable values.
 #[derive(Debug, Default, Clone)]
 struct LogRowData {
-    time_sec: Option<f64>,        // Timestamp (in seconds).
+    time_sec: Option<f64>,        // Timestamp (in seconds). Header: "time (us)".
     p_term: [Option<f64>; 3],     // Proportional term [Roll, Pitch, Yaw]. Header example: "axisP[0]".
     i_term: [Option<f64>; 3],     // Integral term [Roll, Pitch, Yaw]. Header example: "axisI[0]".
     d_term: [Option<f64>; 3],     // Derivative term [Roll, Pitch, Yaw]. Header example: "axisD[0]".
+    ff_term: [Option<f64>; 3],    // Feed-Forward term [Roll, Pitch, Yaw]. Header example: "axisF[0]". (Optional)
     setpoint: [Option<f64>; 3],   // Target setpoint value [Roll, Pitch, Yaw]. Header example: "setpoint[0]".
     gyro: [Option<f64>; 3],       // Gyroscope readings [Roll, Pitch, Yaw]. Header example: "gyroADC[0]".
 }
@@ -30,6 +33,10 @@ const PLOT_HEIGHT: u32 = 1080;
 // Helper function to calculate plot range with 15% padding on each side.
 // Uses a fixed padding if the range is very small to avoid excessive zoom.
 fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
+    // Check for invalid inputs (e.g., if min/max are still Infinity).
+    if min_val.is_infinite() || max_val.is_infinite() || min_val > max_val {
+        return (-1.0, 1.0); // Return a default valid range if inputs are bad.
+    }
     let range = (max_val - min_val).abs();
     // Add padding to the range. Use larger padding for very small ranges.
     let padding = if range < 1e-6 { 0.5 } else { range * 0.15 };
@@ -154,10 +161,10 @@ fn moving_average_smooth(data: &[f32], window_size: usize) -> Vec<f32> {
 
 
 /// Calculates the system's step response using FFT-based deconvolution.
-/// Input: System setpoint (input), gyro readings (output), timestamps, sample rate.
+/// Input: System 'input' (e.g., setpoint), system 'output' (e.g., gyro or PIDsum), timestamps, sample rate.
 /// Output: Vector of (time_since_start, normalized_smoothed_step_response).
 /// Steps:
-/// 1. Calculate FFT of input (setpoint) and output (gyro).
+/// 1. Calculate FFT of input and output signals.
 /// 2. Calculate Frequency Response H(f) = (Input*(f) * Output(f)) / (|Input(f)|^2 + epsilon).
 /// 3. Calculate Impulse Response = IFFT(H(f)).
 /// 4. Calculate Step Response = Cumulative Sum(Impulse Response).
@@ -166,21 +173,21 @@ fn moving_average_smooth(data: &[f32], window_size: usize) -> Vec<f32> {
 /// 7. Normalize the response by the average value over the truncated duration.
 pub fn calculate_step_response(
     times: &[f64],
-    setpoint: &[f32],
-    gyro_filtered: &[f32], // Assuming gyro data might be pre-filtered if needed.
+    input_signal: &[f32],  // Generic name: Setpoint in both cases
+    output_signal: &[f32], // Generic name: Gyro or PIDsum
     sample_rate: f64,
 ) -> Vec<(f64, f64)> {
     // Basic input validation.
-    if times.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || times.len() != setpoint.len() || sample_rate <= 0.0 {
+    if times.is_empty() || input_signal.is_empty() || output_signal.is_empty() || input_signal.len() != output_signal.len() || times.len() != input_signal.len() || sample_rate <= 0.0 {
         eprintln!("Warning: Invalid input to calculate_step_response. Empty data, length mismatch, or invalid sample rate.");
         return Vec::new(); // Return empty vector on invalid input.
     }
 
-    let n_samples = setpoint.len(); // Original number of samples (N).
+    let n_samples = input_signal.len(); // Original number of samples (N).
 
     // Step 1: Calculate FFTs.
-    let input_spectrum = fft_forward(setpoint);
-    let output_spectrum = fft_forward(gyro_filtered);
+    let input_spectrum = fft_forward(input_signal);
+    let output_spectrum = fft_forward(output_signal);
 
     // Ensure FFT outputs are valid and compatible for frequency response calculation.
     if input_spectrum.len() != output_spectrum.len() || input_spectrum.is_empty() {
@@ -324,10 +331,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         "gyroADC[0]",   // 13: Roll Gyro (Needed for Step Response)
         "gyroADC[1]",   // 14: Pitch Gyro
         "gyroADC[2]",   // 15: Yaw Gyro
+        // Feed-Forward (FF) Term (Optional)
+        "axisF[0]",     // 16: Roll FF term
+        "axisF[1]",     // 17: Pitch FF term
+        "axisF[2]",     // 18: Yaw FF term
     ];
 
     // Flags to track if specific optional or plot-dependent headers are found.
     let mut axis_d2_header_found = false; // Tracks if "axisD[2]" is present.
+    let mut axis_f_header_found = [false; 3]; // Tracks if "axisF[axis]" is present (optional).
     let mut setpoint_header_found = [false; 3]; // Tracks if "setpoint[axis]" is present.
     let mut gyro_header_found = [false; 3]; // Tracks if "gyroADC[axis]" is present.
 
@@ -354,14 +366,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Indices map (Target Header -> CSV Index):");
         let mut essential_pid_headers_found = true; // Flag for essential headers for PIDsum plot.
 
-        // Check essential PID headers (Indices 0-8).
+        // Check essential Time + PID headers (Indices 0-8).
         for i in 0..=8 {
             let name = target_headers[i];
              let found_status = match indices[i] {
                  Some(idx) => format!("Found at index {}", idx),
                  None => {
-                    essential_pid_headers_found = false; // Mark as missing if any essential PID header is not found.
-                    format!("Not Found (Essential for PIDsum Plot!)")
+                    // Time, P[0..2], I[0..2], D[0..1] are essential for basic PIDsum.
+                    if i <= 8 { // Time + P + I + D[0,1]
+                        essential_pid_headers_found = false;
+                        format!("Not Found (Essential for PIDsum Plot!)")
+                    } else {
+                        format!("Not Found (Optional, default depends on context)") // Should not be reached for i <= 8
+                    }
                  }
              };
              println!("  '{}' (Target Index {}): {}", name, i, found_status);
@@ -389,7 +406,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                  }
                  None => {
                     // Essential for both Setpoint vs PIDsum and Step Response plots for this axis.
-                    format!("Not Found (Essential for Setpoint vs PIDsum Plot Axis {} AND Step Response Plot Axis {})", axis, axis)
+                    format!("Not Found (Essential for Setpoint vs PIDsum Plot Axis {} AND BOTH Step Response Plots Axis {})", axis, axis)
                  }
             };
             println!("  '{}' (Target Index {}): {}", name, target_idx, status);
@@ -405,12 +422,30 @@ fn main() -> Result<(), Box<dyn Error>> {
                     format!("Found at index {}", idx)
                  }
                  None => {
-                    // Essential for Step Response plot for this axis.
-                    format!("Not Found (Essential for Step Response Plot Axis {})", axis)
+                    // Essential for the Gyro Step Response plot for this axis.
+                    format!("Not Found (Essential for Gyro Step Response Plot Axis {})", axis)
                  }
             };
             println!("  '{}' (Target Index {}): {}", name, target_idx, status);
         }
+
+        // Check optional 'axisF' headers (Target indices 16, 17, 18).
+        for axis in 0..3 {
+            let target_idx = 16 + axis;
+            let name = target_headers[target_idx];
+            let status = match indices[target_idx] {
+                 Some(idx) => {
+                    axis_f_header_found[axis] = true; // Mark axis-specific flag.
+                    format!("Found at index {}", idx)
+                 }
+                 None => {
+                     // Optional. Default to 0 if missing.
+                     format!("Not Found (Optional, will default to 0.0 for Axis {})", axis)
+                 }
+            };
+            println!("  '{}' (Target Index {}): {}", name, target_idx, status);
+        }
+
 
         // Exit if any essential header for the basic PIDsum plot is missing.
         if !essential_pid_headers_found {
@@ -427,7 +462,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // --- Data Reading and Storage ---
     // Vector to store parsed data from each valid row.
     let mut all_log_data: Vec<LogRowData> = Vec::new();
-    println!("\nReading P/I/D term, Setpoint, and Gyro data from CSV...");
+    println!("\nReading P/I/D/F term, Setpoint, and Gyro data from CSV...");
     { // Inner scope to ensure the file reader is dropped after reading.
         let file = File::open(input_file)?;
         let mut reader = ReaderBuilder::new()
@@ -462,7 +497,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                          continue; // Move to the next row.
                     }
 
-                    // --- Parse P, I, D, Setpoint, Gyro for each axis (0=Roll, 1=Pitch, 2=Yaw) ---
+                    // --- Parse P, I, D, FF, Setpoint, Gyro for each axis (0=Roll, 1=Pitch, 2=Yaw) ---
                     for axis in 0..3 {
                         // P term (target indices 1, 2, 3)
                         current_row_data.p_term[axis] = parse_f64_by_target_idx(1 + axis);
@@ -476,6 +511,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                              current_row_data.d_term[axis] = Some(0.0); // Default to 0.0 if header is missing.
                         } else {
                              current_row_data.d_term[axis] = parse_f64_by_target_idx(d_target_idx);
+                        }
+
+                        // FF term (target indices 16, 17, 18) - Optional
+                        if axis_f_header_found[axis] {
+                            current_row_data.ff_term[axis] = parse_f64_by_target_idx(16 + axis);
+                        } else {
+                            current_row_data.ff_term[axis] = Some(0.0); // Default to 0.0 if header is missing.
                         }
 
                         // Setpoint (target indices 10, 11, 12) - Only parse if the header was found.
@@ -505,11 +547,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("INFO: 'axisD[2]' header was not found. Used 0.0 for Axis 2 D-term calculation in PIDsum plot.");
     }
     for axis in 0..3 {
+        if !axis_f_header_found[axis] {
+             println!("INFO: 'axisF[{}]' header was not found. Used 0.0 for Axis {} FF-term (relevant for PIDsum calculations if they included FF).", axis, axis); // Clarify FF use if needed later
+        }
         if !setpoint_header_found[axis] {
-             println!("INFO: 'setpoint[{}]' header was not found. Setpoint vs PIDsum and Step Response plots for Axis {} cannot be generated.", axis, axis);
+             println!("INFO: 'setpoint[{}]' header was not found. Setpoint vs PIDsum and BOTH Step Response plots for Axis {} cannot be generated.", axis, axis);
         }
          if !gyro_header_found[axis] {
-             println!("INFO: 'gyroADC[{}]' header was not found. Step Response plot for Axis {} cannot be generated.", axis, axis);
+             println!("INFO: 'gyroADC[{}]' header was not found. Gyro Step Response plot for Axis {} cannot be generated.", axis, axis);
         }
     }
 
@@ -553,98 +598,126 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut pid_output_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     // Data structure for Setpoint vs PIDsum plot: (time, setpoint, P+I+D) for each axis.
     let mut setpoint_vs_pidsum_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    // Temporary storage for inputs needed by `calculate_step_response`: (times, setpoints, gyros) for each axis.
-    let mut step_response_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
-        (Vec::new(), Vec::new(), Vec::new()),
-        (Vec::new(), Vec::new(), Vec::new()),
-        (Vec::new(), Vec::new(), Vec::new()),
+
+    // Temporary storage for inputs needed by `calculate_step_response` for GYRO response: (times, setpoints, gyros)
+    let mut gyro_step_response_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
+        (Vec::new(), Vec::new(), Vec::new()), (Vec::new(), Vec::new(), Vec::new()), (Vec::new(), Vec::new(), Vec::new())
     ];
+    // Temporary storage for inputs needed by `calculate_step_response` for PIDSUM (FF-removed) response: (times, setpoints, pidsums)
+    let mut pidsum_step_response_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
+        (Vec::new(), Vec::new(), Vec::new()), (Vec::new(), Vec::new(), Vec::new()), (Vec::new(), Vec::new(), Vec::new())
+    ];
+
     // Flags indicating if sufficient data exists for each plot type per axis.
     let mut pid_data_available = [false; 3]; // Tracks if P, I, and D are available for PIDsum.
     let mut setpoint_data_available = [false; 3]; // Tracks if Setpoint, P, I, D are available for Setpoint vs PIDsum.
-    // Tracks if the *input* data (time, setpoint, gyro) required for step response calculation is present.
-    let mut step_response_input_available = [false; 3];
+    // Tracks if the *input* data required for GYRO step response calculation is present.
+    let mut gyro_step_input_available = [false; 3];
+    // Tracks if the *input* data required for PIDSUM step response calculation is present.
+    let mut pidsum_step_input_available = [false; 3];
 
 
     // First pass: Iterate through parsed `all_log_data` to populate plot data structures.
     for row in &all_log_data {
         if let Some(time) = row.time_sec { // Only process rows with valid time.
             for axis_index in 0..3 {
-                // Prepare PIDsum data: Requires P, I, D terms for the axis.
+                // Try to get P, I, D terms. These are essential for PIDsum-based plots/calcs.
                 if let (Some(p), Some(i), Some(d)) =
                     (row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
                 {
-                    pid_output_data[axis_index].push((time, p + i + d));
-                    pid_data_available[axis_index] = true; // Mark PIDsum as available for this axis.
-                }
+                    let pid_sum = p + i + d; // Calculate P+I+D
+                    pid_output_data[axis_index].push((time, pid_sum));
+                    pid_data_available[axis_index] = true; // Mark basic PIDsum data as available.
 
-                // Prepare Setpoint vs PIDsum data: Requires Setpoint, P, I, D terms.
-                // Only attempt if the setpoint header for this axis was found earlier.
-                if setpoint_header_found[axis_index] {
-                    if let (Some(setpoint), Some(p), Some(i), Some(d)) =
-                        (row.setpoint[axis_index], row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index])
-                    {
-                        setpoint_vs_pidsum_data[axis_index].push((time, setpoint, p + i + d));
+                    // Check for Setpoint data for this axis.
+                    if let Some(setpoint) = row.setpoint[axis_index] {
+                        // Prepare Setpoint vs PIDsum data (requires valid P, I, D already confirmed)
+                        setpoint_vs_pidsum_data[axis_index].push((time, setpoint, pid_sum));
                         setpoint_data_available[axis_index] = true; // Mark SetpointVsPidsum available.
+
+                        // Collect PIDSUM Step Response Input Data (requires Time, Setpoint, P, I, D)
+                        pidsum_step_response_input_data[axis_index].0.push(time); // Time (f64)
+                        pidsum_step_response_input_data[axis_index].1.push(setpoint as f32); // Setpoint (f32) - Input
+                        pidsum_step_response_input_data[axis_index].2.push(pid_sum as f32); // PIDsum (f32) - Output
+                        pidsum_step_input_available[axis_index] = true; // Mark input available
+
+                        // Check for Gyro data for this axis (requires Setpoint also confirmed)
+                        if let Some(gyro) = row.gyro[axis_index] {
+                            // Collect GYRO Step Response Input Data (requires Time, Setpoint, Gyro)
+                            gyro_step_response_input_data[axis_index].0.push(time); // Time (f64)
+                            gyro_step_response_input_data[axis_index].1.push(setpoint as f32); // Setpoint (f32) - Input
+                            gyro_step_response_input_data[axis_index].2.push(gyro as f32); // Gyro (f32) - Output
+                            gyro_step_input_available[axis_index] = true; // Mark input available
+                        }
                     }
                 }
-
-                 // Collect Step Response Input Data: Requires Time, Setpoint, Gyro.
-                 // Only attempt if both setpoint and gyro headers for this axis were found.
-                 if setpoint_header_found[axis_index] && gyro_header_found[axis_index] {
-                     if let (Some(setpoint), Some(gyro)) = (row.setpoint[axis_index], row.gyro[axis_index]) {
-                        // Append data to the respective vectors within the tuple for this axis.
-                        step_response_input_data[axis_index].0.push(time); // Time (f64)
-                        step_response_input_data[axis_index].1.push(setpoint as f32); // Setpoint (f32)
-                        step_response_input_data[axis_index].2.push(gyro as f32); // Gyro (f32)
-                        step_response_input_available[axis_index] = true; // Mark that input data exists for this axis.
-                     }
-                 }
             }
         }
     }
 
-    // --- Calculate Step Response Data ---
-    println!("\n--- Calculating Step Response ---");
-    // Stores the final calculated step response data: (time_from_start, normalized_response).
-    let mut step_response_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    // Tracks if the step response *calculation* was successful and produced data for each axis.
-    let mut step_response_data_available = [false; 3];
+    // --- Calculate Step Response Data (Both Types) ---
+    println!("\n--- Calculating Step Responses ---");
+    // Stores the final calculated GYRO step response data: (time_from_start, normalized_response).
+    let mut gyro_step_response_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    // Tracks if the GYRO step response *calculation* was successful.
+    let mut gyro_step_response_data_available = [false; 3];
+
+    // Stores the final calculated PIDSUM (FF-Removed) step response data: (time_from_start, normalized_response).
+    let mut pidsum_step_response_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    // Tracks if the PIDSUM step response *calculation* was successful.
+    let mut pidsum_step_response_data_available = [false; 3];
 
     if let Some(sr) = sample_rate { // Only proceed if sample rate was determined.
         for axis_index in 0..3 {
-            // Only calculate if the required input data (time, setpoint, gyro) was collected earlier.
-            if step_response_input_available[axis_index] {
-                println!("  Calculating step response for Axis {}...", axis_index);
-                 // Get references to the input data for this axis.
-                let times = &step_response_input_data[axis_index].0;
-                let setpoints = &step_response_input_data[axis_index].1;
-                let gyros = &step_response_input_data[axis_index].2;
+            // --- Calculate GYRO Step Response ---
+            if gyro_step_input_available[axis_index] {
+                println!("  Calculating Gyro step response for Axis {}...", axis_index);
+                let times = &gyro_step_response_input_data[axis_index].0;
+                let setpoints = &gyro_step_response_input_data[axis_index].1;
+                let gyros = &gyro_step_response_input_data[axis_index].2;
 
-                // Check if there are enough data points for a meaningful FFT analysis.
-                if times.len() > 10 { // Use an arbitrary minimum length (e.g., 10 points). Adjust if needed.
+                if times.len() > 10 { // Check minimum length
                     let result = calculate_step_response(times, setpoints, gyros, sr);
-                    // Check if the calculation succeeded and returned non-empty results.
                     if !result.is_empty() {
-                        step_response_data[axis_index] = result; // Store the calculated data.
-                        step_response_data_available[axis_index] = true; // Mark calculation as successful for this axis.
-                        println!("    ... Calculation successful for Axis {}.", axis_index);
+                        gyro_step_response_data[axis_index] = result;
+                        gyro_step_response_data_available[axis_index] = true;
+                        println!("    ... Gyro calculation successful for Axis {}.", axis_index);
                     } else {
-                        // Calculation function might return empty on internal errors or invalid intermediate results.
-                        println!("    ... Calculation failed or returned empty for Axis {}.", axis_index);
+                        println!("    ... Gyro calculation failed or returned empty for Axis {}.", axis_index);
                     }
                 } else {
-                     // Not enough data points for FFT.
-                     println!("    ... Skipping Axis {}: Not enough data points ({}) for step response calculation.", axis_index, times.len());
+                     println!("    ... Skipping Gyro Axis {}: Not enough data points ({}) for step response calculation.", axis_index, times.len());
                 }
             } else {
-                 // Input data was missing (Setpoint or Gyro header likely not found).
-                 println!("  Skipping Axis {}: Missing required input data (Setpoint or Gyro).", axis_index);
+                 println!("  Skipping Gyro Axis {}: Missing required input data (Setpoint or Gyro).", axis_index);
+            }
+
+            // --- Calculate PIDSUM Step Response (FF-Removed) ---
+            if pidsum_step_input_available[axis_index] {
+                println!("  Calculating PIDsum (FF-removed) step response for Axis {}...", axis_index);
+                let times = &pidsum_step_response_input_data[axis_index].0;
+                let setpoints = &pidsum_step_response_input_data[axis_index].1;
+                let pidsums = &pidsum_step_response_input_data[axis_index].2;
+
+                if times.len() > 10 { // Check minimum length
+                    let result = calculate_step_response(times, setpoints, pidsums, sr);
+                     if !result.is_empty() {
+                        pidsum_step_response_data[axis_index] = result;
+                        pidsum_step_response_data_available[axis_index] = true;
+                        println!("    ... PIDsum calculation successful for Axis {}.", axis_index);
+                    } else {
+                        println!("    ... PIDsum calculation failed or returned empty for Axis {}.", axis_index);
+                    }
+                } else {
+                     println!("    ... Skipping PIDsum Axis {}: Not enough data points ({}) for step response calculation.", axis_index, times.len());
+                }
+            } else {
+                 println!("  Skipping PIDsum Axis {}: Missing required input data (Setpoint, P, I, or D).", axis_index);
             }
         }
     } else {
          // Sample rate is unknown, cannot perform FFT-based calculation.
-         println!("  Skipping Step Response Calculation: Sample rate could not be determined.");
+         println!("  Skipping ALL Step Response Calculations: Sample rate could not be determined.");
     }
 
 
@@ -755,22 +828,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                 chart.draw_series(LineSeries::new(
                     // Map data to (time, setpoint) tuples.
                     setpoint_vs_pidsum_data[axis_index].iter().map(|(t, s, _p)| (*t, *s)),
-                    sp_color_ref,
+                    sp_color_ref.stroke_width(2), // Make lines slightly thicker
                 ))?
                 .label("Setpoint") // Add label for the legend.
                 // Define how the legend entry looks.
-                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], sp_color_ref));
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], sp_color_ref.stroke_width(2)));
 
                 // Draw PIDsum series.
                 let pid_color_ref = &pidsum_vs_setpoint_color; // Need reference for legend closure.
                 chart.draw_series(LineSeries::new(
                     // Map data to (time, pidsum) tuples.
                     setpoint_vs_pidsum_data[axis_index].iter().map(|(t, _s, p)| (*t, *p)),
-                    pid_color_ref,
+                    pid_color_ref.stroke_width(2),
                 ))?
                 .label("PIDsum") // Add label for the legend.
                 // Define how the legend entry looks.
-                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], pid_color_ref));
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], pid_color_ref.stroke_width(2)));
 
                 // Configure and draw the legend.
                 chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
@@ -789,47 +862,64 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
 
-    // --- Generate Stacked Step Response Plot ---
-    println!("\n--- Generating Stacked Step Response Plot (All Axes) ---");
-    // Check if step response *calculation was successful* for at least one axis.
-    if step_response_data_available.iter().any(|&x| x) {
+    // --- Generate Stacked Step Response Plot (Gyro vs PIDsum) ---
+    println!("\n--- Generating Stacked Step Response Plot (Gyro vs PIDsum, All Axes) ---");
+    // Check if *any* step response calculation (Gyro or PIDsum) was successful for at least one axis.
+    let any_step_response_available = gyro_step_response_data_available.iter().any(|&x| x) || pidsum_step_response_data_available.iter().any(|&x| x);
+
+    if any_step_response_available {
         let output_file_step = format!("{}_step_response_stacked.png", root_name);
         let root_area_step = BitMapBackend::new(&output_file_step, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
         root_area_step.fill(&WHITE)?;
         let sub_plot_areas = root_area_step.split_evenly((3, 1));
-        let step_response_color = Palette99::pick(3); // Consistent color for step response.
+        let gyro_response_color = Palette99::pick(3); // Consistent color for Gyro step response.
+        let pidsum_response_color = Palette99::pick(4); // Consistent color for PIDsum step response.
 
         for axis_index in 0..3 {
             let area = &sub_plot_areas[axis_index];
-            // Check if calculation succeeded AND resulted in non-empty data for this axis.
-            if step_response_data_available[axis_index] && !step_response_data[axis_index].is_empty() {
-                // Find plot ranges specifically for the calculated step response data.
-                // Time range starts at 0 and goes up to the maximum time in the truncated data (around 0.5s).
-                let (_time_min, time_max) = step_response_data[axis_index].iter()
-                    // Fold requires explicit type annotation for initial accumulator value.
-                    .fold((0.0f64, 0.0f64), |(_min_t, max_t), (t, _)| (0.0, max_t.max(*t))); // Min time is always 0.
-                 // Value range is the min/max of the normalized response.
-                let (resp_min, resp_max) = step_response_data[axis_index].iter()
-                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_v, max_v), (_, v)| (min_v.min(*v), max_v.max(*v)));
+            let gyro_available = gyro_step_response_data_available[axis_index] && !gyro_step_response_data[axis_index].is_empty();
+            let pidsum_available = pidsum_step_response_data_available[axis_index] && !pidsum_step_response_data[axis_index].is_empty();
 
-                 // Check if the calculated ranges are valid before plotting.
-                 if time_max <= 1e-9 || resp_min.is_infinite() { // Check time > 0 and finite value range.
-                     draw_unavailable_message(area, axis_index, "Step Response (Invalid Range)")?;
+            // Only plot if at least one type of step response data is available for this axis.
+            if gyro_available || pidsum_available {
+                // Find combined plot ranges considering both datasets if available.
+                let mut combined_time_max = 0.0f64;
+                let mut combined_resp_min = f64::INFINITY;
+                let mut combined_resp_max = f64::NEG_INFINITY;
+
+                if gyro_available {
+                    let (_, time_max) = gyro_step_response_data[axis_index].iter().fold((0.0f64, 0.0f64), |(_, max_t), (t, _)| (0.0, max_t.max(*t)));
+                    let (resp_min, resp_max) = gyro_step_response_data[axis_index].iter().fold((INFINITY, NEG_INFINITY), |(min_v, max_v), (_, v)| (min_v.min(*v), max_v.max(*v)));
+                    combined_time_max = combined_time_max.max(time_max);
+                    combined_resp_min = combined_resp_min.min(resp_min);
+                    combined_resp_max = combined_resp_max.max(resp_max);
+                }
+                if pidsum_available {
+                    let (_, time_max) = pidsum_step_response_data[axis_index].iter().fold((0.0f64, 0.0f64), |(_, max_t), (t, _)| (0.0, max_t.max(*t)));
+                    let (resp_min, resp_max) = pidsum_step_response_data[axis_index].iter().fold((INFINITY, NEG_INFINITY), |(min_v, max_v), (_, v)| (min_v.min(*v), max_v.max(*v)));
+                    combined_time_max = combined_time_max.max(time_max);
+                    combined_resp_min = combined_resp_min.min(resp_min);
+                    combined_resp_max = combined_resp_max.max(resp_max);
+                }
+
+                 // Check if the combined ranges are valid.
+                 if combined_time_max <= 1e-9 || combined_resp_min.is_infinite() {
+                     draw_unavailable_message(area, axis_index, "Step Response (Invalid Combined Range)")?;
                      continue;
                  }
 
-                // Apply padding to the response range.
-                let (final_resp_min, final_resp_max) = calculate_range(resp_min, resp_max);
+                // Apply padding to the combined response range.
+                let (final_resp_min, final_resp_max) = calculate_range(combined_resp_min, combined_resp_max);
                 // Add slight padding to the maximum time.
-                let final_time_max = time_max * 1.05;
+                let final_time_max = combined_time_max * 1.05;
 
                 // Build the chart. Time axis starts at 0.
                 let mut chart = ChartBuilder::on(area)
-                    .caption(format!("Axis {} Step Response", axis_index), ("sans-serif", 20))
+                    .caption(format!("Axis {} Step Responses (Gyro vs PIDsum)", axis_index), ("sans-serif", 20))
                     .margin(5).x_label_area_size(30).y_label_area_size(50)
                     .build_cartesian_2d(0f64..final_time_max, final_resp_min..final_resp_max)?;
 
-                // Configure mesh and labels, using fewer X labels suitable for the short time range (0-0.5s).
+                // Configure mesh and labels.
                 chart.configure_mesh()
                     .x_desc("Time (s)")
                     .y_desc("Normalized Response")
@@ -839,23 +929,46 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .label_style(("sans-serif", 12))
                     .draw()?;
 
-                // Draw the step response data.
-                chart.draw_series(LineSeries::new(
-                    step_response_data[axis_index].iter().cloned(),
-                    &step_response_color,
-                ))?;
-                // No legend needed as the title identifies the single series.
+                // Draw the Gyro step response data if available.
+                if gyro_available {
+                    let gyro_color_ref = &gyro_response_color;
+                    chart.draw_series(LineSeries::new(
+                        gyro_step_response_data[axis_index].iter().cloned(),
+                         gyro_color_ref.stroke_width(2),
+                    ))?
+                    .label("Gyro Response")
+                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], gyro_color_ref.stroke_width(2)));
+                }
+
+                // Draw the PIDsum step response data if available.
+                if pidsum_available {
+                     let pidsum_color_ref = &pidsum_response_color;
+                    chart.draw_series(LineSeries::new(
+                        pidsum_step_response_data[axis_index].iter().cloned(),
+                        pidsum_color_ref.stroke_width(2),
+                    ))?
+                    .label("PIDsum Response (FF Removed)")
+                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], pidsum_color_ref.stroke_width(2)));
+                }
+
+                // Configure and draw the legend only if both are plotted or needed.
+                if gyro_available && pidsum_available { // Or adjust condition if legend desired even for single plot
+                    chart.configure_series_labels().position(SeriesLabelPosition::LowerRight) // Adjusted position
+                       .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
+                }
 
             } else {
-                // Step response data is unavailable for this axis. Determine the reason.
-                let reason = if !setpoint_header_found[axis_index] || !gyro_header_found[axis_index] {
-                    "Setpoint/Gyro Header Missing" // Missing essential headers.
+                // Neither Gyro nor PIDsum step response data is available for this axis. Determine the reason.
+                let reason = if !setpoint_header_found[axis_index] {
+                     "Setpoint Header Missing"
+                 } else if !gyro_header_found[axis_index] && !pid_data_available[axis_index] { // Need gyro for one, PID for other
+                     "Gyro & PID Headers Missing"
                  } else if sample_rate.is_none() {
-                    "Sample Rate Unknown" // Sample rate couldn't be estimated.
-                 } else if !step_response_input_available[axis_index] {
-                     "Input Data Missing/Invalid" // Headers found, but no valid data rows.
-                 } else { // Headers present, sample rate known, input data collected, but calculation failed/returned empty.
-                     "Calculation Failed/No Data"
+                     "Sample Rate Unknown"
+                 } else if !gyro_step_input_available[axis_index] && !pidsum_step_input_available[axis_index] {
+                     "Input Data Missing/Invalid"
+                 } else {
+                     "Calculation Failed/No Data" // At least one input type was available, but calc failed.
                  };
                 println!("  INFO: No Step Response data available for Axis {}: {}. Drawing placeholder.", axis_index, reason);
                  // Draw placeholder message including the reason.
@@ -866,7 +979,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("  Stacked Step Response plot saved as '{}'.", output_file_step);
 
     } else {
-        // Step response calculation did not succeed for any axis.
+        // Step response calculation did not succeed for any axis for either type.
         println!("  Skipping Stacked Step Response Plot: No step response data could be calculated for any axis.");
     }
 
