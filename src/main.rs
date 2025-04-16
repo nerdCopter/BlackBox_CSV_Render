@@ -404,8 +404,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     format!("Found at index {}", idx)
                  }
                  None => {
-                    // Essential for Step Response plot for this axis.
-                    format!("Not Found (Essential for Step Response Plot Axis {})", axis)
+                    // Essential for Step Response plot for this axis. Also needed for Gyro vs Unfilt plot.
+                    format!("Not Found (Essential for Step Response Plot Axis {} AND Gyro vs Unfilt Plot Axis {})", axis, axis)
                  }
             };
             println!("  '{}' (Target Index {}): {}", name, target_idx, status);
@@ -421,7 +421,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     format!("Found at index {}", idx)
                  }
                  None => {
-                    format!("Not Found (Will try to use debug[{}] as fallback)", axis)
+                    format!("Not Found (Will try to use debug[{}] as fallback for Gyro vs Unfilt plot)", axis)
                  }
             };
             println!("  '{}' (Target Index {}): {}", name, target_idx, status);
@@ -573,16 +573,16 @@ fn main() -> Result<(), Box<dyn Error>> {
              println!("INFO: 'setpoint[{}]' header was not found. Setpoint vs PIDsum and Step Response plots for Axis {} cannot be generated.", axis, axis);
         }
          if !gyro_header_found[axis] {
-             println!("INFO: 'gyroADC[{}]' header was not found. Step Response plot for Axis {} cannot be generated.", axis, axis);
+             println!("INFO: 'gyroADC[{}]' header was not found. Step Response and Gyro vs Unfilt plots for Axis {} cannot be generated.", axis, axis);
         }
     }
     // Report status of gyroUnfilt and debug headers and fallback logic.
     for axis in 0..3 {
         if !gyro_unfilt_header_found[axis] {
             if debug_header_found[axis] {
-                println!("INFO: 'gyroUnfilt[{}]' header was not found. Used 'debug[{}]' as fallback.", axis, axis);
+                println!("INFO: 'gyroUnfilt[{}]' header was not found. Used 'debug[{}]' as fallback for Gyro vs Unfilt plot.", axis, axis);
             } else {
-                println!("INFO: Neither 'gyroUnfilt[{}]' nor 'debug[{}]' headers were found. Used 0.0 for gyro_unfilt[{}].", axis, axis, axis);
+                println!("INFO: Neither 'gyroUnfilt[{}]' nor 'debug[{}]' headers were found. Used 0.0 for gyro_unfilt[{}] in Gyro vs Unfilt plot.", axis, axis, axis);
             }
         }
     }
@@ -633,6 +633,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut pid_output_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     // Data structure for Setpoint vs PIDsum plot: (time, setpoint, P+I+D) for each axis.
     let mut setpoint_vs_pidsum_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    // Data structure for Gyro vs Unfiltered Gyro plot: (time, gyro_filtered, gyro_unfiltered) for each axis.
+    let mut gyro_vs_unfilt_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     // Temporary storage for inputs needed by `calculate_step_response`: (times, setpoints, gyros) for each axis.
     // Note: Step response uses the *filtered* gyro (`gyroADC`).
     let mut step_response_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
@@ -643,6 +645,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Flags indicating if sufficient data exists for each plot type per axis.
     let mut pid_data_available = [false; 3]; // Tracks if P, I, and D are available for PIDsum.
     let mut setpoint_data_available = [false; 3]; // Tracks if Setpoint, P, I, D are available for Setpoint vs PIDsum.
+    let mut gyro_vs_unfilt_data_available = [false; 3]; // Tracks if filtered and unfiltered gyro data are available.
     // Tracks if the *input* data (time, setpoint, gyro) required for step response calculation is present.
     let mut step_response_input_available = [false; 3];
 
@@ -680,6 +683,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                         step_response_input_data[axis_index].1.push(setpoint as f32); // Setpoint (f32)
                         step_response_input_data[axis_index].2.push(gyro_filt as f32); // Filtered Gyro (f32)
                         step_response_input_available[axis_index] = true; // Mark that input data exists for this axis.
+                     }
+                 }
+
+                 // Collect Gyro vs Unfiltered Gyro Data: Requires Time, Gyro (filtered), Gyro (unfiltered).
+                 // Filtered gyro header must be found. Unfiltered gyro uses fallback logic, so row.gyro_unfilt should always be Some.
+                 if gyro_header_found[axis_index] { // Check if filtered gyro header exists
+                     if let (Some(gyro_filt), Some(gyro_unfilt)) = (row.gyro[axis_index], row.gyro_unfilt[axis_index]) {
+                         gyro_vs_unfilt_data[axis_index].push((time, gyro_filt, gyro_unfilt));
+                         gyro_vs_unfilt_data_available[axis_index] = true; // Mark GyroVsUnfilt available.
                      }
                  }
             }
@@ -841,7 +853,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 ))?
                 .label("Setpoint") // Add label for the legend.
                 // Define how the legend entry looks.
-                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], sp_color_ref));
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], sp_color_ref.stroke_width(2)));
 
                 // Draw PIDsum series.
                 let pid_color_ref = &pidsum_vs_setpoint_color; // Need reference for legend closure.
@@ -852,7 +864,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 ))?
                 .label("PIDsum") // Add label for the legend.
                 // Define how the legend entry looks.
-                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], pid_color_ref));
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], pid_color_ref.stroke_width(2)));
 
                 // Configure and draw the legend.
                 chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
@@ -951,6 +963,91 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Step response calculation did not succeed for any axis.
         println!("  Skipping Stacked Step Response Plot: No step response data could be calculated for any axis.");
     }
+
+    // --- Generate Stacked Gyro vs Unfiltered Gyro Plot ---
+    println!("\n--- Generating Stacked Gyro vs Unfiltered Gyro Plot (All Axes) ---");
+    // Check if Gyro vs Unfiltered Gyro data is available for at least one axis.
+    if gyro_vs_unfilt_data_available.iter().any(|&x| x) {
+        let output_file_gyro = format!("{}_GyroVsUnfilt_stacked.png", root_name);
+        let root_area_gyro = BitMapBackend::new(&output_file_gyro, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
+        root_area_gyro.fill(&WHITE)?;
+        let sub_plot_areas = root_area_gyro.split_evenly((3, 1));
+        let gyro_unfilt_color = Palette99::pick(4).mix(0.6); // Lighter/desaturated color for unfiltered
+        let gyro_filt_color = Palette99::pick(5).filled(); // More prominent color for filtered
+
+        for axis_index in 0..3 {
+             let area = &sub_plot_areas[axis_index];
+            // Check if data exists and is non-empty for this specific axis.
+            if gyro_vs_unfilt_data_available[axis_index] && !gyro_vs_unfilt_data[axis_index].is_empty() {
+                // Find min/max time.
+                let (time_min, time_max) = gyro_vs_unfilt_data[axis_index].iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _, _)| (min_t.min(*t), max_t.max(*t)));
+                // Find min/max value across *both* filtered and unfiltered gyro for Y-axis range.
+                let (val_min, val_max) = gyro_vs_unfilt_data[axis_index].iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_y, max_y), (_, gf, gu)| {
+                        (min_y.min(*gf).min(*gu), max_y.max(*gf).max(*gu))
+                    });
+
+                 // Check for invalid range data.
+                 if time_min.is_infinite() || val_min.is_infinite() {
+                     draw_unavailable_message(area, axis_index, "Gyro/UnfiltGyro")?;
+                     continue;
+                 }
+
+                // Final ranges with padding.
+                let (final_time_min, final_time_max) = (time_min, time_max);
+                let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+
+                // Build the chart.
+                let mut chart = ChartBuilder::on(area)
+                    .caption(format!("Axis {} Filtered vs Unfiltered Gyro", axis_index), ("sans-serif", 20))
+                    .margin(5).x_label_area_size(30).y_label_area_size(50)
+                    .build_cartesian_2d(final_time_min..final_time_max, final_value_min..final_value_max)?;
+                // Configure mesh and labels.
+                chart.configure_mesh().x_desc("Time (s)").y_desc("Gyro Value").x_labels(10).y_labels(5)
+                    .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
+
+                // Draw Unfiltered Gyro series (drawn first, potentially less prominent).
+                let unfilt_color_ref = &gyro_unfilt_color;
+                chart.draw_series(LineSeries::new(
+                    // Map data to (time, gyro_unfiltered) tuples.
+                    gyro_vs_unfilt_data[axis_index].iter().map(|(t, _gf, gu)| (*t, *gu)),
+                    unfilt_color_ref,
+                ))?
+                .label("Unfiltered Gyro (gyroUnfilt/debug)")
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], unfilt_color_ref.stroke_width(2)));
+
+                // Draw Filtered Gyro series (drawn second, more prominent).
+                let filt_color_ref = &gyro_filt_color;
+                chart.draw_series(LineSeries::new(
+                    // Map data to (time, gyro_filtered) tuples.
+                    gyro_vs_unfilt_data[axis_index].iter().map(|(t, gf, _gu)| (*t, *gf)),
+                    filt_color_ref.stroke_width(2), // Make filtered line slightly thicker
+                ))?
+                .label("Filtered Gyro (gyroADC)")
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], filt_color_ref.stroke_width(3))); // Thicker legend line too
+
+                // Configure and draw the legend.
+                chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
+                    .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
+            } else {
+                // Data not available for this axis, draw placeholder.
+                let reason = if !gyro_header_found[axis_index] {
+                    "gyroADC Header Missing" // Filtered gyro is essential
+                 } else {
+                    "No Valid Data Rows" // Header found, but no rows had both values
+                 };
+                println!("  INFO: No Gyro vs Unfiltered Gyro data available for Axis {}: {}. Drawing placeholder.", axis_index, reason);
+                 draw_unavailable_message(area, axis_index, &format!("Gyro/UnfiltGyro ({})", reason))?;
+            }
+        }
+        root_area_gyro.present()?; // Save the plot to file.
+        println!("  Stacked Gyro vs Unfiltered Gyro plot saved as '{}'.", output_file_gyro);
+    } else {
+        // No Gyro vs Unfiltered Gyro data available for any axis.
+        println!("  Skipping Stacked Gyro vs Unfiltered Gyro Plot: No data available for any axis.");
+    }
+
 
     Ok(()) // Indicate successful execution.
 }
