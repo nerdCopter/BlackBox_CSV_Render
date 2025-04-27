@@ -1,5 +1,6 @@
 use csv::ReaderBuilder; // For reading CSV files efficiently.
 use plotters::prelude::*; // For creating plots and charts.
+use plotters::prelude::full_palette::ORANGE; // Import the ORANGE color constant from the correct palette
 use std::error::Error; // Standard trait for error handling.
 use std::env; // For accessing command-line arguments.
 use std::path::Path; // For working with file paths.
@@ -173,7 +174,7 @@ pub fn calculate_step_response(
     sample_rate: f64,
 ) -> Vec<(f64, f64)> {
     // Basic input validation.
-    if times.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || times.len() != setpoint.len() || sample_rate <= 0.0 {
+    if times.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || times.len() != setpoint.len() || sample_rate <= 0.0 || times.len() != setpoint.len() {
         eprintln!("Warning: Invalid input to calculate_step_response. Empty data, length mismatch, or invalid sample rate.");
         return Vec::new(); // Return empty vector on invalid input.
     }
@@ -278,11 +279,11 @@ pub fn calculate_step_response(
     // Get the starting timestamp from the original time data.
     let start_time = times.first().cloned().unwrap_or(0.0);
 
-    // Combine time data (adjusted to start from 0) with the processed step response values.
+    // Combine time data (adjusted to start from 0) with the processed step response values
     times
         .iter()
         .zip(normalized_smoothed.into_iter()) // Pair original times with processed response data.
-        .map(|(&t, s)| (t - start_time, s as f64)) // Adjust time to start from 0, cast response to f64.
+        .map(|(&t, s)| (t - start_time, s as f64)) // Adjust time to start from 0, cast response to f64
         .take(truncated_len) // Ensure output length matches truncated response length.
         .collect() // Return the final (time, value) pairs.
 }
@@ -703,9 +704,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Stores the final calculated step response data: (time_from_start, normalized_response).
     let mut step_response_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     // Tracks if the step response *calculation* was successful and produced data for each axis.
-    let mut step_response_data_available = [false; 3];
+    let mut step_response_calculated = [false; 3];
 
-    if let Some(sr) = sample_rate { // Only proceed if sample rate was determined.
+     if let Some(sr) = sample_rate { // Only proceed if sample rate was determined.
         for axis_index in 0..3 {
             // Only calculate if the required input data (time, setpoint, gyro_filtered) was collected earlier.
             if step_response_input_available[axis_index] {
@@ -721,7 +722,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     // Check if the calculation succeeded and returned non-empty results.
                     if !result.is_empty() {
                         step_response_data[axis_index] = result; // Store the calculated data.
-                        step_response_data_available[axis_index] = true; // Mark calculation as successful for this axis.
+                        step_response_calculated[axis_index] = true; // Mark calculation as successful for this axis.
                         println!("    ... Calculation successful for Axis {}.", axis_index);
                     } else {
                         // Calculation function might return empty on internal errors or invalid intermediate results.
@@ -885,18 +886,44 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Generate Stacked Step Response Plot ---
     println!("\n--- Generating Stacked Step Response Plot (All Axes) ---");
+    const SETPOINT_THRESHOLD: f64 = 500.0; // Define the threshold for coloring
+
     // Check if step response *calculation was successful* for at least one axis.
-    if step_response_data_available.iter().any(|&x| x) {
+    if step_response_calculated.iter().any(|&x| x) {
         let output_file_step = format!("{}_step_response_stacked.png", root_name);
         let root_area_step = BitMapBackend::new(&output_file_step, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
         root_area_step.fill(&WHITE)?;
         let sub_plot_areas = root_area_step.split_evenly((3, 1));
-        let step_response_color = Palette99::pick(3); // Consistent color for step response.
+        let step_response_color_low_sp = Palette99::pick(3); // Original color for setpoint < threshold
+        let step_response_color_high_sp = &ORANGE; // New orange color for setpoint >= threshold
 
         for axis_index in 0..3 {
             let area = &sub_plot_areas[axis_index];
             // Check if calculation succeeded AND resulted in non-empty data for this axis.
-            if step_response_data_available[axis_index] && !step_response_data[axis_index].is_empty() {
+            if step_response_calculated[axis_index] && !step_response_data[axis_index].is_empty() {
+
+                // We need the original setpoints aligned with the calculated step response times
+                // The `step_response_input_data` holds original time, setpoint, gyro
+                // The `step_response_data` holds time_from_start, normalized_response
+                // Their lengths should match up to the truncated length.
+
+                // Create two data series for plotting, using Option<f64> to create gaps
+                let num_points = step_response_data[axis_index].len().min(step_response_input_data[axis_index].1.len()); // Use min length for safety
+
+                let low_sp_plot_points: Vec<(f64, Option<f64>)> = step_response_data[axis_index]
+                    .iter()
+                    .zip(step_response_input_data[axis_index].1.iter()) // Zip with original setpoints
+                    .take(num_points) // Ensure lengths align
+                    .map(|((t, resp), sp)| (*t, if (*sp as f64) < SETPOINT_THRESHOLD { Some(*resp) } else { None }))
+                    .collect();
+
+                let high_sp_plot_points: Vec<(f64, Option<f64>)> = step_response_data[axis_index]
+                    .iter()
+                    .zip(step_response_input_data[axis_index].1.iter()) // Zip with original setpoints
+                    .take(num_points) // Ensure lengths align
+                    .map(|((t, resp), sp)| (*t, if (*sp as f64) >= SETPOINT_THRESHOLD { Some(*resp) } else { None }))
+                    .collect();
+
                 // Find plot ranges specifically for the calculated step response data.
                 // Time range starts at 0 and goes up to the maximum time in the truncated data (around 0.5s).
                 let (_time_min, time_max) = step_response_data[axis_index].iter()
@@ -933,12 +960,27 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .label_style(("sans-serif", 12))
                     .draw()?;
 
-                // Draw the step response data.
+                // Draw the low setpoint (< 500 deg/s) step response line
+                let low_sp_color_ref = &step_response_color_low_sp; // Reference for closure
                 chart.draw_series(LineSeries::new(
-                    step_response_data[axis_index].iter().cloned(),
-                    &step_response_color,
-                ))?;
-                // No legend needed as the title identifies the single series.
+                    low_sp_plot_points.into_iter().filter_map(|(t, opt_v)| opt_v.map(|v| (t,v))), // Filter out None, unwrap Some
+                    low_sp_color_ref,
+                ))?
+                .label(format!("Setpoint < {} deg/s", SETPOINT_THRESHOLD)) // Add label for the legend.
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], low_sp_color_ref.stroke_width(2)));
+
+                // Draw the high setpoint (>= 500 deg/s) step response line
+                let high_sp_color_ref = step_response_color_high_sp; // Reference for closure
+                chart.draw_series(LineSeries::new(
+                    high_sp_plot_points.into_iter().filter_map(|(t, opt_v)| opt_v.map(|v| (t,v))), // Filter out None, unwrap Some
+                    high_sp_color_ref,
+                ))?
+                .label(format!("Setpoint >= {} deg/s", SETPOINT_THRESHOLD)) // Add label for the legend.
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], high_sp_color_ref.stroke_width(2)));
+
+                // Configure and draw the legend.
+                chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
+                    .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
 
             } else {
                 // Step response data is unavailable for this axis. Determine the reason.
