@@ -30,6 +30,9 @@ struct LogRowData {
 const PLOT_WIDTH: u32 = 1920;
 const PLOT_HEIGHT: u32 = 1080;
 
+// Define constant for the step response plot duration in seconds.
+const STEP_RESPONSE_PLOT_DURATION_S: f64 = 0.50; // Example: 0.75 seconds
+
 // Helper function to calculate plot range with 15% padding on each side.
 // Uses a fixed padding if the range is very small to avoid excessive zoom.
 fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
@@ -157,24 +160,23 @@ fn moving_average_smooth(data: &[f32], window_size: usize) -> Vec<f32> {
 
 
 /// Calculates the system's step response using FFT-based deconvolution.
-/// Input: System setpoint (input), gyro readings (output), timestamps, sample rate.
-/// Output: Vector of (time_since_start, normalized_smoothed_step_response).
+/// Input: System setpoint (input), gyro readings (output), sample rate.
+/// Output: Vector of normalized_smoothed_step_response values covering the full input duration.
 /// Steps:
 /// 1. Calculate FFT of input (setpoint) and output (gyro).
 /// 2. Calculate Frequency Response H(f) = (Input*(f) * Output(f)) / (|Input(f)|^2 + epsilon).
 /// 3. Calculate Impulse Response = IFFT(H(f)).
 /// 4. Calculate Step Response = Cumulative Sum(Impulse Response).
 /// 5. Smooth the step response using a moving average.
-/// 6. Truncate the response to 500ms.
-/// 7. Normalize the response by the average value over the truncated duration.
+/// 6. Normalize the response by the average value over the first 500ms (of the smoothed response).
+///    Note: The *full* smoothed response is returned, but normalization uses the initial segment.
 pub fn calculate_step_response(
-    times: &[f64],
     setpoint: &[f32],
     gyro_filtered: &[f32], // Assuming gyro data might be pre-filtered if needed.
     sample_rate: f64,
-) -> Vec<(f64, f64)> {
+) -> Vec<f32> {
     // Basic input validation.
-    if times.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || times.len() != setpoint.len() || sample_rate <= 0.0 || times.len() != setpoint.len() {
+    if setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || sample_rate <= 0.0 {
         eprintln!("Warning: Invalid input to calculate_step_response. Empty data, length mismatch, or invalid sample rate.");
         return Vec::new(); // Return empty vector on invalid input.
     }
@@ -242,23 +244,24 @@ pub fn calculate_step_response(
     let window_size = ((smoothing_duration_s * sample_rate).round() as usize).max(1);
     let smoothed_step_response = moving_average_smooth(&step_response, window_size);
 
+    // Step 6: Normalize the smoothed response by the average value over the first 500ms.
+    // Determine the number of samples corresponding to the first 500ms *of the smoothed response*.
+    // This is still 0.5s for normalization consistency, regardless of the plot duration.
+    let num_points_normalization = (sample_rate * 0.5).ceil() as usize;
+    // Ensure truncation length doesn't exceed available data length in smoothed response.
+    let normalization_segment_len = num_points_normalization.min(smoothed_step_response.len());
 
-    // Step 6: Truncate the response to the first 500ms.
-    // Determine the number of samples corresponding to 500ms.
-    let num_points_500ms = (sample_rate * 0.5).ceil() as usize;
-    // Ensure truncation length doesn't exceed available data length.
-    let truncated_len = num_points_500ms.min(smoothed_step_response.len());
-    if truncated_len == 0 {
-        eprintln!("Warning: Truncated step response length is zero.");
-        return Vec::new(); // Cannot proceed if truncation results in zero length.
+    if normalization_segment_len == 0 {
+        eprintln!("Warning: Normalization segment length is zero. Cannot normalize.");
+        // Return unsmoothed, unnormalized data or an empty vector depending on desired strictness.
+        // Returning empty vector on failure to normalize seems reasonable.
+        return Vec::new();
     }
 
-    // Step 7: Normalize the smoothed, truncated response.
-    // Calculate average value of the *smoothed* response over the *truncated* duration.
-    // This average represents the approximate steady-state value for normalization.
-    let avg_sum: f32 = smoothed_step_response.iter().take(truncated_len).sum();
+    // Calculate average value of the *smoothed* response over the *normalization segment* (first 500ms).
+    let avg_sum: f32 = smoothed_step_response.iter().take(normalization_segment_len).sum();
     // Ensure divisor is not zero.
-    let divisor = truncated_len as f32;
+    let divisor = normalization_segment_len as f32;
     let avg = if divisor > 0.0 { avg_sum / divisor } else { 1.0 }; // Default average to 1 if no data points.
 
     // Avoid division by zero or near-zero average during normalization.
@@ -269,23 +272,14 @@ pub fn calculate_step_response(
         avg
     };
 
-    // Apply normalization to the smoothed, truncated data.
+    // Apply normalization to the *entire* smoothed data.
     let normalized_smoothed: Vec<f32> = smoothed_step_response
         .iter()
-        .take(truncated_len) // Use data truncated to 500ms (or available).
         .map(|x| x / normalization_factor) // Normalize each point.
         .collect();
 
-    // Get the starting timestamp from the original time data.
-    let start_time = times.first().cloned().unwrap_or(0.0);
-
-    // Combine time data (adjusted to start from 0) with the processed step response values
-    times
-        .iter()
-        .zip(normalized_smoothed.into_iter()) // Pair original times with processed response data.
-        .map(|(&t, s)| (t - start_time, s as f64)) // Adjust time to start from 0, cast response to f64
-        .take(truncated_len) // Ensure output length matches truncated response length.
-        .collect() // Return the final (time, value) pairs.
+    // Return the full normalized, smoothed response values.
+    normalized_smoothed
 }
 // --- END: Step Response Calculation Functions ---
 
@@ -701,27 +695,29 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Calculate Step Response Data ---
     println!("\n--- Calculating Step Response ---");
-    // Stores the final calculated step response data: (time_from_start, normalized_response).
-    let mut step_response_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    // Stores the full calculated step response data (normalized values).
+    let mut full_calculated_response: [Vec<f32>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     // Tracks if the step response *calculation* was successful and produced data for each axis.
     let mut step_response_calculated = [false; 3];
 
      if let Some(sr) = sample_rate { // Only proceed if sample rate was determined.
         for axis_index in 0..3 {
             // Only calculate if the required input data (time, setpoint, gyro_filtered) was collected earlier.
+            // Note: We only need the setpoint and gyro vectors for calculate_step_response, not the time vector.
             if step_response_input_available[axis_index] {
                 println!("  Calculating step response for Axis {}...", axis_index);
-                 // Get references to the input data for this axis.
-                let times = &step_response_input_data[axis_index].0;
+                 // Get references to the input data vectors for this axis.
                 let setpoints = &step_response_input_data[axis_index].1;
                 let gyros_filtered = &step_response_input_data[axis_index].2; // Use filtered gyro data
 
                 // Check if there are enough data points for a meaningful FFT analysis.
-                if times.len() > 10 { // Use an arbitrary minimum length (e.g., 10 points). Adjust if needed.
-                    let result = calculate_step_response(times, setpoints, gyros_filtered, sr);
+                if setpoints.len() > 10 { // Use an arbitrary minimum length (e.g., 10 points). Adjust if needed.
+                    // Calculate the full response, which is no longer truncated inside the function.
+                    let result = calculate_step_response(setpoints, gyros_filtered, sr);
+
                     // Check if the calculation succeeded and returned non-empty results.
                     if !result.is_empty() {
-                        step_response_data[axis_index] = result; // Store the calculated data.
+                        full_calculated_response[axis_index] = result; // Store the full calculated data.
                         step_response_calculated[axis_index] = true; // Mark calculation as successful for this axis.
                         println!("    ... Calculation successful for Axis {}.", axis_index);
                     } else {
@@ -730,7 +726,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 } else {
                      // Not enough data points for FFT.
-                     println!("    ... Skipping Axis {}: Not enough data points ({}) for step response calculation.", axis_index, times.len());
+                     println!("    ... Skipping Axis {}: Not enough data points ({}) for step response calculation.", axis_index, setpoints.len());
                 }
             } else {
                  // Input data was missing (Setpoint or Gyro (filtered) header likely not found).
@@ -890,7 +886,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Check if step response *calculation was successful* for at least one axis.
     if step_response_calculated.iter().any(|&x| x) {
-        let output_file_step = format!("{}_step_response_stacked.png", root_name);
+        let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, STEP_RESPONSE_PLOT_DURATION_S); // Dynamic filename
         let root_area_step = BitMapBackend::new(&output_file_step, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
         root_area_step.fill(&WHITE)?;
         let sub_plot_areas = root_area_step.split_evenly((3, 1));
@@ -900,61 +896,109 @@ fn main() -> Result<(), Box<dyn Error>> {
         for axis_index in 0..3 {
             let area = &sub_plot_areas[axis_index];
             // Check if calculation succeeded AND resulted in non-empty data for this axis.
-            if step_response_calculated[axis_index] && !step_response_data[axis_index].is_empty() {
+            if step_response_calculated[axis_index] && !full_calculated_response[axis_index].is_empty() {
 
-                // We need the original setpoints aligned with the calculated step response times
-                // The `step_response_input_data` holds original time, setpoint, gyro
-                // The `step_response_data` holds time_from_start, normalized_response
-                // Their lengths should match up to the truncated length.
+                // We need the original time and setpoint data aligned with the calculated step response.
+                // `step_response_input_data` holds original time (f64), setpoint (f32), gyro (f32).
+                // `full_calculated_response` holds the normalized response values (f32) corresponding to original log indices.
+                // Their lengths should match the original number of valid log rows used for calculation.
 
-                // Create two data series for plotting, using Option<f64> to create gaps
-                let num_points = step_response_data[axis_index].len().min(step_response_input_data[axis_index].1.len()); // Use min length for safety
 
-                let low_sp_plot_points: Vec<(f64, Option<f64>)> = step_response_data[axis_index]
-                    .iter()
-                    .zip(step_response_input_data[axis_index].1.iter()) // Zip with original setpoints
-                    .take(num_points) // Ensure lengths align
-                    .map(|((t, resp), sp)| (*t, if (*sp as f64) < SETPOINT_THRESHOLD { Some(*resp) } else { None }))
-                    .collect();
+                // Need sample rate to calculate plot_len. Get it from the Option.
+                if sample_rate.is_none() { // Should have been determined if step_response_calculated is true, but safety.
+                     draw_unavailable_message(area, axis_index, "Step Response (Sample Rate Unknown for Plotting)")?;
+                     continue;
+                }
+                let sr = sample_rate.unwrap();
 
-                let high_sp_plot_points: Vec<(f64, Option<f64>)> = step_response_data[axis_index]
-                    .iter()
-                    .zip(step_response_input_data[axis_index].1.iter()) // Zip with original setpoints
-                    .take(num_points) // Ensure lengths align
-                    .map(|((t, resp), sp)| (*t, if (*sp as f64) >= SETPOINT_THRESHOLD { Some(*resp) } else { None }))
-                    .collect();
+                // Determine the number of samples for the desired plot duration.
+                let num_points_plot_duration = (sr * STEP_RESPONSE_PLOT_DURATION_S).ceil() as usize;
 
-                // Find plot ranges specifically for the calculated step response data.
-                // Time range starts at 0 and goes up to the maximum time in the truncated data (around 0.5s).
-                let (_time_min, time_max) = step_response_data[axis_index].iter()
-                    // Fold requires explicit type annotation for initial accumulator value.
-                    .fold((0.0f64, 0.0f64), |(_min_t, max_t), (t, _)| (0.0, max_t.max(*t))); // Min time is always 0.
-                 // Value range is the min/max of the normalized response.
-                let (resp_min, resp_max) = step_response_data[axis_index].iter()
-                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_v, max_v), (_, v)| (min_v.min(*v), max_v.max(*v)));
+                // The actual length of the plot window is the minimum of:
+                // 1. The number of samples for the desired duration.
+                // 2. The total number of calculated response points available.
+                // 3. The total number of original log points available (times/setpoints/gyros).
+                //    These three should ideally be the same, but we use min() for robustness.
+                let plot_len = num_points_plot_duration
+                    .min(full_calculated_response[axis_index].len())
+                    .min(step_response_input_data[axis_index].0.len()); // Using times length as proxy for original data length
 
-                 // Check if the calculated ranges are valid before plotting.
-                 if time_max <= 1e-9 || resp_min.is_infinite() { // Check time > 0 and finite value range.
-                     draw_unavailable_message(area, axis_index, "Step Response (Invalid Range)")?;
+
+                // Safety check: Ensure plot_len is positive if we have data
+                if plot_len == 0 {
+                     draw_unavailable_message(area, axis_index, "Step Response (Plot Length Zero)")?;
+                     continue;
+                }
+
+                // Create two data series for plotting the limited window, using Option<f64> to create gaps.
+                let mut low_sp_plot_points: Vec<(f64, Option<f64>)> = Vec::with_capacity(plot_len);
+                let mut high_sp_plot_points: Vec<(f64, Option<f64>)> = Vec::with_capacity(plot_len);
+
+                // Get the start time of the data used for calculation to compute relative time for the plot.
+                // This should be the time of the *first* data point collected for this axis.
+                let start_time = step_response_input_data[axis_index].0.first().cloned().unwrap_or(0.0);
+
+                // Iterate through indices up to the calculated plot_len.
+                for i in 0..plot_len {
+                    let calculated_value = full_calculated_response[axis_index][i]; // Get calculated response value by index.
+
+                    // Check if original setpoint data exists and is available at this index.
+                    let original_setpoint = step_response_input_data[axis_index].1.get(i).cloned().unwrap_or(0.0); // Use 0.0 if index is out of bounds (shouldn't happen with length check)
+                    let original_time = step_response_input_data[axis_index].0.get(i).cloned().unwrap_or(start_time); // Use start time if index is out of bounds
+
+
+                    let relative_time = original_time - start_time;
+
+                    if original_setpoint as f64 >= SETPOINT_THRESHOLD {
+                        // Point is orange (high setpoint)
+                        high_sp_plot_points.push((relative_time, Some(calculated_value as f64)));
+                        low_sp_plot_points.push((relative_time, None)); // Create gap in low series
+                    } else {
+                        // Point is blue (low setpoint)
+                        low_sp_plot_points.push((relative_time, Some(calculated_value as f64)));
+                        high_sp_plot_points.push((relative_time, None)); // Create gap in high series
+                    }
+                }
+
+                // Find plot ranges specifically for the points we are plotting (the truncated set).
+                // Chain the two vectors and filter for Some values to find min/max.
+                let all_plot_points = low_sp_plot_points.iter().chain(high_sp_plot_points.iter());
+
+                // Calculate time and response ranges based on the plotted points.
+                let (time_min_plot, _time_max_plot) = all_plot_points.clone()
+                    .filter_map(|(t, opt_v)| opt_v.map(|_| *t)) // Get time only for non-None values
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), t| (min_t.min(t), max_t.max(t)));
+
+                 let (resp_min, resp_max) = all_plot_points.clone()
+                    .filter_map(|(_t, opt_v)| *opt_v) // Get value only for non-None values
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_v, max_v), v| (min_v.min(v), max_v.max(v)));
+
+
+                // If no valid data points were found in the truncated window (e.g., due to all NaNs or errors),
+                // min/max will still be infinite.
+                if time_min_plot.is_infinite() || resp_min.is_infinite() {
+                     draw_unavailable_message(area, axis_index, "Step Response (No Plottable Data)")?;
                      continue;
                  }
 
                 // Apply padding to the response range.
                 let (final_resp_min, final_resp_max) = calculate_range(resp_min, resp_max);
-                // Add slight padding to the maximum time.
-                let final_time_max = time_max * 1.05;
+                // Use the target duration for the X-axis max, plus padding.
+                let final_time_max = STEP_RESPONSE_PLOT_DURATION_S * 1.05; // Apply padding to the target duration
 
-                // Build the chart. Time axis starts at 0.
+                // Build the chart. Time axis starts at 0 relative to the start of the input data.
                 let mut chart = ChartBuilder::on(area)
-                    .caption(format!("Axis {} Step Response", axis_index), ("sans-serif", 20))
+                    .caption(format!("Axis {} Step Response (~{}s)", axis_index, STEP_RESPONSE_PLOT_DURATION_S), ("sans-serif", 20)) // Updated caption
                     .margin(5).x_label_area_size(30).y_label_area_size(50)
-                    .build_cartesian_2d(0f64..final_time_max, final_resp_min..final_resp_max)?;
+                    // Use 0.0 as the start time for the plot, and the calculated max plot time.
+                    .build_cartesian_2d(0f64..final_time_max.max(1e-9), final_resp_min..final_resp_max)?; // Ensure time range is at least non-zero
 
-                // Configure mesh and labels, using fewer X labels suitable for the short time range (0-0.5s).
+
+                // Configure mesh and labels, using fewer X labels suitable for the shorter time range.
                 chart.configure_mesh()
-                    .x_desc("Time (s)")
+                    .x_desc("Time (s) relative to window start") // Updated label
                     .y_desc("Normalized Response")
-                    .x_labels(6) // Fewer labels for 0-0.5s range.
+                    .x_labels(8) // Adjusted labels for fixed duration
                     .y_labels(5)
                     .light_line_style(&WHITE.mix(0.7))
                     .label_style(("sans-serif", 12))
@@ -963,10 +1007,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // Draw the low setpoint (< 500 deg/s) step response line
                 let low_sp_color_ref = &step_response_color_low_sp; // Reference for closure
                 chart.draw_series(LineSeries::new(
-                    low_sp_plot_points.into_iter().filter_map(|(t, opt_v)| opt_v.map(|v| (t,v))), // Filter out None, unwrap Some
+                    low_sp_plot_points.into_iter().filter_map(|(t, opt_v)| opt_v.map(|v| (t, v))), // Filter out None, unwrap Some
                     low_sp_color_ref,
                 ))?
-                .label(format!("Setpoint < {} deg/s", SETPOINT_THRESHOLD)) // Add label for the legend.
+                .label(format!("< {} deg/s", SETPOINT_THRESHOLD)) // Add label for the legend.
                 .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], low_sp_color_ref.stroke_width(2)));
 
                 // Draw the high setpoint (>= 500 deg/s) step response line
@@ -975,7 +1019,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     high_sp_plot_points.into_iter().filter_map(|(t, opt_v)| opt_v.map(|v| (t,v))), // Filter out None, unwrap Some
                     high_sp_color_ref,
                 ))?
-                .label(format!("Setpoint >= {} deg/s", SETPOINT_THRESHOLD)) // Add label for the legend.
+                .label(format!("\u{2265} {} deg/s", SETPOINT_THRESHOLD)) // Add label for the legend (using >= symbol)
                 .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], high_sp_color_ref.stroke_width(2)));
 
                 // Configure and draw the legend.
@@ -994,12 +1038,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                      "Calculation Failed/No Data"
                  };
                 println!("  INFO: No Step Response data available for Axis {}: {}. Drawing placeholder.", axis_index, reason);
-                 // Draw placeholder message including the reason.
                  draw_unavailable_message(area, axis_index, &format!("Step Response ({})", reason))?;
             }
         }
         root_area_step.present()?; // Save the plot file.
-        println!("  Stacked Step Response plot saved as '{}'.", output_file_step);
+        println!("  Stacked Step Response plot saved as '{}'. (Duration: {}s)", output_file_step, STEP_RESPONSE_PLOT_DURATION_S);
 
     } else {
         // Step response calculation did not succeed for any axis.
