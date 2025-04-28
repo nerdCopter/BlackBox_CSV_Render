@@ -788,7 +788,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     format!("Found at index {}", idx)
                  }
                  None => {
-                    format!("Not Found (Will try to use debug[{}] as fallback for Gyro vs Unfilt plot)", axis)
+                    format!("Not Found (Will try to use debug[{}] as fallback for Gyro vs Unfilt plot)", axis) // Fix: Added axis argument
                  }
             };
             println!("  '{}' (Target Index {}): {}", name, target_idx, status);
