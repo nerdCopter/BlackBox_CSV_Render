@@ -31,7 +31,7 @@ const PLOT_WIDTH: u32 = 1920;
 const PLOT_HEIGHT: u32 = 1080;
 
 // Define constant for the step response plot duration in seconds.
-const STEP_RESPONSE_PLOT_DURATION_S: f64 = 0.50; // Example: 0.75 seconds
+const STEP_RESPONSE_PLOT_DURATION_S: f64 = 0.5; // Example: 0.75 seconds
 
 // Helper function to calculate plot range with 15% padding on each side.
 // Uses a fixed padding if the range is very small to avoid excessive zoom.
@@ -886,7 +886,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Check if step response *calculation was successful* for at least one axis.
     if step_response_calculated.iter().any(|&x| x) {
-        let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, STEP_RESPONSE_PLOT_DURATION_S); // Dynamic filename
+        // Dynamic filename based on plot duration.
+        let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, STEP_RESPONSE_PLOT_DURATION_S);
         let root_area_step = BitMapBackend::new(&output_file_step, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
         root_area_step.fill(&WHITE)?;
         let sub_plot_areas = root_area_step.split_evenly((3, 1));
@@ -905,7 +906,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
                 // Need sample rate to calculate plot_len. Get it from the Option.
-                if sample_rate.is_none() { // Should have been determined if step_response_calculated is true, but safety.
+                if sample_rate.is_none() { // Check using is_none() method
                      draw_unavailable_message(area, axis_index, "Step Response (Sample Rate Unknown for Plotting)")?;
                      continue;
                 }
@@ -965,7 +966,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let all_plot_points = low_sp_plot_points.iter().chain(high_sp_plot_points.iter());
 
                 // Calculate time and response ranges based on the plotted points.
-                let (time_min_plot, _time_max_plot) = all_plot_points.clone()
+                let (time_min_plot, _time_max_plot) = all_plot_points.clone() // Fix: Added underscore to unused variable
                     .filter_map(|(t, opt_v)| opt_v.map(|_| *t)) // Get time only for non-None values
                     .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), t| (min_t.min(t), max_t.max(t)));
 
@@ -1030,7 +1031,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // Step response data is unavailable for this axis. Determine the reason.
                 let reason = if !setpoint_header_found[axis_index] || !gyro_header_found[axis_index] {
                     "Setpoint/gyroADC Header Missing" // Missing essential headers for step response.
-                 } else if sample_rate.is_none() {
+                 } else if sample_rate.is_none() { // Check using is_none() method
                     "Sample Rate Unknown" // Sample rate couldn't be estimated.
                  } else if !step_response_input_available[axis_index] {
                      "Input Data Missing/Invalid" // Headers found, but no valid data rows.
