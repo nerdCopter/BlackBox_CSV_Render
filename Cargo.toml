@@ -9,3 +9,5 @@ plotters = "0.3"
 csv = "1.1"
 realfft = "3.3"
 num-complex = "0.4"
+ndarray = "0.15" # Use a recent version, check crates.io for the latest
+ndarray-stats = "0.5" # Use a recent version, check crates.io for the latest

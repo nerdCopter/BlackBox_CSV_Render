@@ -11,6 +11,9 @@ use std::collections::VecDeque; // For efficient moving average window.
 // --- Dependencies for Step Response Calculation ---
 use realfft::num_complex::Complex32; // Complex number type for FFT results.
 use realfft::RealFftPlanner; // FFT planner for real-valued signals.
+use ndarray::{Array1, Array2, Axis}; // For multi-dimensional arrays (useful for window stacking and 2D histograms)
+use ndarray_stats::QuantileExt; // For finding min/max in ndarrays
+use ndarray::s; // Import the slicing macro
 
 /// Structure to hold data parsed from a single row of the CSV log.
 /// Uses `Option<f64>` to handle potentially missing or unparseable values.
@@ -31,7 +34,15 @@ const PLOT_WIDTH: u32 = 1920;
 const PLOT_HEIGHT: u32 = 1080;
 
 // Define constant for the step response plot duration in seconds.
-const STEP_RESPONSE_PLOT_DURATION_S: f64 = 0.5; // Example: 0.75 seconds
+const STEP_RESPONSE_PLOT_DURATION_S: f64 = 0.5; // Example: 0.5 seconds
+
+// Constants for the new step response calculation method (inspired by Python)
+const FRAME_LENGTH_S: f64 = 1.0; // Length of each window in seconds
+const RESPONSE_LENGTH_S: f64 = 0.5; // Length of the step response to keep from each window
+const SUPERPOSITION_FACTOR: usize = 16; // Number of overlapping windows within a frame length
+const CUTOFF_FREQUENCY_HZ: f64 = 25.0; // Cutoff frequency for Wiener filter noise spectrum
+const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning window)
+const SETPOINT_THRESHOLD: f64 = 500.0; // Threshold for low/high setpoint masking
 
 // Helper function to calculate plot range with 15% padding on each side.
 // Uses a fixed padding if the range is very small to avoid excessive zoom.
@@ -58,45 +69,37 @@ fn draw_unavailable_message(
 }
 
 
-// --- START: Step Response Calculation Functions ---
+// --- START: Step Response Calculation Functions (Python-inspired) ---
 
 /// Computes the Fast Fourier Transform (FFT) of a real-valued signal.
 /// Returns the complex frequency spectrum. Handles empty input.
-fn fft_forward(data: &[f32]) -> Vec<Complex32> {
-    // Ensure input is not empty.
+fn fft_forward(data: &Array1<f32>) -> Array1<Complex32> {
     if data.is_empty() {
-        return Vec::new();
+        return Array1::zeros(0);
     }
-    let mut input = data.to_vec(); // FFT library requires mutable buffer.
-    let n = input.len();
-    if n == 0 { return Vec::new(); } // Should be caught by first check, but safety.
-
-    // Plan and execute the forward FFT.
+    let n = data.len();
+    let mut input = data.to_vec();
     let planner = RealFftPlanner::<f32>::new().plan_fft_forward(n);
-    let mut output = planner.make_output_vec(); // Output buffer for complex spectrum.
+    let mut output = planner.make_output_vec();
     if planner.process(&mut input, &mut output).is_err() {
          eprintln!("Warning: FFT forward processing failed.");
-         // Return a vector of zeros with the expected complex length on failure.
          let expected_complex_len = if n % 2 == 0 { n / 2 + 1 } else { (n + 1) / 2 };
-         return vec![Complex32::new(0.0, 0.0); expected_complex_len];
+         return Array1::zeros(expected_complex_len);
     }
-    output // Return the complex spectrum.
+    Array1::from(output)
 }
 
 /// Computes the Inverse Fast Fourier Transform (IFFT) of a complex spectrum.
 /// Returns the reconstructed real-valued signal. Requires the original signal length N.
 /// Normalizes the output. Handles empty input or length mismatches.
-fn fft_inverse(data: &[Complex32], original_length_n: usize) -> Vec<f32> {
-    // Ensure input is not empty and original length N is valid.
+fn fft_inverse(data: &Array1<Complex32>, original_length_n: usize) -> Array1<f32> {
     if data.is_empty() || original_length_n == 0 {
-        return vec![0.0; original_length_n]; // Return zeros matching original length.
+        return Array1::zeros(original_length_n);
     }
-    let mut input = data.to_vec(); // IFFT library requires mutable buffer.
-    // The inverse planner needs the length of the *original* real signal (N).
+    let mut input = data.to_vec();
     let planner = RealFftPlanner::<f32>::new().plan_fft_inverse(original_length_n);
-    let mut output = planner.make_output_vec(); // Output buffer for real signal (length N).
+    let mut output = planner.make_output_vec();
 
-    // Verify the complex input length matches expectations based on N.
     let expected_complex_len = if original_length_n % 2 == 0 {
         original_length_n / 2 + 1
     } else {
@@ -109,34 +112,216 @@ fn fft_inverse(data: &[Complex32], original_length_n: usize) -> Vec<f32> {
             expected_complex_len,
             input.len()
         );
-        return vec![0.0; original_length_n]; // Return zeros matching original length.
+        return Array1::zeros(original_length_n);
     }
 
-    // Execute the inverse FFT.
     if planner.process(&mut input, &mut output).is_ok() {
-        // Normalize the IFFT output (realfft crate doesn't normalize automatically).
         let scale = 1.0 / original_length_n as f32;
-        output.iter_mut().for_each(|x| *x *= scale);
-        output // Return the reconstructed real signal.
+        let mut output_arr = Array1::from(output);
+        output_arr.mapv_inplace(|x| x * scale);
+        output_arr
     } else {
-        // Error during IFFT processing.
         eprintln!("Warning: FFT inverse processing failed. Returning zeros.");
-        vec![0.0; original_length_n] // Return zeros matching original length.
+        Array1::zeros(original_length_n)
     }
 }
 
-/// Applies a moving average filter to smooth the input data.
-/// Uses a `VecDeque` for efficient window management.
-fn moving_average_smooth(data: &[f32], window_size: usize) -> Vec<f32> {
-    if window_size <= 1 || data.is_empty() {
-        return data.to_vec(); // No smoothing needed or possible.
+/// Makes a Tukey window for enveloping.
+fn tukeywin(num: usize, alpha: f64) -> Array1<f32> {
+    if alpha <= 0.0 {
+        return Array1::ones(num); // rectangular window
+    } else if alpha >= 1.0 {
+        // Hanning window is a special case of Tukey with alpha=1.0
+        let mut window = Array1::<f32>::zeros(num);
+        for i in 0..num {
+            window[i] = 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / (num as f64 - 1.0)).cos()) as f32;
+        }
+        return window;
     }
 
-    let mut smoothed_data = Vec::with_capacity(data.len());
+    let mut window = Array1::<f32>::ones(num);
+    let alpha_half = alpha / 2.0;
+    let n_alpha = (alpha_half * (num as f64 - 1.0)).floor() as usize;
+
+    for i in 0..n_alpha {
+        window[i] = 0.5 * (1.0 + (std::f64::consts::PI * i as f64 / (n_alpha as f64)).cos()) as f32; // Fix: Changed f664 to f64
+        window[num - 1 - i] = window[i];
+    }
+    window
+}
+
+
+/// Generates overlapping windows from input data.
+/// Returns a tuple of stacked input and output windows.
+fn winstacker(
+    input_data: &Array1<f32>,
+    output_data: &Array1<f32>,
+    frame_length_samples: usize,
+    superposition_factor: usize,
+) -> (Array2<f32>, Array2<f32>) {
+    let total_len = input_data.len();
+    if total_len == 0 || frame_length_samples == 0 || superposition_factor == 0 {
+        return (Array2::zeros((0, 0)), Array2::zeros((0, 0)));
+    }
+
+    let shift = frame_length_samples / superposition_factor;
+    if shift == 0 {
+         eprintln!("Warning: Window shift is zero. Adjust frame_length_samples or superposition_factor.");
+         return (Array2::zeros((0, 0)), Array2::zeros((0, 0)));
+    }
+
+    let num_windows = if total_len >= frame_length_samples {
+        (total_len - frame_length_samples) / shift + 1
+    } else {
+        0
+    };
+
+    if num_windows == 0 {
+        return (Array2::zeros((0, 0)), Array2::zeros((0, 0)));
+    }
+
+    let mut stacked_input = Array2::<f32>::zeros((num_windows, frame_length_samples));
+    let mut stacked_output = Array2::<f32>::zeros((num_windows, frame_length_samples));
+
+    for i in 0..num_windows {
+        let start = i * shift;
+        let end = start + frame_length_samples;
+        if end <= total_len {
+            stacked_input.row_mut(i).assign(&input_data.slice(s![start..end]));
+            stacked_output.row_mut(i).assign(&output_data.slice(s![start..end]));
+        } else {
+             // This case should ideally not be reached with the num_windows calculation, but as a safeguard.
+             eprintln!("Warning: Window end index out of bounds. Window {} from {} to {} out of {}", i, start, end, total_len);
+        }
+    }
+
+    (stacked_input, stacked_output)
+}
+
+/// Performs Wiener deconvolution on a single input/output window.
+/// Returns the deconvolved impulse response.
+fn wiener_deconvolution_window(
+    input_window: &Array1<f32>,
+    output_window: &Array1<f32>,
+    sample_rate: f64,
+    cutoff_frequency_hz: f64,
+) -> Array1<f32> {
+    let n = input_window.len();
+    if n == 0 || sample_rate <= 0.0 {
+        return Array1::zeros(n);
+    }
+
+    // Pad to next power of 2 for efficient FFT (optional but common practice)
+    let padded_n = n.next_power_of_two();
+    let input_padded = {
+        let mut padded = Array1::<f32>::zeros(padded_n);
+        padded.slice_mut(s![0..n]).assign(input_window);
+        padded
+    };
+    let output_padded = {
+        let mut padded = Array1::<f32>::zeros(padded_n);
+        padded.slice_mut(s![0..n]).assign(output_window);
+        padded
+    };
+
+
+    let h_spec = fft_forward(&input_padded);
+    let g_spec = fft_forward(&output_padded);
+
+    if h_spec.is_empty() || g_spec.is_empty() || h_spec.len() != g_spec.len() {
+         eprintln!("Warning: FFT output empty or length mismatch in Wiener deconvolution.");
+         return Array1::zeros(n); // Return zeros if FFT failed
+    }
+
+    let freq = fft_rfftfreq(padded_n, 1.0 / sample_rate as f32); // Frequencies for real FFT output
+
+    // Calculate noise spectrum (simplified based on Python logic)
+    let mut sn = Array1::<f32>::ones(freq.len());
+    // Attenuate frequencies above cutoff
+    for i in 0..freq.len() {
+        if freq[i] > cutoff_frequency_hz as f32 {
+            // Simple rolloff above cutoff
+            let factor = (freq[i] - cutoff_frequency_hz as f32) / (sample_rate as f32 / 2.0 - cutoff_frequency_hz as f32).max(1.0);
+            sn[i] = 1.0 / (10.0 * factor.max(0.1)); // Increase noise power for higher frequencies
+        }
+    }
+     // Apply Gaussian smoothing to the noise spectrum (simplified)
+     // This requires a 1D Gaussian filter implementation or a library.
+     // For now, we'll skip the Gaussian filter for simplicity and focus on the core Wiener formula.
+     // A proper implementation would use a library like `scipy.ndimage.gaussian_filter1d` equivalent.
+     // sn = gaussian_filter1d_rust(&sn, filter_width); // Placeholder for smoothing
+
+    let epsilon = 1e-9; // Small value to prevent division by zero
+    let mut deconvolved_spec = Array1::<Complex32>::zeros(h_spec.len());
+
+    for i in 0..h_spec.len() {
+        let h = h_spec[i];
+        let g = g_spec[i];
+        let h_conj = h.conj();
+        let sn_val = sn[i]; // Use the calculated noise spectrum value
+
+        // Wiener filter formula: G * H* / (|H|^2 + Sn / Ss)
+        // Assuming signal power spectrum Ss is proportional to |H|^2, the term becomes Sn / |H|^2
+        // The Python code's `1. / sn` term in the denominator suggests it's using 1 / (Sn/Ss) where Ss is implicitly 1.
+        // Let's try to match the Python formula: G * H* / (|H|^2 + 1. / sn)
+        let denominator = (h * h_conj).re + (1.0 / (sn_val + epsilon)); // Add epsilon to sn_val too
+
+        if denominator.abs() > epsilon {
+            deconvolved_spec[i] = (g * h_conj) / denominator;
+        } else {
+            deconvolved_spec[i] = Complex32::new(0.0, 0.0); // Avoid division by zero
+        }
+    }
+
+    // Perform inverse FFT and truncate to original length
+    let deconvolved_impulse = fft_inverse(&deconvolved_spec, padded_n);
+
+    // Return the impulse response truncated to the original window length
+    deconvolved_impulse.slice(s![0..n]).to_owned()
+}
+
+/// Calculates the frequencies for the real FFT output.
+fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> {
+    if n == 0 || d <= 0.0 {
+        return Array1::zeros(0);
+    }
+    let num_freqs = if n % 2 == 0 { n / 2 + 1 } else { (n + 1) / 2 };
+    let mut freqs = Array1::<f32>::zeros(num_freqs);
+    let nyquist = 0.5 / d;
+    for i in 0..num_freqs {
+        freqs[i] = i as f32 * nyquist / (num_freqs - 1) as f32;
+    }
+    freqs
+}
+
+
+/// Calculates the cumulative sum of an array to get the step response from impulse response.
+fn cumulative_sum(data: &Array1<f32>) -> Array1<f32> {
+    let mut cumulative = Array1::<f32>::zeros(data.len());
+    let mut current_sum = 0.0;
+    for (i, &val) in data.iter().enumerate() {
+        if val.is_finite() {
+            current_sum += val;
+        } else {
+             eprintln!("Warning: Non-finite value ({}) detected in impulse response at index {}. Skipping.", val, i);
+        }
+        cumulative[i] = current_sum;
+    }
+    cumulative
+}
+
+/// Applies a moving average filter to smooth the input data.
+#[allow(dead_code)] // Allow dead code for this function as it's not used in the new calculation
+fn moving_average_smooth_array(data: &Array1<f32>, window_size: usize) -> Array1<f32> {
+    if window_size <= 1 || data.is_empty() {
+        return data.to_owned(); // No smoothing needed or possible.
+    }
+
+    let mut smoothed_data = Array1::<f32>::zeros(data.len());
     let mut current_sum: f32 = 0.0;
     let mut history: VecDeque<f32> = VecDeque::with_capacity(window_size); // Window buffer.
 
-    for &val in data.iter() {
+    for (i, &val) in data.iter().enumerate() {
         history.push_back(val); // Add new value to window.
         current_sum += val; // Update sum.
 
@@ -150,137 +335,315 @@ fn moving_average_smooth(data: &[f32], window_size: usize) -> Vec<f32> {
         // Calculate average over the current window size (handles initial partial windows).
         let current_window_len = history.len() as f32;
         if current_window_len > 0.0 {
-            smoothed_data.push(current_sum / current_window_len);
+            smoothed_data[i] = current_sum / current_window_len;
         } else {
-            smoothed_data.push(0.0); // Should not happen if data is not empty.
+            smoothed_data[i] = 0.0; // Should not happen if data is not empty.
         }
     }
     smoothed_data
 }
 
-
-/// Calculates the system's step response using FFT-based deconvolution.
-/// Input: System setpoint (input), gyro readings (output), sample rate.
-/// Output: Vector of normalized_smoothed_step_response values covering the full input duration.
-/// Steps:
-/// 1. Calculate FFT of input (setpoint) and output (gyro).
-/// 2. Calculate Frequency Response H(f) = (Input*(f) * Output(f)) / (|Input(f)|^2 + epsilon).
-/// 3. Calculate Impulse Response = IFFT(H(f)).
-/// 4. Calculate Step Response = Cumulative Sum(Impulse Response).
-/// 5. Smooth the step response using a moving average.
-/// 6. Normalize the response by the average value over the first 500ms (of the smoothed response).
-///    Note: The *full* smoothed response is returned, but normalization uses the initial segment.
-pub fn calculate_step_response(
-    setpoint: &[f32],
-    gyro_filtered: &[f32], // Assuming gyro data might be pre-filtered if needed.
-    sample_rate: f64,
-) -> Vec<f32> {
-    // Basic input validation.
-    if setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || sample_rate <= 0.0 {
-        eprintln!("Warning: Invalid input to calculate_step_response. Empty data, length mismatch, or invalid sample rate.");
-        return Vec::new(); // Return empty vector on invalid input.
-    }
-
-    let n_samples = setpoint.len(); // Original number of samples (N).
-
-    // Step 1: Calculate FFTs.
-    let input_spectrum = fft_forward(setpoint);
-    let output_spectrum = fft_forward(gyro_filtered);
-
-    // Ensure FFT outputs are valid and compatible for frequency response calculation.
-    if input_spectrum.len() != output_spectrum.len() || input_spectrum.is_empty() {
-         eprintln!("Warning: FFT outputs have different lengths or are empty. Cannot calculate frequency response.");
-        return Vec::new();
-    }
-
-    // Calculate complex conjugate of the input spectrum.
-    let input_spec_conj: Vec<_> = input_spectrum.iter().map(|c| c.conj()).collect();
-
-    // Step 2: Calculate Frequency Response H(f).
-    // Add epsilon to denominator to prevent division by zero or very small numbers.
-    let epsilon = 1e-9;
-    let frequency_response: Vec<_> = input_spectrum
-        .iter()
-        .zip(output_spectrum.iter())
-        .zip(input_spec_conj.iter())
-        .map(|((i, o), i_conj)| {
-            // Denominator is |Input(f)|^2 = Input*(f) * Input(f). Use real part, ensure positive.
-            let denominator = (i_conj * i).re.max(epsilon);
-            (i_conj * o) / denominator // H(f) = (Input*(f) * Output(f)) / Denominator
-        })
-        .collect();
-
-    // Step 3: Calculate Impulse Response (IFFT of Frequency Response).
-    // Provide the original signal length `n_samples` for correct IFFT.
-    let impulse_response = fft_inverse(&frequency_response, n_samples);
-    if impulse_response.is_empty() || impulse_response.len() != n_samples {
-        eprintln!("Warning: Impulse response calculation failed or length mismatch.");
-        return Vec::new();
-    }
-
-    // Step 4: Calculate Step Response (Cumulative Sum of Impulse Response).
-    let mut cumulative_sum = 0.0;
-    let step_response: Vec<f32> = impulse_response
-        .iter()
-        .enumerate() // Get index for warning messages.
-        .map(|(index, &x)| {
-            // Check for NaN/Inf in impulse response before summing to avoid propagating errors.
-            if x.is_finite() {
-                 cumulative_sum += x;
-            } else {
-                // Report non-finite values found during summation.
-                eprintln!("Warning: Non-finite value ({}) detected in impulse response at index {}. Skipping.", x, index);
-                // Keep cumulative_sum as is, effectively skipping this non-finite value.
-            }
-            cumulative_sum // Current value of the cumulative sum.
-        })
-        .collect();
-
-
-    // Step 5: Smooth the Step Response.
-    // Define smoothing window duration (e.g., 10ms).
-    let smoothing_duration_s = 0.01; // 10 ms.
-    // Calculate moving average window size based on sample rate. Ensure window size is at least 1.
-    let window_size = ((smoothing_duration_s * sample_rate).round() as usize).max(1);
-    let smoothed_step_response = moving_average_smooth(&step_response, window_size);
-
-    // Step 6: Normalize the smoothed response by the average value over the first 500ms.
-    // Determine the number of samples corresponding to the first 500ms *of the smoothed response*.
-    // This is still 0.5s for normalization consistency, regardless of the plot duration.
-    let num_points_normalization = (sample_rate * 0.5).ceil() as usize;
-    // Ensure truncation length doesn't exceed available data length in smoothed response.
-    let normalization_segment_len = num_points_normalization.min(smoothed_step_response.len());
-
-    if normalization_segment_len == 0 {
-        eprintln!("Warning: Normalization segment length is zero. Cannot normalize.");
-        // Return unsmoothed, unnormalized data or an empty vector depending on desired strictness.
-        // Returning empty vector on failure to normalize seems reasonable.
-        return Vec::new();
-    }
-
-    // Calculate average value of the *smoothed* response over the *normalization segment* (first 500ms).
-    let avg_sum: f32 = smoothed_step_response.iter().take(normalization_segment_len).sum();
-    // Ensure divisor is not zero.
-    let divisor = normalization_segment_len as f32;
-    let avg = if divisor > 0.0 { avg_sum / divisor } else { 1.0 }; // Default average to 1 if no data points.
-
-    // Avoid division by zero or near-zero average during normalization.
-    let normalization_factor = if avg.abs() < 1e-7 {
-        eprintln!("Warning: Near-zero average ({}) detected for step response normalization. Normalization might be inaccurate.", avg);
-        1.0 // Use 1.0 to avoid division by zero, results might be unnormalized.
-    } else {
-        avg
-    };
-
-    // Apply normalization to the *entire* smoothed data.
-    let normalized_smoothed: Vec<f32> = smoothed_step_response
-        .iter()
-        .map(|x| x / normalization_factor) // Normalize each point.
-        .collect();
-
-    // Return the full normalized, smoothed response values.
-    normalized_smoothed
+/// Creates a 2D histogram from 1D arrays of x, y, and weights.
+/// Returns a struct containing the histogram data and scales.
+#[allow(dead_code)] // Allow dead code for this struct as it's not fully implemented/used yet
+struct Hist2D {
+    hist2d_norm: Array2<f64>,
+    hist2d: Array2<f64>,
+    xhist: Array1<f64>,
+    xscale: Array1<f64>,
+    yscale: Array1<f64>,
 }
+
+#[allow(dead_code)] // Allow dead code for this function as it's not fully implemented/used yet
+fn create_hist2d(
+    x: &Array1<f64>,
+    y: &Array1<f64>,
+    weights: &Array2<f64>, // Weights are 2D, corresponding to the stacked data
+    bins: (usize, usize), // (nx, ny)
+    range: ([f64; 2], [f64; 2]), // ([xmin, xmax], [ymin, ymax])
+) -> Result<Hist2D, Box<dyn Error>> {
+    if x.len() != weights.shape()[0] || y.len() != weights.shape()[1] {
+         return Err("Input lengths mismatch for create_hist2d".into());
+    }
+
+    let nx = bins.0;
+    let ny = bins.1;
+    let xmin = range.0[0];
+    let xmax = range.0[1];
+    let ymin = range.1[0];
+    let ymax = range.1[1];
+
+    let mut hist2d = Array2::<f64>::zeros((ny, nx)); // Note: histogram2d returns shape (ny, nx)
+    let mut xhist = Array1::<f64>::zeros(nx);
+
+    // Simple manual binning for demonstration. A proper implementation would use a more efficient algorithm.
+    let dx = (xmax - xmin) / nx as f64;
+    let dy = (ymax - ymin) / ny as f64;
+
+    for i in 0..weights.shape()[0] { // Iterate over windows
+        let current_x = x[i];
+        let x_bin = ((current_x - xmin) / dx).floor() as usize;
+
+        if x_bin < nx {
+            xhist[x_bin] += 1.0; // Count occurrences in x bin
+            for j in 0..weights.shape()[1] { // Iterate over time points in window
+                let current_y = y[j];
+                let current_weight = weights[[i, j]];
+                let y_bin = ((current_y - ymin) / dy).floor() as usize;
+
+                if y_bin < ny {
+                    hist2d[[y_bin, x_bin]] += current_weight; // Add weighted value to 2D bin
+                }
+            }
+        }
+    }
+
+    // Calculate normalized histogram
+    let mut hist2d_norm = Array2::<f64>::zeros((ny, nx));
+    for j in 0..ny {
+        for i in 0..nx {
+            if xhist[i] > 1e-9 { // Avoid division by zero
+                hist2d_norm[[j, i]] = hist2d[[j, i]] / xhist[i];
+            }
+        }
+    }
+
+    // Generate scales
+    let xscale = Array1::linspace(xmin, xmax, nx + 1);
+    let yscale = Array1::linspace(ymin, ymax, ny + 1);
+
+
+    Ok(Hist2D {
+        hist2d_norm,
+        hist2d,
+        xhist,
+        xscale,
+        yscale,
+    })
+}
+
+
+/// Calculates the weighted mode average of a stack of step responses.
+/// This is a simplified version of the Python logic, focusing on averaging based on weights.
+/// A true "mode" average would require finding peaks in a histogram.
+fn weighted_mode_avr(
+    stacked_responses: &Array2<f32>, // Stack of step responses (windows x time)
+    weights: &Array1<f32>, // Weight for each window
+    response_time: &Array1<f64>, // Time vector for the response (0 to RESPONSE_LENGTH_S)
+    _vertrange: [f64; 2], // [ymin, ymax] for potential histogramming (not used in this simplified version) // Fix: Added underscore
+    _vertbins: usize, // Number of vertical bins (not used in this simplified version) // Fix: Added underscore
+) -> Result<(Array1<f64>, Array1<f64>, Option<Hist2D>), Box<dyn Error>> {
+    if stacked_responses.is_empty() || weights.is_empty() || stacked_responses.shape()[0] != weights.len() {
+        return Err("Input data mismatch for weighted_mode_avr".into());
+    }
+
+    let num_windows = stacked_responses.shape()[0];
+    let response_len = stacked_responses.shape()[1];
+
+    if response_len != response_time.len() {
+         return Err("Response time length mismatch".into());
+    }
+
+    // Calculate weighted average at each time point
+    let mut average_response = Array1::<f64>::zeros(response_len);
+    let mut variance_response = Array1::<f64>::zeros(response_len); // For standard deviation
+
+    let total_weight: f64 = weights.iter().map(|&w| w as f64).sum();
+    if total_weight < 1e-9 {
+         // If total weight is near zero, return zeros and indicate no meaningful average.
+         return Ok((Array1::zeros(response_len), Array1::zeros(response_len), None));
+    }
+
+
+    for j in 0..response_len { // Iterate over time points in the response
+        let mut weighted_sum = 0.0;
+        let mut sum_of_weights = 0.0;
+        let mut values_at_time_j = Vec::new(); // Collect values for variance
+
+        for i in 0..num_windows { // Iterate over windows
+            let value = stacked_responses[[i, j]] as f64;
+            let weight = weights[i] as f64;
+
+            if value.is_finite() && weight.is_finite() && weight > 0.0 {
+                weighted_sum += value * weight;
+                sum_of_weights += weight;
+                values_at_time_j.push(value);
+            }
+        }
+
+        if sum_of_weights > 1e-9 {
+            average_response[j] = weighted_sum / sum_of_weights;
+
+            // Calculate weighted variance
+            let mut weighted_variance_sum = 0.0;
+            for i in 0..num_windows {
+                 let value = stacked_responses[[i, j]] as f64;
+                 let weight = weights[i] as f64;
+                 if value.is_finite() && weight.is_finite() && weight > 0.0 {
+                     weighted_variance_sum += weight * (value - average_response[j]).powi(2);
+                 }
+            }
+            // Use sample variance formula (N-1 in denominator, but weighted)
+            // A common weighted variance formula: sum(w * (x - mean)^2) / (sum(w) * (N - 1) / N)
+            // Or simpler: sum(w * (x - mean)^2) / (sum(w) - sum(w^2)/sum(w))
+            // Let's use a simpler approximation for now: sum(w * (x - mean)^2) / sum(w)
+            // This is the population variance. For sample variance, it's more complex.
+            // Let's use the sum(w * (x - mean)^2) / sum(w) for simplicity, as in some weighted variance definitions.
+            if sum_of_weights > 1e-9 {
+                 variance_response[j] = weighted_variance_sum / sum_of_weights;
+            } else {
+                 variance_response[j] = 0.0; // Avoid division by zero
+            }
+
+
+        } else {
+            average_response[j] = 0.0; // No valid data for this time point
+            variance_response[j] = 0.0;
+        }
+    }
+
+    // Standard deviation is the square root of variance
+    let std_dev_response = variance_response.mapv(|v| v.sqrt());
+
+    // Note: This simplified version does not return the histogram data, so the third element is None.
+    // Implementing the full histogram-based mode finding is more complex.
+    Ok((average_response, std_dev_response, None))
+}
+
+
+/// Calculates the system's step response using windowing, deconvolution, and averaging.
+/// Input: Raw time, setpoint and gyro data, sample rate.
+/// Output: Tuple of (response_time, low_setpoint_response, high_setpoint_response) or an error.
+pub fn calculate_step_response_python_style(
+    time: &Array1<f64>, // Need time for relative time and windowing // Fix: Changed times to time
+    setpoint: &Array1<f32>,
+    gyro_filtered: &Array1<f32>,
+    sample_rate: f64,
+) -> Result<(Array1<f64>, Array1<f64>, Array1<f64>), Box<dyn Error>> { // Returns (response_time, low_resp, high_resp)
+    // Basic input validation.
+    if time.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || time.len() != setpoint.len() || sample_rate <= 0.0 { // Fix: Changed times to time
+        return Err("Invalid input to calculate_step_response_python_style: Empty data, length mismatch, or invalid sample rate.".into());
+    }
+
+    let _total_len = time.len(); // Fix: Changed times to time, Added underscore
+    let _dt = 1.0 / sample_rate; // Added underscore
+
+    // Calculate window lengths in samples.
+    let frame_length_samples = (FRAME_LENGTH_S * sample_rate).ceil() as usize;
+    let response_length_samples = (RESPONSE_LENGTH_S * sample_rate).ceil() as usize;
+
+    if frame_length_samples == 0 || response_length_samples == 0 {
+         return Err("Calculated window length is zero. Adjust constants or sample rate.".into());
+    }
+
+    // 1. Generate overlapping windows.
+    let (stacked_input, stacked_output) = winstacker(
+        setpoint,
+        gyro_filtered,
+        frame_length_samples,
+        SUPERPOSITION_FACTOR,
+    );
+
+    let num_windows = stacked_input.shape()[0];
+    if num_windows == 0 {
+        return Err("No complete windows could be generated.".into());
+    }
+
+    // Apply window function (e.g., Hanning) to each window.
+    let window_func = tukeywin(frame_length_samples, TUKEY_ALPHA);
+    let stacked_input_windowed = &stacked_input * &window_func; // Fix: Element-wise multiplication
+    let stacked_output_windowed = &stacked_output * &window_func; // Fix: Element-wise multiplication
+
+
+    // Prepare storage for step responses from each window.
+    let mut stacked_step_responses = Array2::<f32>::zeros((num_windows, response_length_samples));
+    let mut window_max_setpoints = Array1::<f32>::zeros(num_windows); // To store max setpoint per window
+
+    // 2. Perform Wiener deconvolution and cumulative sum for each window.
+    for i in 0..num_windows {
+        let input_window = stacked_input_windowed.row(i).to_owned();
+        let output_window = stacked_output_windowed.row(i).to_owned();
+
+        // Calculate max setpoint in the original input window for masking later.
+        // Use the original (non-windowed) input for the setpoint check.
+        let original_input_window = stacked_input.row(i).to_owned();
+        window_max_setpoints[i] = original_input_window.iter().fold(0.0, |max_val, &v| max_val.max(v.abs()));
+
+
+        let impulse_response = wiener_deconvolution_window(
+            &input_window,
+            &output_window,
+            sample_rate,
+            CUTOFF_FREQUENCY_HZ,
+        );
+
+        // The impulse response length from Wiener deconvolution is padded_n, not frame_length_samples.
+        // We need to truncate it first before cumulative sum and final truncation.
+        let impulse_response_truncated = impulse_response.slice(s![0..frame_length_samples]).to_owned();
+
+
+        if impulse_response_truncated.is_empty() || impulse_response_truncated.len() != frame_length_samples {
+             eprintln!("Warning: Truncated impulse response length mismatch for window {}. Skipping.", i);
+             continue; // Skip this window if deconvolution failed or length is wrong
+        }
+
+        let step_response = cumulative_sum(&impulse_response_truncated);
+
+        // Truncate the step response to the desired response length.
+        if step_response.len() >= response_length_samples {
+            stacked_step_responses.row_mut(i).assign(&step_response.slice(s![0..response_length_samples]));
+        } else {
+             eprintln!("Warning: Step response shorter than response_length_samples for window {}. Skipping.", i);
+             continue; // Skip if step response is too short
+        }
+    }
+
+    // Filter out windows where deconvolution/processing failed (rows of zeros in stacked_step_responses)
+    let valid_window_indices: Vec<usize> = (0..num_windows)
+        .filter(|&i| stacked_step_responses.row(i).iter().any(|&v| v != 0.0)) // Keep windows that are not all zeros
+        .collect();
+
+    if valid_window_indices.is_empty() {
+         return Err("No valid step responses calculated from windows.".into());
+    }
+
+    let valid_stacked_responses = stacked_step_responses.select(Axis(0), &valid_window_indices);
+    let valid_window_max_setpoints = window_max_setpoints.select(Axis(0), &valid_window_indices);
+
+
+    // 3. Implement Setpoint Masking for Windows.
+    let low_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v < SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
+    let high_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v >= SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
+
+    // Optional: Implement `toolow_mask` similar to Python if needed for filtering very low input windows.
+    // For now, we'll use simple low/high masks.
+
+    // 4. Implement Weighted Mode Averaging.
+    // We need a time vector for the response plot (0 to RESPONSE_LENGTH_S).
+    let response_time = Array1::linspace(0.0, RESPONSE_LENGTH_S, response_length_samples);
+
+    // Calculate weighted average for low setpoint windows.
+    let (low_response_avg, _low_response_std, _low_hist) = weighted_mode_avr(
+        &valid_stacked_responses,
+        &low_mask, // Use low_mask as weights
+        &response_time.mapv(|t| t as f64), // Convert time to f64 for weighted_mode_avr
+        [-2.0, 2.0], // Example vertical range for potential histogramming
+        1000, // Example vertical bins
+    )?;
+
+    // Calculate weighted average for high setpoint windows.
+    let (high_response_avg, _high_response_std, _high_hist) = weighted_mode_avr(
+        &valid_stacked_responses,
+        &high_mask, // Use high_mask as weights
+        &response_time.mapv(|t| t as f64), // Convert time to f64 for weighted_mode_avr
+        [-2.0, 2.0], // Example vertical range
+        1000, // Example vertical bins
+    )?;
+
+    // 5. Return the calculated step responses and the response time vector.
+    Ok((response_time.mapv(|t| t as f64), low_response_avg, high_response_avg))
+}
+
 // --- END: Step Response Calculation Functions ---
 
 
@@ -693,40 +1056,41 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // --- Calculate Step Response Data ---
-    println!("\n--- Calculating Step Response ---");
-    // Stores the full calculated step response data (normalized values).
-    let mut full_calculated_response: [Vec<f32>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    // Tracks if the step response *calculation* was successful and produced data for each axis.
-    let mut step_response_calculated = [false; 3];
+    // --- Calculate Step Response Data (using Python-inspired method) ---
+    println!("\n--- Calculating Step Response (Python-inspired method) ---");
+    // Stores the calculated step response data: (response_time, low_resp, high_resp) for each axis.
+    let mut step_response_results: [Option<(Array1<f64>, Array1<f64>, Array1<f64>)>; 3] = [None, None, None];
 
      if let Some(sr) = sample_rate { // Only proceed if sample rate was determined.
         for axis_index in 0..3 {
             // Only calculate if the required input data (time, setpoint, gyro_filtered) was collected earlier.
-            // Note: We only need the setpoint and gyro vectors for calculate_step_response, not the time vector.
             if step_response_input_available[axis_index] {
                 println!("  Calculating step response for Axis {}...", axis_index);
                  // Get references to the input data vectors for this axis.
-                let setpoints = &step_response_input_data[axis_index].1;
-                let gyros_filtered = &step_response_input_data[axis_index].2; // Use filtered gyro data
+                let time_arr = Array1::from(step_response_input_data[axis_index].0.clone()); // Clone to convert to Array1 // Fix: Renamed times_arr to time_arr
+                let setpoints_arr = Array1::from(step_response_input_data[axis_index].1.clone());
+                let gyros_filtered_arr = Array1::from(step_response_input_data[axis_index].2.clone());
 
-                // Check if there are enough data points for a meaningful FFT analysis.
-                if setpoints.len() > 10 { // Use an arbitrary minimum length (e.g., 10 points). Adjust if needed.
-                    // Calculate the full response, which is no longer truncated inside the function.
-                    let result = calculate_step_response(setpoints, gyros_filtered, sr);
-
-                    // Check if the calculation succeeded and returned non-empty results.
-                    if !result.is_empty() {
-                        full_calculated_response[axis_index] = result; // Store the full calculated data.
-                        step_response_calculated[axis_index] = true; // Mark calculation as successful for this axis.
-                        println!("    ... Calculation successful for Axis {}.", axis_index);
-                    } else {
-                        // Calculation function might return empty on internal errors or invalid intermediate results.
-                        println!("    ... Calculation failed or returned empty for Axis {}.", axis_index);
+                // Check if there are enough data points for windowing.
+                let min_required_samples = (FRAME_LENGTH_S * sr).ceil() as usize;
+                if time_arr.len() >= min_required_samples { // Fix: Changed times_arr to time_arr
+                    match calculate_step_response_python_style(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) { // Fix: Changed ×_arr to ×_arr
+                        Ok(result) => {
+                            // Check if the calculated responses are non-empty.
+                            if !result.0.is_empty() && (!result.1.is_empty() || !result.2.is_empty()) {
+                                step_response_results[axis_index] = Some(result); // Store the calculated data.
+                                println!("    ... Calculation successful for Axis {}.", axis_index);
+                            } else {
+                                println!("    ... Calculation returned empty responses for Axis {}.", axis_index);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("    ... Calculation failed for Axis {}: {}", axis_index, e);
+                        }
                     }
                 } else {
-                     // Not enough data points for FFT.
-                     println!("    ... Skipping Axis {}: Not enough data points ({}) for step response calculation.", axis_index, setpoints.len());
+                     // Not enough data points for windowing.
+                     println!("    ... Skipping Axis {}: Not enough data points ({}) for windowing (need at least {}).", axis_index, time_arr.len(), min_required_samples); // Fix: Changed times_arr to time_arr
                 }
             } else {
                  // Input data was missing (Setpoint or Gyro (filtered) header likely not found).
@@ -734,7 +1098,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     } else {
-         // Sample rate is unknown, cannot perform FFT-based calculation.
+         // Sample rate is unknown, cannot perform calculation.
          println!("  Skipping Step Response Calculation: Sample rate could not be determined.");
     }
 
@@ -882,102 +1246,48 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Generate Stacked Step Response Plot ---
     println!("\n--- Generating Stacked Step Response Plot (All Axes) ---");
-    const SETPOINT_THRESHOLD: f64 = 500.0; // Define the threshold for coloring
+    const SETPOINT_THRESHOLD_PLOT: f64 = 500.0; // Define the threshold for coloring in the plot
 
-    // Check if step response *calculation was successful* for at least one axis.
-    if step_response_calculated.iter().any(|&x| x) {
+    // Check if step response calculation was successful for at least one axis.
+    if step_response_results.iter().any(|x| x.is_some()) { // Fix: Removed & from closure pattern
         // Dynamic filename based on plot duration.
         let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, STEP_RESPONSE_PLOT_DURATION_S);
         let root_area_step = BitMapBackend::new(&output_file_step, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
         root_area_step.fill(&WHITE)?;
         let sub_plot_areas = root_area_step.split_evenly((3, 1));
-        let step_response_color_low_sp = Palette99::pick(3); // Original color for setpoint < threshold
-        let step_response_color_high_sp = &ORANGE; // New orange color for setpoint >= threshold
+        let step_response_color_low_sp = Palette99::pick(3); // Color for low setpoint response
+        let step_response_color_high_sp = &ORANGE; // Color for high setpoint response
 
         for axis_index in 0..3 {
             let area = &sub_plot_areas[axis_index];
-            // Check if calculation succeeded AND resulted in non-empty data for this axis.
-            if step_response_calculated[axis_index] && !full_calculated_response[axis_index].is_empty() {
+            // Check if calculation succeeded and returned data for this axis.
+            if let Some((response_time, low_response_avg, high_response_avg)) = &step_response_results[axis_index] {
 
-                // We need the original time and setpoint data aligned with the calculated step response.
-                // `step_response_input_data` holds original time (f64), setpoint (f32), gyro (f32).
-                // `full_calculated_response` holds the normalized response values (f32) corresponding to original log indices.
-                // Their lengths should match the original number of valid log rows used for calculation.
+                // We are plotting the calculated low and high step response curves directly.
+                // The time vector is `response_time`.
 
-
-                // Need sample rate to calculate plot_len. Get it from the Option.
-                if sample_rate.is_none() { // Check using is_none() method
-                     draw_unavailable_message(area, axis_index, "Step Response (Sample Rate Unknown for Plotting)")?;
-                     continue;
-                }
-                let sr = sample_rate.unwrap();
-
-                // Determine the number of samples for the desired plot duration.
-                let num_points_plot_duration = (sr * STEP_RESPONSE_PLOT_DURATION_S).ceil() as usize;
-
-                // The actual length of the plot window is the minimum of:
-                // 1. The number of samples for the desired duration.
-                // 2. The total number of calculated response points available.
-                // 3. The total number of original log points available (times/setpoints/gyros).
-                //    These three should ideally be the same, but we use min() for robustness.
-                let plot_len = num_points_plot_duration
-                    .min(full_calculated_response[axis_index].len())
-                    .min(step_response_input_data[axis_index].0.len()); // Using times length as proxy for original data length
+                // Find plot ranges specifically for the calculated step response data.
+                // Time range is from 0 to RESPONSE_LENGTH_S (which is STEP_RESPONSE_PLOT_DURATION_S).
+                let _time_min_plot = response_time.min().cloned().unwrap_or(0.0); // Fix: Added underscore
+                let _time_max_plot = response_time.max().cloned().unwrap_or(STEP_RESPONSE_PLOT_DURATION_S); // Fix: Added underscore
 
 
-                // Safety check: Ensure plot_len is positive if we have data
-                if plot_len == 0 {
-                     draw_unavailable_message(area, axis_index, "Step Response (Plot Length Zero)")?;
-                     continue;
-                }
+                 // Find min/max value across *both* low and high responses for Y-axis range.
+                 let mut resp_min = f64::INFINITY;
+                 let mut resp_max = f64::NEG_INFINITY;
 
-                // Create two data series for plotting the limited window, using Option<f64> to create gaps.
-                let mut low_sp_plot_points: Vec<(f64, Option<f64>)> = Vec::with_capacity(plot_len);
-                let mut high_sp_plot_points: Vec<(f64, Option<f64>)> = Vec::with_capacity(plot_len);
-
-                // Get the start time of the data used for calculation to compute relative time for the plot.
-                // This should be the time of the *first* data point collected for this axis.
-                let start_time = step_response_input_data[axis_index].0.first().cloned().unwrap_or(0.0);
-
-                // Iterate through indices up to the calculated plot_len.
-                for i in 0..plot_len {
-                    let calculated_value = full_calculated_response[axis_index][i]; // Get calculated response value by index.
-
-                    // Check if original setpoint data exists and is available at this index.
-                    let original_setpoint = step_response_input_data[axis_index].1.get(i).cloned().unwrap_or(0.0); // Use 0.0 if index is out of bounds (shouldn't happen with length check)
-                    let original_time = step_response_input_data[axis_index].0.get(i).cloned().unwrap_or(start_time); // Use start time if index is out of bounds
+                 if !low_response_avg.is_empty() {
+                     resp_min = resp_min.min(low_response_avg.min().cloned().unwrap_or(f64::INFINITY));
+                     resp_max = resp_max.max(low_response_avg.max().cloned().unwrap_or(f64::NEG_INFINITY));
+                 }
+                 if !high_response_avg.is_empty() {
+                     resp_min = resp_min.min(high_response_avg.min().cloned().unwrap_or(f64::INFINITY));
+                     resp_max = resp_max.max(high_response_avg.max().cloned().unwrap_or(f64::NEG_INFINITY));
+                 }
 
 
-                    let relative_time = original_time - start_time;
-
-                    if original_setpoint as f64 >= SETPOINT_THRESHOLD {
-                        // Point is orange (high setpoint)
-                        high_sp_plot_points.push((relative_time, Some(calculated_value as f64)));
-                        low_sp_plot_points.push((relative_time, None)); // Create gap in low series
-                    } else {
-                        // Point is blue (low setpoint)
-                        low_sp_plot_points.push((relative_time, Some(calculated_value as f64)));
-                        high_sp_plot_points.push((relative_time, None)); // Create gap in high series
-                    }
-                }
-
-                // Find plot ranges specifically for the points we are plotting (the truncated set).
-                // Chain the two vectors and filter for Some values to find min/max.
-                let all_plot_points = low_sp_plot_points.iter().chain(high_sp_plot_points.iter());
-
-                // Calculate time and response ranges based on the plotted points.
-                let (time_min_plot, _time_max_plot) = all_plot_points.clone() // Fix: Added underscore to unused variable
-                    .filter_map(|(t, opt_v)| opt_v.map(|_| *t)) // Get time only for non-None values
-                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), t| (min_t.min(t), max_t.max(t)));
-
-                 let (resp_min, resp_max) = all_plot_points.clone()
-                    .filter_map(|(_t, opt_v)| *opt_v) // Get value only for non-None values
-                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(min_v, max_v), v| (min_v.min(v), max_v.max(v)));
-
-
-                // If no valid data points were found in the truncated window (e.g., due to all NaNs or errors),
-                // min/max will still be infinite.
-                if time_min_plot.is_infinite() || resp_min.is_infinite() {
+                // If no valid data points were found in either response, min/max will still be infinite.
+                if resp_min.is_infinite() {
                      draw_unavailable_message(area, axis_index, "Step Response (No Plottable Data)")?;
                      continue;
                  }
@@ -987,7 +1297,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // Use the target duration for the X-axis max, plus padding.
                 let final_time_max = STEP_RESPONSE_PLOT_DURATION_S * 1.05; // Apply padding to the target duration
 
-                // Build the chart. Time axis starts at 0 relative to the start of the input data.
+                // Build the chart. Time axis starts at 0 relative to the start of the response.
                 let mut chart = ChartBuilder::on(area)
                     .caption(format!("Axis {} Step Response (~{}s)", axis_index, STEP_RESPONSE_PLOT_DURATION_S), ("sans-serif", 20)) // Updated caption
                     .margin(5).x_label_area_size(30).y_label_area_size(50)
@@ -997,7 +1307,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 // Configure mesh and labels, using fewer X labels suitable for the shorter time range.
                 chart.configure_mesh()
-                    .x_desc("Time (s) relative to window start") // Updated label
+                    .x_desc("Time (s) relative to response start") // Updated label
                     .y_desc("Normalized Response")
                     .x_labels(8) // Adjusted labels for fixed duration
                     .y_labels(5)
@@ -1006,22 +1316,28 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .draw()?;
 
                 // Draw the low setpoint (< 500 deg/s) step response line
-                let low_sp_color_ref = &step_response_color_low_sp; // Reference for closure
-                chart.draw_series(LineSeries::new(
-                    low_sp_plot_points.into_iter().filter_map(|(t, opt_v)| opt_v.map(|v| (t, v))), // Filter out None, unwrap Some
-                    low_sp_color_ref,
-                ))?
-                .label(format!("< {} deg/s", SETPOINT_THRESHOLD)) // Add label for the legend.
-                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], low_sp_color_ref.stroke_width(2)));
+                if !low_response_avg.is_empty() {
+                    let low_sp_color_ref = &step_response_color_low_sp; // Reference for closure
+                    chart.draw_series(LineSeries::new(
+                        response_time.iter().zip(low_response_avg.iter()).map(|(&t, &v)| (t, v)),
+                        low_sp_color_ref,
+                    ))?
+                    .label(format!("< {} deg/s", SETPOINT_THRESHOLD_PLOT)) // Add label for the legend.
+                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], low_sp_color_ref.stroke_width(2)));
+                }
+
 
                 // Draw the high setpoint (>= 500 deg/s) step response line
-                let high_sp_color_ref = step_response_color_high_sp; // Reference for closure
-                chart.draw_series(LineSeries::new(
-                    high_sp_plot_points.into_iter().filter_map(|(t, opt_v)| opt_v.map(|v| (t,v))), // Filter out None, unwrap Some
-                    high_sp_color_ref,
-                ))?
-                .label(format!("\u{2265} {} deg/s", SETPOINT_THRESHOLD)) // Add label for the legend (using >= symbol)
-                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], high_sp_color_ref.stroke_width(2)));
+                if !high_response_avg.is_empty() {
+                    let high_sp_color_ref = step_response_color_high_sp; // Reference for closure
+                    chart.draw_series(LineSeries::new(
+                        response_time.iter().zip(high_response_avg.iter()).map(|(&t, &v)| (t, v)),
+                        high_sp_color_ref,
+                    ))?
+                    .label(format!("\u{2265} {} deg/s", SETPOINT_THRESHOLD_PLOT)) // Add label for the legend (using >= symbol)
+                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], high_sp_color_ref.stroke_width(2)));
+                }
+
 
                 // Configure and draw the legend.
                 chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
