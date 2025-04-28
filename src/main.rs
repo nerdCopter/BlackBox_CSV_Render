@@ -52,6 +52,9 @@ const EXCLUDE_START_S: f64 = 5.0; // Exclude this many seconds from the start of
 const EXCLUDE_END_S: f64 = 5.0; // Exclude this many seconds from the end of the log
 // Removed MIN_THROTTLE_PERCENT as we are not using it for step response filtering
 
+// Constant for post-averaging smoothing of the step response curves.
+const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; // Moving average window size (in samples)
+
 
 // Helper function to calculate plot range with 15% padding on each side.
 // Uses a fixed padding if the range is very small to avoid excessive zoom.
@@ -351,6 +354,37 @@ fn moving_average_smooth_array(data: &Array1<f32>, window_size: usize) -> Array1
     }
     smoothed_data
 }
+
+/// Applies a moving average filter to smooth a 1D array of f64.
+fn moving_average_smooth_f64(data: &Array1<f64>, window_size: usize) -> Array1<f64> {
+    if window_size <= 1 || data.is_empty() {
+        return data.to_owned(); // No smoothing needed or possible.
+    }
+
+    let mut smoothed_data = Array1::<f64>::zeros(data.len());
+    let mut current_sum: f64 = 0.0;
+    let mut history: VecDeque<f64> = VecDeque::with_capacity(window_size);
+
+    for (i, &val) in data.iter().enumerate() {
+        history.push_back(val);
+        current_sum += val;
+
+        if history.len() > window_size {
+            if let Some(old_val) = history.pop_front() {
+                current_sum -= old_val;
+            }
+        }
+
+        let current_window_len = history.len() as f64;
+        if current_window_len > 0.0 {
+            smoothed_data[i] = current_sum / current_window_len;
+        } else {
+            smoothed_data[i] = 0.0;
+        }
+    }
+    smoothed_data
+}
+
 
 /// Creates a 2D histogram from 1D arrays of x, y, and weights.
 /// Returns a struct containing the histogram data and scales.
@@ -1293,6 +1327,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Check if calculation succeeded and returned data for this axis.
             if let Some((response_time, low_response_avg, high_response_avg)) = &step_response_results[axis_index] {
 
+                // Apply post-averaging smoothing to the calculated response curves.
+                let smoothed_low_response = moving_average_smooth_f64(&low_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
+                let smoothed_high_response = moving_average_smooth_f64(&high_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
+
+
                 // We are plotting the calculated low and high step response curves directly.
                 // The time vector is `response_time`.
 
@@ -1306,13 +1345,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                  let mut resp_min = f64::INFINITY;
                  let mut resp_max = f64::NEG_INFINITY;
 
-                 if !low_response_avg.is_empty() {
-                     resp_min = resp_min.min(low_response_avg.min().cloned().unwrap_or(f64::INFINITY));
-                     resp_max = resp_max.max(low_response_avg.max().cloned().unwrap_or(f64::NEG_INFINITY));
+                 if !smoothed_low_response.is_empty() {
+                     resp_min = resp_min.min(smoothed_low_response.min().cloned().unwrap_or(f64::INFINITY));
+                     resp_max = resp_max.max(smoothed_low_response.max().cloned().unwrap_or(f64::NEG_INFINITY));
                  }
-                 if !high_response_avg.is_empty() {
-                     resp_min = resp_min.min(high_response_avg.min().cloned().unwrap_or(f64::INFINITY));
-                     resp_max = resp_max.max(high_response_avg.max().cloned().unwrap_or(f64::NEG_INFINITY)); // Fix: Changed NEG_NEG_INFINITY to NEG_INFINITY
+                 if !smoothed_high_response.is_empty() {
+                     resp_min = resp_min.min(smoothed_high_response.min().cloned().unwrap_or(f64::INFINITY));
+                     resp_max = resp_max.max(smoothed_high_response.max().cloned().unwrap_or(f64::NEG_INFINITY)); // Fix: Changed NEG_NEG_INFINITY to NEG_INFINITY
                  }
 
 
@@ -1346,10 +1385,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .draw()?;
 
                 // Draw the low setpoint (< 500 deg/s) step response line
-                if !low_response_avg.is_empty() {
+                if !smoothed_low_response.is_empty() {
                     let low_sp_color_ref = &step_response_color_low_sp; // Reference for closure
                     chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(low_response_avg.iter()).map(|(&t, &v)| (t, v)),
+                        response_time.iter().zip(smoothed_low_response.iter()).map(|(&t, &v)| (t, v)),
                         low_sp_color_ref,
                     ))?
                     .label(format!("< {} deg/s", SETPOINT_THRESHOLD_PLOT)) // Add label for the legend.
@@ -1358,10 +1397,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
                 // Draw the high setpoint (>= 500 deg/s) step response line
-                if !high_response_avg.is_empty() {
+                if !smoothed_high_response.is_empty() {
                     let high_sp_color_ref = step_response_color_high_sp; // Reference for closure
                     chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(high_response_avg.iter()).map(|(&t, &v)| (t, v)),
+                        response_time.iter().zip(smoothed_high_response.iter()).map(|(&t, &v)| (t, v)),
                         high_sp_color_ref,
                     ))?
                     .label(format!("\u{2265} {} deg/s", SETPOINT_THRESHOLD_PLOT)) // Add label for the legend (using >= symbol)
