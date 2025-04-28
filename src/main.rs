@@ -44,6 +44,9 @@ const CUTOFF_FREQUENCY_HZ: f64 = 25.0; // Cutoff frequency for Wiener filter noi
 const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning window)
 const SETPOINT_THRESHOLD: f64 = 500.0; // Threshold for low/high setpoint masking
 
+// Constant for filtering data based on movement.
+const MOVEMENT_THRESHOLD_DEG_S: f64 = 50.0; // Example: Consider movement if setpoint or gyro exceeds 50 deg/s
+
 // Helper function to calculate plot range with 15% padding on each side.
 // Uses a fixed padding if the range is very small to avoid excessive zoom.
 fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
@@ -1067,14 +1070,34 @@ fn main() -> Result<(), Box<dyn Error>> {
             if step_response_input_available[axis_index] {
                 println!("  Calculating step response for Axis {}...", axis_index);
                  // Get references to the input data vectors for this axis.
-                let time_arr = Array1::from(step_response_input_data[axis_index].0.clone()); // Clone to convert to Array1 // Fix: Renamed times_arr to time_arr
-                let setpoints_arr = Array1::from(step_response_input_data[axis_index].1.clone());
-                let gyros_filtered_arr = Array1::from(step_response_input_data[axis_index].2.clone());
+                let time_vec = &step_response_input_data[axis_index].0;
+                let setpoints_vec = &step_response_input_data[axis_index].1;
+                let gyros_filtered_vec = &step_response_input_data[axis_index].2;
 
-                // Check if there are enough data points for windowing.
+                // --- Filter data based on movement threshold ---
+                let mut movement_time_vec = Vec::new();
+                let mut movement_setpoints_vec = Vec::new();
+                let mut movement_gyros_filtered_vec = Vec::new();
+
+                for i in 0..time_vec.len() {
+                    if let (Some(&setpoint), Some(&gyro)) = (setpoints_vec.get(i), gyros_filtered_vec.get(i)) {
+                        if setpoint.abs() >= MOVEMENT_THRESHOLD_DEG_S as f32 || gyro.abs() >= MOVEMENT_THRESHOLD_DEG_S as f32 {
+                            movement_time_vec.push(time_vec[i]);
+                            movement_setpoints_vec.push(setpoints_vec[i]);
+                            movement_gyros_filtered_vec.push(gyros_filtered_vec[i]);
+                        }
+                    }
+                }
+
+                let time_arr = Array1::from(movement_time_vec);
+                let setpoints_arr = Array1::from(movement_setpoints_vec);
+                let gyros_filtered_arr = Array1::from(movement_gyros_filtered_vec);
+
+
+                // Check if there are enough data points for windowing after filtering.
                 let min_required_samples = (FRAME_LENGTH_S * sr).ceil() as usize;
-                if time_arr.len() >= min_required_samples { // Fix: Changed times_arr to time_arr
-                    match calculate_step_response_python_style(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) { // Fix: Changed ×_arr to ×_arr
+                if time_arr.len() >= min_required_samples {
+                    match calculate_step_response_python_style(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) {
                         Ok(result) => {
                             // Check if the calculated responses are non-empty.
                             if !result.0.is_empty() && (!result.1.is_empty() || !result.2.is_empty()) {
@@ -1089,8 +1112,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                 } else {
-                     // Not enough data points for windowing.
-                     println!("    ... Skipping Axis {}: Not enough data points ({}) for windowing (need at least {}).", axis_index, time_arr.len(), min_required_samples); // Fix: Changed times_arr to time_arr
+                     // Not enough data points for windowing after filtering.
+                     println!("    ... Skipping Axis {}: Not enough movement data points ({}) for windowing (need at least {}).", axis_index, time_arr.len(), min_required_samples);
                 }
             } else {
                  // Input data was missing (Setpoint or Gyro (filtered) header likely not found).
