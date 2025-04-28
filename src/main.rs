@@ -7,6 +7,7 @@ use std::path::Path; // For working with file paths.
 use std::fs::File; // For file operations (opening files).
 use std::io::BufReader; // For buffered reading, improving file I/O performance.
 use std::collections::VecDeque; // For efficient moving average window.
+use std::cmp::Ordering; // Import Ordering for comparisons
 
 // --- Dependencies for Step Response Calculation ---
 use realfft::num_complex::Complex32; // Complex number type for FFT results.
@@ -362,63 +363,69 @@ struct Hist2D {
     yscale: Array1<f64>,
 }
 
-#[allow(dead_code)] // Allow dead code for this function as it's not fully implemented/used yet
-fn create_hist2d(
-    x: &Array1<f64>,
-    y: &Array1<f64>,
-    weights: &Array2<f64>, // Weights are 2D, corresponding to the stacked data
-    bins: (usize, usize), // (nx, ny)
-    range: ([f64; 2], [f64; 2]), // ([xmin, xmax], [ymin, ymax])
+/// Creates a 2D histogram from a stack of response values (y) against time (x, implicit indices).
+/// Weights are applied to each window.
+/// Returns a struct containing the histogram data and scales.
+fn create_weighted_hist2d(
+    stacked_responses: &Array2<f32>, // Stack of step responses (windows x time)
+    weights: &Array1<f32>, // Weight for each window
+    response_time: &Array1<f64>, // Time vector for the response (0 to RESPONSE_LENGTH_S)
+    vertrange: [f64; 2], // [ymin, ymax] for the vertical axis (response value)
+    vertbins: usize, // Number of vertical bins
 ) -> Result<Hist2D, Box<dyn Error>> {
-    if x.len() != weights.shape()[0] || y.len() != weights.shape()[1] {
-         return Err("Input lengths mismatch for create_hist2d".into());
+    let num_windows = stacked_responses.shape()[0];
+    let response_len = stacked_responses.shape()[1];
+
+    if num_windows == 0 || response_len == 0 || weights.len() != num_windows || response_time.len() != response_len {
+        return Err("Input data mismatch for create_weighted_hist2d".into());
     }
 
-    let nx = bins.0;
-    let ny = bins.1;
-    let xmin = range.0[0];
-    let xmax = range.0[1];
-    let ymin = range.1[0];
-    let ymax = range.1[1];
+    let nx = response_len; // Number of horizontal bins equals the response length
+    let ny = vertbins;
+    let xmin = response_time[0];
+    let xmax = response_time[response_len - 1];
+    let ymin = vertrange[0];
+    let ymax = vertrange[1];
 
     let mut hist2d = Array2::<f64>::zeros((ny, nx)); // Note: histogram2d returns shape (ny, nx)
-    let mut xhist = Array1::<f64>::zeros(nx);
+    let mut xhist = Array1::<f64>::zeros(nx); // This will count how many weighted values fall into each time bin
 
-    // Simple manual binning for demonstration. A proper implementation would use a more efficient algorithm.
-    let dx = (xmax - xmin) / nx as f64;
     let dy = (ymax - ymin) / ny as f64;
 
-    for i in 0..weights.shape()[0] { // Iterate over windows
-        let current_x = x[i];
-        let x_bin = ((current_x - xmin) / dx).floor() as usize;
+    for i in 0..num_windows { // Iterate over windows
+        let weight = weights[i] as f64;
+        if weight <= 1e-9 { continue; } // Skip windows with near-zero weight
 
-        if x_bin < nx {
-            xhist[x_bin] += 1.0; // Count occurrences in x bin
-            for j in 0..weights.shape()[1] { // Iterate over time points in window
-                let current_y = y[j];
-                let current_weight = weights[[i, j]];
-                let y_bin = ((current_y - ymin) / dy).floor() as usize;
+        for j in 0..response_len { // Iterate over time points in the response
+            let response_value = stacked_responses[[i, j]] as f64;
 
-                if y_bin < ny {
-                    hist2d[[y_bin, x_bin]] += current_weight; // Add weighted value to 2D bin
-                }
+            // Check if the response value is within the vertical range
+            if response_value >= ymin && response_value <= ymax {
+                let y_bin = ((response_value - ymin) / dy).floor() as usize;
+                let y_bin = y_bin.min(ny - 1); // Clamp to the last bin if exactly on the upper edge
+
+                // The horizontal bin is simply the time index j
+                let x_bin = j;
+
+                hist2d[[y_bin, x_bin]] += weight; // Add the window's weight to the bin
+                xhist[x_bin] += weight; // Add the window's weight to the total weight for this time bin
             }
         }
     }
 
-    // Calculate normalized histogram
+    // Calculate normalized histogram (normalize each time slice by the total weight in that slice)
     let mut hist2d_norm = Array2::<f64>::zeros((ny, nx));
-    for j in 0..ny {
-        for i in 0..nx {
-            if xhist[i] > 1e-9 { // Avoid division by zero
-                hist2d_norm[[j, i]] = hist2d[[j, i]] / xhist[i];
+    for j in 0..nx { // Iterate over time bins (columns)
+        if xhist[j] > 1e-9 { // Avoid division by zero
+            for i in 0..ny { // Iterate over response value bins (rows)
+                hist2d_norm[[i, j]] = hist2d[[i, j]] / xhist[j];
             }
         }
     }
 
-    // Generate scales
-    let xscale = Array1::linspace(xmin, xmax, nx + 1);
-    let yscale = Array1::linspace(ymin, ymax, ny + 1);
+    // Generate scales (using bin centers for yscale for mode finding)
+    let xscale = Array1::linspace(xmin, xmax, nx); // Time scale matches response_time
+    let yscale = Array1::linspace(ymin + dy/2.0, ymax - dy/2.0, ny); // Y-scale represents bin centers
 
 
     Ok(Hist2D {
@@ -431,89 +438,54 @@ fn create_hist2d(
 }
 
 
-/// Calculates the weighted mode average of a stack of step responses.
-/// This is a simplified version of the Python logic, focusing on averaging based on weights.
-/// A true "mode" average would require finding peaks in a histogram.
+/// Calculates the weighted mode average of a stack of step responses using histogram-based mode finding.
+/// Returns the averaged step response curve.
 fn weighted_mode_avr(
     stacked_responses: &Array2<f32>, // Stack of step responses (windows x time)
     weights: &Array1<f32>, // Weight for each window
     response_time: &Array1<f64>, // Time vector for the response (0 to RESPONSE_LENGTH_S)
-    _vertrange: [f64; 2], // [ymin, ymax] for potential histogramming (not used in this simplified version) // Fix: Added underscore
-    _vertbins: usize, // Number of vertical bins (not used in this simplified version) // Fix: Added underscore
-) -> Result<(Array1<f64>, Array1<f64>, Option<Hist2D>), Box<dyn Error>> {
-    if stacked_responses.is_empty() || weights.is_empty() || stacked_responses.shape()[0] != weights.len() {
-        return Err("Input data mismatch for weighted_mode_avr".into());
-    }
-
+    vertrange: [f64; 2], // [ymin, ymax] for the vertical axis (response value)
+    vertbins: usize, // Number of vertical bins for the histogram
+) -> Result<Array1<f64>, Box<dyn Error>> { // Returns the averaged response curve (Array1<f64>)
     let num_windows = stacked_responses.shape()[0];
     let response_len = stacked_responses.shape()[1];
 
-    if response_len != response_time.len() {
-         return Err("Response time length mismatch".into());
+    if num_windows == 0 || response_len == 0 || weights.len() != num_windows || response_time.len() != response_len {
+        return Err("Input data mismatch for weighted_mode_avr".into());
     }
 
-    // Calculate weighted average at each time point
-    let mut average_response = Array1::<f64>::zeros(response_len);
-    let mut variance_response = Array1::<f64>::zeros(response_len); // For standard deviation
+    // 1. Create the weighted 2D histogram.
+    let hist_result = create_weighted_hist2d(
+        stacked_responses,
+        weights,
+        response_time,
+        vertrange,
+        vertbins,
+    )?;
 
-    let total_weight: f64 = weights.iter().map(|&w| w as f64).sum();
-    if total_weight < 1e-9 {
-         // If total weight is near zero, return zeros and indicate no meaningful average.
-         return Ok((Array1::zeros(response_len), Array1::zeros(response_len), None));
-    }
+    let hist2d_norm = hist_result.hist2d_norm;
+    let yscale = hist_result.yscale; // Y-scale represents the center of the vertical bins
 
+    // 2. Find the mode (peak) in each time slice (column) of the normalized histogram.
+    let mut mode_response = Array1::<f64>::zeros(response_len);
 
-    for j in 0..response_len { // Iterate over time points in the response
-        let mut weighted_sum = 0.0;
-        let mut sum_of_weights = 0.0;
-        let mut values_at_time_j = Vec::new(); // Collect values for variance
+    for j in 0..response_len { // Iterate over time slices (columns)
+        let column = hist2d_norm.column(j);
+        let _max_weight_in_slice = 0.0; // Fix: Added underscore and removed mut
+        let mut mode_y_value = 0.0; // Default to 0 if no data in slice
 
-        for i in 0..num_windows { // Iterate over windows
-            let value = stacked_responses[[i, j]] as f64;
-            let weight = weights[i] as f64;
-
-            if value.is_finite() && weight.is_finite() && weight > 0.0 {
-                weighted_sum += value * weight;
-                sum_of_weights += weight;
-                values_at_time_j.push(value);
-            }
+        // Find the index of the maximum weight in the current time slice
+        if let Some((max_idx, &max_weight)) = column.indexed_iter().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal)) {
+             if max_weight > 1e-9 { // Only consider non-zero peaks
+                 // The mode response value is the center of the y-bin with the maximum weight
+                 mode_y_value = yscale[max_idx];
+             }
         }
-
-        if sum_of_weights > 1e-9 {
-            average_response[j] = weighted_sum / sum_of_weights;
-
-            // Calculate weighted variance
-            let mut weighted_variance_sum = 0.0;
-            for i in 0..num_windows {
-                 let value = stacked_responses[[i, j]] as f64;
-                 let weight = weights[i] as f64;
-                 if value.is_finite() && weight.is_finite() && weight > 0.0 {
-                     weighted_variance_sum += weight * (value - average_response[j]).powi(2);
-                 }
-            }
-            // Use sample variance formula (N-1 in denominator, but weighted)
-            // A common weighted variance formula: sum(w * (x - mean)^2) / (sum(w) * (N - 1) / N)
-            // Or simpler: sum(w * (x - mean)^2) / (sum(w) - sum(w^2)/sum(w))
-            // Let's use a simpler approximation for now: sum(w * (x - mean)^2) / sum(w)
-            // This is the population variance. For sample variance, it's more complex.
-            // Let's use the sum(w * (x - mean)^2) / sum(w) for simplicity, as in some weighted variance definitions.
-            if sum_of_weights > 1e-9 {
-                 variance_response[j] = weighted_variance_sum / sum_of_weights;
-            } else {
-                 variance_response[j] = 0.0; // Avoid division by zero
-            }
-        } else {
-            average_response[j] = 0.0; // No valid data for this time point
-            variance_response[j] = 0.0;
-        }
+        mode_response[j] = mode_y_value;
     }
 
-    // Standard deviation is the square root of variance
-    let std_dev_response = variance_response.mapv(|v| v.sqrt());
-
-    // Note: This simplified version does not return the histogram data, so the third element is None.
-    // Implementing the full histogram-based mode finding is more complex.
-    Ok((average_response, std_dev_response, None))
+    // Return the calculated mode response curve.
+    Ok(mode_response)
 }
 
 
@@ -628,26 +600,26 @@ pub fn calculate_step_response_python_style(
     // We need a time vector for the response plot (0 to RESPONSE_LENGTH_S).
     let response_time = Array1::linspace(0.0, RESPONSE_LENGTH_S, response_length_samples);
 
-    // Calculate weighted average for low setpoint windows.
-    let (low_response_avg, _low_response_std, _low_hist) = weighted_mode_avr(
+    // Calculate weighted mode average for low setpoint windows.
+    let low_response_mode_avg = weighted_mode_avr(
         &valid_stacked_responses,
         &low_mask, // Use low_mask as weights
         &response_time.mapv(|t| t as f64), // Convert time to f64 for weighted_mode_avr
         [-2.0, 2.0], // Example vertical range for potential histogramming
-        1000, // Example vertical bins
+        100, // Example vertical bins (reduced for simplicity, adjust as needed)
     )?;
 
-    // Calculate weighted average for high setpoint windows.
-    let (high_response_avg, _high_response_std, _high_hist) = weighted_mode_avr(
+    // Calculate weighted mode average for high setpoint windows.
+    let high_response_mode_avg = weighted_mode_avr(
         &valid_stacked_responses,
         &high_mask, // Use high_mask as weights
         &response_time.mapv(|t| t as f64), // Convert time to f64 for weighted_mode_avr
         [-2.0, 2.0], // Example vertical range
-        1000, // Example vertical bins
+        100, // Example vertical bins (reduced for simplicity, adjust as needed)
     )?;
 
     // 5. Return the calculated step responses and the response time vector.
-    Ok((response_time.mapv(|t| t as f64), low_response_avg, high_response_avg))
+    Ok((response_time.mapv(|t| t as f64), low_response_mode_avg, high_response_mode_avg))
 }
 
 // --- END: Step Response Calculation Functions ---
@@ -1340,7 +1312,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                  }
                  if !high_response_avg.is_empty() {
                      resp_min = resp_min.min(high_response_avg.min().cloned().unwrap_or(f64::INFINITY));
-                     resp_max = resp_max.max(high_response_avg.max().cloned().unwrap_or(f64::NEG_INFINITY));
+                     resp_max = resp_max.max(high_response_avg.max().cloned().unwrap_or(f64::NEG_INFINITY)); // Fix: Changed NEG_NEG_INFINITY to NEG_INFINITY
                  }
 
 
@@ -1491,7 +1463,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
                     .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
             } else {
-                // Data not available for this axis, draw placeholder.
+                // Data not available for this axis. Determine the reason.
                 let reason = if !gyro_header_found[axis_index] {
                     "gyroADC Header Missing" // Filtered gyro is essential
                  } else {
