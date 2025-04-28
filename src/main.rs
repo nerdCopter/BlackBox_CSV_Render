@@ -27,6 +27,7 @@ struct LogRowData {
     gyro: [Option<f64>; 3],       // Gyroscope readings (filtered) [Roll, Pitch, Yaw]. Header example: "gyroADC[0]".
     gyro_unfilt: [Option<f64>; 3], // Unfiltered Gyroscope readings [Roll, Pitch, Yaw]. Header example: "gyroUnfilt[0]". Fallback: debug[0..2]. Default: 0.0
     debug: [Option<f64>; 4],      // Debug values [0..3]. Header example: "debug[0]".
+    throttle: Option<f64>,       // Throttle percentage. Header example: "throttle". (Added for filtering)
 }
 
 // Define constants for plot dimensions.
@@ -44,8 +45,12 @@ const CUTOFF_FREQUENCY_HZ: f64 = 25.0; // Cutoff frequency for Wiener filter noi
 const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning window)
 const SETPOINT_THRESHOLD: f64 = 500.0; // Threshold for low/high setpoint masking
 
-// Constant for filtering data based on movement.
-const MOVEMENT_THRESHOLD_DEG_S: f64 = 50.0; // Example: Consider movement if setpoint or gyro exceeds 50 deg/s
+// Constants for filtering data based on movement and flight phase.
+const MOVEMENT_THRESHOLD_DEG_S: f64 = 50.0; // Consider movement if setpoint or gyro exceeds this magnitude
+const EXCLUDE_START_S: f64 = 5.0; // Exclude this many seconds from the start of the log
+const EXCLUDE_END_S: f64 = 5.0; // Exclude this many seconds from the end of the log
+// Removed MIN_THROTTLE_PERCENT as we are not using it for step response filtering
+
 
 // Helper function to calculate plot range with 15% padding on each side.
 // Uses a fixed padding if the range is very small to avoid excessive zoom.
@@ -497,8 +502,6 @@ fn weighted_mode_avr(
             } else {
                  variance_response[j] = 0.0; // Avoid division by zero
             }
-
-
         } else {
             average_response[j] = 0.0; // No valid data for this time point
             variance_response[j] = 0.0;
@@ -518,17 +521,17 @@ fn weighted_mode_avr(
 /// Input: Raw time, setpoint and gyro data, sample rate.
 /// Output: Tuple of (response_time, low_setpoint_response, high_setpoint_response) or an error.
 pub fn calculate_step_response_python_style(
-    time: &Array1<f64>, // Need time for relative time and windowing // Fix: Changed times to time
+    time: &Array1<f64>, // Need time for relative time and windowing
     setpoint: &Array1<f32>,
     gyro_filtered: &Array1<f32>,
     sample_rate: f64,
 ) -> Result<(Array1<f64>, Array1<f64>, Array1<f64>), Box<dyn Error>> { // Returns (response_time, low_resp, high_resp)
     // Basic input validation.
-    if time.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || time.len() != setpoint.len() || sample_rate <= 0.0 { // Fix: Changed times to time
+    if time.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || time.len() != setpoint.len() || sample_rate <= 0.0 {
         return Err("Invalid input to calculate_step_response_python_style: Empty data, length mismatch, or invalid sample rate.".into());
     }
 
-    let _total_len = time.len(); // Fix: Changed times to time, Added underscore
+    let _total_len = time.len(); // Added underscore
     let _dt = 1.0 / sample_rate; // Added underscore
 
     // Calculate window lengths in samples.
@@ -681,6 +684,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         "gyroUnfilt[0]", "gyroUnfilt[1]", "gyroUnfilt[2]",
         // Debug Data (19-22)
         "debug[0]", "debug[1]", "debug[2]", "debug[3]",
+        // Throttle (23) - Added for filtering
+        "throttle",
     ];
 
     // Flags to track if specific optional or plot-dependent headers are found.
@@ -689,6 +694,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut gyro_header_found = [false; 3]; // Tracks if "gyroADC[axis]" is present (filtered gyro).
     let mut gyro_unfilt_header_found = [false; 3]; // Tracks if "gyroUnfilt[axis]" is present.
     let mut debug_header_found = [false; 4]; // Tracks if "debug[idx]" is present.
+    let mut throttle_header_found = false; // Tracks if "throttle" is present.
 
 
     // Read the CSV header row and map target headers to their column indices.
@@ -804,6 +810,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("  '{}' (Target Index {}): {}", name, target_idx, status);
         }
 
+        // Check throttle header (Target index 23).
+        let throttle_name = target_headers[23];
+        let throttle_status = match indices[23] {
+            Some(idx) => {
+                throttle_header_found = true; // Mark as found if present.
+                format!("Found at index {}", idx)
+            }
+            None => format!("Not Found (Optional, used for filtering 'in-flight' data)"),
+        };
+        println!("  '{}' (Target Index {}): {}", throttle_name, 23, throttle_status);
+
 
         // Exit if any essential header for the basic PIDsum plot is missing.
         if !essential_pid_headers_found {
@@ -913,6 +930,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         };
                     }
 
+                    // --- Parse Throttle ---
+                    // Throttle is target index 23. Only parse if the header was found.
+                    if throttle_header_found {
+                        current_row_data.throttle = parse_f64_by_target_idx(23);
+                    } // Otherwise, it remains None (default).
+
+
                     // Store the parsed data for this row.
                     all_log_data.push(current_row_data);
                 }
@@ -952,6 +976,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("INFO: 'debug[{}]' header was not found. Data will be None (unless used as fallback for gyroUnfilt).", idx_offset);
         }
     }
+    if !throttle_header_found {
+         println!("INFO: 'throttle' header was not found. Cannot use throttle-based filtering for step response calculation.");
+    }
 
 
     // Exit if no valid data rows were read.
@@ -962,6 +989,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Calculate Average Sample Rate ---
     let mut sample_rate: Option<f64> = None;
+    let mut first_time: Option<f64> = None;
+    let mut last_time: Option<f64> = None;
+
     if all_log_data.len() > 1 {
         let mut total_delta = 0.0; // Sum of time differences between consecutive valid samples.
         let mut count = 0; // Number of valid time differences calculated.
@@ -982,6 +1012,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             sample_rate = Some(1.0 / avg_delta); // Sample rate is the inverse of average delta time.
             println!("Estimated Sample Rate: {:.2} Hz", sample_rate.unwrap());
         }
+
+        // Get first and last time for time-based filtering
+        first_time = all_log_data.first().and_then(|row| row.time_sec);
+        last_time = all_log_data.last().and_then(|row| row.time_sec);
+
     }
     if sample_rate.is_none() {
          println!("Warning: Could not determine sample rate (need >= 2 data points with distinct timestamps). Step response calculation might fail or be inaccurate.");
@@ -1039,11 +1074,31 @@ fn main() -> Result<(), Box<dyn Error>> {
                  if setpoint_header_found[axis_index] && gyro_header_found[axis_index] {
                      // Use row.gyro (filtered gyro) for step response calculation.
                      if let (Some(setpoint), Some(gyro_filt)) = (row.setpoint[axis_index], row.gyro[axis_index]) {
-                        // Append data to the respective vectors within the tuple for this axis.
-                        step_response_input_data[axis_index].0.push(time); // Time (f64)
-                        step_response_input_data[axis_index].1.push(setpoint as f32); // Setpoint (f32)
-                        step_response_input_data[axis_index].2.push(gyro_filt as f32); // Filtered Gyro (f32)
-                        step_response_input_available[axis_index] = true; // Mark that input data exists for this axis.
+
+                         // --- Apply Filtering for Step Response Input Data ---
+                         let mut include_point = false;
+                         if let (Some(first), Some(last)) = (first_time, last_time) {
+                             // Time-based exclusion (exclude start and end periods)
+                             if time >= first + EXCLUDE_START_S && time <= last - EXCLUDE_END_S {
+                                 // Movement threshold check (setpoint or gyro magnitude)
+                                 if setpoint.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_filt.abs() >= MOVEMENT_THRESHOLD_DEG_S {
+                                     include_point = true;
+                                 }
+                             }
+                         } else {
+                             // If first/last time is unknown (e.g., very short log), include based on movement only
+                             if setpoint.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_filt.abs() >= MOVEMENT_THRESHOLD_DEG_S {
+                                  include_point = true;
+                             }
+                         }
+
+                         if include_point {
+                             // Append data to the respective vectors within the tuple for this axis.
+                             step_response_input_data[axis_index].0.push(time); // Time (f64)
+                             step_response_input_data[axis_index].1.push(setpoint as f32); // Setpoint (f32)
+                             step_response_input_data[axis_index].2.push(gyro_filt as f32); // Filtered Gyro (f32)
+                             step_response_input_available[axis_index] = true; // Mark that input data exists for this axis.
+                         }
                      }
                  }
 
@@ -1070,31 +1125,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             if step_response_input_available[axis_index] {
                 println!("  Calculating step response for Axis {}...", axis_index);
                  // Get references to the input data vectors for this axis.
-                let time_vec = &step_response_input_data[axis_index].0;
-                let setpoints_vec = &step_response_input_data[axis_index].1;
-                let gyros_filtered_vec = &step_response_input_data[axis_index].2;
+                let time_arr = Array1::from(step_response_input_data[axis_index].0.clone()); // Clone to convert to Array1
+                let setpoints_arr = Array1::from(step_response_input_data[axis_index].1.clone());
+                let gyros_filtered_arr = Array1::from(step_response_input_data[axis_index].2.clone());
 
-                // --- Filter data based on movement threshold ---
-                let mut movement_time_vec = Vec::new();
-                let mut movement_setpoints_vec = Vec::new();
-                let mut movement_gyros_filtered_vec = Vec::new();
-
-                for i in 0..time_vec.len() {
-                    if let (Some(&setpoint), Some(&gyro)) = (setpoints_vec.get(i), gyros_filtered_vec.get(i)) {
-                        if setpoint.abs() >= MOVEMENT_THRESHOLD_DEG_S as f32 || gyro.abs() >= MOVEMENT_THRESHOLD_DEG_S as f32 {
-                            movement_time_vec.push(time_vec[i]);
-                            movement_setpoints_vec.push(setpoints_vec[i]);
-                            movement_gyros_filtered_vec.push(gyros_filtered_vec[i]);
-                        }
-                    }
-                }
-
-                let time_arr = Array1::from(movement_time_vec);
-                let setpoints_arr = Array1::from(movement_setpoints_vec);
-                let gyros_filtered_arr = Array1::from(movement_gyros_filtered_vec);
-
-
-                // Check if there are enough data points for windowing after filtering.
+                // Check if there are enough data points for windowing.
                 let min_required_samples = (FRAME_LENGTH_S * sr).ceil() as usize;
                 if time_arr.len() >= min_required_samples {
                     match calculate_step_response_python_style(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) {
