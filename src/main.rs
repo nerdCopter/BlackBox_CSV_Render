@@ -322,39 +322,6 @@ fn cumulative_sum(data: &Array1<f32>) -> Array1<f32> {
     cumulative
 }
 
-/// Applies a moving average filter to smooth the input data.
-#[allow(dead_code)] // Allow dead code for this function as it's not used in the new calculation
-fn moving_average_smooth_array(data: &Array1<f32>, window_size: usize) -> Array1<f32> {
-    if window_size <= 1 || data.is_empty() {
-        return data.to_owned(); // No smoothing needed or possible.
-    }
-
-    let mut smoothed_data = Array1::<f32>::zeros(data.len());
-    let mut current_sum: f32 = 0.0;
-    let mut history: VecDeque<f32> = VecDeque::with_capacity(window_size); // Window buffer.
-
-    for (i, &val) in data.iter().enumerate() {
-        history.push_back(val); // Add new value to window.
-        current_sum += val; // Update sum.
-
-        // If window is full, remove the oldest element.
-        if history.len() > window_size {
-            if let Some(old_val) = history.pop_front() { // Safely remove oldest value.
-                 current_sum -= old_val; // Update sum.
-            }
-        }
-
-        // Calculate average over the current window size (handles initial partial windows).
-        let current_window_len = history.len() as f32;
-        if current_window_len > 0.0 {
-            smoothed_data[i] = current_sum / current_window_len;
-        } else {
-            smoothed_data[i] = 0.0; // Should not happen if data is not empty.
-        }
-    }
-    smoothed_data
-}
-
 /// Applies a moving average filter to smooth a 1D array of f64.
 fn moving_average_smooth_f64(data: &Array1<f64>, window_size: usize) -> Array1<f64> {
     if window_size <= 1 || data.is_empty() {
