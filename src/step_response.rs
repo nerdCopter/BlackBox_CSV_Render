@@ -1,7 +1,6 @@
 // src/step_response.rs
 
 use ndarray::{Array1, Array2, s};
-// Removed ndarray_stats::QuantileExt as .mean() is in ndarray
 use realfft::num_complex::Complex32;
 use realfft::RealFftPlanner;
 use std::cmp::Ordering;
@@ -155,11 +154,10 @@ fn wiener_deconvolution_window(
         padded.slice_mut(s![0..n]).assign(input_window);
         padded
     };
-    let output_padded = {
-        let mut padded = Array1::<f32>::zeros(padded_n);
-        padded.slice_mut(s![0..n]).assign(output_window);
-        padded
-    };
+    // Corrected assignment:
+    let mut output_padded = Array1::<f32>::zeros(padded_n);
+    output_padded.slice_mut(s![0..n]).assign(output_window);
+
 
     let h_spec = fft_forward(&input_padded);
     let g_spec = fft_forward(&output_padded);
@@ -385,13 +383,13 @@ fn weighted_mode_avr(
 
 /// Calculates the system's step response using windowing, deconvolution, and averaging.
 /// Input: Raw time, setpoint and gyro data, sample rate.
-/// Output: Tuple of (response_time, low_setpoint_response, high_setpoint_response) or an error.
+/// Output: Tuple of (response_time, low_setpoint_response, high_setpoint_response, combined_response) or an error.
 pub fn calculate_step_response_python_style(
     time: &Array1<f64>, // Need time for relative time and windowing
     setpoint: &Array1<f32>,
     gyro_filtered: &Array1<f32>,
     sample_rate: f64,
-) -> Result<(Array1<f64>, Array1<f64>, Array1<f64>), Box<dyn Error>> { // Returns (response_time, low_resp, high_resp)
+) -> Result<(Array1<f64>, Array1<f64>, Array1<f64>, Array1<f64>), Box<dyn Error>> { // Updated return type
     if time.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || time.len() != setpoint.len() || sample_rate <= 0.0 {
         return Err("Invalid input to calculate_step_response_python_style: Empty data, length mismatch, or invalid sample rate.".into());
     }
@@ -514,6 +512,9 @@ pub fn calculate_step_response_python_style(
     // 3. Implement Setpoint Masking for QC Windows.
     let low_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v < SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
     let high_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v >= SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
+    // Create a mask for all QC windows (all 1.0s)
+    let combined_mask: Array1<f32> = Array1::ones(num_qc_windows);
+
 
     // 4. Implement Weighted Mode Averaging.
     // Time vector for the response plot (0 to RESPONSE_LENGTH_S).
@@ -537,5 +538,15 @@ pub fn calculate_step_response_python_style(
         100, // Example vertical bins
     )?;
 
-    Ok((response_time.mapv(|t| t as f64), low_response_mode_avg, high_response_mode_avg))
+    // Calculate weighted mode average for ALL QC windows.
+     let combined_response_mode_avg = weighted_mode_avr(
+        &valid_stacked_responses,
+        &combined_mask, // Use the combined mask
+        &response_time.mapv(|t| t as f64),
+        [-2.0, 2.0], // Example vertical range
+        100, // Example vertical bins
+    )?;
+
+
+    Ok((response_time.mapv(|t| t as f64), low_response_mode_avg, high_response_mode_avg, combined_response_mode_avg)) // Updated return tuple
 }

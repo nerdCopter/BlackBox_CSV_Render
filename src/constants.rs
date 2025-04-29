@@ -2,6 +2,7 @@
 
 use plotters::prelude::full_palette::ORANGE;
 use plotters::style::RGBColor;
+use plotters::prelude::RED; // Import RED
 
 // Plot dimensions.
 pub const PLOT_WIDTH: u32 = 1920;
@@ -33,11 +34,12 @@ pub const STEADY_STATE_END_S: f64 = 0.5; // End time for steady-state check with
 pub const STEADY_STATE_MIN_VAL: f64 = 0.5; // Minimum allowed value in steady-state for quality control
 pub const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-state for quality control
 
-// Plot colors (can be defined here or in main) - defining here for consistency
+// Plot colors
 pub const COLOR_PIDSUM: usize = 1;
 pub const COLOR_SETPOINT: usize = 2;
 pub const COLOR_PIDSUM_VS_SETPOINT: usize = 0;
 pub const COLOR_STEP_RESPONSE_LOW_SP: usize = 3;
 pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE;
+pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED; // New color for combined response
 pub const COLOR_GYRO_UNFILT: usize = 4;
 pub const COLOR_GYRO_FILT: usize = 5;

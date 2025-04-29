@@ -322,7 +322,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Calculate Step Response Data ---
     println!("\n--- Calculating Step Response ---");
-    let mut step_response_results: [Option<(Array1<f64>, Array1<f64>, Array1<f64>)>; 3] = [None, None, None];
+    // Updated type to store the fourth combined response array
+    let mut step_response_results: [Option<(Array1<f64>, Array1<f64>, Array1<f64>, Array1<f64>)>; 3] = [None, None, None];
 
      if let Some(sr) = sample_rate {
         for axis_index in 0..3 {
@@ -334,10 +335,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 let min_required_samples = (FRAME_LENGTH_S * sr).ceil() as usize;
                 if time_arr.len() >= min_required_samples {
+                    // Call the updated calculation function
                     match calculate_step_response_python_style(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) {
                         Ok(result) => {
-                            if !result.0.is_empty() && (!result.1.is_empty() || !result.2.is_empty()) {
-                                step_response_results[axis_index] = Some(result);
+                            // Check if the calculated responses are non-empty.
+                            if !result.0.is_empty() && (!result.1.is_empty() || !result.2.is_empty() || !result.3.is_empty()) {
+                                step_response_results[axis_index] = Some(result); // Store the calculated data.
                                 println!("    ... Calculation successful for Axis {}.", axis_index);
                             } else {
                                 println!("    ... Calculation returned empty responses for Axis {}.", axis_index);
@@ -470,17 +473,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         let sub_plot_areas = root_area_step.split_evenly((3, 1));
 
         for axis_index in 0..3 {
-            let area = &sub_plot_areas[axis_index];
-            if let Some((response_time, low_response_avg, high_response_avg)) = &step_response_results[axis_index] {
+            // Retrieve the four arrays from the result tuple
+            if let Some((response_time, low_response_avg, high_response_avg, combined_response_avg)) = &step_response_results[axis_index] {
+                // Declare area here to be in scope for drawing
+                let area = &sub_plot_areas[axis_index];
 
-                // Apply post-averaging smoothing
+                // Apply post-averaging smoothing to all three responses
                 let smoothed_low_response = moving_average_smooth_f64(&low_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
                 let smoothed_high_response = moving_average_smooth_f64(&high_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
+                let smoothed_combined_response = moving_average_smooth_f64(&combined_response_avg, POST_AVERAGING_SMOOTHING_WINDOW); // Smooth combined response
 
                  let mut resp_min = f64::INFINITY;
                  let mut resp_max = f64::NEG_INFINITY;
 
-                 // Use QuantileExt methods on the smoothed arrays, handling the Result
+                 // Update range calculation to include the combined response
                  if let Ok(min_val) = smoothed_low_response.min() {
                      resp_min = resp_min.min(*min_val);
                  }
@@ -491,6 +497,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                      resp_min = resp_min.min(*min_val);
                  }
                  if let Ok(max_val) = smoothed_high_response.max() {
+                     resp_max = resp_max.max(*max_val);
+                 }
+                 if let Ok(min_val) = smoothed_combined_response.min() { // Include combined response
+                     resp_min = resp_min.min(*min_val);
+                 }
+                 if let Ok(max_val) = smoothed_combined_response.max() { // Include combined response
                      resp_max = resp_max.max(*max_val);
                  }
 
@@ -537,10 +549,25 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], high_sp_color.stroke_width(2)));
                 }
 
+                // Draw combined response (new line)
+                if !smoothed_combined_response.is_empty() {
+                    let combined_color = COLOR_STEP_RESPONSE_COMBINED;
+                    chart.draw_series(LineSeries::new(
+                        response_time.iter().zip(smoothed_combined_response.iter()).map(|(&t, &v)| (t, v)),
+                        combined_color.stroke_width(2), // Use the new color
+                    ))?
+                    .label("Combined") // New legend label
+                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], combined_color.stroke_width(2)));
+                }
+
+
+                // Configure and draw the legend.
                 chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
                     .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
 
             } else {
+                // Declare area here to be in scope for the unavailable message
+                let area = &sub_plot_areas[axis_index];
                 let reason = if !setpoint_header_found[axis_index] || !gyro_header_found[axis_index] {
                     "Setpoint/gyroADC Header Missing"
                  } else if sample_rate.is_none() {
