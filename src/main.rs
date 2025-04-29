@@ -12,7 +12,7 @@ use std::cmp::Ordering; // Import Ordering for comparisons
 // --- Dependencies for Step Response Calculation ---
 use realfft::num_complex::Complex32; // Complex number type for FFT results.
 use realfft::RealFftPlanner; // FFT planner for real-valued signals.
-use ndarray::{Array1, Array2, Axis}; // For multi-dimensional arrays (useful for window stacking and 2D histograms)
+use ndarray::{Array1, Array2}; // For multi-dimensional arrays (useful for window stacking and 2D histograms)
 use ndarray_stats::QuantileExt; // For finding min/max in ndarrays
 use ndarray::s; // Import the slicing macro
 
@@ -42,18 +42,26 @@ const STEP_RESPONSE_PLOT_DURATION_S: f64 = 0.5; // Example: 0.5 seconds
 const FRAME_LENGTH_S: f64 = 1.0; // Length of each window in seconds
 const RESPONSE_LENGTH_S: f64 = 0.5; // Length of the step response to keep from each window
 const SUPERPOSITION_FACTOR: usize = 16; // Number of overlapping windows within a frame length
-const CUTOFF_FREQUENCY_HZ: f64 = 25.0; // Cutoff frequency for Wiener filter noise spectrum
+#[allow(dead_code)]
+const CUTOFF_FREQUENCY_HZ: f64 = 25.0; // Cutoff frequency for Wiener filter noise spectrum (used in SN calculation, though simplified)
 const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning window)
 const SETPOINT_THRESHOLD: f64 = 500.0; // Threshold for low/high setpoint masking
 
 // Constants for filtering data based on movement and flight phase.
-const MOVEMENT_THRESHOLD_DEG_S: f64 = 50.0; // Consider movement if setpoint or gyro exceeds this magnitude
+const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0; // Minimum setpoint/gyro magnitude for a window to be considered for analysis (from PTstepcalc.m minInput)
 const EXCLUDE_START_S: f64 = 5.0; // Exclude this many seconds from the start of the log
 const EXCLUDE_END_S: f64 = 5.0; // Exclude this many seconds from the end of the log
 // Removed MIN_THROTTLE_PERCENT as we are not using it for step response filtering
 
 // Constant for post-averaging smoothing of the step response curves.
 const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; // Moving average window size (in samples)
+
+
+// Constants for individual window step response quality control (from PTstepcalc.m)
+const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check within the response window
+const STEADY_STATE_END_S: f64 = 0.5; // End time for steady-state check within the response window
+const STEADY_STATE_MIN_VAL: f64 = 0.5; // Minimum allowed value in steady-state for quality control
+const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-state for quality control
 
 
 // Helper function to calculate plot range with 15% padding on each side.
@@ -216,7 +224,7 @@ fn wiener_deconvolution_window(
     input_window: &Array1<f32>,
     output_window: &Array1<f32>,
     sample_rate: f64,
-    cutoff_frequency_hz: f64,
+    // Removed cutoff_frequency_hz as we are using constant regularization
 ) -> Array1<f32> {
     let n = input_window.len();
     if n == 0 || sample_rate <= 0.0 {
@@ -245,40 +253,23 @@ fn wiener_deconvolution_window(
          return Array1::zeros(n); // Return zeros if FFT failed
     }
 
-    let freq = fft_rfftfreq(padded_n, 1.0 / sample_rate as f32); // Frequencies for real FFT output
+    let _freq = fft_rfftfreq(padded_n, 1.0 / sample_rate as f32); // Frequencies for real FFT output
 
-    // Calculate noise spectrum (simplified based on Python logic)
-    let mut sn = Array1::<f32>::ones(freq.len());
-    // Attenuate frequencies above cutoff
-    for i in 0..freq.len() {
-        if freq[i] > cutoff_frequency_hz as f32 {
-            // Simple rolloff above cutoff
-            let factor = (freq[i] - cutoff_frequency_hz as f32) / (sample_rate as f32 / 2.0 - cutoff_frequency_hz as f32).max(1.0);
-            sn[i] = 1.0 / (10.0 * factor.max(0.1)); // Increase noise power for higher frequencies
-        }
-    }
-     // Apply Gaussian smoothing to the noise spectrum (simplified)
-     // This requires a 1D Gaussian filter implementation or a library.
-     // For now, we'll skip the Gaussian filter for simplicity and focus on the core Wiener formula.
-     // A proper implementation would use a library like `scipy.ndimage.gaussian_filter1d` equivalent.
-     // sn = gaussian_filter1d_rust(&sn, filter_width); // Placeholder for smoothing
+    // Use a small constant regularization term (from PTstepcalc.m 0.0001)
+    let regularization_term = 0.0001;
+    let epsilon = 1e-9; // Small value to prevent division by zero in the regularization term itself
 
-    let epsilon = 1e-9; // Small value to prevent division by zero
     let mut deconvolved_spec = Array1::<Complex32>::zeros(h_spec.len());
 
     for i in 0..h_spec.len() {
         let h = h_spec[i];
         let g = g_spec[i];
         let h_conj = h.conj();
-        let sn_val = sn[i]; // Use the calculated noise spectrum value
 
-        // Wiener filter formula: G * H* / (|H|^2 + Sn / Ss)
-        // Assuming signal power spectrum Ss is proportional to |H|^2, the term becomes Sn / |H|^2
-        // The Python code's `1. / sn` term in the denominator suggests it's using 1 / (Sn/Ss) where Ss is implicitly 1.
-        // Let's try to match the Python formula: G * H* / (|H|^2 + 1. / sn)
-        let denominator = (h * h_conj).re + (1.0 / (sn_val + epsilon)); // Add epsilon to sn_val too
+        // Wiener filter formula with constant regularization: G * H* / (|H|^2 + regularization_term)
+        let denominator = (h * h_conj).re + regularization_term;
 
-        if denominator.abs() > epsilon {
+        if denominator.abs() > epsilon { // Use epsilon for floating point comparison
             deconvolved_spec[i] = (g * h_conj) / denominator;
         } else {
             deconvolved_spec[i] = Complex32::new(0.0, 0.0); // Avoid division by zero
@@ -448,12 +439,12 @@ fn weighted_mode_avr(
     vertrange: [f64; 2], // [ymin, ymax] for the vertical axis (response value)
     vertbins: usize, // Number of vertical bins for the histogram
 ) -> Result<Array1<f64>, Box<dyn Error>> { // Returns the averaged response curve (Array1<f64>)
-    let num_windows = stacked_responses.shape()[0];
-    let response_len = stacked_responses.shape()[1];
-
-    if num_windows == 0 || response_len == 0 || weights.len() != num_windows || response_time.len() != response_len {
+    if stacked_responses.is_empty() || weights.is_empty() || stacked_responses.shape()[0] != weights.len() || response_time.len() != stacked_responses.shape()[1] {
         return Err("Input data mismatch for weighted_mode_avr".into());
     }
+
+    let _num_windows = stacked_responses.shape()[0];
+    let response_len = stacked_responses.shape()[1];
 
     // 1. Create the weighted 2D histogram.
     let hist_result = create_weighted_hist2d(
@@ -534,11 +525,22 @@ pub fn calculate_step_response_python_style(
     let stacked_output_windowed = &stacked_output * &window_func; // Fix: Element-wise multiplication
 
 
-    // Prepare storage for step responses from each window.
-    let mut stacked_step_responses = Array2::<f32>::zeros((num_windows, response_length_samples));
-    let mut window_max_setpoints = Array1::<f32>::zeros(num_windows); // To store max setpoint per window
+    // Prepare storage for step responses from each window that pass quality control.
+    let mut stacked_step_responses_qc: Vec<Array1<f32>> = Vec::new();
+    let mut window_max_setpoints_qc: Vec<f32> = Vec::new(); // To store max setpoint for QC windows
 
-    // 2. Perform Wiener deconvolution and cumulative sum for each window.
+    // Calculate steady-state window indices for quality control
+    let ss_start_sample = (STEADY_STATE_START_S * sample_rate).floor() as usize;
+    let ss_end_sample = (STEADY_STATE_END_S * sample_rate).ceil() as usize;
+    let ss_start_sample = ss_start_sample.min(response_length_samples);
+    let ss_end_sample = ss_end_sample.min(response_length_samples);
+
+    if ss_start_sample >= ss_end_sample {
+         eprintln!("Warning: Steady-state window for quality control is invalid (start >= end). Quality control will be skipped.");
+    }
+
+
+    // 2. Perform Wiener deconvolution and cumulative sum for each window, apply QC.
     for i in 0..num_windows {
         let input_window = stacked_input_windowed.row(i).to_owned();
         let output_window = stacked_output_windowed.row(i).to_owned();
@@ -546,14 +548,14 @@ pub fn calculate_step_response_python_style(
         // Calculate max setpoint in the original input window for masking later.
         // Use the original (non-windowed) input for the setpoint check.
         let original_input_window = stacked_input.row(i).to_owned();
-        window_max_setpoints[i] = original_input_window.iter().fold(0.0, |max_val, &v| max_val.max(v.abs()));
+        let max_setpoint_in_window = original_input_window.iter().fold(0.0f32, |max_val, &v| max_val.max(v.abs())); // Fix: Explicitly type 0.0 as f32
 
 
         let impulse_response = wiener_deconvolution_window(
             &input_window,
             &output_window,
             sample_rate,
-            CUTOFF_FREQUENCY_HZ,
+            // Removed cutoff_frequency_hz
         );
 
         // The impulse response length from Wiener deconvolution is padded_n, not frame_length_samples.
@@ -566,31 +568,65 @@ pub fn calculate_step_response_python_style(
              continue; // Skip this window if deconvolution failed or length is wrong
         }
 
-        let step_response = cumulative_sum(&impulse_response_truncated);
+        let mut step_response = cumulative_sum(&impulse_response_truncated);
 
-        // Truncate the step response to the desired response length.
-        if step_response.len() >= response_length_samples {
-            stacked_step_responses.row_mut(i).assign(&step_response.slice(s![0..response_length_samples]));
-        } else {
+        // Truncate the step response to the desired response length *before* normalization/QC check
+        if step_response.len() < response_length_samples {
              eprintln!("Warning: Step response shorter than response_length_samples for window {}. Skipping.", i);
              continue; // Skip if step response is too short
         }
+        let truncated_step_response = step_response.slice(s![0..response_length_samples]).to_owned();
+
+
+        // --- Individual Response Normalization (Y Correction) ---
+        let mut passes_qc = false;
+        if ss_start_sample < ss_end_sample { // Only perform QC if steady-state window is valid
+            let steady_state_segment = truncated_step_response.slice(s![ss_start_sample..ss_end_sample]);
+
+            if let Some(steady_state_mean) = steady_state_segment.mean() { // Fix: Removed & from pattern
+                 // --- Quality Control Check ---
+                 if steady_state_mean.is_finite() && steady_state_mean >= STEADY_STATE_MIN_VAL as f32 && steady_state_mean <= STEADY_STATE_MAX_VAL as f32 {
+                     // Normalize the entire truncated step response by the steady-state mean
+                     if steady_state_mean.abs() > 1e-9 { // Avoid division by zero
+                         step_response = truncated_step_response.mapv(|v| v / steady_state_mean);
+                         passes_qc = true;
+                     } else {
+                          eprintln!("Warning: Steady-state mean near zero for window {}. Skipping normalization and QC.", i);
+                     }
+                 } else {
+                      // Fails quality control
+                      // eprintln!("Info: Window {} failed QC. Steady-state mean: {:.2}", i, steady_state_mean);
+                 }
+            } else {
+                 eprintln!("Warning: Could not calculate steady-state mean for window {}. Skipping QC.", i);
+            }
+        } else {
+             // If QC window is invalid, skip QC but still add the response (unnormalized)
+             // Depending on desired strictness, you might want to skip the window entirely here.
+             // Let's skip for now to match the QC intent.
+             // eprintln!("Info: Window {} skipped QC due to invalid SS window.", i);
+        }
+
+        if passes_qc {
+             // Add the normalized (or unnormalized if QC skipped/failed) truncated response
+             stacked_step_responses_qc.push(step_response);
+             window_max_setpoints_qc.push(max_setpoint_in_window); // Store setpoint for this valid window
+        }
     }
 
-    // Filter out windows where deconvolution/processing failed (rows of zeros in stacked_step_responses)
-    let valid_window_indices: Vec<usize> = (0..num_windows)
-        .filter(|&i| stacked_step_responses.row(i).iter().any(|&v| v != 0.0)) // Keep windows that are not all zeros
-        .collect();
-
-    if valid_window_indices.is_empty() {
-         return Err("No valid step responses calculated from windows.".into());
+    let num_qc_windows = stacked_step_responses_qc.len();
+    if num_qc_windows == 0 {
+        return Err("No windows passed filtering and quality control.".into());
     }
 
-    let valid_stacked_responses = stacked_step_responses.select(Axis(0), &valid_window_indices);
-    let valid_window_max_setpoints = window_max_setpoints.select(Axis(0), &valid_window_indices);
+    // Convert Vec<Array1> to Array2 for weighted_mode_avr
+    let valid_stacked_responses = Array2::from_shape_fn((num_qc_windows, response_length_samples), |(i, j)| {
+        stacked_step_responses_qc[i][j]
+    });
+    let valid_window_max_setpoints = Array1::from(window_max_setpoints_qc);
 
 
-    // 3. Implement Setpoint Masking for Windows.
+    // 3. Implement Setpoint Masking for QC Windows.
     let low_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v < SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
     let high_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v >= SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
 
@@ -814,7 +850,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     { // Inner scope to ensure the file reader is dropped after reading.
         let file = File::open(input_file)?;
         let mut reader = ReaderBuilder::new()
-            .has_headers(true) // Skip the header row during data reading.
+            .has_headers(true) // First row is the header.
             .trim(csv::Trim::All)
             .from_reader(BufReader::new(file));
 
@@ -1174,7 +1210,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // Configure mesh lines and labels.
                 chart.configure_mesh().x_desc("Time (s)").y_desc("PIDsum").x_labels(10).y_labels(5)
                     .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
-                // Draw the PIDsum data as a line series.
+
+                // Draw PIDsum data as a line series.
                 chart.draw_series(LineSeries::new(
                     pid_output_data[axis_index].iter().cloned(), // Clone data points for the series.
                     &pidsum_plot_color,
@@ -1347,9 +1384,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .y_desc("Normalized Response")
                     .x_labels(8) // Adjusted labels for fixed duration
                     .y_labels(5)
-                    .light_line_style(&WHITE.mix(0.7))
-                    .label_style(("sans-serif", 12))
-                    .draw()?;
+                    .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
                 // Draw the low setpoint (< 500 deg/s) step response line
                 if !smoothed_low_response.is_empty() {
