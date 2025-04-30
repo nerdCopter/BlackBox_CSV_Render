@@ -369,9 +369,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("\n--- Generating Stacked PIDsum Plot ---");
     if pid_data_available.iter().any(|&x| x) {
         let output_file_pidsum = format!("{}_PIDsum_stacked.png", root_name);
+        // Create the main drawing area for the entire plot
         let root_area_pidsum = BitMapBackend::new(&output_file_pidsum, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
         root_area_pidsum.fill(&WHITE)?;
-        let sub_plot_areas = root_area_pidsum.split_evenly((3, 1));
+
+        // Add main title on the full drawing area
+        root_area_pidsum.draw(&Text::new(
+            root_name.as_ref(),
+            (10, 10), // Position near top-left
+            ("sans-serif", 24).into_font().color(&BLACK),
+        ))?;
+
+        // Create a margined area below the title for the subplots
+        let margined_root_area_pidsum = root_area_pidsum.margin(50, 5, 5, 5); // Top margin 50px
+
+        // Split the margined area into subplots
+        let sub_plot_areas = margined_root_area_pidsum.split_evenly((3, 1));
 
         for axis_index in 0..3 {
             let area = &sub_plot_areas[axis_index];
@@ -413,9 +426,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("\n--- Generating Stacked Setpoint vs PIDsum Plot ---");
     if setpoint_data_available.iter().any(|&x| x) {
         let output_file_setpoint = format!("{}_SetpointVsPIDsum_stacked.png", root_name);
+        // Create the main drawing area for the entire plot
         let root_area_setpoint = BitMapBackend::new(&output_file_setpoint, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
         root_area_setpoint.fill(&WHITE)?;
-        let sub_plot_areas = root_area_setpoint.split_evenly((3, 1));
+
+         // Add main title on the full drawing area
+         root_area_setpoint.draw(&Text::new(
+            root_name.as_ref(),
+            (10, 10), // Position near top-left
+            ("sans-serif", 24).into_font().color(&BLACK),
+        ))?;
+        // Create a margined area below the title for the subplots
+        let margined_root_area_setpoint = root_area_setpoint.margin(50, 5, 5, 5); // Top margin 50px
+
+        // Split the margined area into subplots
+        let sub_plot_areas = margined_root_area_setpoint.split_evenly((3, 1));
 
         for axis_index in 0..3 {
              let area = &sub_plot_areas[axis_index];
@@ -471,10 +496,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("\n--- Generating Stacked Step Response Plot ---");
     // Check if *any* axis has step response calculation results stored
     if step_response_calculation_results.iter().any(|x| x.is_some()) {
+        // Create the main drawing area for the entire plot
         let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, STEP_RESPONSE_PLOT_DURATION_S);
         let root_area_step = BitMapBackend::new(&output_file_step, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
         root_area_step.fill(&WHITE)?;
-        let sub_plot_areas = root_area_step.split_evenly((3, 1));
+
+        // Add main title on the full drawing area
+        root_area_step.draw(&Text::new(
+            root_name.as_ref(),
+            (10, 10), // Position near top-left
+            ("sans-serif", 24).into_font().color(&BLACK),
+        ))?;
+        // Create a margined area below the title for the subplots
+        let margined_root_area_step = root_area_step.margin(50, 5, 5, 5); // Top margin 50px
+
+        // Split the margined area into subplots
+        let sub_plot_areas = margined_root_area_step.split_evenly((3, 1));
 
         // Get sample rate for steady-state window calculation (fallback if needed)
         let sr = sample_rate.unwrap_or(1000.0); // Use a reasonable default if sample rate unknown
@@ -494,7 +531,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if response_length_samples == 0 {
                      draw_unavailable_message(area, axis_index, "Step Response (Empty Time Data)")?;
                      continue;
-                }
+                 }
 
                 let num_qc_windows = valid_stacked_responses.shape()[0];
                  if num_qc_windows == 0 {
@@ -584,16 +621,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                                  }
                             } else {
                                  eprintln!("Warning: Could not calculate normalized steady-state mean for Axis {} low response. Skipping plot.", axis_index);
-                            }
-                        } else {
-                            println!("  INFO: Axis {} low response steady-state mean near zero after shifting. Skipping final normalization and plot.", axis_index);
-                        }
-                    } else {
-                         eprintln!("Warning: Could not calculate steady-state mean for Axis {} low response after shifting. Skipping final normalization and plot.", axis_index);
-                    }
-                } else {
-                     println!("  INFO: Axis {} low response data empty or steady-state window invalid after smoothing/shifting. Skipping plot.", axis_index);
-                }
+                             }
+                         } else {
+                             println!("  INFO: Axis {} low response steady-state mean near zero after shifting. Skipping final normalization and plot.", axis_index);
+                         }
+                     } else {
+                          eprintln!("Warning: Could not calculate steady-state mean for Axis {} low response after shifting. Skipping final normalization and plot.", axis_index);
+                     }
+                 } else {
+                      println!("  INFO: Axis {} low response data empty or steady-state window invalid after smoothing/shifting. Skipping plot.", axis_index);
+                 }
 
 
                 let mut final_high_response = Array1::<f64>::zeros(0); // Start with empty/invalid
@@ -767,9 +804,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("\n--- Generating Stacked Gyro vs Unfiltered Gyro Plot ---");
     if gyro_vs_unfilt_data_available.iter().any(|&x| x) {
         let output_file_gyro = format!("{}_GyroVsUnfilt_stacked.png", root_name);
+        // Create the main drawing area for the entire plot
         let root_area_gyro = BitMapBackend::new(&output_file_gyro, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
         root_area_gyro.fill(&WHITE)?;
-        let sub_plot_areas = root_area_gyro.split_evenly((3, 1));
+
+         // Add main title on the full drawing area
+         root_area_gyro.draw(&Text::new(
+            root_name.as_ref(),
+            (10, 10), // Position near top-left
+            ("sans-serif", 24).into_font().color(&BLACK),
+        ))?;
+        // Create a margined area below the title for the subplots
+        let margined_root_area_gyro = root_area_gyro.margin(50, 5, 5, 5); // Top margin 50px
+
+        // Split the margined area into subplots
+        let sub_plot_areas = margined_root_area_gyro.split_evenly((3, 1));
 
         for axis_index in 0..3 {
              let area = &sub_plot_areas[axis_index];
@@ -824,7 +873,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         println!("  Skipping Stacked Gyro vs Unfiltered Gyro Plot: No data available for any axis.");
     }
-    
-    println!(); 
+
+    println!();
     Ok(())
 }
