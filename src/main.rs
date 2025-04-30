@@ -483,26 +483,47 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let smoothed_high_response = moving_average_smooth_f64(&high_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
                 let smoothed_combined_response = moving_average_smooth_f64(&combined_response_avg, POST_AVERAGING_SMOOTHING_WINDOW); // Smooth combined response
 
+                // --- Shift the curves to start at 0 ---
+                let mut shifted_low_response = smoothed_low_response.clone();
+                if !shifted_low_response.is_empty() {
+                    let first_val = shifted_low_response[0];
+                    shifted_low_response.mapv_inplace(|v| v - first_val);
+                }
+
+                let mut shifted_high_response = smoothed_high_response.clone();
+                if !shifted_high_response.is_empty() {
+                    let first_val = shifted_high_response[0];
+                    shifted_high_response.mapv_inplace(|v| v - first_val);
+                }
+
+                let mut shifted_combined_response = smoothed_combined_response.clone();
+                if !shifted_combined_response.is_empty() {
+                    let first_val = shifted_combined_response[0];
+                    shifted_combined_response.mapv_inplace(|v| v - first_val);
+                }
+                // --- End of shifting section ---
+
+
                  let mut resp_min = f64::INFINITY;
                  let mut resp_max = f64::NEG_INFINITY;
 
-                 // Update range calculation to include the combined response
-                 if let Ok(min_val) = smoothed_low_response.min() {
+                 // Update range calculation to include the shifted combined response
+                 if let Ok(min_val) = shifted_low_response.min() {
                      resp_min = resp_min.min(*min_val);
                  }
-                 if let Ok(max_val) = smoothed_low_response.max() {
+                 if let Ok(max_val) = shifted_low_response.max() {
                      resp_max = resp_max.max(*max_val);
                  }
-                 if let Ok(min_val) = smoothed_high_response.min() {
+                 if let Ok(min_val) = shifted_high_response.min() {
                      resp_min = resp_min.min(*min_val);
                  }
-                 if let Ok(max_val) = smoothed_high_response.max() {
+                 if let Ok(max_val) = shifted_high_response.max() {
                      resp_max = resp_max.max(*max_val);
                  }
-                 if let Ok(min_val) = smoothed_combined_response.min() { // Include combined response
+                 if let Ok(min_val) = shifted_combined_response.min() { // Include shifted combined response
                      resp_min = resp_min.min(*min_val);
                  }
-                 if let Ok(max_val) = smoothed_combined_response.max() { // Include combined response
+                 if let Ok(max_val) = shifted_combined_response.max() { // Include shifted combined response
                      resp_max = resp_max.max(*max_val);
                  }
 
@@ -527,33 +548,33 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .y_labels(5)
                     .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
-                // Draw low setpoint response
-                if !smoothed_low_response.is_empty() {
+                // Draw low setpoint response (using shifted data)
+                if !shifted_low_response.is_empty() {
                     let low_sp_color = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP);
                     chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(smoothed_low_response.iter()).map(|(&t, &v)| (t, v)),
+                        response_time.iter().zip(shifted_low_response.iter()).map(|(&t, &v)| (t, v)),
                         &low_sp_color,
                     ))?
                     .label(format!("< {} deg/s", SETPOINT_THRESHOLD))
                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], low_sp_color.stroke_width(2)));
                 }
 
-                // Draw high setpoint response
-                if !smoothed_high_response.is_empty() {
+                // Draw high setpoint response (using shifted data)
+                if !shifted_high_response.is_empty() {
                     let high_sp_color = COLOR_STEP_RESPONSE_HIGH_SP;
                     chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(smoothed_high_response.iter()).map(|(&t, &v)| (t, v)),
+                        response_time.iter().zip(shifted_high_response.iter()).map(|(&t, &v)| (t, v)),
                         high_sp_color.stroke_width(2),
                     ))?
                     .label(format!("\u{2265} {} deg/s", SETPOINT_THRESHOLD))
                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], high_sp_color.stroke_width(2)));
                 }
 
-                // Draw combined response (new line)
-                if !smoothed_combined_response.is_empty() {
+                // Draw combined response (using shifted data)
+                if !shifted_combined_response.is_empty() {
                     let combined_color = COLOR_STEP_RESPONSE_COMBINED;
                     chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(smoothed_combined_response.iter()).map(|(&t, &v)| (t, v)),
+                        response_time.iter().zip(shifted_combined_response.iter()).map(|(&t, &v)| (t, v)),
                         combined_color.stroke_width(2), // Use the new color
                     ))?
                     .label("Combined") // New legend label
