@@ -1,0 +1,11 @@
+Cargo.lock
+target/
+src/.vscode/
+*.png
+*.csv
+*.ods
+*.xls*
+png/
+src/*.txt*
+reference/
+src/old/
