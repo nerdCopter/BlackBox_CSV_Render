@@ -8,6 +8,6 @@
 ### Build and execute
 
 ```shell
-cargo build --release && ./target/release/differentApproach path/to/BTFL_Log.csv
+cargo build --release && ./target/release/RUST_BlackBox_CSV_Render path/to/BTFL_Log.csv
 ls -lhrt *.png
 ```

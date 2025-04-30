@@ -1,5 +1,5 @@
 [package]
-name = "differentApproach"
+name = "RUST_BlackBox_CSV_Render"
 version = "0.1.0"
 edition = "2021" # Use 2021 edition as it's standard, 2024 is not yet released/stable
 

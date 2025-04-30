@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let input_file = &args[1];
     let input_path = Path::new(input_file);
+    println!("Reading {}", input_file);
     let root_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
 
     // --- Header Definition and Index Mapping ---
@@ -823,6 +824,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         println!("  Skipping Stacked Gyro vs Unfiltered Gyro Plot: No data available for any axis.");
     }
-
+    
+    println!(); 
     Ok(())
 }
