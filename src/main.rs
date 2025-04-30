@@ -683,7 +683,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                      continue; // Skip drawing chart for this axis
                 }
 
-
                 let (final_resp_min, final_resp_max) = calculate_range(resp_min, resp_max);
                 let final_time_max = STEP_RESPONSE_PLOT_DURATION_S * 1.05;
 
@@ -698,17 +697,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .x_labels(8)
                     .y_labels(5)
                     .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
-
-                // Draw low setpoint response (only if valid)
-                if is_low_response_valid {
-                    let low_sp_color = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP);
-                    chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(final_low_response.iter()).map(|(&t, &v)| (t, v)),
-                        &low_sp_color,
-                    ))?
-                    .label(format!("< {} deg/s", SETPOINT_THRESHOLD))
-                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], low_sp_color.stroke_width(2)));
-                }
 
                 // Draw high setpoint response (only if valid)
                 if is_high_response_valid {
@@ -726,12 +714,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                     let combined_color = COLOR_STEP_RESPONSE_COMBINED;
                     chart.draw_series(LineSeries::new(
                         response_time.iter().zip(final_combined_response.iter()).map(|(&t, &v)| (t, v)),
-                        combined_color.stroke_width(2), // Use the new color
+                        combined_color.stroke_width(2),
                     ))?
                     .label("Combined") // New legend label
                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], combined_color.stroke_width(2)));
                 }
 
+                // Draw low setpoint response (only if valid)
+                if is_low_response_valid {
+                    let low_sp_color = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP);
+                    chart.draw_series(LineSeries::new(
+                        response_time.iter().zip(final_low_response.iter()).map(|(&t, &v)| (t, v)),
+                        low_sp_color.stroke_width(2),
+                    ))?
+                    .label(format!("< {} deg/s", SETPOINT_THRESHOLD))
+                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], low_sp_color.stroke_width(2)));
+                }
 
                 // Configure and draw the legend.
                 // Only draw legend if at least one series was drawn
