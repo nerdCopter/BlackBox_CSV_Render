@@ -31,8 +31,8 @@ pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; // Moving average window s
 // Constants for individual window step response quality control (from PTstepcalc.m)
 pub const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check within the response window
 pub const STEADY_STATE_END_S: f64 = 0.5; // End time for steady-state check within the response window
-pub const STEADY_STATE_MIN_VAL: f64 = 0.5; // Minimum allowed value in steady-state for quality control
-pub const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-state for quality control
+pub const STEADY_STATE_MIN_VAL: f64 = 0.5; // Minimum allowed value in steady-state for quality control (applied to UN-NORMALIZED response)
+pub const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-state for quality control (applied to UN-NORMALIZED response)
 
 // Plot colors
 pub const COLOR_PIDSUM: usize = 1;

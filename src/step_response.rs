@@ -3,7 +3,6 @@
 use ndarray::{Array1, Array2, s};
 use realfft::num_complex::Complex32;
 use realfft::RealFftPlanner;
-use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::error::Error;
 
@@ -236,7 +235,8 @@ pub fn moving_average_smooth_f64(data: &Array1<f64>, window_size: usize) -> Arra
     let mut current_sum: f64 = 0.0;
     let mut history: VecDeque<f64> = VecDeque::with_capacity(window_size);
 
-    for (i, &val) in data.iter().enumerate() {
+    for i in 0..data.len() {
+        let val = data[i];
         history.push_back(val);
         current_sum += val;
 
@@ -257,37 +257,23 @@ pub fn moving_average_smooth_f64(data: &Array1<f64>, window_size: usize) -> Arra
 }
 
 
-/// Struct to hold 2D histogram data and scales needed for mode averaging.
-struct Hist2D {
-    hist2d_norm: Array2<f64>, // Normalized histogram (used for finding mode)
-    yscale: Array1<f64>, // Vertical scale (bin centers)
-}
-
-/// Creates a weighted 2D histogram from a stack of response values (y) against time (x, implicit indices).
-/// Weights are applied to each window.
-fn create_weighted_hist2d(
+/// Calculates the mean of the step responses from the stacked windows,
+/// considering only windows with a weight > 0.
+/// Returns the averaged step response curve.
+/// This replaces the histogram-based mode averaging with a simpler mean.
+pub fn average_responses( // Renamed from weighted_mode_avr
     stacked_responses: &Array2<f32>, // Stack of step responses (windows x time)
-    weights: &Array1<f32>, // Weight for each window
-    response_time: &Array1<f64>, // Time vector for the response (0 to RESPONSE_LENGTH_S)
-    vertrange: [f64; 2], // [ymin, ymax] for the vertical axis (response value)
-    vertbins: usize, // Number of vertical bins
-) -> Result<Hist2D, Box<dyn Error>> {
+    weights: &Array1<f32>, // Weight for each window (0.0 or 1.0 based on mask)
+    response_len: usize, // Length of the response (number of time points)
+) -> Result<Array1<f64>, Box<dyn Error>> { // Returns the averaged response curve (Array1<f64>)
     let num_windows = stacked_responses.shape()[0];
-    let response_len = stacked_responses.shape()[1];
 
-    if num_windows == 0 || response_len == 0 || weights.len() != num_windows || response_time.len() != response_len {
-        return Err("Input data mismatch for create_weighted_hist2d".into());
+    if num_windows == 0 || response_len == 0 || weights.len() != num_windows || stacked_responses.shape()[1] != response_len {
+        return Err("Input data mismatch for average_responses".into());
     }
 
-    let nx = response_len; // Number of horizontal bins equals the response length
-    let ny = vertbins;
-    let ymin = vertrange[0];
-    let ymax = vertrange[1];
-
-    let mut hist2d = Array2::<f64>::zeros((ny, nx)); // Note: histogram2d returns shape (ny, nx)
-    let mut xhist = Array1::<f64>::zeros(nx); // This will count how many weighted values fall into each time bin
-
-    let dy = (ymax - ymin) / ny as f64;
+    let mut averaged_response = Array1::<f64>::zeros(response_len);
+    let mut active_window_counts = Array1::<f64>::zeros(response_len); // Count how many weighted windows contribute to each time point
 
     for i in 0..num_windows { // Iterate over windows
         let weight = weights[i] as f64;
@@ -296,100 +282,39 @@ fn create_weighted_hist2d(
         for j in 0..response_len { // Iterate over time points in the response
             let response_value = stacked_responses[[i, j]] as f64;
 
-            // Check if the response value is within the vertical range
-            if response_value >= ymin && response_value <= ymax {
-                let y_bin = ((response_value - ymin) / dy).floor() as usize;
-                let y_bin = y_bin.min(ny - 1); // Clamp to the last bin if exactly on the upper edge
-
-                // The horizontal bin is simply the time index j
-                let x_bin = j;
-
-                hist2d[[y_bin, x_bin]] += weight; // Add the window's weight to the bin
-                xhist[x_bin] += weight; // Add the window's weight to the total weight for this time bin
+            if response_value.is_finite() {
+                 // Add the value to the sum for this time point
+                 averaged_response[j] += response_value * weight; // Apply weight (currently 0 or 1)
+                 active_window_counts[j] += weight; // Count active windows (currently 0 or 1)
             }
         }
     }
 
-    // Calculate normalized histogram (normalize each time slice by the total weight in that slice)
-    let mut hist2d_norm = Array2::<f64>::zeros((ny, nx));
-    for j in 0..nx { // Iterate over time bins (columns)
-        if xhist[j] > 1e-9 { // Avoid division by zero
-            for i in 0..ny { // Iterate over response value bins (rows)
-                hist2d_norm[[i, j]] = hist2d[[i, j]] / xhist[j];
-            }
-        }
-    }
-
-    // Generate yscale (using bin centers for mode finding)
-    let yscale = Array1::linspace(ymin + dy/2.0, ymax - dy/2.0, ny); // Y-scale represents bin centers
-
-
-    Ok(Hist2D {
-        hist2d_norm,
-        yscale,
-    })
-}
-
-
-/// Calculates the weighted mode average of a stack of step responses using histogram-based mode finding.
-/// Returns the averaged step response curve.
-fn weighted_mode_avr(
-    stacked_responses: &Array2<f32>, // Stack of step responses (windows x time)
-    weights: &Array1<f32>, // Weight for each window
-    response_time: &Array1<f64>, // Time vector for the response (0 to RESPONSE_LENGTH_S)
-    vertrange: [f64; 2], // [ymin, ymax] for the vertical axis (response value)
-    vertbins: usize, // Number of vertical bins for the histogram
-) -> Result<Array1<f64>, Box<dyn Error>> { // Returns the averaged response curve (Array1<f64>)
-    if stacked_responses.is_empty() || weights.is_empty() || stacked_responses.shape()[0] != weights.len() || response_time.len() != stacked_responses.shape()[1] {
-        return Err("Input data mismatch for weighted_mode_avr".into());
-    }
-
-    let response_len = stacked_responses.shape()[1];
-
-    // 1. Create the weighted 2D histogram.
-    let hist_result = create_weighted_hist2d(
-        stacked_responses,
-        weights,
-        response_time,
-        vertrange,
-        vertbins,
-    )?;
-
-    let hist2d_norm = hist_result.hist2d_norm;
-    let yscale = hist_result.yscale; // Y-scale represents the center of the vertical bins
-
-    // 2. Find the mode (peak) in each time slice (column) of the normalized histogram.
-    let mut mode_response = Array1::<f64>::zeros(response_len);
-
-    for j in 0..response_len { // Iterate over time slices (columns)
-        let column = hist2d_norm.column(j);
-
-        // Find the index of the maximum weight in the current time slice
-        if let Some((max_idx, &max_weight)) = column.indexed_iter().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Equal)) {
-             if max_weight > 1e-9 { // Only consider non-zero peaks
-                 // The mode response value is the center of the y-bin with the maximum weight
-                 mode_response[j] = yscale[max_idx]; // Directly assign
-             } else {
-                 mode_response[j] = 0.0; // Assign default if no significant peak
-             }
+    // Divide the sum by the count of active windows for each time point to get the mean
+    for j in 0..response_len {
+        if active_window_counts[j] > 1e-9 { // Avoid division by zero
+            averaged_response[j] /= active_window_counts[j];
         } else {
-             mode_response[j] = 0.0; // Assign default if column is empty
+            // If no active windows contributed to this time point, leave it as 0.0 (or handle differently if needed)
         }
     }
 
-    Ok(mode_response)
+    Ok(averaged_response)
 }
 
 
-/// Calculates the system's step response using windowing, deconvolution, and averaging.
+/// Calculates the system's step response using windowing and deconvolution,
+/// returning the stacked, quality-controlled step responses and their corresponding
+/// max setpoints for later averaging.
 /// Input: Raw time, setpoint and gyro data, sample rate.
-/// Output: Tuple of (response_time, low_setpoint_response, high_setpoint_response, combined_response) or an error.
+/// Output: Tuple of (response_time, stacked_qc_responses, qc_window_max_setpoints) or an error.
+/// Note: The responses returned here are UN-NORMALIZED. Averaging and final normalization happen in main.rs.
 pub fn calculate_step_response_python_style(
     time: &Array1<f64>, // Need time for relative time and windowing
     setpoint: &Array1<f32>,
     gyro_filtered: &Array1<f32>,
     sample_rate: f64,
-) -> Result<(Array1<f64>, Array1<f64>, Array1<f64>, Array1<f64>), Box<dyn Error>> { // Updated return type
+) -> Result<(Array1<f64>, Array2<f32>, Array1<f32>), Box<dyn Error>> { // Updated return type
     if time.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || time.len() != setpoint.len() || sample_rate <= 0.0 {
         return Err("Invalid input to calculate_step_response_python_style: Empty data, length mismatch, or invalid sample rate.".into());
     }
@@ -460,9 +385,9 @@ pub fn calculate_step_response_python_style(
              continue;
         }
 
-        let mut step_response = cumulative_sum(&impulse_response_truncated);
+        let step_response = cumulative_sum(&impulse_response_truncated);
 
-        // Truncate the step response to the desired response length *before* normalization/QC check
+        // Truncate the step response to the desired response length *before* QC check
         if step_response.len() < response_length_samples {
              eprintln!("Warning: Step response shorter than response_length_samples for window {}. Skipping.", i);
              continue;
@@ -470,29 +395,32 @@ pub fn calculate_step_response_python_style(
         let truncated_step_response = step_response.slice(s![0..response_length_samples]).to_owned();
 
 
-        // --- Individual Response Normalization (Y Correction) & Quality Control ---
+        // --- Individual Response Quality Control (based on steady-state value range) ---
         let mut passes_qc = false;
         if ss_start_sample < ss_end_sample { // Only perform QC if steady-state window is valid
             let steady_state_segment = truncated_step_response.slice(s![ss_start_sample..ss_end_sample]);
 
-            // Use .mean() from ndarray, not ndarray-stats
+            // Use .mean() from ndarray
             if let Some(steady_state_mean) = steady_state_segment.mean() {
+                 // Check if the UN-NORMALIZED steady-state mean is within the acceptable range
                  if steady_state_mean.is_finite() && steady_state_mean >= STEADY_STATE_MIN_VAL as f32 && steady_state_mean <= STEADY_STATE_MAX_VAL as f32 {
-                     // Normalize the entire truncated step response by the steady-state mean
-                     if steady_state_mean.abs() > 1e-9 {
-                         step_response = truncated_step_response.mapv(|v| v / steady_state_mean);
-                         passes_qc = true;
-                     } else {
-                          eprintln!("Warning: Steady-state mean near zero for window {}. Skipping normalization and QC.", i);
-                     }
+                     passes_qc = true; // Window passes QC based on steady-state value range
+                 } else {
+                     // Optionally print why a window failed QC
+                     // eprintln!("Debug: Window {} failed QC. Steady-state mean: {:.2}", i, steady_state_mean.unwrap_or(f32::NAN));
                  }
             } else {
                  eprintln!("Warning: Could not calculate steady-state mean for window {}. Skipping QC.", i);
             }
+        } else {
+             // If steady-state window is invalid, maybe skip QC or pass all? Let's skip QC for now.
+             // passes_qc = true; // Or decide to pass all if QC window is invalid
         }
 
+
         if passes_qc {
-             stacked_step_responses_qc.push(step_response);
+             // Push the UN-NORMALIZED truncated response
+             stacked_step_responses_qc.push(truncated_step_response);
              window_max_setpoints_qc.push(max_setpoint_in_window);
         }
     }
@@ -502,51 +430,16 @@ pub fn calculate_step_response_python_style(
         return Err("No windows passed filtering and quality control.".into());
     }
 
-    // Convert Vec<Array1> to Array2 for weighted_mode_avr
+    // Convert Vec<Array1> to Array2 for averaging
     let valid_stacked_responses = Array2::from_shape_fn((num_qc_windows, response_length_samples), |(i, j)| {
         stacked_step_responses_qc[i][j]
     });
     let valid_window_max_setpoints = Array1::from(window_max_setpoints_qc);
 
-
-    // 3. Implement Setpoint Masking for QC Windows.
-    let low_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v < SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
-    let high_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v >= SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
-    // Create a mask for all QC windows (all 1.0s)
-    let combined_mask: Array1<f32> = Array1::ones(num_qc_windows);
-
-
-    // 4. Implement Weighted Mode Averaging.
     // Time vector for the response plot (0 to RESPONSE_LENGTH_S).
     let response_time = Array1::linspace(0.0, RESPONSE_LENGTH_S, response_length_samples);
 
-    // Calculate weighted mode average for low setpoint windows.
-    let low_response_mode_avg = weighted_mode_avr(
-        &valid_stacked_responses,
-        &low_mask,
-        &response_time.mapv(|t| t as f64),
-        [-2.0, 2.0], // Example vertical range for histogram
-        100, // Example vertical bins
-    )?;
 
-    // Calculate weighted mode average for high setpoint windows.
-    let high_response_mode_avg = weighted_mode_avr(
-        &valid_stacked_responses,
-        &high_mask,
-        &response_time.mapv(|t| t as f64),
-        [-2.0, 2.0], // Example vertical range
-        100, // Example vertical bins
-    )?;
-
-    // Calculate weighted mode average for ALL QC windows.
-     let combined_response_mode_avg = weighted_mode_avr(
-        &valid_stacked_responses,
-        &combined_mask, // Use the combined mask
-        &response_time.mapv(|t| t as f64),
-        [-2.0, 2.0], // Example vertical range
-        100, // Example vertical bins
-    )?;
-
-
-    Ok((response_time.mapv(|t| t as f64), low_response_mode_avg, high_response_mode_avg, combined_response_mode_avg)) // Updated return tuple
+    // Return the time vector, stacked QC responses, and max setpoints
+    Ok((response_time.mapv(|t| t as f64), valid_stacked_responses, valid_window_max_setpoints)) // Updated return tuple
 }

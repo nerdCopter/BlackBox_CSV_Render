@@ -13,7 +13,8 @@ use std::path::Path;
 use std::fs::File;
 use std::io::BufReader;
 
-use ndarray::Array1;
+use ndarray::s; // Import the s! macro for slicing
+use ndarray::{Array1, Array2}; // Import Array2
 use ndarray_stats::QuantileExt; // Import QuantileExt for .min() and .max() on Array1
 
 use log_data::LogRowData;
@@ -322,8 +323,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Calculate Step Response Data ---
     println!("\n--- Calculating Step Response ---");
-    // Updated type to store the fourth combined response array
-    let mut step_response_results: [Option<(Array1<f64>, Array1<f64>, Array1<f64>, Array1<f64>)>; 3] = [None, None, None];
+    // Store the raw QC'd stacked responses and setpoints for later averaging in main
+    let mut step_response_calculation_results: [Option<(Array1<f64>, Array2<f32>, Array1<f32>)>; 3] = [None, None, None];
+
 
      if let Some(sr) = sample_rate {
         for axis_index in 0..3 {
@@ -335,16 +337,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 let min_required_samples = (FRAME_LENGTH_S * sr).ceil() as usize;
                 if time_arr.len() >= min_required_samples {
-                    // Call the updated calculation function
+                    // Call the calculation function which now returns stacked QC'd responses
                     match calculate_step_response_python_style(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) {
                         Ok(result) => {
-                            // Check if the calculated responses are non-empty.
-                            if !result.0.is_empty() && (!result.1.is_empty() || !result.2.is_empty() || !result.3.is_empty()) {
-                                step_response_results[axis_index] = Some(result); // Store the calculated data.
-                                println!("    ... Calculation successful for Axis {}.", axis_index);
-                            } else {
-                                println!("    ... Calculation returned empty responses for Axis {}.", axis_index);
-                            }
+                             let num_qc_windows = result.1.shape()[0]; // Check number of QC windows
+                             if num_qc_windows > 0 {
+                                 step_response_calculation_results[axis_index] = Some(result); // Store the calculated data.
+                                 println!("    ... Calculation successful for Axis {}. {} windows passed QC.", axis_index, num_qc_windows);
+                             } else {
+                                println!("    ... Calculation returned no valid windows for Axis {}. Skipping.", axis_index);
+                             }
                         }
                         Err(e) => {
                             eprintln!("    ... Calculation failed for Axis {}: {}", axis_index, e);
@@ -466,72 +468,221 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Generate Stacked Step Response Plot ---
     println!("\n--- Generating Stacked Step Response Plot ---");
-    if step_response_results.iter().any(|x| x.is_some()) {
+    // Check if *any* axis has step response calculation results stored
+    if step_response_calculation_results.iter().any(|x| x.is_some()) {
         let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, STEP_RESPONSE_PLOT_DURATION_S);
         let root_area_step = BitMapBackend::new(&output_file_step, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
         root_area_step.fill(&WHITE)?;
         let sub_plot_areas = root_area_step.split_evenly((3, 1));
 
+        // Get sample rate for steady-state window calculation (fallback if needed)
+        let sr = sample_rate.unwrap_or(1000.0); // Use a reasonable default if sample rate unknown
+        let ss_start_sample = (STEADY_STATE_START_S * sr).floor() as usize;
+        let ss_end_sample = (STEADY_STATE_END_S * sr).ceil() as usize;
+
+        // Tolerance for checking if steady-state is near 1.0
+        const STEADY_STATE_TOLERANCE: f64 = 0.2; // Allow steady state between 0.8 and 1.2
+
         for axis_index in 0..3 {
-            // Retrieve the four arrays from the result tuple
-            if let Some((response_time, low_response_avg, high_response_avg, combined_response_avg)) = &step_response_results[axis_index] {
-                // Declare area here to be in scope for drawing
+            // Retrieve the raw QC'd stacked responses and setpoints
+            if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) = &step_response_calculation_results[axis_index] {
                 let area = &sub_plot_areas[axis_index];
+                let response_length_samples = response_time.len(); // Get actual length from the time array
 
-                // Apply post-averaging smoothing to all three responses
-                let smoothed_low_response = moving_average_smooth_f64(&low_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
-                let smoothed_high_response = moving_average_smooth_f64(&high_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
-                let smoothed_combined_response = moving_average_smooth_f64(&combined_response_avg, POST_AVERAGING_SMOOTHING_WINDOW); // Smooth combined response
-
-                // --- Shift the curves to start at 0 ---
-                let mut shifted_low_response = smoothed_low_response.clone();
-                if !shifted_low_response.is_empty() {
-                    let first_val = shifted_low_response[0];
-                    shifted_low_response.mapv_inplace(|v| v - first_val);
+                // Ensure response_time is not empty before proceeding
+                if response_length_samples == 0 {
+                     draw_unavailable_message(area, axis_index, "Step Response (Empty Time Data)")?;
+                     continue;
                 }
 
-                let mut shifted_high_response = smoothed_high_response.clone();
-                if !shifted_high_response.is_empty() {
-                    let first_val = shifted_high_response[0];
-                    shifted_high_response.mapv_inplace(|v| v - first_val);
-                }
-
-                let mut shifted_combined_response = smoothed_combined_response.clone();
-                if !shifted_combined_response.is_empty() {
-                    let first_val = shifted_combined_response[0];
-                    shifted_combined_response.mapv_inplace(|v| v - first_val);
-                }
-                // --- End of shifting section ---
-
-
-                 let mut resp_min = f64::INFINITY;
-                 let mut resp_max = f64::NEG_INFINITY;
-
-                 // Update range calculation to include the shifted combined response
-                 if let Ok(min_val) = shifted_low_response.min() {
-                     resp_min = resp_min.min(*min_val);
-                 }
-                 if let Ok(max_val) = shifted_low_response.max() {
-                     resp_max = resp_max.max(*max_val);
-                 }
-                 if let Ok(min_val) = shifted_high_response.min() {
-                     resp_min = resp_min.min(*min_val);
-                 }
-                 if let Ok(max_val) = shifted_high_response.max() {
-                     resp_max = resp_max.max(*max_val);
-                 }
-                 if let Ok(min_val) = shifted_combined_response.min() { // Include shifted combined response
-                     resp_min = resp_min.min(*min_val);
-                 }
-                 if let Ok(max_val) = shifted_combined_response.max() { // Include shifted combined response
-                     resp_max = resp_max.max(*max_val);
-                 }
-
-
-                if resp_min.is_infinite() {
-                     draw_unavailable_message(area, axis_index, "Step Response (No Plottable Data)")?;
+                let num_qc_windows = valid_stacked_responses.shape()[0];
+                 if num_qc_windows == 0 {
+                     draw_unavailable_message(area, axis_index, "Step Response (No Valid Windows)")?;
                      continue;
                  }
+
+
+                // 3. Implement Setpoint Masking for QC Windows.
+                let low_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v < SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
+                let high_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v >= SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
+                let combined_mask: Array1<f32> = Array1::ones(num_qc_windows); // Mask for all QC windows
+
+
+                // 4. Implement Averaging (using mean).
+                let mut low_response_avg = Array1::<f64>::zeros(0);
+                let mut high_response_avg = Array1::<f64>::zeros(0);
+                let mut combined_response_avg = Array1::<f64>::zeros(0);
+
+                // Always attempt low and combined if QC windows exist
+                if low_mask.iter().any(|&w| w > 0.0) {
+                    match average_responses( // Changed to average_responses
+                        &valid_stacked_responses,
+                        &low_mask,
+                        response_length_samples,
+                    ) {
+                        Ok(resp) => low_response_avg = resp,
+                        Err(e) => eprintln!("    ... Low setpoint averaging failed for Axis {}: {}", axis_index, e),
+                    }
+                } else {
+                     println!("  INFO: No low setpoint windows for Axis {}. Skipping low response averaging.", axis_index);
+                }
+
+                // Only attempt high if high setpoint windows exist
+                if high_mask.iter().any(|&w| w > 0.0) {
+                    match average_responses( // Changed to average_responses
+                        &valid_stacked_responses,
+                        &high_mask,
+                        response_length_samples,
+                    ) {
+                        Ok(resp) => high_response_avg = resp,
+                        Err(e) => eprintln!("    ... High setpoint averaging failed for Axis {}: {}", axis_index, e),
+                    }
+                } else {
+                     println!("  INFO: No high setpoint windows for Axis {}. Skipping high response averaging.", axis_index);
+                }
+
+                // Combined response should always be attempted if there are QC windows
+                match average_responses( // Changed to average_responses
+                   &valid_stacked_responses,
+                   &combined_mask,
+                   response_length_samples,
+                ) {
+                   Ok(resp) => combined_response_avg = resp,
+                   Err(e) => eprintln!("    ... Combined averaging failed for Axis {}: {}", axis_index, e),
+                }
+
+
+                // Apply smoothing *before* shifting and final normalization
+                let smoothed_low_response = moving_average_smooth_f64(&low_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
+                let smoothed_high_response = moving_average_smooth_f64(&high_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
+                let smoothed_combined_response = moving_average_smooth_f64(&combined_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
+
+
+                // --- Shift the smoothed curves to start at 0 and Normalize to settle at 1.0 ---
+                let current_ss_start_sample = ss_start_sample.min(response_length_samples);
+                let current_ss_end_sample = ss_end_sample.min(response_length_samples);
+
+                let mut final_low_response = Array1::<f64>::zeros(0); // Start with empty/invalid
+                let mut is_low_response_valid = false;
+                if !smoothed_low_response.is_empty() && current_ss_start_sample < current_ss_end_sample {
+                    let mut shifted_response = smoothed_low_response.clone();
+                    let first_val = shifted_response[0];
+                    shifted_response.mapv_inplace(|v| v - first_val); // Shift to start at 0
+
+                    let steady_state_segment = shifted_response.slice(s![current_ss_start_sample..current_ss_end_sample]);
+                    if let Some(steady_state_mean) = steady_state_segment.mean() {
+                        if steady_state_mean.abs() > 1e-9 { // Avoid division by zero for normalization
+                            let normalized_response = shifted_response.mapv(|v| v / steady_state_mean);
+                            // Check if the steady state of the *normalized* response is near 1.0
+                            if let Some(normalized_ss_mean) = normalized_response.slice(s![current_ss_start_sample..current_ss_end_sample]).mean() {
+                                 if (normalized_ss_mean - 1.0).abs() <= STEADY_STATE_TOLERANCE {
+                                     final_low_response = normalized_response;
+                                     is_low_response_valid = true;
+                                 } else {
+                                     println!("  INFO: Axis {} low response steady-state ({:.2}) outside tolerance after normalization. Skipping plot.", axis_index, normalized_ss_mean);
+                                 }
+                            } else {
+                                 eprintln!("Warning: Could not calculate normalized steady-state mean for Axis {} low response. Skipping plot.", axis_index);
+                            }
+                        } else {
+                            println!("  INFO: Axis {} low response steady-state mean near zero after shifting. Skipping final normalization and plot.", axis_index);
+                        }
+                    } else {
+                         eprintln!("Warning: Could not calculate steady-state mean for Axis {} low response after shifting. Skipping final normalization and plot.", axis_index);
+                    }
+                } else {
+                     println!("  INFO: Axis {} low response data empty or steady-state window invalid after smoothing/shifting. Skipping plot.", axis_index);
+                }
+
+
+                let mut final_high_response = Array1::<f64>::zeros(0); // Start with empty/invalid
+                let mut is_high_response_valid = false;
+                if !smoothed_high_response.is_empty() && current_ss_start_sample < current_ss_end_sample {
+                     let mut shifted_response = smoothed_high_response.clone();
+                     let first_val = shifted_response[0];
+                     shifted_response.mapv_inplace(|v| v - first_val); // Shift to start at 0
+
+                     let steady_state_segment = shifted_response.slice(s![current_ss_start_sample..current_ss_end_sample]);
+                     if let Some(steady_state_mean) = steady_state_segment.mean() {
+                         if steady_state_mean.abs() > 1e-9 {
+                             let normalized_response = shifted_response.mapv(|v| v / steady_state_mean);
+                             if let Some(normalized_ss_mean) = normalized_response.slice(s![current_ss_start_sample..current_ss_end_sample]).mean() {
+                                  if (normalized_ss_mean - 1.0).abs() <= STEADY_STATE_TOLERANCE {
+                                      final_high_response = normalized_response;
+                                      is_high_response_valid = true;
+                                  } else {
+                                      println!("  INFO: Axis {} high response steady-state ({:.2}) outside tolerance after normalization. Skipping plot.", axis_index, normalized_ss_mean);
+                                  }
+                             } else {
+                                  eprintln!("Warning: Could not calculate normalized steady-state mean for Axis {} high response. Skipping plot.", axis_index);
+                             }
+                         } else {
+                             println!("  INFO: Axis {} high response steady-state mean near zero after shifting. Skipping final normalization and plot.", axis_index);
+                         }
+                     } else {
+                          eprintln!("Warning: Could not calculate steady-state mean for Axis {} high response after shifting. Skipping final normalization and plot.", axis_index);
+                     }
+                } else {
+                     println!("  INFO: Axis {} high response data empty or steady-state window invalid after smoothing/shifting. Skipping plot.", axis_index);
+                }
+
+
+                let mut final_combined_response = Array1::<f64>::zeros(0); // Start with empty/invalid
+                let mut is_combined_response_valid = false;
+                if !smoothed_combined_response.is_empty() && current_ss_start_sample < current_ss_end_sample {
+                     let mut shifted_response = smoothed_combined_response.clone();
+                     let first_val = shifted_response[0];
+                     shifted_response.mapv_inplace(|v| v - first_val); // Shift to start at 0
+
+                     let steady_state_segment = shifted_response.slice(s![current_ss_start_sample..current_ss_end_sample]);
+                     if let Some(steady_state_mean) = steady_state_segment.mean() {
+                         if steady_state_mean.abs() > 1e-9 {
+                             let normalized_response = shifted_response.mapv(|v| v / steady_state_mean);
+                             if let Some(normalized_ss_mean) = normalized_response.slice(s![current_ss_start_sample..current_ss_end_sample]).mean() {
+                                  if (normalized_ss_mean - 1.0).abs() <= STEADY_STATE_TOLERANCE {
+                                      final_combined_response = normalized_response;
+                                      is_combined_response_valid = true;
+                                  } else {
+                                      println!("  INFO: Axis {} combined response steady-state ({:.2}) outside tolerance after normalization. Skipping plot.", axis_index, normalized_ss_mean);
+                                  }
+                             } else {
+                                  eprintln!("Warning: Could not calculate normalized steady-state mean for Axis {} combined response. Skipping plot.", axis_index);
+                             }
+                         } else {
+                             println!("  INFO: Axis {} combined response steady-state mean near zero after shifting. Skipping final normalization and plot.", axis_index);
+                         }
+                     } else {
+                          eprintln!("Warning: Could not calculate steady-state mean for Axis {} combined response after shifting. Skipping final normalization and plot.", axis_index);
+                     }
+                } else {
+                     println!("  INFO: Axis {} combined response data empty or steady-state window invalid after smoothing/shifting. Skipping plot.", axis_index);
+                }
+                // --- End of normalization and validity check section ---
+
+
+                // Determine plot range based *only* on valid responses
+                let mut resp_min = f64::INFINITY;
+                let mut resp_max = f64::NEG_INFINITY;
+
+                if is_low_response_valid {
+                    if let Ok(min_val) = final_low_response.min() { resp_min = resp_min.min(*min_val); }
+                    if let Ok(max_val) = final_low_response.max() { resp_max = resp_max.max(*max_val); }
+                }
+                if is_high_response_valid {
+                    if let Ok(min_val) = final_high_response.min() { resp_min = resp_min.min(*min_val); }
+                    if let Ok(max_val) = final_high_response.max() { resp_max = resp_max.max(*max_val); }
+                }
+                if is_combined_response_valid {
+                    if let Ok(min_val) = final_combined_response.min() { resp_min = resp_min.min(*min_val); }
+                    if let Ok(max_val) = final_combined_response.max() { resp_max = resp_max.max(*max_val); }
+                }
+
+                // If no responses are valid, draw unavailable message
+                if resp_min.is_infinite() {
+                     draw_unavailable_message(area, axis_index, "Step Response (No Valid Data)")?;
+                     continue; // Skip drawing chart for this axis
+                }
+
 
                 let (final_resp_min, final_resp_max) = calculate_range(resp_min, resp_max);
                 let final_time_max = STEP_RESPONSE_PLOT_DURATION_S * 1.05;
@@ -548,33 +699,33 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .y_labels(5)
                     .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
-                // Draw low setpoint response (using shifted data)
-                if !shifted_low_response.is_empty() {
+                // Draw low setpoint response (only if valid)
+                if is_low_response_valid {
                     let low_sp_color = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP);
                     chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(shifted_low_response.iter()).map(|(&t, &v)| (t, v)),
+                        response_time.iter().zip(final_low_response.iter()).map(|(&t, &v)| (t, v)),
                         &low_sp_color,
                     ))?
                     .label(format!("< {} deg/s", SETPOINT_THRESHOLD))
                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], low_sp_color.stroke_width(2)));
                 }
 
-                // Draw high setpoint response (using shifted data)
-                if !shifted_high_response.is_empty() {
+                // Draw high setpoint response (only if valid)
+                if is_high_response_valid {
                     let high_sp_color = COLOR_STEP_RESPONSE_HIGH_SP;
                     chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(shifted_high_response.iter()).map(|(&t, &v)| (t, v)),
+                        response_time.iter().zip(final_high_response.iter()).map(|(&t, &v)| (t, v)),
                         high_sp_color.stroke_width(2),
                     ))?
                     .label(format!("\u{2265} {} deg/s", SETPOINT_THRESHOLD))
                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], high_sp_color.stroke_width(2)));
                 }
 
-                // Draw combined response (using shifted data)
-                if !shifted_combined_response.is_empty() {
+                // Draw combined response (only if valid)
+                if is_combined_response_valid {
                     let combined_color = COLOR_STEP_RESPONSE_COMBINED;
                     chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(shifted_combined_response.iter()).map(|(&t, &v)| (t, v)),
+                        response_time.iter().zip(final_combined_response.iter()).map(|(&t, &v)| (t, v)),
                         combined_color.stroke_width(2), // Use the new color
                     ))?
                     .label("Combined") // New legend label
@@ -583,8 +734,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
                 // Configure and draw the legend.
-                chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
-                    .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
+                // Only draw legend if at least one series was drawn
+                if is_low_response_valid || is_high_response_valid || is_combined_response_valid {
+                     chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
+                         .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
+                }
+
 
             } else {
                 // Declare area here to be in scope for the unavailable message
