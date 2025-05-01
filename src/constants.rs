@@ -43,3 +43,4 @@ pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE; // High setpoint ste
 pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED; // Combined step response color (Red)
 pub const COLOR_GYRO_UNFILT: usize = 4; // Unfiltered gyro color (Gyro vs Unfilt plot)
 pub const COLOR_GYRO_FILT: usize = 5; // Filtered gyro color (Gyro vs Unfilt plot)
+pub const COLOR_PIDERROR: usize = 6; // New color for PID error (Pink)

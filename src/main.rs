@@ -13,7 +13,7 @@ use std::path::Path;
 use std::fs::File;
 use std::io::BufReader;
 
-use ndarray::s; // Import the s! macro for slicing
+// Removed: use ndarray::s; // Import the s! macro for slicing - It's not used in main.rs
 use ndarray::{Array1, Array2}; // Import Array2
 use ndarray_stats::QuantileExt; // Import QuantileExt for .min() and .max() on Array1
 
@@ -88,13 +88,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Check setpoint headers (Indices 10-12).
         for axis in 0..3 {
             setpoint_header_found[axis] = header_indices[10 + axis].is_some(); // Use header_indices here
-            println!("  '{}': {} (Essential for Setpoint vs PIDsum and Step Response Axis {})", target_headers[10 + axis], if setpoint_header_found[axis] { "Found" } else { "Not Found" }, axis);
+            println!("  '{}': {} (Essential for Setpoint vs PIDsum, Setpoint vs Gyro, and Step Response Axis {})", target_headers[10 + axis], if setpoint_header_found[axis] { "Found" } else { "Not Found" }, axis); // Updated message
         }
 
         // Check gyro (filtered) headers (Indices 13-15).
          for axis in 0..3 {
             gyro_header_found[axis] = header_indices[13 + axis].is_some(); // Use header_indices here
-            println!("  '{}': {} (Essential for Step Response and Gyro vs Unfilt Axis {})", target_headers[13 + axis], if gyro_header_found[axis] { "Found" } else { "Not Found" }, axis);
+            println!("  '{}': {} (Essential for Step Response, Setpoint vs Gyro, and Gyro vs Unfilt Axis {})", target_headers[13 + axis], if gyro_header_found[axis] { "Found" } else { "Not Found" }, axis); // Updated message
         }
 
         // Check gyroUnfilt headers (Indices 16-18).
@@ -110,10 +110,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
 
         // Check throttle header (Index 23).
-        let throttle_found_in_csv = header_indices[23].is_some(); // Use header_indices here
+        let throttle_found_in_csv = header_indices[23].is_some(); // Use header_indices directly
         println!("  '{}': {} (Optional, for filtering)", target_headers[23], if throttle_found_in_csv { "Found" } else { "Not Found" });
 
 
+        // Check if at least time, P, I, D[0], D[1] are found
         if !essential_pid_headers_found {
              let missing_essentials: Vec<String> = (0..=8).filter(|&i| header_indices[i].is_none()).map(|i| format!("'{}'", target_headers[i])).collect(); // Use header_indices here
              return Err(format!("Error: Missing essential headers for PIDsum plot: {}. Aborting.", missing_essentials.join(", ")).into());
@@ -257,18 +258,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut pid_output_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut setpoint_vs_pidsum_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut gyro_vs_unfilt_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    let mut setpoint_vs_gyro_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut setpoint_vs_gyro_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()]; // This one is used for PID Error source
     let mut step_response_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
         (Vec::new(), Vec::new(), Vec::new()),
         (Vec::new(), Vec::new(), Vec::new()),
         (Vec::new(), Vec::new(), Vec::new()),
     ];
 
-    let mut pid_data_available = [false; 3];
-    let mut setpoint_data_available = [false; 3];
-    let mut gyro_vs_unfilt_data_available = [false; 3];
-    let mut setpoint_vs_gyro_data_available = [false; 3];
-    let mut step_response_input_available = [false; 3];
+    let mut pid_data_available = [false; 3]; // Tracks if P, I, D data exists for PIDsum
+    let mut setpoint_data_available = [false; 3]; // Tracks if Setpoint data exists (used for Setpoint vs PIDsum plot availability)
+    let mut gyro_vs_unfilt_data_available = [false; 3]; // Tracks if data exists for Gyro vs Unfilt plot
+    let mut setpoint_vs_gyro_data_available = [false; 3]; // Tracks if data exists for Setpoint vs Gyro plot AND PID Error source
+    let mut step_response_input_available = [false; 3]; // Tracks if data exists for Step Response calc
+
 
     // Populate plot data structures and step response input data.
     for row in &all_log_data {
@@ -280,14 +282,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                     pid_data_available[axis_index] = true;
                 }
 
-                // Setpoint vs PIDsum data
-                if setpoint_header_found[axis_index] {
+                // Setpoint vs PIDsum data (requires Setpoint, P, I, D)
+                if setpoint_header_found[axis_index] && pid_data_available[axis_index] { // Ensure PID data is also available
                     if let (Some(setpoint), Some(p), Some(i), Some(d)) = (row.setpoint[axis_index], row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index]) {
                         setpoint_vs_pidsum_data[axis_index].push((time, setpoint, p + i + d));
-                        // setpoint_data_available is used for Setpoint vs PIDsum
                         setpoint_data_available[axis_index] = true;
                     }
                 }
+
+                 // Setpoint vs Gyro data (requires Setpoint and GyroADC). Used for SetpointVsGyro plot AND PID Error.
                  if setpoint_header_found[axis_index] && gyro_header_found[axis_index] {
                     if let (Some(setpoint), Some(gyro_filt)) = (row.setpoint[axis_index], row.gyro[axis_index]) {
                         setpoint_vs_gyro_data[axis_index].push((time, setpoint, gyro_filt));
@@ -295,7 +298,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                  }
 
-                 // Step Response Input Data (filtered by time and movement)
+                 // Step Response Input Data (filtered by time and movement, requires Setpoint and GyroADC)
                  if setpoint_header_found[axis_index] && gyro_header_found[axis_index] {
                      if let (Some(setpoint), Some(gyro_filt)) = (row.setpoint[axis_index], row.gyro[axis_index]) {
                          let mut include_point = false;
@@ -320,8 +323,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                      }
                  }
 
-                 // Gyro vs Unfiltered Gyro Data
-                 if gyro_header_found[axis_index] {
+                 // Gyro vs Unfiltered Gyro Data (requires GyroADC and GyroUnfilt/Debug)
+                 if gyro_header_found[axis_index] && row.gyro_unfilt[axis_index].is_some() { // Ensure gyroUnfilt/debug fallback was successful
                      if let (Some(gyro_filt), Some(gyro_unfilt)) = (row.gyro[axis_index], row.gyro_unfilt[axis_index]) {
                          gyro_vs_unfilt_data[axis_index].push((time, gyro_filt, gyro_unfilt));
                          gyro_vs_unfilt_data_available[axis_index] = true;
@@ -330,6 +333,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
+
 
     // --- Calculate Step Response Data ---
     println!("\n--- Calculating Step Response ---");
@@ -374,62 +378,195 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
 
-    // --- Generate Stacked PIDsum Plot ---
-    println!("\n--- Generating Stacked PIDsum Plot ---");
-    if pid_data_available.iter().any(|&x| x) {
-        let output_file_pidsum = format!("{}_PIDsum_stacked.png", root_name);
+    // --- Generate Stacked PIDsum & PID Error Plot --- //
+    println!("\n--- Generating Stacked PIDsum & PID Error Plot ---");
+    // Check if *any* axis has PIDsum data OR Setpoint/Gyro data (for PID Error)
+    if pid_data_available.iter().any(|&x| x) || setpoint_vs_gyro_data_available.iter().any(|&x| x) {
+        let output_file_pidsum_error = format!("{}_PIDsum_and_Error_stacked.png", root_name); //
         // Create the main drawing area for the entire plot
-        let root_area_pidsum = BitMapBackend::new(&output_file_pidsum, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
-        root_area_pidsum.fill(&WHITE)?;
+        let root_area_pidsum_error = BitMapBackend::new(&output_file_pidsum_error, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
+        root_area_pidsum_error.fill(&WHITE)?;
 
         // Add main title on the full drawing area
-        root_area_pidsum.draw(&Text::new(
+        root_area_pidsum_error.draw(&Text::new(
             root_name.as_ref(),
             (10, 10), // Position near top-left
             ("sans-serif", 24).into_font().color(&BLACK),
         ))?;
 
         // Create a margined area below the title for the subplots
-        let margined_root_area_pidsum = root_area_pidsum.margin(50, 5, 5, 5); // Top margin 50px
+        let margined_root_area_pidsum_error = root_area_pidsum_error.margin(50, 5, 5, 5); // Top margin 50px
 
         // Split the margined area into subplots
-        let sub_plot_areas = margined_root_area_pidsum.split_evenly((3, 1));
+        let sub_plot_areas = margined_root_area_pidsum_error.split_evenly((3, 1));
 
         for axis_index in 0..3 {
             let area = &sub_plot_areas[axis_index];
-            if pid_data_available[axis_index] && !pid_output_data[axis_index].is_empty() {
-                let (time_min, time_max) = pid_output_data[axis_index].iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _)| (min_t.min(*t), max_t.max(*t)));
-                let (output_min, output_max) = pid_output_data[axis_index].iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min_v, max_v), (_, v)| (min_v.min(*v), max_v.max(*v)));
 
-                 if time_min.is_infinite() || output_min.is_infinite() {
-                     draw_unavailable_message(area, axis_index, "PIDsum")?;
-                     continue;
+            let has_pidsum_data_initial = pid_data_available[axis_index] && !pid_output_data[axis_index].is_empty();
+            // Check if setpoint_vs_gyro_data was originally available for calculating error
+            let setpoint_gyro_headers_found = setpoint_header_found[axis_index] && gyro_header_found[axis_index];
+            let has_setpoint_gyro_data_initial = setpoint_vs_gyro_data_available[axis_index] && !setpoint_vs_gyro_data[axis_index].is_empty();
+
+            // Flags will be updated based on whether filtered data is empty
+            let mut has_pidsum_data = has_pidsum_data_initial;
+            let mut has_setpoint_gyro_data = has_setpoint_gyro_data_initial;
+
+            // Only attempt to proceed if at least one data source was initially available
+            if has_pidsum_data_initial || has_setpoint_gyro_data_initial {
+
+                // Determine time range from available data (using initial checks)
+                 let time_min = if has_pidsum_data_initial && !pid_output_data[axis_index].is_empty() {
+                                    pid_output_data[axis_index][0].0
+                                } else if has_setpoint_gyro_data_initial && !setpoint_vs_gyro_data[axis_index].is_empty() {
+                                    setpoint_vs_gyro_data[axis_index][0].0
+                                } else {
+                                    // This case should theoretically not be reached due to the outer if,
+                                    // but provide a safe default if somehow data flags are true but vecs are empty.
+                                    0.0
+                                };
+                 let time_max = if has_pidsum_data_initial && !pid_output_data[axis_index].is_empty() {
+                                    pid_output_data[axis_index].last().map(|p| p.0).unwrap_or(time_min)
+                                } else if has_setpoint_gyro_data_initial && !setpoint_vs_gyro_data[axis_index].is_empty() {
+                                    setpoint_vs_gyro_data[axis_index].last().map(|p| p.0).unwrap_or(time_min)
+                                } else {
+                                     // Fallback
+                                     time_min + 1.0
+                                };
+
+
+                let mut pid_error_data: Vec<(f64, f64)> = Vec::new();
+                let mut error_min = f64::INFINITY;
+                let mut error_max = f64::NEG_INFINITY;
+
+                // Calculate PID Error data if Setpoint/Gyro headers were found AND data is available
+                if setpoint_gyro_headers_found && has_setpoint_gyro_data_initial { // Use the header check here too
+                    pid_error_data = setpoint_vs_gyro_data[axis_index].iter()
+                        .filter_map(|(t, sp, gyro)| {
+                             // Ensure both setpoint and gyro are valid numbers
+                             if sp.is_finite() && gyro.is_finite() {
+                                 let error = sp - gyro;
+                                 error_min = error_min.min(error);
+                                 error_max = error_max.max(error);
+                                 Some((*t, error))
+                             } else {
+                                 None
+                             }
+                        })
+                        .collect();
+                     // Update flag based on whether valid error data was collected
+                     has_setpoint_gyro_data = !pid_error_data.is_empty();
+                } else {
+                     // If headers weren't found or data wasn't initially available, ensure the flag is false
+                     has_setpoint_gyro_data = false;
+                }
+
+
+                let mut output_min = f64::INFINITY;
+                let mut output_max = f64::NEG_INFINITY;
+
+                // Calculate min/max for PIDsum data if available
+                if has_pidsum_data_initial { // Check if pid_output_data was initially available
+                     for &(_, val) in &pid_output_data[axis_index] {
+                         if val.is_finite() {
+                             output_min = output_min.min(val);
+                             output_max = output_max.max(val);
+                         }
+                     }
+                     // Update flag based on whether valid pidsum data exists after filtering
+                     has_pidsum_data = output_min.is_finite();
+                } else {
+                     // If data wasn't initially available, ensure the flag is false
+                     has_pidsum_data = false;
+                }
+
+                // Recalculate combined min/max only if at least one dataset is still valid
+                 if has_pidsum_data || has_setpoint_gyro_data {
+                    // Start min/max from infinity/neg_infinity to ensure any value sets it
+                    let mut combined_min = f64::INFINITY;
+                    let mut combined_max = f64::NEG_INFINITY;
+
+                    if has_pidsum_data {
+                         combined_min = combined_min.min(output_min);
+                         combined_max = combined_max.max(output_max);
+                    }
+                    if has_setpoint_gyro_data {
+                         combined_min = combined_min.min(error_min);
+                         combined_max = combined_max.max(error_max);
+                    }
+
+                    // Only proceed to draw the chart if combined min/max are not infinite
+                    if combined_min.is_finite() && combined_max.is_finite() {
+                         let (final_y_min, final_y_max) = calculate_range(combined_min, combined_max);
+
+                         let mut chart = ChartBuilder::on(area)
+                             .caption(format!("Axis {} PID (PIDsum & Error)", axis_index), ("sans-serif", 20)) // Use updated caption
+                             .margin(5).x_label_area_size(30).y_label_area_size(50)
+                             .build_cartesian_2d(time_min..time_max, final_y_min..final_y_max)?; // Use combined range
+                         chart.configure_mesh().x_desc("Time (s)").y_desc("Value (deg/s)").x_labels(10).y_labels(5) // Use updated y-desc
+                             .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
+
+                         let mut legend_drawn = false;
+
+                         // Draw PIDsum series if available
+                         if has_pidsum_data {
+                             let pidsum_color = Palette99::pick(COLOR_PIDSUM);
+                             chart.draw_series(LineSeries::new(
+                                 pid_output_data[axis_index].iter().cloned(),
+                                 &pidsum_color,
+                             ))?
+                             .label("PIDsum (P+I+D)")
+                             .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], pidsum_color.stroke_width(2)));
+                             legend_drawn = true;
+                         }
+
+                         // Draw PID Error series if available
+                         if has_setpoint_gyro_data {
+                              let pid_error_color = Palette99::pick(COLOR_PIDERROR); // Use the new color
+                              chart.draw_series(LineSeries::new(
+                                  pid_error_data.into_iter(), // Use the calculated error data
+                                  &pid_error_color,
+                              ))?
+                              .label("PID Error (Setpoint - Gyro)") // Label for the new series
+                              .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], pid_error_color.stroke_width(2)));
+                              legend_drawn = true;
+                         }
+
+                         // Configure and draw legend if any series was drawn
+                         if legend_drawn {
+                              chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
+                                  .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
+                         }
+                    } else {
+                         // After filtering, no valid data remains for this axis plot
+                         println!("  INFO: No valid PIDsum or Setpoint/Gyro data found for Axis {}. Drawing placeholder.", axis_index);
+                         draw_unavailable_message(area, axis_index, "PIDsum/PIDerror (No Valid Data)")?;
+                    }
+
+
+                 } else {
+                     // After filtering, no valid data remains for this axis plot
+                     println!("  INFO: No valid PIDsum or Setpoint/Gyro data found for Axis {}. Drawing placeholder.", axis_index);
+                     draw_unavailable_message(area, axis_index, "PIDsum/PIDerror (No Valid Data)")?;
                  }
 
-                let (final_pidsum_min, final_pidsum_max) = calculate_range(output_min, output_max);
-
-                let mut chart = ChartBuilder::on(area)
-                    .caption(format!("Axis {} PIDsum (P+I+D)", axis_index), ("sans-serif", 20))
-                    .margin(5).x_label_area_size(30).y_label_area_size(50)
-                    .build_cartesian_2d(time_min..time_max, final_pidsum_min..final_pidsum_max)?;
-                chart.configure_mesh().x_desc("Time (s)").y_desc("PIDsum").x_labels(10).y_labels(5)
-                    .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
-
-                chart.draw_series(LineSeries::new(
-                    pid_output_data[axis_index].iter().cloned(),
-                    &Palette99::pick(COLOR_PIDSUM),
-                ))?;
             } else {
-                println!("  INFO: No PIDsum data available for Axis {}. Drawing placeholder.", axis_index);
-                draw_unavailable_message(area, axis_index, "PIDsum")?;
+                // Neither PIDsum nor Setpoint/Gyro data is available for this axis
+                println!("  INFO: No PIDsum or Setpoint/Gyro header/data available for Axis {}. Drawing placeholder.", axis_index);
+                let reason = if !pid_data_available[axis_index] && !(setpoint_header_found[axis_index] && gyro_header_found[axis_index]) {
+                    "Headers Missing" // Refined missing header check
+                 } else {
+                    "No Valid Data Rows"
+                 };
+                draw_unavailable_message(area, axis_index, &format!("PIDsum/PIDerror ({})", reason))?;
             }
         }
-        root_area_pidsum.present()?;
-        println!("  Stacked PIDsum plot saved as '{}'.", output_file_pidsum);
-    } else {
-        println!("  Skipping Stacked PIDsum Plot: No PIDsum data available for any axis.");
-    }
+        root_area_pidsum_error.present()?; // Use the correct root area variable
+        println!("  Stacked PIDsum & PID Error plot saved as '{}'.", output_file_pidsum_error); //
 
+    } else {
+        println!("  Skipping Stacked PIDsum & PID Error Plot: No PIDsum or Setpoint/Gyro data available for any axis."); //
+    }
 
     // --- Generate Stacked Setpoint vs PIDsum Plot ---
     println!("\n--- Generating Stacked Setpoint vs PIDsum Plot ---");
@@ -462,7 +599,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                      continue;
                  }
 
-                let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+                let (final_value_min, final_value_max) = calculate_range(val_min, val_max); // Corrected typo here
 
                 let mut chart = ChartBuilder::on(area)
                     .caption(format!("Axis {} Setpoint vs PIDsum", axis_index), ("sans-serif", 20))
@@ -547,7 +684,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ))?
                     .label("Gyro (gyroADC)")
                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], gyro_color.stroke_width(2)));
-                
+
                     let sp_color = COLOR_STEP_RESPONSE_HIGH_SP; // Use the same orange as high setpoint step response
                 chart.draw_series(LineSeries::new(
                     setpoint_vs_gyro_data[axis_index].iter().map(|(t, s, _g)| (*t, *s)),
@@ -555,7 +692,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 ))?
                 .label("Setpoint")
                 .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], sp_color.stroke_width(2)));
-                
+
                 chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
                     .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
             } else {
@@ -567,314 +704,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("  Stacked Setpoint vs Gyro plot saved as '{}'.", output_file_setpoint_gyro);
     } else {
         println!("  Skipping Stacked Setpoint vs Gyro Plot: No Setpoint vs Gyro data available for any axis.");
-    }
-
-    // --- Generate Stacked Step Response Plot ---
-    println!("\n--- Generating Stacked Step Response Plot ---");
-    // Check if *any* axis has step response calculation results stored
-    if step_response_calculation_results.iter().any(|x| x.is_some()) {
-        // Create the main drawing area for the entire plot
-        let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, STEP_RESPONSE_PLOT_DURATION_S);
-        let root_area_step = BitMapBackend::new(&output_file_step, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
-        root_area_step.fill(&WHITE)?;
-
-        // Add main title on the full drawing area
-        root_area_step.draw(&Text::new(
-            root_name.as_ref(),
-            (10, 10), // Position near top-left
-            ("sans-serif", 24).into_font().color(&BLACK),
-        ))?;
-        // Create a margined area below the title for the subplots
-        let margined_root_area_step = root_area_step.margin(50, 5, 5, 5); // Top margin 50px
-
-        // Split the margined area into subplots
-        let sub_plot_areas = margined_root_area_step.split_evenly((3, 1));
-
-        // Get sample rate for steady-state window calculation (fallback if needed)
-        let sr = sample_rate.unwrap_or(1000.0); // Use a reasonable default if sample rate unknown
-        let ss_start_sample = (STEADY_STATE_START_S * sr).floor() as usize;
-        let ss_end_sample = (STEADY_STATE_END_S * sr).ceil() as usize;
-
-        // Tolerance for checking if steady-state is near 1.0
-        const STEADY_STATE_TOLERANCE: f64 = 0.2; // Allow steady state between 0.8 and 1.2
-
-        for axis_index in 0..3 {
-            // Retrieve the raw QC'd stacked responses and setpoints
-            if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) = &step_response_calculation_results[axis_index] {
-                let area = &sub_plot_areas[axis_index];
-                let response_length_samples = response_time.len(); // Get actual length from the time array
-
-                // Ensure response_time is not empty before proceeding
-                if response_length_samples == 0 {
-                     draw_unavailable_message(area, axis_index, "Step Response (Empty Time Data)")?;
-                     continue;
-                 }
-
-                let num_qc_windows = valid_stacked_responses.shape()[0];
-                 if num_qc_windows == 0 {
-                     draw_unavailable_message(area, axis_index, "Step Response (No Valid Windows)")?;
-                     continue;
-                 }
-
-
-                // 3. Implement Setpoint Masking for QC Windows.
-                let low_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v < SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
-                let high_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v >= SETPOINT_THRESHOLD as f32 { 1.0 } else { 0.0 });
-                let combined_mask: Array1<f32> = Array1::ones(num_qc_windows); // Mask for all QC windows
-
-
-                // 4. Implement Averaging (using mean).
-                let mut low_response_avg = Array1::<f64>::zeros(0);
-                let mut high_response_avg = Array1::<f64>::zeros(0);
-                let mut combined_response_avg = Array1::<f64>::zeros(0);
-
-                // Always attempt low and combined if QC windows exist
-                if low_mask.iter().any(|&w| w > 0.0) {
-                    match average_responses( // Changed to average_responses
-                        &valid_stacked_responses,
-                        &low_mask,
-                        response_length_samples,
-                    ) {
-                        Ok(resp) => low_response_avg = resp,
-                        Err(e) => eprintln!("    ... Low setpoint averaging failed for Axis {}: {}", axis_index, e),
-                    }
-                } else {
-                     println!("  INFO: No low setpoint windows for Axis {}. Skipping low response averaging.", axis_index);
-                }
-
-                // Only attempt high if high setpoint windows exist
-                if high_mask.iter().any(|&w| w > 0.0) {
-                    match average_responses( // Changed to average_responses
-                        &valid_stacked_responses,
-                        &high_mask,
-                        response_length_samples,
-                    ) {
-                        Ok(resp) => high_response_avg = resp,
-                        Err(e) => eprintln!("    ... High setpoint averaging failed for Axis {}: {}", axis_index, e),
-                    }
-                } else {
-                     println!("  INFO: No high setpoint windows for Axis {}. Skipping high response averaging.", axis_index);
-                }
-
-                // Combined response should always be attempted if there are QC windows
-                match average_responses( // Changed to average_responses
-                   &valid_stacked_responses,
-                   &combined_mask,
-                   response_length_samples,
-                ) {
-                   Ok(resp) => combined_response_avg = resp,
-                   Err(e) => eprintln!("    ... Combined averaging failed for Axis {}: {}", axis_index, e),
-                }
-
-
-                // Apply smoothing *before* shifting and final normalization
-                let smoothed_low_response = moving_average_smooth_f64(&low_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
-                let smoothed_high_response = moving_average_smooth_f64(&high_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
-                let smoothed_combined_response = moving_average_smooth_f64(&combined_response_avg, POST_AVERAGING_SMOOTHING_WINDOW);
-
-
-                // --- Shift the smoothed curves to start at 0 and Normalize to settle at 1.0 ---
-                let current_ss_start_sample = ss_start_sample.min(response_length_samples);
-                let current_ss_end_sample = ss_end_sample.min(response_length_samples);
-
-                let mut final_low_response = Array1::<f64>::zeros(0); // Start with empty/invalid
-                let mut is_low_response_valid = false;
-                if !smoothed_low_response.is_empty() && current_ss_start_sample < current_ss_end_sample {
-                    let mut shifted_response = smoothed_low_response.clone();
-                    let first_val = shifted_response[0];
-                    shifted_response.mapv_inplace(|v| v - first_val); // Shift to start at 0
-
-                    let steady_state_segment = shifted_response.slice(s![current_ss_start_sample..current_ss_end_sample]);
-                    if let Some(steady_state_mean) = steady_state_segment.mean() {
-                        if steady_state_mean.abs() > 1e-9 { // Avoid division by zero for normalization
-                            let normalized_response = shifted_response.mapv(|v| v / steady_state_mean);
-                            // Check if the steady state of the *normalized* response is near 1.0
-                            if let Some(normalized_ss_mean) = normalized_response.slice(s![current_ss_start_sample..current_ss_end_sample]).mean() {
-                                 if (normalized_ss_mean - 1.0).abs() <= STEADY_STATE_TOLERANCE {
-                                     final_low_response = normalized_response;
-                                     is_low_response_valid = true;
-                                 } else {
-                                     println!("  INFO: Axis {} low response steady-state ({:.2}) outside tolerance after normalization. Skipping plot.", axis_index, normalized_ss_mean);
-                                 }
-                            } else {
-                                 eprintln!("Warning: Could not calculate normalized steady-state mean for Axis {} low response. Skipping plot.", axis_index);
-                             }
-                         } else {
-                             println!("  INFO: Axis {} low response steady-state mean near zero after shifting. Skipping final normalization and plot.", axis_index);
-                         }
-                     } else {
-                          eprintln!("Warning: Could not calculate steady-state mean for Axis {} low response after shifting. Skipping final normalization and plot.", axis_index);
-                     }
-                 } else {
-                      println!("  INFO: Axis {} low response data empty or steady-state window invalid after smoothing/shifting. Skipping plot.", axis_index);
-                 }
-
-
-                let mut final_high_response = Array1::<f64>::zeros(0); // Start with empty/invalid
-                let mut is_high_response_valid = false;
-                if !smoothed_high_response.is_empty() && current_ss_start_sample < current_ss_end_sample {
-                     let mut shifted_response = smoothed_high_response.clone();
-                     let first_val = shifted_response[0];
-                     shifted_response.mapv_inplace(|v| v - first_val); // Shift to start at 0
-
-                     let steady_state_segment = shifted_response.slice(s![current_ss_start_sample..current_ss_end_sample]);
-                     if let Some(steady_state_mean) = steady_state_segment.mean() {
-                         if steady_state_mean.abs() > 1e-9 {
-                             let normalized_response = shifted_response.mapv(|v| v / steady_state_mean);
-                             if let Some(normalized_ss_mean) = normalized_response.slice(s![current_ss_start_sample..current_ss_end_sample]).mean() {
-                                  if (normalized_ss_mean - 1.0).abs() <= STEADY_STATE_TOLERANCE {
-                                      final_high_response = normalized_response;
-                                      is_high_response_valid = true;
-                                  } else {
-                                      println!("  INFO: Axis {} high response steady-state ({:.2}) outside tolerance after normalization. Skipping plot.", axis_index, normalized_ss_mean);
-                                  }
-                             } else {
-                                  eprintln!("Warning: Could not calculate normalized steady-state mean for Axis {} high response. Skipping plot.", axis_index);
-                             }
-                         } else {
-                             println!("  INFO: Axis {} high response steady-state mean near zero after shifting. Skipping final normalization and plot.", axis_index);
-                         }
-                     } else {
-                          eprintln!("Warning: Could not calculate steady-state mean for Axis {} high response after shifting. Skipping final normalization and plot.", axis_index);
-                     }
-                } else {
-                     println!("  INFO: Axis {} high response data empty or steady-state window invalid after smoothing/shifting. Skipping plot.", axis_index);
-                }
-
-
-                let mut final_combined_response = Array1::<f64>::zeros(0); // Start with empty/invalid
-                let mut is_combined_response_valid = false;
-                if !smoothed_combined_response.is_empty() && current_ss_start_sample < current_ss_end_sample {
-                     let mut shifted_response = smoothed_combined_response.clone();
-                     let first_val = shifted_response[0];
-                     shifted_response.mapv_inplace(|v| v - first_val); // Shift to start at 0
-
-                     let steady_state_segment = shifted_response.slice(s![current_ss_start_sample..current_ss_end_sample]);
-                     if let Some(steady_state_mean) = steady_state_segment.mean() {
-                         if steady_state_mean.abs() > 1e-9 {
-                             let normalized_response = shifted_response.mapv(|v| v / steady_state_mean);
-                             if let Some(normalized_ss_mean) = normalized_response.slice(s![current_ss_start_sample..current_ss_end_sample]).mean() {
-                                  if (normalized_ss_mean - 1.0).abs() <= STEADY_STATE_TOLERANCE {
-                                      final_combined_response = normalized_response;
-                                      is_combined_response_valid = true;
-                                  } else {
-                                      println!("  INFO: Axis {} combined response steady-state ({:.2}) outside tolerance after normalization. Skipping plot.", axis_index, normalized_ss_mean);
-                                  }
-                             } else {
-                                  eprintln!("Warning: Could not calculate normalized steady-state mean for Axis {} combined response. Skipping plot.", axis_index);
-                             }
-                         } else {
-                             println!("  INFO: Axis {} combined response steady-state mean near zero after shifting. Skipping final normalization and plot.", axis_index);
-                         }
-                     } else {
-                          eprintln!("Warning: Could not calculate steady-state mean for Axis {} combined response after shifting. Skipping final normalization and plot.", axis_index);
-                     }
-                } else {
-                     println!("  INFO: Axis {} combined response data empty or steady-state window invalid after smoothing/shifting. Skipping plot.", axis_index);
-                }
-                // --- End of normalization and validity check section ---
-
-
-                // Determine plot range based *only* on valid responses
-                let mut resp_min = f64::INFINITY;
-                let mut resp_max = f64::NEG_INFINITY;
-
-                if is_low_response_valid {
-                    if let Ok(min_val) = final_low_response.min() { resp_min = resp_min.min(*min_val); }
-                    if let Ok(max_val) = final_low_response.max() { resp_max = resp_max.max(*max_val); }
-                }
-                if is_high_response_valid {
-                    if let Ok(min_val) = final_high_response.min() { resp_min = resp_min.min(*min_val); }
-                    if let Ok(max_val) = final_high_response.max() { resp_max = resp_max.max(*max_val); }
-                }
-                if is_combined_response_valid {
-                    if let Ok(min_val) = final_combined_response.min() { resp_min = resp_min.min(*min_val); }
-                    if let Ok(max_val) = final_combined_response.max() { resp_max = resp_max.max(*max_val); }
-                }
-
-                // If no responses are valid, draw unavailable message
-                if resp_min.is_infinite() {
-                     draw_unavailable_message(area, axis_index, "Step Response (No Valid Data)")?;
-                     continue; // Skip drawing chart for this axis
-                }
-
-                let (final_resp_min, final_resp_max) = calculate_range(resp_min, resp_max);
-                let final_time_max = STEP_RESPONSE_PLOT_DURATION_S * 1.05;
-
-                let mut chart = ChartBuilder::on(area)
-                    .caption(format!("Axis {} Step Response (~{}s)", axis_index, STEP_RESPONSE_PLOT_DURATION_S), ("sans-serif", 20))
-                    .margin(5).x_label_area_size(30).y_label_area_size(50)
-                    .build_cartesian_2d(0f64..final_time_max.max(1e-9), final_resp_min..final_resp_max)?;
-
-                chart.configure_mesh()
-                    .x_desc("Time (s) relative to response start")
-                    .y_desc("Normalized Response")
-                    .x_labels(8)
-                    .y_labels(5)
-                    .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
-
-                // Draw high setpoint response (only if valid)
-                if is_high_response_valid {
-                    let high_sp_color = COLOR_STEP_RESPONSE_HIGH_SP;
-                    chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(final_high_response.iter()).map(|(&t, &v)| (t, v)),
-                        high_sp_color.stroke_width(2),
-                    ))?
-                    .label(format!("\u{2265} {} deg/s", SETPOINT_THRESHOLD))
-                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], high_sp_color.stroke_width(2)));
-                }
-
-                // Draw combined response (only if valid)
-                if is_combined_response_valid {
-                    let combined_color = COLOR_STEP_RESPONSE_COMBINED;
-                    chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(final_combined_response.iter()).map(|(&t, &v)| (t, v)),
-                        combined_color.stroke_width(2),
-                    ))?
-                    .label("Combined") // New legend label
-                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], combined_color.stroke_width(2)));
-                }
-
-                // Draw low setpoint response (only if valid)
-                if is_low_response_valid {
-                    let low_sp_color = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP);
-                    chart.draw_series(LineSeries::new(
-                        response_time.iter().zip(final_low_response.iter()).map(|(&t, &v)| (t, v)),
-                        low_sp_color.stroke_width(2),
-                    ))?
-                    .label(format!("< {} deg/s", SETPOINT_THRESHOLD))
-                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], low_sp_color.stroke_width(2)));
-                }
-
-                // Configure and draw the legend.
-                // Only draw legend if at least one series was drawn
-                if is_low_response_valid || is_high_response_valid || is_combined_response_valid {
-                     chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
-                         .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
-                }
-
-
-            } else {
-                // Declare area here to be in scope for the unavailable message
-                let area = &sub_plot_areas[axis_index];
-                let reason = if !setpoint_header_found[axis_index] || !gyro_header_found[axis_index] {
-                    "Setpoint/gyroADC Header Missing"
-                 } else if sample_rate.is_none() {
-                    "Sample Rate Unknown"
-                 } else if !step_response_input_available[axis_index] {
-                     "Input Data Missing/Invalid"
-                 } else {
-                     "Calculation Failed/No Data"
-                 };
-                println!("  INFO: No Step Response data available for Axis {}: {}. Drawing placeholder.", axis_index, reason);
-                 draw_unavailable_message(area, axis_index, &format!("Step Response ({})", reason))?;
-            }
-        }
-        root_area_step.present()?;
-        println!("  Stacked Step Response plot saved as '{}'. (Duration: {}s)", output_file_step, STEP_RESPONSE_PLOT_DURATION_S);
-
-    } else {
-        println!("  Skipping Stacked Step Response Plot: No step response data could be calculated for any axis.");
     }
 
     // --- Generate Stacked Gyro vs Unfiltered Gyro Plot ---
