@@ -254,8 +254,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // --- Data Preparation for Plots ---
-    let mut pid_output_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    // This vector is specifically for the *first* PIDsum plot (which will now also show error and setpoint)
+    // We collect all necessary data points here for that specific plot.
+    let mut pidsum_setpoint_gyro_plot_data: [Vec<(f64, Option<f64>, Option<f64>, Option<f64>)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+
+    // This vector is specifically for the *second* Setpoint vs PIDsum plot (keeps original logic)
     let mut setpoint_vs_pidsum_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut setpoint_data_available_for_setpoint_vs_pidsum = [false; 3]; // Flag for the second plot
+
+    // Data for other plots remains the same structure
     let mut gyro_vs_unfilt_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut setpoint_vs_gyro_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut step_response_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
@@ -264,72 +271,88 @@ fn main() -> Result<(), Box<dyn Error>> {
         (Vec::new(), Vec::new(), Vec::new()),
     ];
 
-    let mut pid_data_available = [false; 3];
-    let mut setpoint_data_available = [false; 3];
     let mut gyro_vs_unfilt_data_available = [false; 3];
     let mut setpoint_vs_gyro_data_available = [false; 3];
     let mut step_response_input_available = [false; 3];
 
-    // Populate plot data structures and step response input data.
+
+    // Populate plot data structures.
     for row in &all_log_data {
         if let Some(time) = row.time_sec {
             for axis_index in 0..3 {
-                // PIDsum data
-                if let (Some(p), Some(i), Some(d)) = (row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index]) {
-                    pid_output_data[axis_index].push((time, p + i + d));
-                    pid_data_available[axis_index] = true;
+                let pidsum = row.p_term[axis_index].and_then(|p| {
+                    row.i_term[axis_index].and_then(|i| {
+                        row.d_term[axis_index].map(|d| p + i + d)
+                    })
+                });
+
+                let setpoint = row.setpoint[axis_index];
+                let gyro_filt = row.gyro[axis_index];
+                let gyro_unfilt = row.gyro_unfilt[axis_index]; // Get unfiltered gyro
+
+                // Data for the *first* PIDsum/Error/Setpoint plot
+                if pidsum.is_some() || setpoint.is_some() || gyro_filt.is_some() {
+                     // We push a point if *any* of the relevant values for this plot are available.
+                     // The plot drawing logic will decide which lines to draw.
+                    pidsum_setpoint_gyro_plot_data[axis_index].push((time, setpoint, gyro_filt, pidsum));
                 }
 
-                // Setpoint vs PIDsum data
+
+                // Data for the *second* Setpoint vs PIDsum plot (original logic)
                 if setpoint_header_found[axis_index] {
-                    if let (Some(setpoint), Some(p), Some(i), Some(d)) = (row.setpoint[axis_index], row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index]) {
-                        setpoint_vs_pidsum_data[axis_index].push((time, setpoint, p + i + d));
-                        // setpoint_data_available is used for Setpoint vs PIDsum
-                        setpoint_data_available[axis_index] = true;
-                    }
-                }
-                 if setpoint_header_found[axis_index] && gyro_header_found[axis_index] {
-                    if let (Some(setpoint), Some(gyro_filt)) = (row.setpoint[axis_index], row.gyro[axis_index]) {
-                        setpoint_vs_gyro_data[axis_index].push((time, setpoint, gyro_filt));
-                        setpoint_vs_gyro_data_available[axis_index] = true;
-                    }
+                     if let (Some(setpoint_val), Some(pidsum_val)) = (setpoint, pidsum) {
+                        setpoint_vs_pidsum_data[axis_index].push((time, setpoint_val, pidsum_val));
+                         setpoint_data_available_for_setpoint_vs_pidsum[axis_index] = true;
+                     }
                  }
 
                  // Step Response Input Data (filtered by time and movement)
-                 if setpoint_header_found[axis_index] && gyro_header_found[axis_index] {
-                     if let (Some(setpoint), Some(gyro_filt)) = (row.setpoint[axis_index], row.gyro[axis_index]) {
+                 // Requires setpoint and filtered gyro
+                 if setpoint.is_some() && gyro_filt.is_some() {
+                     if let (Some(setpoint_val), Some(gyro_filt_val)) = (setpoint, gyro_filt) {
                          let mut include_point = false;
                          if let (Some(first), Some(last)) = (first_time, last_time) {
                              if time >= first + EXCLUDE_START_S && time <= last - EXCLUDE_END_S {
-                                 if setpoint.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_filt.abs() >= MOVEMENT_THRESHOLD_DEG_S {
+                                 if setpoint_val.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_filt_val.abs() >= MOVEMENT_THRESHOLD_DEG_S {
                                      include_point = true;
                                  }
                              }
                          } else { // Include if time range unknown, based on movement only
-                             if setpoint.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_filt.abs() >= MOVEMENT_THRESHOLD_DEG_S {
+                             if setpoint_val.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_filt_val.abs() >= MOVEMENT_THRESHOLD_DEG_S {
                                   include_point = true;
                              }
                          }
 
                          if include_point {
                              step_response_input_data[axis_index].0.push(time);
-                             step_response_input_data[axis_index].1.push(setpoint as f32);
-                             step_response_input_data[axis_index].2.push(gyro_filt as f32);
+                             step_response_input_data[axis_index].1.push(setpoint_val as f32);
+                             step_response_input_data[axis_index].2.push(gyro_filt_val as f32);
                              step_response_input_available[axis_index] = true;
                          }
                      }
                  }
 
                  // Gyro vs Unfiltered Gyro Data
-                 if gyro_header_found[axis_index] {
-                     if let (Some(gyro_filt), Some(gyro_unfilt)) = (row.gyro[axis_index], row.gyro_unfilt[axis_index]) {
-                         gyro_vs_unfilt_data[axis_index].push((time, gyro_filt, gyro_unfilt));
+                 // Requires filtered gyro and unfiltered gyro
+                 if gyro_filt.is_some() && gyro_unfilt.is_some() {
+                     if let (Some(gyro_filt_val), Some(gyro_unfilt_val)) = (gyro_filt, gyro_unfilt) {
+                         gyro_vs_unfilt_data[axis_index].push((time, gyro_filt_val, gyro_unfilt_val));
                          gyro_vs_unfilt_data_available[axis_index] = true;
+                     }
+                 }
+
+                 // Setpoint vs Gyro Data
+                 // Requires setpoint and filtered gyro
+                  if setpoint.is_some() && gyro_filt.is_some() {
+                     if let (Some(setpoint_val), Some(gyro_filt_val)) = (setpoint, gyro_filt) {
+                         setpoint_vs_gyro_data[axis_index].push((time, setpoint_val, gyro_filt_val));
+                         setpoint_vs_gyro_data_available[axis_index] = true;
                      }
                  }
             }
         }
     }
+
 
     // --- Calculate Step Response Data ---
     println!("\n--- Calculating Step Response ---");
@@ -374,66 +397,140 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
 
-    // --- Generate Stacked PIDsum Plot ---
-    println!("\n--- Generating Stacked PIDsum Plot ---");
-    if pid_data_available.iter().any(|&x| x) {
-        let output_file_pidsum = format!("{}_PIDsum_stacked.png", root_name);
+    // --- Generate Stacked PIDsum vs PID Error vs Setpoint Plot ---
+    // This modifies the original PIDsum plot to add Setpoint and PID Error lines
+    println!("\n--- Generating Stacked PIDsum vs PID Error vs Setpoint Plot ---");
+    // Check if *any* axis has *any* data (PIDsum, Setpoint, or Gyro) collected for this plot
+    if pidsum_setpoint_gyro_plot_data.iter().any(|v| !v.is_empty()) {
+        let output_file_pidsum_error = format!("{}_PIDsum_PIDerror_Setpoint_stacked.png", root_name);
         // Create the main drawing area for the entire plot
-        let root_area_pidsum = BitMapBackend::new(&output_file_pidsum, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
-        root_area_pidsum.fill(&WHITE)?;
+        let root_area_pidsum_error = BitMapBackend::new(&output_file_pidsum_error, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
+        root_area_pidsum_error.fill(&WHITE)?;
 
         // Add main title on the full drawing area
-        root_area_pidsum.draw(&Text::new(
+        root_area_pidsum_error.draw(&Text::new(
             root_name.as_ref(),
             (10, 10), // Position near top-left
             ("sans-serif", 24).into_font().color(&BLACK),
         ))?;
 
         // Create a margined area below the title for the subplots
-        let margined_root_area_pidsum = root_area_pidsum.margin(50, 5, 5, 5); // Top margin 50px
+        let margined_root_area_pidsum_error = root_area_pidsum_error.margin(50, 5, 5, 5); // Top margin 50px
 
         // Split the margined area into subplots
-        let sub_plot_areas = margined_root_area_pidsum.split_evenly((3, 1));
+        let sub_plot_areas = margined_root_area_pidsum_error.split_evenly((3, 1));
 
         for axis_index in 0..3 {
             let area = &sub_plot_areas[axis_index];
-            if pid_data_available[axis_index] && !pid_output_data[axis_index].is_empty() {
-                let (time_min, time_max) = pid_output_data[axis_index].iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _)| (min_t.min(*t), max_t.max(*t)));
-                let (output_min, output_max) = pid_output_data[axis_index].iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min_v, max_v), (_, v)| (min_v.min(*v), max_v.max(*v)));
+            let axis_data = &pidsum_setpoint_gyro_plot_data[axis_index];
 
-                 if time_min.is_infinite() || output_min.is_infinite() {
-                     draw_unavailable_message(area, axis_index, "PIDsum")?;
-                     continue;
+            // Collect actual data points for plotting this axis
+            let mut pidsum_line_data: Vec<(f64, f64)> = Vec::new();
+            let mut setpoint_line_data: Vec<(f64, f64)> = Vec::new();
+            let mut pid_error_data: Vec<(f64, f64)> = Vec::new();
+
+            for (time, setpoint, gyro_filt, pidsum) in axis_data {
+                 if let Some(t) = time.into() { // time is guaranteed Some, but iter returns f64
+                     if let Some(p) = pidsum {
+                        pidsum_line_data.push((*t, *p));
+                     }
+                     if let Some(s) = setpoint {
+                         setpoint_line_data.push((*t, *s));
+                         if let Some(g) = gyro_filt {
+                             pid_error_data.push((*t, s - g)); // Calculate PID Error
+                         }
+                     }
+                 }
+            }
+
+            // Check if *any* data is available for this axis before drawing chart
+            if !pidsum_line_data.is_empty() || !setpoint_line_data.is_empty() || !pid_error_data.is_empty() {
+
+                 // Calculate combined range for all potential lines
+                 let mut val_min = f64::INFINITY;
+                 let mut val_max = f64::NEG_INFINITY;
+                 let mut time_min = f64::INFINITY;
+                 let mut time_max = f64::NEG_INFINITY;
+
+                 for (t, v) in pidsum_line_data.iter() { val_min = val_min.min(*v); val_max = val_max.max(*v); time_min = time_min.min(*t); time_max = time_max.max(*t); }
+                 for (t, v) in setpoint_line_data.iter() { val_min = val_min.min(*v); val_max = val_max.max(*v); time_min = time_min.min(*t); time_max = time_max.max(*t); }
+                 for (t, v) in pid_error_data.iter() { val_min = val_min.min(*v); val_max = val_max.max(*v); time_min = time_min.min(*t); time_max = time_max.max(*t); }
+
+                 if time_min.is_infinite() || val_min.is_infinite() {
+                      // This case should ideally not be reached if the outer check passed, but good defensive coding
+                      draw_unavailable_message(area, axis_index, "PIDsum/PIDerror/Setpoint")?;
+                      continue;
                  }
 
-                let (final_pidsum_min, final_pidsum_max) = calculate_range(output_min, output_max);
+                let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
 
                 let mut chart = ChartBuilder::on(area)
-                    .caption(format!("Axis {} PIDsum (P+I+D)", axis_index), ("sans-serif", 20))
+                    .caption(format!("Axis {} PIDsum vs PID Error vs Setpoint", axis_index), ("sans-serif", 20))
                     .margin(5).x_label_area_size(30).y_label_area_size(50)
-                    .build_cartesian_2d(time_min..time_max, final_pidsum_min..final_pidsum_max)?;
-                chart.configure_mesh().x_desc("Time (s)").y_desc("PIDsum").x_labels(10).y_labels(5)
+                    .build_cartesian_2d(time_min..time_max, final_value_min..final_value_max)?;
+                chart.configure_mesh().x_desc("Time (s)").y_desc("Value").x_labels(10).y_labels(5)
                     .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
-                chart.draw_series(LineSeries::new(
-                    pid_output_data[axis_index].iter().cloned(),
-                    &Palette99::pick(COLOR_PIDSUM),
-                ))?;
+                let mut series_drawn = 0;
+
+                // Draw PIDsum line if data available
+                if !pidsum_line_data.is_empty() {
+                     let pidsum_color = Palette99::pick(COLOR_PIDSUM);
+                     chart.draw_series(LineSeries::new(
+                         pidsum_line_data.iter().cloned(),
+                         &pidsum_color,
+                     ))?
+                     .label("PIDsum (P+I+D)")
+                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], pidsum_color.stroke_width(2)));
+                     series_drawn += 1;
+                }
+
+                // Draw PID Error line if data available
+                if !pid_error_data.is_empty() {
+                    let error_color = COLOR_PID_ERROR; // Use the new color constant
+                    chart.draw_series(LineSeries::new(
+                        pid_error_data.iter().cloned(),
+                        error_color.stroke_width(1), // Use stroke_width for visibility
+                    ))?
+                    .label("PID Error (Setpoint - GyroADC)")
+                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], error_color.stroke_width(2)));
+                    series_drawn += 1;
+                }
+
+                // Draw Setpoint line if data available
+                if !setpoint_line_data.is_empty() {
+                    let setpoint_color = Palette99::pick(COLOR_SETPOINT); // Use existing Setpoint color constant
+                    chart.draw_series(LineSeries::new(
+                        setpoint_line_data.iter().cloned(),
+                        &setpoint_color,
+                    ))?
+                    .label("Setpoint")
+                    .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], setpoint_color.stroke_width(2)));
+                    series_drawn += 1;
+                }
+
+                // Configure and draw the legend only if at least one series was drawn
+                if series_drawn > 0 {
+                    chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
+                         .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
+                }
+
             } else {
-                println!("  INFO: No PIDsum data available for Axis {}. Drawing placeholder.", axis_index);
-                draw_unavailable_message(area, axis_index, "PIDsum")?;
+                // No data available for any of the lines for this axis
+                println!("  INFO: No data (PIDsum, Setpoint, or Gyro) available for Axis {} for combined plot. Drawing placeholder.", axis_index);
+                draw_unavailable_message(area, axis_index, "PIDsum/PIDerror/Setpoint")?;
             }
         }
-        root_area_pidsum.present()?;
-        println!("  Stacked PIDsum plot saved as '{}'.", output_file_pidsum);
+        root_area_pidsum_error.present()?;
+        println!("  Stacked PIDsum vs PID Error vs Setpoint plot saved as '{}'.", output_file_pidsum_error);
     } else {
-        println!("  Skipping Stacked PIDsum Plot: No PIDsum data available for any axis.");
+        println!("  Skipping Stacked PIDsum vs PID Error vs Setpoint Plot: No relevant data available for any axis.");
     }
 
 
-    // --- Generate Stacked Setpoint vs PIDsum Plot ---
+    // --- Generate Stacked Setpoint vs PIDsum Plot (Original Second Plot) ---
     println!("\n--- Generating Stacked Setpoint vs PIDsum Plot ---");
-    if setpoint_data_available.iter().any(|&x| x) {
+    if setpoint_data_available_for_setpoint_vs_pidsum.iter().any(|&x| x) {
         let output_file_setpoint = format!("{}_SetpointVsPIDsum_stacked.png", root_name);
         // Create the main drawing area for the entire plot
         let root_area_setpoint = BitMapBackend::new(&output_file_setpoint, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
@@ -453,7 +550,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         for axis_index in 0..3 {
              let area = &sub_plot_areas[axis_index];
-            if setpoint_data_available[axis_index] && !setpoint_vs_pidsum_data[axis_index].is_empty() {
+            if setpoint_data_available_for_setpoint_vs_pidsum[axis_index] && !setpoint_vs_pidsum_data[axis_index].is_empty() {
                 let (time_min, time_max) = setpoint_vs_pidsum_data[axis_index].iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _, _)| (min_t.min(*t), max_t.max(*t)));
                 let (val_min, val_max) = setpoint_vs_pidsum_data[axis_index].iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min_y, max_y), (_, s, p)| (min_y.min(*s).min(*p), max_y.max(*s).max(*p)) );
 
@@ -547,7 +644,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ))?
                     .label("Gyro (gyroADC)")
                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], gyro_color.stroke_width(2)));
-                
+
                     let sp_color = COLOR_STEP_RESPONSE_HIGH_SP; // Use the same orange as high setpoint step response
                 chart.draw_series(LineSeries::new(
                     setpoint_vs_gyro_data[axis_index].iter().map(|(t, s, _g)| (*t, *s)),
@@ -555,7 +652,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 ))?
                 .label("Setpoint")
                 .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], sp_color.stroke_width(2)));
-                
+
                 chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
                     .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
             } else {
@@ -630,7 +727,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 // Always attempt low and combined if QC windows exist
                 if low_mask.iter().any(|&w| w > 0.0) {
-                    match average_responses( // Changed to average_responses
+                    match average_responses( // CAverage_responses
                         &valid_stacked_responses,
                         &low_mask,
                         response_length_samples,
@@ -644,7 +741,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 // Only attempt high if high setpoint windows exist
                 if high_mask.iter().any(|&w| w > 0.0) {
-                    match average_responses( // Changed to average_responses
+                    match average_responses( // Average_responses
                         &valid_stacked_responses,
                         &high_mask,
                         response_length_samples,
@@ -657,7 +754,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 // Combined response should always be attempted if there are QC windows
-                match average_responses( // Changed to average_responses
+                match average_responses( // Average_responses
                    &valid_stacked_responses,
                    &combined_mask,
                    response_length_samples,
@@ -831,7 +928,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         response_time.iter().zip(final_combined_response.iter()).map(|(&t, &v)| (t, v)),
                         combined_color.stroke_width(2),
                     ))?
-                    .label("Combined") // New legend label
+                    .label("Combined")
                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], combined_color.stroke_width(2)));
                 }
 
@@ -917,7 +1014,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 chart.configure_mesh().x_desc("Time (s)").y_desc("Gyro Value").x_labels(10).y_labels(5)
                     .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
-                let unfilt_color = Palette99::pick(COLOR_GYRO_UNFILT); // Removed .mix(0.6) for full opacity
+                let unfilt_color = Palette99::pick(COLOR_GYRO_UNFILT);
                 chart.draw_series(LineSeries::new(
                     gyro_vs_unfilt_data[axis_index].iter().map(|(t, _gf, gu)| (*t, *gu)),
                     &unfilt_color,

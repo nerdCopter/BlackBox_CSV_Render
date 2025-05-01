@@ -3,6 +3,7 @@
 use plotters::prelude::full_palette::ORANGE;
 use plotters::style::RGBColor;
 use plotters::prelude::RED; // Import RED
+use plotters::prelude::BLUE; // Import BLUE for PID Error
 
 // Plot dimensions.
 pub const PLOT_WIDTH: u32 = 1920;
@@ -36,8 +37,9 @@ pub const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-st
 
 // Plot colors
 pub const COLOR_PIDSUM: usize = 1; // PIDsum plot color
-pub const COLOR_SETPOINT: usize = 2; // Setpoint line color (Setpoint vs PIDsum plot)
+pub const COLOR_SETPOINT: usize = 2; // Setpoint line color (Used in Setpoint vs PIDsum and PIDsum+PIDError plots)
 pub const COLOR_PIDSUM_VS_SETPOINT: usize = 0; // PIDsum line color (Setpoint vs PIDsum plot)
+pub const COLOR_PID_ERROR: &RGBColor = &BLUE; // PID Error plot color
 pub const COLOR_STEP_RESPONSE_LOW_SP: usize = 3; // Low setpoint step response color (Green)
 pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE; // High setpoint step response color (Orange)
 pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED; // Combined step response color (Red)
