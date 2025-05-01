@@ -257,6 +257,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut pid_output_data: [Vec<(f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut setpoint_vs_pidsum_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut gyro_vs_unfilt_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut setpoint_vs_gyro_data: [Vec<(f64, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut step_response_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
         (Vec::new(), Vec::new(), Vec::new()),
         (Vec::new(), Vec::new(), Vec::new()),
@@ -266,6 +267,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut pid_data_available = [false; 3];
     let mut setpoint_data_available = [false; 3];
     let mut gyro_vs_unfilt_data_available = [false; 3];
+    let mut setpoint_vs_gyro_data_available = [false; 3];
     let mut step_response_input_available = [false; 3];
 
     // Populate plot data structures and step response input data.
@@ -282,9 +284,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if setpoint_header_found[axis_index] {
                     if let (Some(setpoint), Some(p), Some(i), Some(d)) = (row.setpoint[axis_index], row.p_term[axis_index], row.i_term[axis_index], row.d_term[axis_index]) {
                         setpoint_vs_pidsum_data[axis_index].push((time, setpoint, p + i + d));
+                        // setpoint_data_available is used for Setpoint vs PIDsum
                         setpoint_data_available[axis_index] = true;
                     }
                 }
+                 if setpoint_header_found[axis_index] && gyro_header_found[axis_index] {
+                    if let (Some(setpoint), Some(gyro_filt)) = (row.setpoint[axis_index], row.gyro[axis_index]) {
+                        setpoint_vs_gyro_data[axis_index].push((time, setpoint, gyro_filt));
+                        setpoint_vs_gyro_data_available[axis_index] = true;
+                    }
+                 }
 
                  // Step Response Input Data (filtered by time and movement)
                  if setpoint_header_found[axis_index] && gyro_header_found[axis_index] {
@@ -491,6 +500,74 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("  Skipping Stacked Setpoint vs PIDsum Plot: No Setpoint vs PIDsum data available for any axis.");
     }
 
+    // --- Generate Stacked Setpoint vs Gyro Plot ---
+    println!("\n--- Generating Stacked Setpoint vs Gyro Plot ---");
+    if setpoint_vs_gyro_data_available.iter().any(|&x| x) {
+        let output_file_setpoint_gyro = format!("{}_SetpointVsGyro_stacked.png", root_name);
+        // Create the main drawing area for the entire plot
+        let root_area_setpoint_gyro = BitMapBackend::new(&output_file_setpoint_gyro, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
+        root_area_setpoint_gyro.fill(&WHITE)?;
+
+         // Add main title on the full drawing area
+         root_area_setpoint_gyro.draw(&Text::new(
+            root_name.as_ref(),
+            (10, 10), // Position near top-left
+            ("sans-serif", 24).into_font().color(&BLACK),
+        ))?;
+        // Create a margined area below the title for the subplots
+        let margined_root_area_setpoint_gyro = root_area_setpoint_gyro.margin(50, 5, 5, 5); // Top margin 50px
+
+        // Split the margined area into subplots
+        let sub_plot_areas = margined_root_area_setpoint_gyro.split_evenly((3, 1));
+
+        for axis_index in 0..3 {
+             let area = &sub_plot_areas[axis_index];
+            if setpoint_vs_gyro_data_available[axis_index] && !setpoint_vs_gyro_data[axis_index].is_empty() {
+                let (time_min, time_max) = setpoint_vs_gyro_data[axis_index].iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min_t, max_t), (t, _, _)| (min_t.min(*t), max_t.max(*t)));
+                let (val_min, val_max) = setpoint_vs_gyro_data[axis_index].iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min_y, max_y), (_, s, g)| (min_y.min(*s).min(*g), max_y.max(*s).max(*g)) );
+
+                 if time_min.is_infinite() || val_min.is_infinite() {
+                     draw_unavailable_message(area, axis_index, "Setpoint/Gyro")?;
+                     continue;
+                 }
+
+                let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+
+                let mut chart = ChartBuilder::on(area)
+                    .caption(format!("Axis {} Setpoint vs Gyro", axis_index), ("sans-serif", 20))
+                    .margin(5).x_label_area_size(30).y_label_area_size(50)
+                    .build_cartesian_2d(time_min..time_max, final_value_min..final_value_max)?;
+                chart.configure_mesh().x_desc("Time (s)").y_desc("Value").x_labels(10).y_labels(5)
+                    .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
+
+                let gyro_color = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP); // Use the same blue/green as low setpoint step response
+                chart.draw_series(LineSeries::new(
+                    setpoint_vs_gyro_data[axis_index].iter().map(|(t, _s, g)| (*t, *g)),
+                    &gyro_color,
+                ))?
+                .label("Gyro (gyroADC)")
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], gyro_color.stroke_width(2)));
+
+                let sp_color = COLOR_STEP_RESPONSE_HIGH_SP; // Use the same orange as high setpoint step response
+                chart.draw_series(LineSeries::new(
+                    setpoint_vs_gyro_data[axis_index].iter().map(|(t, s, _g)| (*t, *s)),
+                    &sp_color,
+                ))?
+                .label("Setpoint")
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], sp_color.stroke_width(2)));
+
+                chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
+                    .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
+            } else {
+                println!("  INFO: No Setpoint vs Gyro data available for Axis {}. Drawing placeholder.", axis_index);
+                 draw_unavailable_message(area, axis_index, "Setpoint/Gyro")?;
+            }
+        }
+        root_area_setpoint_gyro.present()?;
+        println!("  Stacked Setpoint vs Gyro plot saved as '{}'.", output_file_setpoint_gyro);
+    } else {
+        println!("  Skipping Stacked Setpoint vs Gyro Plot: No Setpoint vs Gyro data available for any axis.");
+    }
 
     // --- Generate Stacked Step Response Plot ---
     println!("\n--- Generating Stacked Step Response Plot ---");
@@ -840,7 +917,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 chart.configure_mesh().x_desc("Time (s)").y_desc("Gyro Value").x_labels(10).y_labels(5)
                     .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
-                let unfilt_color = Palette99::pick(COLOR_GYRO_UNFILT).mix(0.6);
+                let unfilt_color = Palette99::pick(COLOR_GYRO_UNFILT); // Removed .mix(0.6) for full opacity
                 chart.draw_series(LineSeries::new(
                     gyro_vs_unfilt_data[axis_index].iter().map(|(t, _gf, gu)| (*t, *gu)),
                     &unfilt_color,
@@ -851,10 +928,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let filt_color = Palette99::pick(COLOR_GYRO_FILT).filled();
                 chart.draw_series(LineSeries::new(
                     gyro_vs_unfilt_data[axis_index].iter().map(|(t, gf, _gu)| (*t, *gf)),
-                    filt_color.stroke_width(2),
+                    filt_color,
                 ))?
                 .label("Filtered Gyro (gyroADC)")
-                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], filt_color.stroke_width(3)));
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], filt_color.stroke_width(2)));
 
                 chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
                     .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;

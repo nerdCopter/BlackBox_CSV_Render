@@ -29,17 +29,17 @@ pub const EXCLUDE_END_S: f64 = 5.0; // Exclude this many seconds from the end of
 pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; // Moving average window size (in samples)
 
 // Constants for individual window step response quality control (from PTstepcalc.m)
-pub const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check within the response window
-pub const STEADY_STATE_END_S: f64 = 0.5; // End time for steady-state check within the response window
-pub const STEADY_STATE_MIN_VAL: f64 = 0.5; // Minimum allowed value in steady-state for quality control (applied to UN-NORMALIZED response)
+pub const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check within the response window (relative to response start)
+pub const STEADY_STATE_END_S: f64 = 0.5; // End time for steady-state check within the response window (relative to response start)
+pub const STEADY_STATE_MIN_VAL: f64 = 0.5; // Minimum allowed value in steady-state for quality control (applied to UN-NORMALIZED response mean)
 pub const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-state for quality control (applied to UN-NORMALIZED response)
 
 // Plot colors
-pub const COLOR_PIDSUM: usize = 1;
-pub const COLOR_SETPOINT: usize = 2;
-pub const COLOR_PIDSUM_VS_SETPOINT: usize = 0;
-pub const COLOR_STEP_RESPONSE_LOW_SP: usize = 3;
-pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE;
-pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED; // New color for combined response
-pub const COLOR_GYRO_UNFILT: usize = 4;
-pub const COLOR_GYRO_FILT: usize = 5;
+pub const COLOR_PIDSUM: usize = 1; // PIDsum plot color
+pub const COLOR_SETPOINT: usize = 2; // Setpoint line color (Setpoint vs PIDsum plot)
+pub const COLOR_PIDSUM_VS_SETPOINT: usize = 0; // PIDsum line color (Setpoint vs PIDsum plot)
+pub const COLOR_STEP_RESPONSE_LOW_SP: usize = 3; // Low setpoint step response color (Green)
+pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE; // High setpoint step response color (Orange)
+pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED; // Combined step response color (Red)
+pub const COLOR_GYRO_UNFILT: usize = 4; // Unfiltered gyro color (Gyro vs Unfilt plot)
+pub const COLOR_GYRO_FILT: usize = 5; // Filtered gyro color (Gyro vs Unfilt plot)
