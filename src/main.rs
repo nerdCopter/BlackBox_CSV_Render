@@ -475,7 +475,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 // Draw PIDsum line if data available
                 if !pidsum_line_data.is_empty() {
-                     let pidsum_color = Palette99::pick(COLOR_PIDSUM);
+                     let pidsum_color = COLOR_PIDSUM; // Use the constant directly
                      chart.draw_series(LineSeries::new(
                          pidsum_line_data.iter().cloned(),
                          &pidsum_color,
@@ -499,7 +499,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 // Draw Setpoint line if data available
                 if !setpoint_line_data.is_empty() {
-                    let setpoint_color = Palette99::pick(COLOR_SETPOINT); // Use existing Setpoint color constant
+                    let setpoint_color = COLOR_SETPOINT; // Use existing Setpoint color constant directly
                     chart.draw_series(LineSeries::new(
                         setpoint_line_data.iter().cloned(),
                         &setpoint_color,
@@ -568,7 +568,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 chart.configure_mesh().x_desc("Time (s)").y_desc("Value").x_labels(10).y_labels(5)
                     .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
-                let sp_color = Palette99::pick(COLOR_SETPOINT);
+                let sp_color = COLOR_SETPOINT; // Use the constant directly
                 chart.draw_series(LineSeries::new(
                     setpoint_vs_pidsum_data[axis_index].iter().map(|(t, s, _p)| (*t, *s)),
                     &sp_color,
@@ -576,7 +576,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .label("Setpoint")
                 .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], sp_color.stroke_width(2)));
 
-                let pid_color = Palette99::pick(COLOR_PIDSUM_VS_SETPOINT);
+                let pid_color = COLOR_PIDSUM; // Use COLOR_PIDSUM as there is no COLOR_PIDSUM_VS_SETPOINT
                 chart.draw_series(LineSeries::new(
                     setpoint_vs_pidsum_data[axis_index].iter().map(|(t, _s, p)| (*t, *p)),
                     &pid_color,
@@ -637,7 +637,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 chart.configure_mesh().x_desc("Time (s)").y_desc("Value").x_labels(10).y_labels(5)
                     .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
-                    let gyro_color = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP); // Use the same blue/green as low setpoint step response
+                    let gyro_color = COLOR_GYRO_FILT; // Use the correct filtered gyro color
                     chart.draw_series(LineSeries::new(
                         setpoint_vs_gyro_data[axis_index].iter().map(|(t, _s, g)| (*t, *g)),
                         &gyro_color,
@@ -645,7 +645,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .label("Gyro (gyroADC)")
                     .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], gyro_color.stroke_width(2)));
 
-                    let sp_color = COLOR_STEP_RESPONSE_HIGH_SP; // Use the same orange as high setpoint step response
+                    let sp_color = COLOR_SETPOINT; // Use the correct setpoint color
                 chart.draw_series(LineSeries::new(
                     setpoint_vs_gyro_data[axis_index].iter().map(|(t, s, _g)| (*t, *s)),
                     &sp_color,
@@ -934,7 +934,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 // Draw low setpoint response (only if valid)
                 if is_low_response_valid {
-                    let low_sp_color = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP);
+                    let low_sp_color = COLOR_STEP_RESPONSE_LOW_SP; // Use the constant directly
                     chart.draw_series(LineSeries::new(
                         response_time.iter().zip(final_low_response.iter()).map(|(&t, &v)| (t, v)),
                         low_sp_color.stroke_width(2),
@@ -1014,7 +1014,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 chart.configure_mesh().x_desc("Time (s)").y_desc("Gyro Value").x_labels(10).y_labels(5)
                     .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
-                let unfilt_color = Palette99::pick(COLOR_GYRO_UNFILT);
+                let unfilt_color = COLOR_GYRO_UNFILT; // Use the constant directly
                 chart.draw_series(LineSeries::new(
                     gyro_vs_unfilt_data[axis_index].iter().map(|(t, _gf, gu)| (*t, *gu)),
                     &unfilt_color,
@@ -1022,10 +1022,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .label("Unfiltered Gyro (gyroUnfilt/debug)")
                 .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], unfilt_color.stroke_width(2)));
 
-                let filt_color = Palette99::pick(COLOR_GYRO_FILT).filled();
+                let filt_color = COLOR_GYRO_FILT; // Use the constant directly, remove .filled()
                 chart.draw_series(LineSeries::new(
                     gyro_vs_unfilt_data[axis_index].iter().map(|(t, gf, _gu)| (*t, *gf)),
-                    filt_color,
+                    &filt_color,
                 ))?
                 .label("Filtered Gyro (gyroADC)")
                 .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], filt_color.stroke_width(2)));
