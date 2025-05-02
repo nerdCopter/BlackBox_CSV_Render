@@ -1,7 +1,37 @@
 // src/plotting_utils.rs
 
-use plotters::prelude::*;
+// Plotters imports - explicitly list what's used
+use plotters::backend::{BitMapBackend, DrawingBackend}; // Keep DrawingBackend trait for context
+use plotters::drawing::{DrawingArea, IntoDrawingArea};
+use plotters::style::{Palette99, RGBColor, IntoFont, Color, Palette}; // Import traits
+use plotters::style::text_anchor::Pos as TextAnchorPos; // Import text_anchor::Pos and rename
+use plotters::element::Text;
+use plotters::chart::{ChartBuilder, SeriesLabelPosition};
+use plotters::element::PathElement;
+use plotters::series::LineSeries;
+use plotters::style::colors::{WHITE, BLACK, RED}; // Import specific colors used directly (like RED for error messages)
+use plotters::style::ShapeStyle; // Import ShapeStyle for border_style, etc.
+
+
 use std::error::Error;
+
+use ndarray::{Array1, Array2, s};
+use ndarray_stats::QuantileExt;
+
+// Explicitly import constants used within this file
+// NOTE: We will bind these to local variables outside the closures where needed
+use crate::constants::{
+    PLOT_WIDTH, PLOT_HEIGHT, STEP_RESPONSE_PLOT_DURATION_S,
+    SETPOINT_THRESHOLD, POST_AVERAGING_SMOOTHING_WINDOW,
+    STEADY_STATE_START_S, STEADY_STATE_END_S, // Removed unused STEADY_STATE_MIN/MAX_VAL
+    COLOR_PIDSUM, COLOR_SETPOINT, COLOR_PIDSUM_VS_SETPOINT, COLOR_PID_ERROR,
+    COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
+    COLOR_GYRO_UNFILT, COLOR_GYRO_FILT,
+    LINE_STROKE_WIDTH_DEFAULT, LINE_STROKE_WIDTH_THIN,
+};
+use crate::log_data::LogRowData;
+use crate::step_response;
+
 
 /// Calculate plot range with padding.
 /// Adds 15% padding, or a fixed padding for very small ranges.
@@ -16,12 +46,738 @@ pub fn draw_unavailable_message(
     area: &DrawingArea<BitMapBackend, plotters::coord::Shift>,
     axis_index: usize,
     plot_type: &str,
+    reason: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let message = format!("Axis {} {} Data Unavailable", axis_index, plot_type);
+    let (x_range, y_range) = area.get_pixel_range(); // Use get_pixel_range()
+    let (width, height) = ((x_range.end - x_range.start) as u32, (y_range.end - y_range.start) as u32); // Calculate size from range
+    let text_style = ("sans-serif", 20).into_font().color(&RED); // Use imported RED
+    // Draw text without anchoring for now to avoid potential issues
     area.draw(&Text::new(
-        message,
-        (50, 50),
-        ("sans-serif", 20).into_font().color(&RED),
+        format!("Axis {} {} Data Unavailable:\n{}", axis_index, plot_type, reason), // Format inside Text::new
+        (width as i32 / 2 - 100, height as i32 / 2 - 20), // Adjust position slightly
+        text_style, // Pass style directly
     ))?;
     Ok(())
+}
+
+// Define a struct to hold data for a single line series
+// Store RGBColor directly
+#[derive(Clone)] // Add Clone derive for easier handling in plot_step_response
+pub struct PlotSeries { // Removed lifetime 'a
+    pub data: Vec<(f64, f64)>,
+    pub label: String,
+    pub color: RGBColor, // Store RGBColor directly
+    pub stroke_width: u32, // Add stroke width
+}
+
+/// Draws a single chart for one axis within a stacked plot.
+// Make concrete to DrawingArea<BitMapBackend, Shift>
+fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
+    area: &DrawingArea<BitMapBackend, plotters::coord::Shift>, // Concrete type
+    chart_title: &str, // Title now includes axis number if desired
+    x_range: std::ops::Range<f64>,
+    y_range: std::ops::Range<f64>,
+    x_label: &str,
+    y_label: &str,
+    series: &[PlotSeries], // Use concrete PlotSeries
+) -> Result<(), Box<dyn Error>> {
+    let mut chart = ChartBuilder::on(area)
+        .caption(chart_title, ("sans-serif", 20))
+        .margin(5).x_label_area_size(30).y_label_area_size(50)
+        .build_cartesian_2d(x_range, y_range)?;
+
+    chart.configure_mesh()
+        .x_desc(x_label)
+        .y_desc(y_label)
+        .x_labels(10).y_labels(5)
+        .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?; // Use imported WHITE, mix/label_style work via Color/ShapeStyle traits
+
+    let mut series_drawn_count = 0;
+    for s in series {
+        if !s.data.is_empty() {
+            chart.draw_series(LineSeries::new(
+                s.data.iter().cloned(),
+                s.color.stroke_width(s.stroke_width), // stroke_width method works via Color trait
+            ))?
+            .label(&s.label)
+            // Legend requires a closure capturing the color by move or reference
+            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], s.color.stroke_width(s.stroke_width))); // stroke_width method works via Color trait
+            series_drawn_count += 1;
+        }
+    }
+
+    if series_drawn_count > 0 {
+        chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
+            .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?; // Use imported WHITE and BLACK, mix/border_style work via Color/ShapeStyle traits
+    }
+
+    Ok(())
+}
+
+/// Creates a stacked plot image with three subplots for Roll, Pitch, and Yaw.
+/// The `get_axis_plot_data` closure provides the data and configuration for each axis.
+///
+/// The closure `get_axis_plot_data` is called for each axis (0, 1, 2) and should return:
+/// - `Some((chart_title, x_range, y_range, series_data, x_label, y_label))`: If data is available for this axis.
+/// - `None`: If data is not available for this axis.
+///
+/// The `plot_type_name` is used for the "Data Unavailable" message.
+// Concrete to BitMapBackend, add 'a lifetime to BitMapBackend in where clause
+fn draw_stacked_plot<'a, F>(
+    output_filename: &'a str, // output_filename must have a lifetime for BitMapBackend
+    root_name: &str,
+    main_plot_title: &str,
+    plot_type_name: &str, // Name used in unavailability message
+    mut get_axis_plot_data: F, // Changed F to be mutable
+) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(usize) -> Option<(String, std::ops::Range<f64>, std::ops::Range<f64>, Vec<PlotSeries>, String, String)> + Send + Sync + 'static, // Changed Fn to FnMut
+    // BitMapBackend error type needs to be 'static, add 'a lifetime
+    <BitMapBackend<'a> as DrawingBackend>::ErrorType: 'static,
+{
+    let root_area = BitMapBackend::new(output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area(); // Use PLOT_WIDTH/HEIGHT from constants
+    root_area.fill(&WHITE)?;
+
+    // Add main title on the full drawing area
+    // Passing String returned by format! directly, remove &
+    root_area.draw(&Text::new(
+        format!("{} - {}", root_name, main_plot_title), // Pass String directly
+        (10, 10), // Position near top-left
+        ("sans-serif", 24).into_font().color(&BLACK), // Use imported BLACK
+    ))?;
+
+    // Create a margined area below the title for the subplots
+    let margined_root_area = root_area.margin(50, 5, 5, 5); // Top margin 50px
+
+    // Split the margined area into subplots
+    let sub_plot_areas = margined_root_area.split_evenly((3, 1));
+
+    let mut any_axis_plotted = false;
+
+    for axis_index in 0..3 {
+        let area = &sub_plot_areas[axis_index];
+
+        // Call the closure mutably
+        match get_axis_plot_data(axis_index) {
+            Some((chart_title, x_range, y_range, series_data, x_label, y_label)) => {
+                 // Check if any series has data points AND ranges are valid before attempting to plot
+                 let has_data = series_data.iter().any(|s| !s.data.is_empty());
+                 let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
+
+                 if has_data && valid_ranges {
+                     draw_single_axis_chart( // Removed axis_index argument
+                         area,
+                         &chart_title,
+                         x_range,
+                         y_range,
+                         &x_label,
+                         &y_label,
+                         &series_data,
+                     )?;
+                     any_axis_plotted = true;
+                 } else {
+                      let reason = if !has_data { "No data points" } else { "Invalid ranges" };
+                      draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
+                 }
+            }
+            None => {
+                 let reason = "Calculation/Data Extraction Failed"; // More specific reason
+                 draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
+            }
+        }
+    }
+
+    if any_axis_plotted {
+        root_area.present()?;
+        println!("  Stacked plot saved as '{}'.", output_filename);
+    } else {
+        // If no axes had data, we still present the plot with "Unavailable" messages
+        // This ensures the placeholder file is created
+        root_area.present()?;
+        println!("  Skipping '{}' plot saving: No data available for any axis to plot, only placeholder messages shown.", output_filename);
+    }
+
+    Ok(())
+}
+
+
+/// Generates the Stacked PIDsum vs PID Error vs Setpoint Plot.
+pub fn plot_pidsum_error_setpoint(
+    log_data: &[LogRowData],
+    root_name: &str,
+) -> Result<(), Box<dyn Error>> {
+    let output_file_pidsum_error = format!("{}_PIDsum_PIDerror_Setpoint_stacked.png", root_name);
+    let main_plot_title = "PIDsum vs PID Error vs Setpoint";
+    let plot_type_name = "PIDsum/PIDerror/Setpoint";
+
+    // Prepare data for all axes in one pass
+    let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>, Option<f64>)>; 3] = Default::default();
+    for row in log_data {
+        if let Some(time) = row.time_sec {
+            for axis_index in 0..3 {
+                 let pidsum = row.p_term[axis_index].and_then(|p| {
+                    row.i_term[axis_index].and_then(|i| {
+                        row.d_term[axis_index].map(|d| p + i + d)
+                    })
+                });
+                axis_plot_data[axis_index].push((time, row.setpoint[axis_index], row.gyro[axis_index], pidsum));
+            }
+        }
+    }
+
+    // Bind constants to local variables outside the closure
+    let (r, g, b) = Palette99::pick(COLOR_PIDSUM).rgb(); // Get tuple
+    let color_pidsum = RGBColor(r, g, b); // Construct RGBColor
+    let color_pid_error: RGBColor = *COLOR_PID_ERROR; // Dereference the static reference
+    let (r, g, b) = Palette99::pick(COLOR_SETPOINT).rgb(); // Get tuple
+    let color_setpoint = RGBColor(r, g, b); // Construct RGBColor
+    let line_stroke_default = LINE_STROKE_WIDTH_DEFAULT;
+
+    draw_stacked_plot(
+        &output_file_pidsum_error,
+        root_name,
+        main_plot_title,
+        plot_type_name,
+        move |axis_index| { // Use move to capture axis_plot_data and local constants
+            let data = &axis_plot_data[axis_index];
+            if data.is_empty() {
+                 return None;
+            }
+
+            let mut pidsum_series_data: Vec<(f64, f64)> = Vec::new();
+            let mut setpoint_series_data: Vec<(f64, f64)> = Vec::new();
+            let mut pid_error_series_data: Vec<(f64, f64)> = Vec::new();
+
+            let mut time_min = f64::INFINITY;
+            let mut time_max = f64::NEG_INFINITY;
+            let mut val_min = f64::INFINITY;
+            let mut val_max = f64::NEG_INFINITY;
+
+            for (time, setpoint, gyro_filt, pidsum) in data {
+                time_min = time_min.min(*time);
+                time_max = time_max.max(*time);
+
+                if let Some(p) = pidsum {
+                    pidsum_series_data.push((*time, *p));
+                    val_min = val_min.min(*p);
+                    val_max = val_max.max(*p);
+                }
+                if let Some(s) = setpoint {
+                    setpoint_series_data.push((*time, *s));
+                    val_min = val_min.min(*s);
+                    val_max = val_max.max(*s);
+                    if let Some(g) = gyro_filt {
+                        let error = s - g;
+                        pid_error_series_data.push((*time, error));
+                        val_min = val_min.min(error);
+                        val_max = val_max.max(error);
+                    }
+                }
+            }
+
+            if pidsum_series_data.is_empty() && setpoint_series_data.is_empty() && pid_error_series_data.is_empty() {
+                 return None; // No actual data collected for this axis
+            }
+
+            let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+            let x_range = time_min..time_max;
+            let y_range = final_value_min..final_value_max;
+
+            let mut series = Vec::new();
+            if !pidsum_series_data.is_empty() {
+                series.push(PlotSeries {
+                    data: pidsum_series_data,
+                    label: "PIDsum (P+I+D)".to_string(),
+                    color: color_pidsum, // Use captured constant (RGBColor)
+                    stroke_width: line_stroke_default, // Use captured constant
+                });
+            }
+            if !pid_error_series_data.is_empty() {
+                series.push(PlotSeries {
+                    data: pid_error_series_data,
+                    label: "PID Error (Setpoint - GyroADC)".to_string(),
+                    color: color_pid_error, // Use captured constant (RGBColor)
+                    stroke_width: line_stroke_default, // Use captured constant
+                });
+            }
+            if !setpoint_series_data.is_empty() {
+                series.push(PlotSeries {
+                    data: setpoint_series_data,
+                    label: "Setpoint".to_string(),
+                    color: color_setpoint, // Use captured constant (RGBColor)
+                    stroke_width: line_stroke_default, // Use captured constant
+                });
+            }
+
+            Some((
+                format!("Axis {} PIDsum vs PID Error vs Setpoint", axis_index),
+                x_range,
+                y_range,
+                series,
+                "Time (s)".to_string(),
+                "Value".to_string(),
+            ))
+        },
+    )
+}
+
+/// Generates the Stacked Setpoint vs PIDsum Plot.
+pub fn plot_setpoint_vs_pidsum(
+    log_data: &[LogRowData],
+    root_name: &str,
+) -> Result<(), Box<dyn Error>> {
+    let output_file_setpoint = format!("{}_SetpointVsPIDsum_stacked.png", root_name);
+    let main_plot_title = "Setpoint vs PIDsum";
+    let plot_type_name = "Setpoint/PIDsum";
+
+     // Prepare data for all axes in one pass
+    let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>)>; 3] = Default::default();
+    for row in log_data {
+        if let Some(time) = row.time_sec {
+            for axis_index in 0..3 {
+                 let pidsum = row.p_term[axis_index].and_then(|p| {
+                    row.i_term[axis_index].and_then(|i| {
+                        row.d_term[axis_index].map(|d| p + i + d)
+                    })
+                });
+                axis_plot_data[axis_index].push((time, row.setpoint[axis_index], pidsum));
+            }
+        }
+    }
+
+    // Bind constants to local variables outside the closure
+    let (r, g, b) = Palette99::pick(COLOR_SETPOINT).rgb(); // Get tuple
+    let color_setpoint = RGBColor(r, g, b); // Construct RGBColor
+    let (r, g, b) = Palette99::pick(COLOR_PIDSUM_VS_SETPOINT).rgb(); // Get tuple
+    let color_pidsum_vs = RGBColor(r, g, b); // Construct RGBColor
+    let line_stroke_default = LINE_STROKE_WIDTH_DEFAULT;
+
+    draw_stacked_plot(
+        &output_file_setpoint,
+        root_name,
+        main_plot_title,
+        plot_type_name,
+        move |axis_index| { // Use move to capture axis_plot_data and local constants
+            let data = &axis_plot_data[axis_index];
+             if data.is_empty() {
+                 return None;
+             }
+
+             let mut setpoint_series_data: Vec<(f64, f64)> = Vec::new();
+             let mut pidsum_series_data: Vec<(f64, f64)> = Vec::new();
+
+             let mut time_min = f64::INFINITY;
+             let mut time_max = f64::NEG_INFINITY;
+             let mut val_min = f64::INFINITY;
+             let mut val_max = f64::NEG_INFINITY;
+
+             for (time, setpoint, pidsum) in data {
+                 time_min = time_min.min(*time);
+                 time_max = time_max.max(*time);
+
+                 if let Some(s) = setpoint {
+                     setpoint_series_data.push((*time, *s));
+                     val_min = val_min.min(*s);
+                     val_max = val_max.max(*s);
+                 }
+                 if let Some(p) = pidsum {
+                     pidsum_series_data.push((*time, *p));
+                     val_min = val_min.min(*p);
+                     val_max = val_max.max(*p);
+                 }
+             }
+
+            if setpoint_series_data.is_empty() && pidsum_series_data.is_empty() {
+                 return None; // No actual data collected for this axis
+            }
+
+            let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+            let x_range = time_min..time_max;
+            let y_range = final_value_min..final_value_max;
+
+            let mut series = Vec::new();
+            if !setpoint_series_data.is_empty() {
+                 series.push(PlotSeries {
+                     data: setpoint_series_data,
+                     label: "Setpoint".to_string(),
+                     color: color_setpoint, // Use captured constant (RGBColor)
+                     stroke_width: line_stroke_default, // Use captured constant
+                 });
+             }
+             if !pidsum_series_data.is_empty() {
+                 series.push(PlotSeries {
+                     data: pidsum_series_data,
+                     label: "PIDsum".to_string(),
+                     color: color_pidsum_vs, // Use captured constant (RGBColor)
+                     stroke_width: line_stroke_default, // Use captured constant
+                 });
+             }
+
+            Some((
+                format!("Axis {} Setpoint vs PIDsum", axis_index),
+                x_range,
+                y_range,
+                series,
+                "Time (s)".to_string(),
+                "Value".to_string(),
+            ))
+        },
+    )
+}
+
+/// Generates the Stacked Setpoint vs Gyro Plot.
+pub fn plot_setpoint_vs_gyro(
+    log_data: &[LogRowData],
+    root_name: &str,
+) -> Result<(), Box<dyn Error>> {
+    let output_file_setpoint_gyro = format!("{}_SetpointVsGyro_stacked.png", root_name);
+    let main_plot_title = "Setpoint vs Gyro";
+    let plot_type_name = "Setpoint/Gyro";
+
+     // Prepare data for all axes in one pass
+    let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>)>; 3] = Default::default();
+     for row in log_data {
+         if let Some(time) = row.time_sec {
+             for axis_index in 0..3 {
+                 axis_plot_data[axis_index].push((time, row.setpoint[axis_index], row.gyro[axis_index]));
+             }
+         }
+     }
+
+    // Bind constants to local variables outside the closure
+    let color_high_sp: RGBColor = *COLOR_STEP_RESPONSE_HIGH_SP; // Dereference the static reference
+    let (r, g, b) = Palette99::pick(COLOR_GYRO_FILT).rgb(); // Get tuple
+    let color_gyro_filt = RGBColor(r, g, b); // Construct RGBColor
+    let line_stroke_default = LINE_STROKE_WIDTH_DEFAULT;
+
+    draw_stacked_plot(
+        &output_file_setpoint_gyro,
+        root_name,
+        main_plot_title,
+        plot_type_name,
+        move |axis_index| { // Use move to capture axis_plot_data and local constants
+             let data = &axis_plot_data[axis_index];
+             if data.is_empty() {
+                 return None;
+             }
+
+             let mut setpoint_series_data: Vec<(f64, f64)> = Vec::new();
+             let mut gyro_series_data: Vec<(f64, f64)> = Vec::new();
+
+             let mut time_min = f64::INFINITY;
+             let mut time_max = f64::NEG_INFINITY;
+             let mut val_min = f64::INFINITY;
+             let mut val_max = f64::NEG_INFINITY;
+
+             for (time, setpoint, gyro_filt) in data {
+                 time_min = time_min.min(*time);
+                 time_max = time_max.max(*time);
+
+                 if let Some(s) = setpoint {
+                     setpoint_series_data.push((*time, *s));
+                     val_min = val_min.min(*s);
+                     val_max = val_max.max(*s);
+                 }
+                 if let Some(g) = gyro_filt {
+                     gyro_series_data.push((*time, *g));
+                     val_min = val_min.min(*g);
+                     val_max = val_max.max(*g);
+                 }
+             }
+
+            if setpoint_series_data.is_empty() && gyro_series_data.is_empty() {
+                 return None; // No actual data collected for this axis
+            }
+
+            let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+            let x_range = time_min..time_max;
+            let y_range = final_value_min..final_value_max;
+
+            let mut series = Vec::new();
+            if !setpoint_series_data.is_empty() {
+                 series.push(PlotSeries {
+                     data: setpoint_series_data,
+                     label: "Setpoint".to_string(),
+                     color: color_high_sp, // Use captured constant (RGBColor)
+                     stroke_width: line_stroke_default, // Use captured constant
+                 });
+             }
+             if !gyro_series_data.is_empty() {
+                 series.push(PlotSeries {
+                     data: gyro_series_data,
+                     label: "Gyro (gyroADC)".to_string(),
+                     color: color_gyro_filt, // Use captured constant (RGBColor)
+                     stroke_width: line_stroke_default, // Use captured constant
+                 });
+             }
+
+            Some((
+                format!("Axis {} Setpoint vs Gyro", axis_index),
+                x_range,
+                y_range,
+                series,
+                "Time (s)".to_string(),
+                "Value".to_string(),
+            ))
+        },
+    )
+}
+
+/// Generates the Stacked Gyro vs Unfiltered Gyro Plot.
+pub fn plot_gyro_vs_unfilt(
+    log_data: &[LogRowData],
+    root_name: &str,
+) -> Result<(), Box<dyn Error>> {
+    let output_file_gyro = format!("{}_GyroVsUnfilt_stacked.png", root_name);
+    let main_plot_title = "Gyro vs Unfiltered Gyro";
+    let plot_type_name = "Gyro/UnfiltGyro";
+
+    // Prepare data for all axes in one pass
+    let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>)>; 3] = Default::default();
+    for row in log_data {
+         if let Some(time) = row.time_sec {
+             for axis_index in 0..3 {
+                 axis_plot_data[axis_index].push((time, row.gyro[axis_index], row.gyro_unfilt[axis_index]));
+             }
+         }
+     }
+
+    // Bind constants to local variables outside the closure
+    let (r, g, b) = Palette99::pick(COLOR_GYRO_UNFILT).rgb(); // Get tuple
+    let color_gyro_unfilt = RGBColor(r, g, b); // Construct RGBColor
+    let (r, g, b) = Palette99::pick(COLOR_GYRO_FILT).rgb(); // Get tuple
+    let color_gyro_filt = RGBColor(r, g, b); // Construct RGBColor
+    let line_stroke_thin = LINE_STROKE_WIDTH_THIN;
+    let line_stroke_default = LINE_STROKE_WIDTH_DEFAULT;
+
+    draw_stacked_plot(
+        &output_file_gyro,
+        root_name,
+        main_plot_title,
+        plot_type_name,
+        move |axis_index| { // Use move to capture axis_plot_data and local constants
+             let data = &axis_plot_data[axis_index];
+             if data.is_empty() {
+                 return None;
+             }
+
+             let mut filt_series_data: Vec<(f64, f64)> = Vec::new();
+             let mut unfilt_series_data: Vec<(f64, f64)> = Vec::new();
+
+             let mut time_min = f64::INFINITY;
+             let mut time_max = f64::NEG_INFINITY;
+             let mut val_min = f64::INFINITY;
+             let mut val_max = f64::NEG_INFINITY;
+
+             for (time, gyro_filt, gyro_unfilt) in data {
+                 time_min = time_min.min(*time);
+                 time_max = time_max.max(*time);
+
+                 if let Some(gf) = gyro_filt {
+                     filt_series_data.push((*time, *gf));
+                     val_min = val_min.min(*gf);
+                     val_max = val_max.max(*gf);
+                 }
+                 if let Some(gu) = gyro_unfilt {
+                     unfilt_series_data.push((*time, *gu));
+                     val_min = val_min.min(*gu);
+                     val_max = val_max.max(*gu);
+                 }
+             }
+
+            if filt_series_data.is_empty() && unfilt_series_data.is_empty() {
+                 return None; // No actual data collected for this axis
+            }
+
+
+            let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+            let x_range = time_min..time_max;
+            let y_range = final_value_min..final_value_max;
+
+            let mut series = Vec::new();
+            if !unfilt_series_data.is_empty() {
+                 series.push(PlotSeries {
+                     data: unfilt_series_data,
+                     label: "Unfiltered Gyro (gyroUnfilt/debug)".to_string(),
+                     color: color_gyro_unfilt, // Use captured constant (RGBColor)
+                     stroke_width: line_stroke_thin, // Use captured constant
+                 });
+            }
+            if !filt_series_data.is_empty() {
+                 series.push(PlotSeries {
+                     data: filt_series_data,
+                     label: "Filtered Gyro (gyroADC)".to_string(),
+                     color: color_gyro_filt, // Use captured constant (RGBColor)
+                     stroke_width: line_stroke_default, // Use captured constant
+                 });
+            }
+
+            Some((
+                format!("Axis {} Filtered vs Unfiltered Gyro", axis_index),
+                x_range,
+                y_range,
+                series,
+                "Time (s)".to_string(),
+                "Gyro Value".to_string(),
+            ))
+        },
+    )
+}
+
+/// Generates the Stacked Step Response Plot.
+pub fn plot_step_response(
+    step_response_results: &[Option<(Array1<f64>, Array2<f32>, Array1<f32>)>; 3],
+    root_name: &str,
+    sample_rate: Option<f64>, // Pass sample rate for steady-state calcs
+) -> Result<(), Box<dyn Error>> {
+    // Bind constants to local variables outside the closure
+    let step_response_plot_duration_s = STEP_RESPONSE_PLOT_DURATION_S;
+    let steady_state_start_s = STEADY_STATE_START_S;
+    let steady_state_end_s = STEADY_STATE_END_S;
+    let setpoint_threshold = SETPOINT_THRESHOLD;
+    let post_averaging_smoothing_window = POST_AVERAGING_SMOOTHING_WINDOW;
+    let color_high_sp: RGBColor = *COLOR_STEP_RESPONSE_HIGH_SP; // Dereference the static reference
+    let color_combined: RGBColor = *COLOR_STEP_RESPONSE_COMBINED; // Dereference the static reference
+    let (r, g, b) = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP).rgb(); // Get tuple
+    let color_low_sp = RGBColor(r, g, b); // Construct RGBColor
+    let line_stroke_default = LINE_STROKE_WIDTH_DEFAULT;
+
+    let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, step_response_plot_duration_s); // Use captured variable
+    let main_plot_title = &format!("Step Response (~{}s)", step_response_plot_duration_s); // Use captured variable
+    let plot_type_name = "Step Response";
+
+    // Get sample rate for steady-state window calculation (fallback if needed)
+    let sr = sample_rate.unwrap_or(1000.0); // Use a reasonable default if sample rate unknown
+
+    // Pre-process results to create owned data for the closure
+    let mut plot_data_per_axis: [Option<(String, std::ops::Range<f64>, std::ops::Range<f64>, Vec<PlotSeries>, String, String)>; 3] = Default::default();
+
+    for axis_index in 0..3 {
+        if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) = &step_response_results[axis_index] {
+            let response_length_samples = response_time.len();
+
+            if response_length_samples == 0 || valid_stacked_responses.shape()[0] == 0 {
+                 continue; // Skip this axis if no data
+            }
+
+            let num_qc_windows = valid_stacked_responses.shape()[0];
+            let ss_start_sample = (steady_state_start_s * sr).floor() as usize;
+            let ss_end_sample = (steady_state_end_s * sr).ceil() as usize;
+            let current_ss_start_sample = ss_start_sample.min(response_length_samples);
+            let current_ss_end_sample = ss_end_sample.min(response_length_samples);
+
+            if current_ss_start_sample >= current_ss_end_sample {
+                eprintln!("Warning: Axis {} Step Response: Steady-state window is invalid (start >= end). Skipping final normalization and plot for this axis.", axis_index);
+                 continue; // Skip this axis
+            }
+
+            let low_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v.abs() < setpoint_threshold as f32 { 1.0 } else { 0.0 });
+            let high_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v.abs() >= setpoint_threshold as f32 { 1.0 } else { 0.0 });
+            let combined_mask: Array1<f32> = Array1::ones(num_qc_windows);
+
+            let process_response = |
+                mask: &Array1<f32>,
+                stacked_resp: &Array2<f32>,
+                resp_len_samples: usize,
+                ss_start_idx: usize,
+                ss_end_idx: usize,
+                smoothing_window: usize,
+            | -> Option<Array1<f64>> {
+                if !mask.iter().any(|&w| w > 0.0) { return None; }
+                step_response::average_responses(stacked_resp, mask, resp_len_samples)
+                    .ok()
+                    .and_then(|avg_resp| {
+                         if avg_resp.is_empty() { return None; }
+                         let smoothed_resp = step_response::moving_average_smooth_f64(&avg_resp, smoothing_window);
+                         if smoothed_resp.is_empty() { return None; }
+                         let mut shifted_response = smoothed_resp;
+                         let first_val = shifted_response[0];
+                         shifted_response.mapv_inplace(|v| v - first_val);
+                         let steady_state_segment = shifted_response.slice(s![ss_start_idx..ss_end_idx]);
+                         steady_state_segment.mean()
+                            .and_then(|steady_state_mean| {
+                                 if steady_state_mean.abs() > 1e-9 {
+                                      let normalized_response = shifted_response.mapv(|v| v / steady_state_mean);
+                                      normalized_response.slice(s![ss_start_idx..ss_end_idx]).mean()
+                                        .and_then(|normalized_ss_mean| {
+                                            const STEADY_STATE_TOLERANCE: f64 = 0.2;
+                                             if (normalized_ss_mean - 1.0).abs() <= STEADY_STATE_TOLERANCE {
+                                                 Some(normalized_response)
+                                             } else { None }
+                                        })
+                                 } else { None }
+                            })
+                    })
+            };
+
+            let final_low_response = process_response(&low_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
+            let final_high_response = process_response(&high_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
+            let final_combined_response = process_response(&combined_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
+
+            let is_low_response_valid = final_low_response.is_some();
+            let is_high_response_valid = final_high_response.is_some();
+            let is_combined_response_valid = final_combined_response.is_some();
+
+            if !(is_low_response_valid || is_high_response_valid || is_combined_response_valid) {
+                continue; // Skip this axis if no valid responses
+            }
+
+            let mut resp_min = f64::INFINITY;
+            let mut resp_max = f64::NEG_INFINITY;
+            if let Some(resp) = &final_low_response { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
+            if let Some(resp) = &final_high_response { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
+            if let Some(resp) = &final_combined_response { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
+
+            let (final_resp_min, final_resp_max) = calculate_range(resp_min, resp_max);
+            let x_range = 0f64..step_response_plot_duration_s * 1.05;
+            let y_range = final_resp_min..final_resp_max;
+
+            let mut series = Vec::new();
+            if let Some(resp) = final_high_response {
+                 series.push(PlotSeries {
+                     data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
+                     label: format!("\u{2265} {} deg/s", setpoint_threshold),
+                     color: color_high_sp,
+                     stroke_width: line_stroke_default,
+                 });
+             }
+             if let Some(resp) = final_combined_response {
+                 series.push(PlotSeries {
+                     data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
+                     label: "Combined".to_string(),
+                     color: color_combined,
+                     stroke_width: line_stroke_default,
+                 });
+             }
+             if let Some(resp) = final_low_response {
+                 series.push(PlotSeries {
+                     data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
+                     label: format!("< {} deg/s", setpoint_threshold),
+                     color: color_low_sp,
+                     stroke_width: line_stroke_default,
+                 });
+             }
+
+             plot_data_per_axis[axis_index] = Some((
+                format!("Axis {} Step Response", axis_index),
+                x_range,
+                y_range,
+                series, // Move the owned Vec<PlotSeries>
+                "Time (s)".to_string(),
+                "Normalized Response".to_string(),
+             ));
+        }
+    }
+
+    // Now, the closure only needs to capture plot_data_per_axis by move
+    draw_stacked_plot(
+        &output_file_step,
+        root_name,
+        main_plot_title,
+        plot_type_name,
+        move |axis_index| {
+            // Take ownership of the Option for this axis
+            plot_data_per_axis[axis_index].take()
+        },
+    )
 }
