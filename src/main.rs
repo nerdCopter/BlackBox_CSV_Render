@@ -54,10 +54,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Flags to track if specific optional or plot-dependent headers are found.
     // These are used to decide which plots/calculations are possible.
     // Keep these for header checking logic.
-    let mut setpoint_header_found = [false; 3];
-    let mut gyro_header_found = [false; 3];
-    let mut gyro_unfilt_header_found = [false; 3];
-    let mut debug_header_found = [false; 4];
+    let mut setpoint_header_found = [false; 3]; // Tracks if "setpoint[axis]" is present.
+    let mut gyro_header_found = [false; 3]; // Tracks if "gyroADC[axis]" is present (filtered gyro).
+    let mut gyro_unfilt_header_found = [false; 3]; // Tracks if "gyroUnfilt[axis]" is present.
+    let mut debug_header_found = [false; 4]; // Tracks if "debug[idx]" is present.
 
 
     // Declare header_indices here so it's accessible outside the block

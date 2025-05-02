@@ -725,7 +725,11 @@ pub fn plot_step_response(
             let mut resp_max = f64::NEG_INFINITY;
             if let Some(resp) = &final_low_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
             if let Some(resp) = &final_high_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
-            if let Some(resp) = &final_combined_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
+            // Only include combined in range calculation if it will be plotted (i.e., if high_response is valid)
+            if is_high_response_valid {
+                 if let Some(resp) = &final_combined_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
+            }
+
 
             let (final_resp_min, final_resp_max) = calculate_range(resp_min, resp_max);
             let x_range = 0f64..step_response_plot_duration_s * 1.05;
