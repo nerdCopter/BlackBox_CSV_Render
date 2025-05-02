@@ -1,10 +1,9 @@
 // src/constants.rs
 
-use plotters::prelude::full_palette::ORANGE;
+// Import specific colors needed
 use plotters::style::RGBColor;
-use plotters::prelude::RED; // Import RED
-use plotters::prelude::BLUE; // Import BLUE for PID Error
-use plotters::prelude::GREEN; // Import GREEN for Low SP step response and Filtered Gyro
+use plotters::prelude::{RED, BLUE, YELLOW}; // Import from prelude
+use plotters::style::full_palette::{ORANGE, PURPLE}; // Import ORANGE and PURPLE from full_palette
 
 // Plot dimensions.
 pub const PLOT_WIDTH: u32 = 1920;
@@ -36,18 +35,30 @@ pub const STEADY_STATE_END_S: f64 = 0.5; // End time for steady-state check with
 pub const STEADY_STATE_MIN_VAL: f64 = 0.5; // Minimum allowed value in steady-state for quality control (applied to UN-NORMALIZED response mean)
 pub const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-state for quality control (applied to UN-NORMALIZED response)
 
-// Plot colors (Using Palette99 for some, direct RGBColor for others)
-// Palette99 colors: 0=Blue, 1=Red, 2=Green, 3=Orange, 4=Purple, 5=Brown, etc.
-pub const COLOR_PIDSUM: usize = 1; // PIDsum plot color (Red from Palette99)
-pub const COLOR_SETPOINT: usize = 0; // Setpoint line color (Blue from Palette99) - Used in Setpoint vs PIDsum
-pub const COLOR_PIDSUM_VS_SETPOINT: usize = 1; // PIDsum line color (Red from Palette99) - Used in Setpoint vs PIDsum
-pub const COLOR_PID_ERROR: &RGBColor = &BLUE; // PID Error plot color (Direct Blue)
-pub const COLOR_STEP_RESPONSE_LOW_SP: usize = 2; // Low setpoint step response color (Green from Palette99)
-pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE; // High setpoint step response color (Direct Orange)
-pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED; // Combined step response color (Direct Red)
-pub const COLOR_GYRO_UNFILT: usize = 4; // Unfiltered gyro color (Purple from Palette99)
-pub const COLOR_GYRO_FILT: usize = 2; // Filtered gyro color (Green from Palette99)
+// --- Plot Color Assignments (Based on Screenshots) ---
+
+// PIDsum vs PID Error vs Setpoint Plot (Green, Blue, Yellow)
+pub const COLOR_PIDSUM_MAIN: usize = 2; // Green (Palette 2)
+pub const COLOR_PIDERROR_MAIN: &RGBColor = &BLUE; // Blue (Direct)
+pub const COLOR_SETPOINT_MAIN: &RGBColor = &YELLOW; // Yellow (Direct)
+
+// Setpoint vs PIDsum Plot (Yellow, Red)
+pub const COLOR_SETPOINT_VS_PIDSUM_SP: &RGBColor = &YELLOW; // Yellow (Direct)
+pub const COLOR_SETPOINT_VS_PIDSUM_PID: &RGBColor = &RED; // Red (Direct)
+
+// Setpoint vs Gyro Plot (Orange, Blue)
+pub const COLOR_SETPOINT_VS_GYRO_SP: &RGBColor = &ORANGE; // Orange (Direct)
+pub const COLOR_SETPOINT_VS_GYRO_GYRO: usize = 0; // Blue (Palette 0)
+
+// Gyro vs Unfilt Gyro Plot (Purple, Orange)
+pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &PURPLE; // Purple (Direct)
+pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &ORANGE; // Orange (Direct)
+
+// Step Response Plot (Blue, Orange, Red)
+pub const COLOR_STEP_RESPONSE_LOW_SP: usize = 0; // Blue (Palette 0)
+pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE; // Orange (Direct)
+pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED; // Red (Direct)
 
 // Stroke widths for lines
-pub const LINE_STROKE_WIDTH_DEFAULT: u32 = 2;
-pub const LINE_STROKE_WIDTH_THIN: u32 = 1;
+pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
+pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines

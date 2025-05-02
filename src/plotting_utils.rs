@@ -4,13 +4,13 @@
 use plotters::backend::{BitMapBackend, DrawingBackend}; // Keep DrawingBackend trait for context
 use plotters::drawing::{DrawingArea, IntoDrawingArea};
 use plotters::style::{Palette99, RGBColor, IntoFont, Color, Palette}; // Import traits
-use plotters::style::text_anchor::Pos as TextAnchorPos; // Import text_anchor::Pos and rename
+// Removed unused TextAnchorPos import
 use plotters::element::Text;
 use plotters::chart::{ChartBuilder, SeriesLabelPosition};
 use plotters::element::PathElement;
 use plotters::series::LineSeries;
 use plotters::style::colors::{WHITE, BLACK, RED}; // Import specific colors used directly (like RED for error messages)
-use plotters::style::ShapeStyle; // Import ShapeStyle for border_style, etc.
+// Removed unused ShapeStyle import
 
 
 use std::error::Error;
@@ -23,11 +23,14 @@ use ndarray_stats::QuantileExt;
 use crate::constants::{
     PLOT_WIDTH, PLOT_HEIGHT, STEP_RESPONSE_PLOT_DURATION_S,
     SETPOINT_THRESHOLD, POST_AVERAGING_SMOOTHING_WINDOW,
-    STEADY_STATE_START_S, STEADY_STATE_END_S, // Removed unused STEADY_STATE_MIN/MAX_VAL
-    COLOR_PIDSUM, COLOR_SETPOINT, COLOR_PIDSUM_VS_SETPOINT, COLOR_PID_ERROR,
+    STEADY_STATE_START_S, STEADY_STATE_END_S,
+    // Import specific color constants needed
+    COLOR_PIDSUM_MAIN, COLOR_PIDERROR_MAIN, COLOR_SETPOINT_MAIN,
+    COLOR_SETPOINT_VS_PIDSUM_SP, COLOR_SETPOINT_VS_PIDSUM_PID,
+    COLOR_SETPOINT_VS_GYRO_SP, COLOR_SETPOINT_VS_GYRO_GYRO,
+    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT,
     COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
-    COLOR_GYRO_UNFILT, COLOR_GYRO_FILT,
-    LINE_STROKE_WIDTH_DEFAULT, LINE_STROKE_WIDTH_THIN,
+    LINE_WIDTH_PLOT, LINE_WIDTH_LEGEND, // Import line widths
 };
 use crate::log_data::LogRowData;
 use crate::step_response;
@@ -97,11 +100,12 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
         if !s.data.is_empty() {
             chart.draw_series(LineSeries::new(
                 s.data.iter().cloned(),
-                s.color.stroke_width(s.stroke_width), // stroke_width method works via Color trait
+                s.color.stroke_width(s.stroke_width), // Use stroke_width from PlotSeries
             ))?
             .label(&s.label)
             // Legend requires a closure capturing the color by move or reference
-            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], s.color.stroke_width(s.stroke_width))); // stroke_width method works via Color trait
+            // Use LINE_WIDTH_LEGEND for the legend line
+            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], s.color.stroke_width(LINE_WIDTH_LEGEND)));
             series_drawn_count += 1;
         }
     }
@@ -126,7 +130,7 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
 fn draw_stacked_plot<'a, F>(
     output_filename: &'a str, // output_filename must have a lifetime for BitMapBackend
     root_name: &str,
-    main_plot_title: &str,
+    // main_plot_title: &str, // Removed main_plot_title
     plot_type_name: &str, // Name used in unavailability message
     mut get_axis_plot_data: F, // Changed F to be mutable
 ) -> Result<(), Box<dyn Error>>
@@ -138,10 +142,9 @@ where
     let root_area = BitMapBackend::new(output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area(); // Use PLOT_WIDTH/HEIGHT from constants
     root_area.fill(&WHITE)?;
 
-    // Add main title on the full drawing area
-    // Passing String returned by format! directly, remove &
+    // Add main title on the full drawing area (Only root_name)
     root_area.draw(&Text::new(
-        format!("{} - {}", root_name, main_plot_title), // Pass String directly
+        root_name, // Use root_name directly
         (10, 10), // Position near top-left
         ("sans-serif", 24).into_font().color(&BLACK), // Use imported BLACK
     ))?;
@@ -201,13 +204,13 @@ where
 }
 
 
-/// Generates the Stacked PIDsum vs PID Error vs Setpoint Plot.
+/// Generates the Stacked PIDsum vs PID Error vs Setpoint Plot (Green, Blue, Yellow)
 pub fn plot_pidsum_error_setpoint(
     log_data: &[LogRowData],
     root_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_pidsum_error = format!("{}_PIDsum_PIDerror_Setpoint_stacked.png", root_name);
-    let main_plot_title = "PIDsum vs PID Error vs Setpoint";
+    // let main_plot_title = "PIDsum vs PID Error vs Setpoint"; // Removed
     let plot_type_name = "PIDsum/PIDerror/Setpoint";
 
     // Prepare data for all axes in one pass
@@ -226,17 +229,16 @@ pub fn plot_pidsum_error_setpoint(
     }
 
     // Bind constants to local variables outside the closure
-    let (r, g, b) = Palette99::pick(COLOR_PIDSUM).rgb(); // Get tuple
+    let (r, g, b) = Palette99::pick(COLOR_PIDSUM_MAIN).rgb(); // Get tuple
     let color_pidsum = RGBColor(r, g, b); // Construct RGBColor
-    let color_pid_error: RGBColor = *COLOR_PID_ERROR; // Dereference the static reference
-    let (r, g, b) = Palette99::pick(COLOR_SETPOINT).rgb(); // Get tuple
-    let color_setpoint = RGBColor(r, g, b); // Construct RGBColor
-    let line_stroke_default = LINE_STROKE_WIDTH_DEFAULT;
+    let color_pid_error: RGBColor = *COLOR_PIDERROR_MAIN; // Dereference the static reference
+    let color_setpoint: RGBColor = *COLOR_SETPOINT_MAIN; // Dereference the static reference
+    let line_stroke_plot = LINE_WIDTH_PLOT; // Use plot width
 
     draw_stacked_plot(
         &output_file_pidsum_error,
         root_name,
-        main_plot_title,
+        // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| { // Use move to capture axis_plot_data and local constants
             let data = &axis_plot_data[axis_index];
@@ -289,7 +291,7 @@ pub fn plot_pidsum_error_setpoint(
                     data: pidsum_series_data,
                     label: "PIDsum (P+I+D)".to_string(),
                     color: color_pidsum, // Use captured constant (RGBColor)
-                    stroke_width: line_stroke_default, // Use captured constant
+                    stroke_width: line_stroke_plot, // Use captured constant
                 });
             }
             if !pid_error_series_data.is_empty() {
@@ -297,7 +299,7 @@ pub fn plot_pidsum_error_setpoint(
                     data: pid_error_series_data,
                     label: "PID Error (Setpoint - GyroADC)".to_string(),
                     color: color_pid_error, // Use captured constant (RGBColor)
-                    stroke_width: line_stroke_default, // Use captured constant
+                    stroke_width: line_stroke_plot, // Use captured constant
                 });
             }
             if !setpoint_series_data.is_empty() {
@@ -305,7 +307,7 @@ pub fn plot_pidsum_error_setpoint(
                     data: setpoint_series_data,
                     label: "Setpoint".to_string(),
                     color: color_setpoint, // Use captured constant (RGBColor)
-                    stroke_width: line_stroke_default, // Use captured constant
+                    stroke_width: line_stroke_plot, // Use captured constant
                 });
             }
 
@@ -321,13 +323,13 @@ pub fn plot_pidsum_error_setpoint(
     )
 }
 
-/// Generates the Stacked Setpoint vs PIDsum Plot.
+/// Generates the Stacked Setpoint vs PIDsum Plot (Yellow, Red)
 pub fn plot_setpoint_vs_pidsum(
     log_data: &[LogRowData],
     root_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_setpoint = format!("{}_SetpointVsPIDsum_stacked.png", root_name);
-    let main_plot_title = "Setpoint vs PIDsum";
+    // let main_plot_title = "Setpoint vs PIDsum"; // Removed
     let plot_type_name = "Setpoint/PIDsum";
 
      // Prepare data for all axes in one pass
@@ -346,16 +348,14 @@ pub fn plot_setpoint_vs_pidsum(
     }
 
     // Bind constants to local variables outside the closure
-    let (r, g, b) = Palette99::pick(COLOR_SETPOINT).rgb(); // Get tuple
-    let color_setpoint = RGBColor(r, g, b); // Construct RGBColor
-    let (r, g, b) = Palette99::pick(COLOR_PIDSUM_VS_SETPOINT).rgb(); // Get tuple
-    let color_pidsum_vs = RGBColor(r, g, b); // Construct RGBColor
-    let line_stroke_default = LINE_STROKE_WIDTH_DEFAULT;
+    let color_setpoint: RGBColor = *COLOR_SETPOINT_VS_PIDSUM_SP; // Dereference the static reference
+    let color_pidsum_vs: RGBColor = *COLOR_SETPOINT_VS_PIDSUM_PID; // Dereference the static reference
+    let line_stroke_plot = LINE_WIDTH_PLOT; // Use plot width
 
     draw_stacked_plot(
         &output_file_setpoint,
         root_name,
-        main_plot_title,
+        // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| { // Use move to capture axis_plot_data and local constants
             let data = &axis_plot_data[axis_index];
@@ -401,7 +401,7 @@ pub fn plot_setpoint_vs_pidsum(
                      data: setpoint_series_data,
                      label: "Setpoint".to_string(),
                      color: color_setpoint, // Use captured constant (RGBColor)
-                     stroke_width: line_stroke_default, // Use captured constant
+                     stroke_width: line_stroke_plot, // Use captured constant
                  });
              }
              if !pidsum_series_data.is_empty() {
@@ -409,7 +409,7 @@ pub fn plot_setpoint_vs_pidsum(
                      data: pidsum_series_data,
                      label: "PIDsum".to_string(),
                      color: color_pidsum_vs, // Use captured constant (RGBColor)
-                     stroke_width: line_stroke_default, // Use captured constant
+                     stroke_width: line_stroke_plot, // Use captured constant
                  });
              }
 
@@ -425,13 +425,13 @@ pub fn plot_setpoint_vs_pidsum(
     )
 }
 
-/// Generates the Stacked Setpoint vs Gyro Plot.
+/// Generates the Stacked Setpoint vs Gyro Plot (Orange, Blue)
 pub fn plot_setpoint_vs_gyro(
     log_data: &[LogRowData],
     root_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_setpoint_gyro = format!("{}_SetpointVsGyro_stacked.png", root_name);
-    let main_plot_title = "Setpoint vs Gyro";
+    // let main_plot_title = "Setpoint vs Gyro"; // Removed
     let plot_type_name = "Setpoint/Gyro";
 
      // Prepare data for all axes in one pass
@@ -445,15 +445,15 @@ pub fn plot_setpoint_vs_gyro(
      }
 
     // Bind constants to local variables outside the closure
-    let color_high_sp: RGBColor = *COLOR_STEP_RESPONSE_HIGH_SP; // Dereference the static reference
-    let (r, g, b) = Palette99::pick(COLOR_GYRO_FILT).rgb(); // Get tuple
-    let color_gyro_filt = RGBColor(r, g, b); // Construct RGBColor
-    let line_stroke_default = LINE_STROKE_WIDTH_DEFAULT;
+    let color_sp: RGBColor = *COLOR_SETPOINT_VS_GYRO_SP; // Dereference the static reference
+    let (r, g, b) = Palette99::pick(COLOR_SETPOINT_VS_GYRO_GYRO).rgb(); // Get tuple
+    let color_gyro = RGBColor(r, g, b); // Construct RGBColor
+    let line_stroke_plot = LINE_WIDTH_PLOT; // Use plot width
 
     draw_stacked_plot(
         &output_file_setpoint_gyro,
         root_name,
-        main_plot_title,
+        // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| { // Use move to capture axis_plot_data and local constants
              let data = &axis_plot_data[axis_index];
@@ -498,16 +498,16 @@ pub fn plot_setpoint_vs_gyro(
                  series.push(PlotSeries {
                      data: setpoint_series_data,
                      label: "Setpoint".to_string(),
-                     color: color_high_sp, // Use captured constant (RGBColor)
-                     stroke_width: line_stroke_default, // Use captured constant
+                     color: color_sp, // Use captured constant (RGBColor)
+                     stroke_width: line_stroke_plot, // Use captured constant
                  });
              }
              if !gyro_series_data.is_empty() {
                  series.push(PlotSeries {
                      data: gyro_series_data,
                      label: "Gyro (gyroADC)".to_string(),
-                     color: color_gyro_filt, // Use captured constant (RGBColor)
-                     stroke_width: line_stroke_default, // Use captured constant
+                     color: color_gyro, // Use captured constant (RGBColor)
+                     stroke_width: line_stroke_plot, // Use captured constant
                  });
              }
 
@@ -523,13 +523,13 @@ pub fn plot_setpoint_vs_gyro(
     )
 }
 
-/// Generates the Stacked Gyro vs Unfiltered Gyro Plot.
+/// Generates the Stacked Gyro vs Unfiltered Gyro Plot (Purple, Orange)
 pub fn plot_gyro_vs_unfilt(
     log_data: &[LogRowData],
     root_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_gyro = format!("{}_GyroVsUnfilt_stacked.png", root_name);
-    let main_plot_title = "Gyro vs Unfiltered Gyro";
+    // let main_plot_title = "Gyro vs Unfiltered Gyro"; // Removed
     let plot_type_name = "Gyro/UnfiltGyro";
 
     // Prepare data for all axes in one pass
@@ -543,17 +543,14 @@ pub fn plot_gyro_vs_unfilt(
      }
 
     // Bind constants to local variables outside the closure
-    let (r, g, b) = Palette99::pick(COLOR_GYRO_UNFILT).rgb(); // Get tuple
-    let color_gyro_unfilt = RGBColor(r, g, b); // Construct RGBColor
-    let (r, g, b) = Palette99::pick(COLOR_GYRO_FILT).rgb(); // Get tuple
-    let color_gyro_filt = RGBColor(r, g, b); // Construct RGBColor
-    let line_stroke_thin = LINE_STROKE_WIDTH_THIN;
-    let line_stroke_default = LINE_STROKE_WIDTH_DEFAULT;
+    let color_gyro_unfilt: RGBColor = *COLOR_GYRO_VS_UNFILT_UNFILT; // Dereference the static reference
+    let color_gyro_filt: RGBColor = *COLOR_GYRO_VS_UNFILT_FILT; // Dereference the static reference
+    let line_stroke_plot = LINE_WIDTH_PLOT; // Use plot width
 
     draw_stacked_plot(
         &output_file_gyro,
         root_name,
-        main_plot_title,
+        // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| { // Use move to capture axis_plot_data and local constants
              let data = &axis_plot_data[axis_index];
@@ -600,7 +597,7 @@ pub fn plot_gyro_vs_unfilt(
                      data: unfilt_series_data,
                      label: "Unfiltered Gyro (gyroUnfilt/debug)".to_string(),
                      color: color_gyro_unfilt, // Use captured constant (RGBColor)
-                     stroke_width: line_stroke_thin, // Use captured constant
+                     stroke_width: line_stroke_plot, // Use captured constant
                  });
             }
             if !filt_series_data.is_empty() {
@@ -608,7 +605,7 @@ pub fn plot_gyro_vs_unfilt(
                      data: filt_series_data,
                      label: "Filtered Gyro (gyroADC)".to_string(),
                      color: color_gyro_filt, // Use captured constant (RGBColor)
-                     stroke_width: line_stroke_default, // Use captured constant
+                     stroke_width: line_stroke_plot, // Use captured constant
                  });
             }
 
@@ -624,7 +621,7 @@ pub fn plot_gyro_vs_unfilt(
     )
 }
 
-/// Generates the Stacked Step Response Plot.
+/// Generates the Stacked Step Response Plot (Blue, Orange, Red)
 pub fn plot_step_response(
     step_response_results: &[Option<(Array1<f64>, Array2<f32>, Array1<f32>)>; 3],
     root_name: &str,
@@ -640,10 +637,10 @@ pub fn plot_step_response(
     let color_combined: RGBColor = *COLOR_STEP_RESPONSE_COMBINED; // Dereference the static reference
     let (r, g, b) = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP).rgb(); // Get tuple
     let color_low_sp = RGBColor(r, g, b); // Construct RGBColor
-    let line_stroke_default = LINE_STROKE_WIDTH_DEFAULT;
+    let line_stroke_plot = LINE_WIDTH_PLOT; // Use plot width
 
     let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, step_response_plot_duration_s); // Use captured variable
-    let main_plot_title = &format!("Step Response (~{}s)", step_response_plot_duration_s); // Use captured variable
+    // let main_plot_title = &format!("Step Response (~{}s)", step_response_plot_duration_s); // Removed
     let plot_type_name = "Step Response";
 
     // Get sample rate for steady-state window calculation (fallback if needed)
@@ -738,7 +735,7 @@ pub fn plot_step_response(
                      data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
                      label: format!("\u{2265} {} deg/s", setpoint_threshold),
                      color: color_high_sp,
-                     stroke_width: line_stroke_default,
+                     stroke_width: line_stroke_plot, // Use plot width
                  });
              }
              if let Some(resp) = final_combined_response {
@@ -746,7 +743,7 @@ pub fn plot_step_response(
                      data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
                      label: "Combined".to_string(),
                      color: color_combined,
-                     stroke_width: line_stroke_default,
+                     stroke_width: line_stroke_plot, // Use plot width
                  });
              }
              if let Some(resp) = final_low_response {
@@ -754,7 +751,7 @@ pub fn plot_step_response(
                      data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
                      label: format!("< {} deg/s", setpoint_threshold),
                      color: color_low_sp,
-                     stroke_width: line_stroke_default,
+                     stroke_width: line_stroke_plot, // Use plot width
                  });
              }
 
@@ -773,7 +770,7 @@ pub fn plot_step_response(
     draw_stacked_plot(
         &output_file_step,
         root_name,
-        main_plot_title,
+        // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| {
             // Take ownership of the Option for this axis
