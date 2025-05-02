@@ -707,9 +707,15 @@ pub fn plot_step_response(
             let final_high_response = process_response(&high_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
             let final_combined_response = process_response(&combined_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
 
-            let is_low_response_valid = final_low_response.is_some();
-            let is_high_response_valid = final_high_response.is_some();
-            let is_combined_response_valid = final_combined_response.is_some();
+            // Clone the Options so we can check is_some() and then move the contained Array1
+            let final_low_response_cloned = final_low_response.clone();
+            let final_high_response_cloned = final_high_response.clone();
+            let final_combined_response_cloned = final_combined_response.clone();
+
+            let is_low_response_valid = final_low_response_cloned.is_some();
+            let is_high_response_valid = final_high_response_cloned.is_some();
+            let is_combined_response_valid = final_combined_response_cloned.is_some();
+
 
             if !(is_low_response_valid || is_high_response_valid || is_combined_response_valid) {
                 continue; // Skip this axis if no valid responses
@@ -717,17 +723,25 @@ pub fn plot_step_response(
 
             let mut resp_min = f64::INFINITY;
             let mut resp_max = f64::NEG_INFINITY;
-            if let Some(resp) = &final_low_response { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
-            if let Some(resp) = &final_high_response { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
-            if let Some(resp) = &final_combined_response { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
+            if let Some(resp) = &final_low_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
+            if let Some(resp) = &final_high_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
+            if let Some(resp) = &final_combined_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
 
             let (final_resp_min, final_resp_max) = calculate_range(resp_min, resp_max);
             let x_range = 0f64..step_response_plot_duration_s * 1.05;
             let y_range = final_resp_min..final_resp_max;
 
             let mut series = Vec::new();
-            // Order the series to match the legend in the desired screenshot
-            if let Some(resp) = final_high_response {
+            // Order the series for drawing (z-index): Low, High, Combined
+            if let Some(resp) = final_low_response { // Use original Option to move the data
+                 series.push(PlotSeries {
+                     data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
+                     label: format!("< {} deg/s", setpoint_threshold),
+                     color: color_low_sp,
+                     stroke_width: line_stroke_plot, // Use plot width
+                 });
+            }
+            if let Some(resp) = final_high_response { // Use original Option to move the data
                  series.push(PlotSeries {
                      data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
                      label: format!("\u{2265} {} deg/s", setpoint_threshold),
@@ -735,21 +749,16 @@ pub fn plot_step_response(
                      stroke_width: line_stroke_plot, // Use plot width
                  });
              }
-             if let Some(resp) = final_combined_response {
-                 series.push(PlotSeries {
-                     data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
-                     label: "Combined".to_string(),
-                     color: color_combined,
-                     stroke_width: line_stroke_plot, // Use plot width
-                 });
-             }
-             if let Some(resp) = final_low_response {
-                 series.push(PlotSeries {
-                     data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
-                     label: format!("< {} deg/s", setpoint_threshold),
-                     color: color_low_sp,
-                     stroke_width: line_stroke_plot, // Use plot width
-                 });
+            // Plot Combined LAST for z-index, but ONLY if high setpoint response was valid
+            if is_high_response_valid { // Use the boolean flag derived from the cloned Option
+                 if let Some(resp) = final_combined_response { // Use original Option to move the data
+                     series.push(PlotSeries {
+                         data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
+                         label: "Combined".to_string(),
+                         color: color_combined,
+                         stroke_width: line_stroke_plot, // Use plot width
+                     });
+                 }
             }
 
              plot_data_per_axis[axis_index] = Some((
