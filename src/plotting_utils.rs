@@ -1,17 +1,14 @@
 // src/plotting_utils.rs
 
 // Plotters imports - explicitly list what's used
-use plotters::backend::{BitMapBackend, DrawingBackend}; // Keep DrawingBackend trait for context
+use plotters::backend::{BitMapBackend, DrawingBackend};
 use plotters::drawing::{DrawingArea, IntoDrawingArea};
-use plotters::style::{RGBColor, IntoFont, Color}; // Import traits
-// Removed unused TextAnchorPos import
+use plotters::style::{RGBColor, IntoFont, Color};
 use plotters::element::Text;
 use plotters::chart::{ChartBuilder, SeriesLabelPosition};
 use plotters::element::PathElement;
 use plotters::series::LineSeries;
-use plotters::style::colors::{WHITE, BLACK, RED}; // Import specific colors used directly (like RED for error messages)
-// Removed unused ShapeStyle import
-
+use plotters::style::colors::{WHITE, BLACK, RED};
 
 use std::error::Error;
 
@@ -93,7 +90,7 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
         .x_desc(x_label)
         .y_desc(y_label)
         .x_labels(10).y_labels(5)
-        .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?; // Use imported WHITE, mix/label_style work via Color/ShapeStyle traits
+        .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
     let mut series_drawn_count = 0;
     for s in series {
@@ -112,7 +109,7 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
 
     if series_drawn_count > 0 {
         chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
-            .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?; // Use imported WHITE and BLACK, mix/border_style work via Color/ShapeStyle traits
+            .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
     }
 
     Ok(())

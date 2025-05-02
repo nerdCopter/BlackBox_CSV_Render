@@ -2,10 +2,6 @@
 
 // Import specific colors needed
 use plotters::style::RGBColor;
-//use plotters::prelude::{RED, BLUE, YELLOW}; // Import from prelude
-//use plotters::prelude::*; // Import from prelude
-//use plotters::style::full_palette::{ORANGE, PURPLE}; // Import ORANGE and PURPLE from full_palette
-//use plotters::style::colors::full_palette::*;
 use plotters::style::colors::full_palette::{GREEN,AMBER,ORANGE,LIGHTBLUE,RED,BLUE};
 
 // Plot dimensions.

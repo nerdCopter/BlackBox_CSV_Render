@@ -6,8 +6,6 @@ mod plotting_utils;
 mod step_response;
 
 use csv::ReaderBuilder;
-// Removed unused plotters imports
-
 
 use std::error::Error;
 use std::env;
@@ -15,11 +13,10 @@ use std::path::Path;
 use std::fs::File;
 use std::io::BufReader;
 
-use ndarray::{Array1, Array2}; // Keep Array1 and Array2 for step response calculation results
-
+use ndarray::{Array1, Array2};
 
 use log_data::LogRowData;
-use constants::*; // Keep importing constants here for main's logic (e.g. filter thresholds)
+use constants::*;
 // Import the specific plot functions
 use plotting_utils::{
     plot_pidsum_error_setpoint,
