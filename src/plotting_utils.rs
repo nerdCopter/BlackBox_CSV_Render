@@ -3,7 +3,7 @@
 // Plotters imports - explicitly list what's used
 use plotters::backend::{BitMapBackend, DrawingBackend}; // Keep DrawingBackend trait for context
 use plotters::drawing::{DrawingArea, IntoDrawingArea};
-use plotters::style::{Palette99, RGBColor, IntoFont, Color, Palette}; // Import traits
+use plotters::style::{RGBColor, IntoFont, Color}; // Import traits
 // Removed unused TextAnchorPos import
 use plotters::element::Text;
 use plotters::chart::{ChartBuilder, SeriesLabelPosition};
@@ -229,8 +229,7 @@ pub fn plot_pidsum_error_setpoint(
     }
 
     // Bind constants to local variables outside the closure
-    let (r, g, b) = Palette99::pick(COLOR_PIDSUM_MAIN).rgb(); // Get tuple
-    let color_pidsum = RGBColor(r, g, b); // Construct RGBColor
+    let color_pidsum: RGBColor = *COLOR_PIDSUM_MAIN; // Use the corrected Green color
     let color_pid_error: RGBColor = *COLOR_PIDERROR_MAIN; // Dereference the static reference
     let color_setpoint: RGBColor = *COLOR_SETPOINT_MAIN; // Dereference the static reference
     let line_stroke_plot = LINE_WIDTH_PLOT; // Use plot width
@@ -286,6 +285,7 @@ pub fn plot_pidsum_error_setpoint(
             let y_range = final_value_min..final_value_max;
 
             let mut series = Vec::new();
+            // Order the series to match the legend in the desired screenshot
             if !pidsum_series_data.is_empty() {
                 series.push(PlotSeries {
                     data: pidsum_series_data,
@@ -358,7 +358,7 @@ pub fn plot_setpoint_vs_pidsum(
         // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| { // Use move to capture axis_plot_data and local constants
-            let data = &axis_plot_data[axis_index];
+             let data = &axis_plot_data[axis_index];
              if data.is_empty() {
                  return None;
              }
@@ -446,8 +446,7 @@ pub fn plot_setpoint_vs_gyro(
 
     // Bind constants to local variables outside the closure
     let color_sp: RGBColor = *COLOR_SETPOINT_VS_GYRO_SP; // Dereference the static reference
-    let (r, g, b) = Palette99::pick(COLOR_SETPOINT_VS_GYRO_GYRO).rgb(); // Get tuple
-    let color_gyro = RGBColor(r, g, b); // Construct RGBColor
+    let color_gyro: RGBColor = *COLOR_SETPOINT_VS_GYRO_GYRO; // Use the corrected Teal color
     let line_stroke_plot = LINE_WIDTH_PLOT; // Use plot width
 
     draw_stacked_plot(
@@ -494,19 +493,20 @@ pub fn plot_setpoint_vs_gyro(
             let y_range = final_value_min..final_value_max;
 
             let mut series = Vec::new();
+            // Order the series to match the legend in the desired screenshot (Gyro then Setpoint)
+            if !gyro_series_data.is_empty() {
+                 series.push(PlotSeries {
+                     data: gyro_series_data,
+                     label: "Gyro (gyroADC)".to_string(),
+                     color: color_gyro, // Use captured constant (RGBColor)
+                     stroke_width: line_stroke_plot, // Use captured constant
+                 });
+            }
             if !setpoint_series_data.is_empty() {
                  series.push(PlotSeries {
                      data: setpoint_series_data,
                      label: "Setpoint".to_string(),
                      color: color_sp, // Use captured constant (RGBColor)
-                     stroke_width: line_stroke_plot, // Use captured constant
-                 });
-             }
-             if !gyro_series_data.is_empty() {
-                 series.push(PlotSeries {
-                     data: gyro_series_data,
-                     label: "Gyro (gyroADC)".to_string(),
-                     color: color_gyro, // Use captured constant (RGBColor)
                      stroke_width: line_stroke_plot, // Use captured constant
                  });
              }
@@ -635,8 +635,7 @@ pub fn plot_step_response(
     let post_averaging_smoothing_window = POST_AVERAGING_SMOOTHING_WINDOW;
     let color_high_sp: RGBColor = *COLOR_STEP_RESPONSE_HIGH_SP; // Dereference the static reference
     let color_combined: RGBColor = *COLOR_STEP_RESPONSE_COMBINED; // Dereference the static reference
-    let (r, g, b) = Palette99::pick(COLOR_STEP_RESPONSE_LOW_SP).rgb(); // Get tuple
-    let color_low_sp = RGBColor(r, g, b); // Construct RGBColor
+    let color_low_sp: RGBColor = *COLOR_STEP_RESPONSE_LOW_SP; // Dereference the static reference
     let line_stroke_plot = LINE_WIDTH_PLOT; // Use plot width
 
     let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, step_response_plot_duration_s); // Use captured variable
@@ -730,6 +729,7 @@ pub fn plot_step_response(
             let y_range = final_resp_min..final_resp_max;
 
             let mut series = Vec::new();
+            // Order the series to match the legend in the desired screenshot
             if let Some(resp) = final_high_response {
                  series.push(PlotSeries {
                      data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
@@ -753,7 +753,7 @@ pub fn plot_step_response(
                      color: color_low_sp,
                      stroke_width: line_stroke_plot, // Use plot width
                  });
-             }
+            }
 
              plot_data_per_axis[axis_index] = Some((
                 format!("Axis {} Step Response", axis_index),

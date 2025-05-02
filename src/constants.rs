@@ -2,8 +2,11 @@
 
 // Import specific colors needed
 use plotters::style::RGBColor;
-use plotters::prelude::{RED, BLUE, YELLOW}; // Import from prelude
-use plotters::style::full_palette::{ORANGE, PURPLE}; // Import ORANGE and PURPLE from full_palette
+//use plotters::prelude::{RED, BLUE, YELLOW}; // Import from prelude
+//use plotters::prelude::*; // Import from prelude
+//use plotters::style::full_palette::{ORANGE, PURPLE}; // Import ORANGE and PURPLE from full_palette
+//use plotters::style::colors::full_palette::*;
+use plotters::style::colors::full_palette::{GREEN,AMBER,ORANGE,LIGHTBLUE,RED,BLUE};
 
 // Plot dimensions.
 pub const PLOT_WIDTH: u32 = 1920;
@@ -37,27 +40,27 @@ pub const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-st
 
 // --- Plot Color Assignments (Based on Screenshots) ---
 
-// PIDsum vs PID Error vs Setpoint Plot (Green, Blue, Yellow)
-pub const COLOR_PIDSUM_MAIN: usize = 2; // Green (Palette 2)
-pub const COLOR_PIDERROR_MAIN: &RGBColor = &BLUE; // Blue (Direct)
-pub const COLOR_SETPOINT_MAIN: &RGBColor = &YELLOW; // Yellow (Direct)
+// PIDsum vs PID Error vs Setpoint Plot
+pub const COLOR_PIDSUM_MAIN: &RGBColor = &GREEN;
+pub const COLOR_PIDERROR_MAIN: &RGBColor = &BLUE;
+pub const COLOR_SETPOINT_MAIN: &RGBColor = &ORANGE;
 
-// Setpoint vs PIDsum Plot (Yellow, Red)
-pub const COLOR_SETPOINT_VS_PIDSUM_SP: &RGBColor = &YELLOW; // Yellow (Direct)
-pub const COLOR_SETPOINT_VS_PIDSUM_PID: &RGBColor = &RED; // Red (Direct)
+// Setpoint vs PIDsum Plot
+pub const COLOR_SETPOINT_VS_PIDSUM_SP: &RGBColor = &ORANGE;
+pub const COLOR_SETPOINT_VS_PIDSUM_PID: &RGBColor = &GREEN;
 
-// Setpoint vs Gyro Plot (Orange, Blue)
-pub const COLOR_SETPOINT_VS_GYRO_SP: &RGBColor = &ORANGE; // Orange (Direct)
-pub const COLOR_SETPOINT_VS_GYRO_GYRO: usize = 0; // Blue (Palette 0)
+// Setpoint vs Gyro Plot
+pub const COLOR_SETPOINT_VS_GYRO_SP: &RGBColor = &ORANGE;
+pub const COLOR_SETPOINT_VS_GYRO_GYRO: &RGBColor = &LIGHTBLUE;
 
-// Gyro vs Unfilt Gyro Plot (Purple, Orange)
-pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &PURPLE; // Purple (Direct)
-pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &ORANGE; // Orange (Direct)
+// Gyro vs Unfilt Gyro Plot
+pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
+pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;
 
-// Step Response Plot (Blue, Orange, Red)
-pub const COLOR_STEP_RESPONSE_LOW_SP: usize = 0; // Blue (Palette 0)
-pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE; // Orange (Direct)
-pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED; // Red (Direct)
+// Step Response Plot
+pub const COLOR_STEP_RESPONSE_LOW_SP: &RGBColor = &LIGHTBLUE;
+pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE;
+pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
 
 // Stroke widths for lines
 pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
