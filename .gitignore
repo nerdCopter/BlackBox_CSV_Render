@@ -1,6 +1,7 @@
 Cargo.lock
 target/
 src/.vscode/
+.vscode/
 *.png
 *.csv
 *.ods
