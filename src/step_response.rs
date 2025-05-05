@@ -1,8 +1,6 @@
 // src/step_response.rs
 
 use ndarray::{Array1, Array2, s};
-use realfft::num_complex::Complex32;
-use realfft::RealFftPlanner;
 use std::collections::VecDeque;
 use std::error::Error;
 
@@ -11,60 +9,8 @@ use crate::constants::{
     STEADY_STATE_START_S, STEADY_STATE_END_S, STEADY_STATE_MIN_VAL, STEADY_STATE_MAX_VAL
 };
 
-/// Computes the Fast Fourier Transform (FFT) of a real-valued signal.
-/// Returns the complex frequency spectrum. Handles empty input.
-fn fft_forward(data: &Array1<f32>) -> Array1<Complex32> {
-    if data.is_empty() {
-        return Array1::zeros(0);
-    }
-    let n = data.len();
-    let mut input = data.to_vec();
-    let planner = RealFftPlanner::<f32>::new().plan_fft_forward(n);
-    let mut output = planner.make_output_vec();
-    if planner.process(&mut input, &mut output).is_err() {
-         eprintln!("Warning: FFT forward processing failed.");
-         let expected_complex_len = if n % 2 == 0 { n / 2 + 1 } else { (n + 1) / 2 };
-         return Array1::zeros(expected_complex_len);
-    }
-    Array1::from(output)
-}
+use crate::fft_utils; // Import the new FFT utility module
 
-/// Computes the Inverse Fast Fourier Transform (IFFT) of a complex spectrum.
-/// Returns the reconstructed real-valued signal. Requires the original signal length N.
-/// Normalizes the output. Handles empty input or length mismatches.
-fn fft_inverse(data: &Array1<Complex32>, original_length_n: usize) -> Array1<f32> {
-    if data.is_empty() || original_length_n == 0 {
-        return Array1::zeros(original_length_n);
-    }
-    let mut input = data.to_vec();
-    let planner = RealFftPlanner::<f32>::new().plan_fft_inverse(original_length_n);
-    let mut output = planner.make_output_vec();
-
-    let expected_complex_len = if original_length_n % 2 == 0 {
-        original_length_n / 2 + 1
-    } else {
-        (original_length_n + 1) / 2
-    };
-
-    if input.len() != expected_complex_len {
-        eprintln!(
-            "Warning: FFT inverse length mismatch. Expected complex length {}, got {}. Returning zeros.",
-            expected_complex_len,
-            input.len()
-        );
-        return Array1::zeros(original_length_n);
-    }
-
-    if planner.process(&mut input, &mut output).is_ok() {
-        let scale = 1.0 / original_length_n as f32;
-        let mut output_arr = Array1::from(output);
-        output_arr.mapv_inplace(|x| x * scale);
-        output_arr
-    } else {
-        eprintln!("Warning: FFT inverse processing failed. Returning zeros.");
-        Array1::zeros(original_length_n)
-    }
-}
 
 /// Makes a Tukey window for enveloping.
 fn tukeywin(num: usize, alpha: f64) -> Array1<f32> {
@@ -161,8 +107,8 @@ fn wiener_deconvolution_window(
     output_padded.slice_mut(s![0..n]).assign(output_window);
 
 
-    let h_spec = fft_forward(&input_padded);
-    let g_spec = fft_forward(&output_padded);
+    let h_spec = fft_utils::fft_forward(&input_padded); // Use fft_utils
+    let g_spec = fft_utils::fft_forward(&output_padded); // Use fft_utils
 
     if h_spec.is_empty() || g_spec.is_empty() || h_spec.len() != g_spec.len() {
          eprintln!("Warning: FFT output empty or length mismatch in Wiener deconvolution.");
@@ -173,7 +119,7 @@ fn wiener_deconvolution_window(
     let regularization_term = 0.0001;
     let epsilon = 1e-9; // Small value to prevent division by zero
 
-    let mut deconvolved_spec = Array1::<Complex32>::zeros(h_spec.len());
+    let mut deconvolved_spec = Array1::<num_complex::Complex32>::zeros(h_spec.len()); // Use num_complex::Complex32 explicitly
 
     for i in 0..h_spec.len() {
         let h = h_spec[i];
@@ -186,30 +132,15 @@ fn wiener_deconvolution_window(
         if denominator.abs() > epsilon {
             deconvolved_spec[i] = (g * h_conj) / denominator;
         } else {
-            deconvolved_spec[i] = Complex32::new(0.0, 0.0);
+            deconvolved_spec[i] = num_complex::Complex32::new(0.0, 0.0); // Use num_complex::Complex32 explicitly
         }
     }
 
     // Perform inverse FFT and truncate to original length
-    let deconvolved_impulse = fft_inverse(&deconvolved_spec, padded_n);
+    let deconvolved_impulse = fft_utils::fft_inverse(&deconvolved_spec, padded_n); // Use fft_utils
 
     // Return the impulse response truncated to the original window length
     deconvolved_impulse.slice(s![0..n]).to_owned()
-}
-
-/// Calculates the frequencies for the real FFT output. (Currently unused in deconvolution logic)
-#[allow(dead_code)]
-fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> {
-    if n == 0 || d <= 0.0 {
-        return Array1::zeros(0);
-    }
-    let num_freqs = if n % 2 == 0 { n / 2 + 1 } else { (n + 1) / 2 };
-    let mut freqs = Array1::<f32>::zeros(num_freqs);
-    let nyquist = 0.5 / d;
-    for i in 0..num_freqs {
-        freqs[i] = i as f32 * nyquist / (num_freqs - 1) as f32;
-    }
-    freqs
 }
 
 

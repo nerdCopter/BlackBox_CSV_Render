@@ -714,19 +714,19 @@ pub fn plot_step_response(
 
             let is_low_response_valid = final_low_response_cloned.is_some();
             let is_high_response_valid = final_high_response_cloned.is_some();
-            let is_combined_response_valid = final_combined_response_cloned.is_some();
+            let is_combined_response_valid = is_high_response_valid && final_combined_response_cloned.is_some(); // Only plot combined if high SP was valid
 
 
-            if !(is_low_response_valid || is_high_response_valid || is_combined_response_valid) {
-                continue; // Skip this axis if no valid responses
+            if !(is_low_response_valid || is_high_response_valid) { // Check if at least Low or High is valid
+                continue; // Skip this axis if no valid responses (Low or High)
             }
 
             let mut resp_min = f64::INFINITY;
             let mut resp_max = f64::NEG_INFINITY;
             if let Some(resp) = &final_low_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
             if let Some(resp) = &final_high_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
-            // Only include combined in range calculation if it will be plotted (i.e., if high_response is valid)
-            if is_high_response_valid {
+            // Only include combined in range calculation if it will be plotted
+            if is_combined_response_valid {
                  if let Some(resp) = &final_combined_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
             }
 
@@ -753,8 +753,8 @@ pub fn plot_step_response(
                      stroke_width: line_stroke_plot, // Use plot width
                  });
              }
-            // Plot Combined LAST for z-index, but ONLY if high setpoint response was valid
-            if is_high_response_valid { // Use the boolean flag derived from the cloned Option
+            // Plot Combined LAST for z-index, but ONLY if high setpoint response was valid and combined calc worked
+            if is_combined_response_valid { // Use the boolean flag derived from the cloned Option
                  if let Some(resp) = final_combined_response { // Use original Option to move the data
                      series.push(PlotSeries {
                          data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),

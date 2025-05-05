@@ -4,6 +4,7 @@ mod log_data;
 mod constants;
 mod plotting_utils;
 mod step_response;
+mod fft_utils; // Declare the new module
 
 use csv::ReaderBuilder;
 
@@ -284,7 +285,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                              step_response_input_data[0].1.push(setpoint_roll as f32);
                              step_response_input_data[0].2.push(gyro_roll as f32);
                          }
-                          if setpoint_pitch.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_pitch.abs() >= MOVEMENT_THRESHOLD_DEG_S {
+                         if setpoint_pitch.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_pitch.abs() >= MOVEMENT_THRESHOLD_DEG_S {
                              step_response_input_data[1].0.push(time);
                              step_response_input_data[1].1.push(setpoint_pitch as f32);
                              step_response_input_data[1].2.push(gyro_pitch as f32);
