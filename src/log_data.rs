@@ -14,3 +14,5 @@ pub struct LogRowData {
     pub debug: [Option<f64>; 4],      // Debug values [0..3].
     pub throttle: Option<f64>,       // Throttle percentage.
 }
+
+// src/log_data.rs
