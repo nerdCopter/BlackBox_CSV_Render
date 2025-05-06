@@ -104,8 +104,7 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
         .x_desc(x_label)
         .y_desc(y_label)
         // Set the number of labels explicitly to control grid density
-        .x_labels(10) // Adjust number of x-labels if needed, 10 seems reasonable
-        .y_labels(5)  // Adjust number of y-labels if needed, 5 seems reasonable
+        .x_labels(10).y_labels(5)
         // Change grid line color to grey
         .light_line_style(&GREY.mix(0.5)).label_style(("sans-serif", 12).into_font().color(&BLACK)).draw()?; // Labels in Black on white background
 
