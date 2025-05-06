@@ -63,7 +63,7 @@ pub fn draw_unavailable_message(
 // Define a struct to hold data for a single line series
 // Store RGBColor directly
 #[derive(Clone)] // Add Clone derive for easier handling in plot_step_response
-pub struct PlotSeries { // Removed lifetime 'a
+pub struct PlotSeries {
     pub data: Vec<(f64, f64)>,
     pub label: String,
     pub color: RGBColor, // Store RGBColor directly
@@ -127,12 +127,11 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
 fn draw_stacked_plot<'a, F>(
     output_filename: &'a str, // output_filename must have a lifetime for BitMapBackend
     root_name: &str,
-    // main_plot_title: &str, // Removed main_plot_title
     plot_type_name: &str, // Name used in unavailability message
-    mut get_axis_plot_data: F, // Changed F to be mutable
+    mut get_axis_plot_data: F,
 ) -> Result<(), Box<dyn Error>>
 where
-    F: FnMut(usize) -> Option<(String, std::ops::Range<f64>, std::ops::Range<f64>, Vec<PlotSeries>, String, String)> + Send + Sync + 'static, // Changed Fn to FnMut
+    F: FnMut(usize) -> Option<(String, std::ops::Range<f64>, std::ops::Range<f64>, Vec<PlotSeries>, String, String)> + Send + Sync + 'static,
     // BitMapBackend error type needs to be 'static, add 'a lifetime
     <BitMapBackend<'a> as DrawingBackend>::ErrorType: 'static,
 {
@@ -165,7 +164,7 @@ where
                  let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
 
                  if has_data && valid_ranges {
-                     draw_single_axis_chart( // Removed axis_index argument
+                     draw_single_axis_chart(
                          area,
                          &chart_title,
                          x_range,
@@ -207,7 +206,6 @@ pub fn plot_pidsum_error_setpoint(
     root_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_pidsum_error = format!("{}_PIDsum_PIDerror_Setpoint_stacked.png", root_name);
-    // let main_plot_title = "PIDsum vs PID Error vs Setpoint"; // Removed
     let plot_type_name = "PIDsum/PIDerror/Setpoint";
 
     // Prepare data for all axes in one pass
@@ -234,7 +232,6 @@ pub fn plot_pidsum_error_setpoint(
     draw_stacked_plot(
         &output_file_pidsum_error,
         root_name,
-        // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| { // Use move to capture axis_plot_data and local constants
             let data = &axis_plot_data[axis_index];
@@ -326,7 +323,6 @@ pub fn plot_setpoint_vs_pidsum(
     root_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_setpoint = format!("{}_SetpointVsPIDsum_stacked.png", root_name);
-    // let main_plot_title = "Setpoint vs PIDsum"; // Removed
     let plot_type_name = "Setpoint/PIDsum";
 
      // Prepare data for all axes in one pass
@@ -352,7 +348,6 @@ pub fn plot_setpoint_vs_pidsum(
     draw_stacked_plot(
         &output_file_setpoint,
         root_name,
-        // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| { // Use move to capture axis_plot_data and local constants
              let data = &axis_plot_data[axis_index];
@@ -428,7 +423,6 @@ pub fn plot_setpoint_vs_gyro(
     root_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_setpoint_gyro = format!("{}_SetpointVsGyro_stacked.png", root_name);
-    // let main_plot_title = "Setpoint vs Gyro"; // Removed
     let plot_type_name = "Setpoint/Gyro";
 
      // Prepare data for all axes in one pass
@@ -449,7 +443,6 @@ pub fn plot_setpoint_vs_gyro(
     draw_stacked_plot(
         &output_file_setpoint_gyro,
         root_name,
-        // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| { // Use move to capture axis_plot_data and local constants
              let data = &axis_plot_data[axis_index];
@@ -526,7 +519,6 @@ pub fn plot_gyro_vs_unfilt(
     root_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_gyro = format!("{}_GyroVsUnfilt_stacked.png", root_name);
-    // let main_plot_title = "Gyro vs Unfiltered Gyro"; // Removed
     let plot_type_name = "Gyro/UnfiltGyro";
 
     // Prepare data for all axes in one pass
@@ -547,7 +539,6 @@ pub fn plot_gyro_vs_unfilt(
     draw_stacked_plot(
         &output_file_gyro,
         root_name,
-        // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| { // Use move to capture axis_plot_data and local constants
              let data = &axis_plot_data[axis_index];
@@ -636,7 +627,6 @@ pub fn plot_step_response(
     let line_stroke_plot = LINE_WIDTH_PLOT; // Use plot width
 
     let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, step_response_plot_duration_s); // Use captured variable
-    // let main_plot_title = &format!("Step Response (~{}s)", step_response_plot_duration_s); // Removed
     let plot_type_name = "Step Response";
 
     // Get sample rate for steady-state window calculation (fallback if needed)
@@ -780,7 +770,6 @@ pub fn plot_step_response(
     draw_stacked_plot(
         &output_file_step,
         root_name,
-        // main_plot_title, // Removed
         plot_type_name,
         move |axis_index| {
             // Take ownership of the Option for this axis
@@ -788,3 +777,5 @@ pub fn plot_step_response(
         },
     )
 }
+
+// src/plotting_utils.rs

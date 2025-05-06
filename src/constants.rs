@@ -22,8 +22,8 @@ pub const SETPOINT_THRESHOLD: f64 = 500.0; // Threshold for low/high setpoint ma
 
 // Constants for filtering data based on movement and flight phase.
 pub const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0; // Minimum setpoint/gyro magnitude for a window to be considered for analysis (from PTstepcalc.m minInput)
-pub const EXCLUDE_START_S: f64 = 5.0; // Exclude this many seconds from the start of the log
-pub const EXCLUDE_END_S: f64 = 5.0; // Exclude this many seconds from the end of the log
+pub const EXCLUDE_START_S: f64 = 3.0; // Exclude this many seconds from the start of the log
+pub const EXCLUDE_END_S: f64 = 3.0; // Exclude this many seconds from the end of the log
 
 // Constant for post-averaging smoothing of the step response curves.
 pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; // Moving average window size (in samples)
@@ -61,3 +61,5 @@ pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
 // Stroke widths for lines
 pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
 pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
+
+// src/constants.rs

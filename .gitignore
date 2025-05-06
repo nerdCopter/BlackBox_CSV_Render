@@ -1,12 +1,16 @@
-Cargo.lock
-target/
-src/.vscode/
-.vscode/
-*.png
-*.csv
-*.ods
-*.xls*
-png/
-src/*.txt*
-reference/
-src/old/
+# Ignore everything
+*
+src/**
+
+# Include project files
+!src/
+!src/**/*.rs
+!Cargo.toml
+!Cargo.lock
+
+# Include README and LICENSE files
+!Readme.md
+!LICENSE.txt
+
+# Include gitignore
+!.gitignore

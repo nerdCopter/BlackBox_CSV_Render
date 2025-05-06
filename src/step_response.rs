@@ -248,7 +248,7 @@ pub fn calculate_step_response_python_style(
     setpoint: &Array1<f32>,
     gyro_filtered: &Array1<f32>,
     sample_rate: f64,
-) -> Result<(Array1<f64>, Array2<f32>, Array1<f32>), Box<dyn Error>> { // Updated return type
+) -> Result<(Array1<f64>, Array2<f32>, Array1<f32>), Box<dyn Error>> {
     if time.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || time.len() != setpoint.len() || sample_rate <= 0.0 {
         return Err("Invalid input to calculate_step_response_python_style: Empty data, length mismatch, or invalid sample rate.".into());
     }
@@ -375,5 +375,7 @@ pub fn calculate_step_response_python_style(
 
 
     // Return the time vector, stacked QC responses, and max setpoints
-    Ok((response_time.mapv(|t| t as f64), valid_stacked_responses, valid_window_max_setpoints)) // Updated return tuple
+    Ok((response_time.mapv(|t| t as f64), valid_stacked_responses, valid_window_max_setpoints))
 }
+
+// src/step_response.rs

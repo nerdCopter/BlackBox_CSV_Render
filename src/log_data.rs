@@ -12,5 +12,7 @@ pub struct LogRowData {
     pub gyro: [Option<f64>; 3],       // Gyroscope readings (filtered) [Roll, Pitch, Yaw].
     pub gyro_unfilt: [Option<f64>; 3], // Unfiltered Gyroscope readings [Roll, Pitch, Yaw]. Fallback: debug[0..2].
     pub debug: [Option<f64>; 4],      // Debug values [0..3].
-    pub throttle: Option<f64>,       // Throttle percentage.
+    pub throttle: Option<f64>,       // Throttle percentage. (setpoint[3])
 }
+
+// src/log_data.rs

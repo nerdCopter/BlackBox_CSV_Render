@@ -73,3 +73,5 @@ pub fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> {
     }
     freqs
 }
+
+// src/fft_utils.rs
