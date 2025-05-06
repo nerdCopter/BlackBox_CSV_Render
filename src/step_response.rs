@@ -244,12 +244,12 @@ pub fn average_responses( // Renamed from weighted_mode_avr
 /// Output: Tuple of (response_time, stacked_qc_responses, qc_window_max_setpoints) or an error.
 /// Note: The responses returned here are UN-NORMALIZED. Averaging and final normalization happen in main.rs.
 pub fn calculate_step_response_python_style(
-    time: &Array1<f64>, // Contiguous time data within analysis range
+    _time: &Array1<f64>, // Time data is not used directly in this function, but kept for signature consistency
     setpoint: &Array1<f32>, // Contiguous setpoint data within analysis range
     gyro_filtered: &Array1<f32>, // Contiguous gyro data within analysis range
     sample_rate: f64,
 ) -> Result<(Array1<f64>, Array2<f32>, Array1<f32>), Box<dyn Error>> {
-    if time.is_empty() || setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || time.len() != setpoint.len() || sample_rate <= 0.0 {
+    if setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || sample_rate <= 0.0 {
         return Err("Invalid input to calculate_step_response_python_style: Empty data, length mismatch, or invalid sample rate.".into());
     }
 
@@ -275,23 +275,27 @@ pub fn calculate_step_response_python_style(
     let mut stacked_step_responses_qc: Vec<Array1<f32>> = Vec::new();
     let mut window_max_setpoints_qc: Vec<f32> = Vec::new(); // Store max setpoint for QC windows
 
+
+    // 1. Generate overlapping windows from the contiguous data.
+    let (stacked_input_raw, stacked_output_raw) = winstacker_contiguous(
+        setpoint,
+        gyro_filtered,
+        frame_length_samples,
+        SUPERPOSITION_FACTOR,
+    );
+
+    let num_windows = stacked_input_raw.shape()[0];
+    if num_windows == 0 {
+        return Err("No complete windows could be generated from contiguous data.".into());
+    }
+
     // Apply window function (e.g., Hanning) once
     let window_func = tukeywin(frame_length_samples, TUKEY_ALPHA);
 
-    // Iterate through contiguous data to create windows
-    let total_len = setpoint.len();
-    let shift = frame_length_samples / SUPERPOSITION_FACTOR;
-     if shift == 0 {
-         return Err("Window shift is zero. Adjust FRAME_LENGTH_S or SUPERPOSITION_FACTOR.".into());
-     }
-
-    let mut current_start_sample = 0;
-    while current_start_sample + frame_length_samples <= total_len {
-        let window_end_sample = current_start_sample + frame_length_samples;
-
-        // Extract contiguous window data
-        let input_window_raw = setpoint.slice(s![current_start_sample..window_end_sample]).to_owned();
-        let output_window_raw = gyro_filtered.slice(s![current_start_sample..window_end_sample]).to_owned();
+    // Process each window
+    for i in 0..num_windows {
+        let input_window_raw = stacked_input_raw.row(i).to_owned();
+        let output_window_raw = stacked_output_raw.row(i).to_owned();
 
         // --- Movement Threshold Check (applied to the raw window) ---
         let max_setpoint_in_window = input_window_raw.iter().fold(0.0f32, |max_val, &v| max_val.max(v.abs()));
@@ -299,7 +303,6 @@ pub fn calculate_step_response_python_style(
 
         if max_setpoint_in_window < MOVEMENT_THRESHOLD_DEG_S as f32 && max_gyro_in_window < MOVEMENT_THRESHOLD_DEG_S as f32 {
              // Window does not contain significant movement, skip deconvolution and QC
-             current_start_sample += shift;
              continue;
         }
 
@@ -319,8 +322,7 @@ pub fn calculate_step_response_python_style(
         let impulse_response_truncated = impulse_response.slice(s![0..frame_length_samples]).to_owned();
 
         if impulse_response_truncated.is_empty() || impulse_response_truncated.len() != frame_length_samples {
-             eprintln!("Warning: Truncated impulse response length mismatch for window starting at sample {}. Skipping.", current_start_sample);
-             current_start_sample += shift;
+             eprintln!("Warning: Truncated impulse response length mismatch for window {}. Skipping.", i);
              continue;
         }
 
@@ -328,8 +330,7 @@ pub fn calculate_step_response_python_style(
 
         // Truncate the step response to the desired response length *before* QC check
         if step_response.len() < response_length_samples {
-             eprintln!("Warning: Step response shorter than response_length_samples for window starting at sample {}. Skipping.", current_start_sample);
-             current_start_sample += shift;
+             eprintln!("Warning: Step response shorter than response_length_samples for window {}. Skipping.", i);
              continue;
         }
         let truncated_step_response = step_response.slice(s![0..response_length_samples]).to_owned();
@@ -347,10 +348,10 @@ pub fn calculate_step_response_python_style(
                      passes_qc = true; // Window passes QC based on steady-state value range
                  } else {
                      // Optionally print why a window failed QC
-                     // eprintln!("Debug: Window starting at sample {} failed QC. Steady-state mean: {:.2}", current_start_sample, steady_state_mean.unwrap_or(f32::NAN));
+                     // eprintln!("Debug: Window {} failed QC. Steady-state mean: {:.2}", i, steady_state_mean.unwrap_or(f32::NAN));
                  }
             } else {
-                 eprintln!("Warning: Could not calculate steady-state mean for window starting at sample {}. Skipping QC.", current_start_sample);
+                 eprintln!("Warning: Could not calculate steady-state mean for window {}. Skipping QC.", i);
             }
         } else {
              // If steady-state window is invalid, skip this QC check but still require movement threshold
@@ -364,9 +365,6 @@ pub fn calculate_step_response_python_style(
              // Store the max setpoint from the *raw* window
              window_max_setpoints_qc.push(max_setpoint_in_window);
         }
-
-        // Move to the next window
-        current_start_sample += shift;
     }
 
 
