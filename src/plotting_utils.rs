@@ -18,9 +18,8 @@ use ndarray_stats::QuantileExt;
 // Explicitly import constants used within this file
 // NOTE: We will bind these to local variables outside the closures where needed
 use crate::constants::{
-    PLOT_WIDTH, PLOT_HEIGHT, STEP_RESPONSE_PLOT_DURATION_S,
-    SETPOINT_THRESHOLD, POST_AVERAGING_SMOOTHING_WINDOW,
-    STEADY_STATE_START_S, STEADY_STATE_END_S,
+    PLOT_WIDTH, PLOT_HEIGHT, STEP_RESPONSE_PLOT_DURATION_S, SETPOINT_THRESHOLD,
+    POST_AVERAGING_SMOOTHING_WINDOW, STEADY_STATE_START_S, STEADY_STATE_END_S,
     // Import specific color constants needed
     COLOR_PIDSUM_MAIN, COLOR_PIDERROR_MAIN, COLOR_SETPOINT_MAIN,
     COLOR_SETPOINT_VS_PIDSUM_SP, COLOR_SETPOINT_VS_PIDSUM_PID,

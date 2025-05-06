@@ -4,7 +4,7 @@ mod log_data;
 mod constants;
 mod plotting_utils;
 mod step_response;
-mod fft_utils; // Declare the new module
+mod fft_utils;
 
 use csv::ReaderBuilder;
 

@@ -5,9 +5,9 @@ use std::collections::VecDeque;
 use std::error::Error;
 
 use crate::constants::{
-    FRAME_LENGTH_S, RESPONSE_LENGTH_S, SUPERPOSITION_FACTOR, TUKEY_ALPHA,
+    FRAME_LENGTH_S, RESPONSE_LENGTH_S, SUPERPOSITION_FACTOR, TUKEY_ALPHA, 
     STEADY_STATE_START_S, STEADY_STATE_END_S, STEADY_STATE_MIN_VAL, STEADY_STATE_MAX_VAL,
-    MOVEMENT_THRESHOLD_DEG_S, // Import the movement threshold constant
+    MOVEMENT_THRESHOLD_DEG_S,
 };
 
 use crate::fft_utils; // Import the new FFT utility module

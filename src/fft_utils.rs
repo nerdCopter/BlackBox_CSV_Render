@@ -15,9 +15,9 @@ pub fn fft_forward(data: &Array1<f32>) -> Array1<Complex32> {
     let planner = RealFftPlanner::<f32>::new().plan_fft_forward(n);
     let mut output = planner.make_output_vec();
     if planner.process(&mut input, &mut output).is_err() {
-         eprintln!("Warning: FFT forward processing failed.");
-         let expected_complex_len = if n % 2 == 0 { n / 2 + 1 } else { (n + 1) / 2 };
-         return Array1::zeros(expected_complex_len);
+        eprintln!("Warning: FFT forward processing failed.");
+        let expected_complex_len = if n % 2 == 0 { n / 2 + 1 } else { (n + 1) / 2 };
+        return Array1::zeros(expected_complex_len);
     }
     Array1::from(output)
 }

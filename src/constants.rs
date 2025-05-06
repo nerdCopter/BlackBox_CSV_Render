@@ -2,7 +2,7 @@
 
 // Import specific colors needed
 use plotters::style::RGBColor;
-use plotters::style::colors::full_palette::{GREEN,AMBER,ORANGE,LIGHTBLUE,RED,BLUE};
+use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE};
 
 // Plot dimensions.
 pub const PLOT_WIDTH: u32 = 1920;
@@ -15,8 +15,6 @@ pub const STEP_RESPONSE_PLOT_DURATION_S: f64 = 0.5;
 pub const FRAME_LENGTH_S: f64 = 1.0; // Length of each window in seconds
 pub const RESPONSE_LENGTH_S: f64 = 0.5; // Length of the step response to keep from each window
 pub const SUPERPOSITION_FACTOR: usize = 16; // Number of overlapping windows within a frame length
-#[allow(dead_code)] // Not currently used in deconvolution, but kept as it was in original
-pub const CUTOFF_FREQUENCY_HZ: f64 = 25.0; // Cutoff frequency for Wiener filter noise spectrum (used in SN calculation, though simplified)
 pub const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning window)
 pub const SETPOINT_THRESHOLD: f64 = 500.0; // Threshold for low/high setpoint masking
 
@@ -38,7 +36,7 @@ pub const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-st
 
 // PIDsum vs PID Error vs Setpoint Plot
 pub const COLOR_PIDSUM_MAIN: &RGBColor = &GREEN;
-pub const COLOR_PIDERROR_MAIN: &RGBColor = &BLUE;
+pub const COLOR_PIDERROR_MAIN: &RGBColor = &PURPLE;
 pub const COLOR_SETPOINT_MAIN: &RGBColor = &ORANGE;
 
 // Setpoint vs PIDsum Plot
