@@ -255,9 +255,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Calculate Step Response Data ---
     // Prepare step response input data filtered by time and movement threshold *once*.
+    // This filtering logic is now moved inside calculate_step_response_python_style.
     // This needs first_time and last_time which are implicitly available from the first/last row,
     // and requires setpoint and gyro being available in the log data.
-    let mut step_response_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
+    let mut contiguous_sr_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
         (Vec::new(), Vec::new(), Vec::new()),
         (Vec::new(), Vec::new(), Vec::new()),
         (Vec::new(), Vec::new(), Vec::new()),
@@ -271,6 +272,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if let (Some(first_time_val), Some(last_time_val), Some(_sr)) = (first_time, last_time, sample_rate) { // _sr is unused here
          if required_headers_for_sr_input {
+              // Collect all data within the time exclusion range
              for row in &all_log_data {
                  if let (Some(time), Some(setpoint_roll), Some(gyro_roll),
                          Some(setpoint_pitch), Some(gyro_pitch),
@@ -280,26 +282,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                      row.setpoint[2], row.gyro[2],
                  ) {
                      if time >= first_time_val + EXCLUDE_START_S && time <= last_time_val - EXCLUDE_END_S {
-                         if setpoint_roll.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_roll.abs() >= MOVEMENT_THRESHOLD_DEG_S {
-                             step_response_input_data[0].0.push(time);
-                             step_response_input_data[0].1.push(setpoint_roll as f32);
-                             step_response_input_data[0].2.push(gyro_roll as f32);
-                         }
-                         if setpoint_pitch.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_pitch.abs() >= MOVEMENT_THRESHOLD_DEG_S {
-                             step_response_input_data[1].0.push(time);
-                             step_response_input_data[1].1.push(setpoint_pitch as f32);
-                             step_response_input_data[1].2.push(gyro_pitch as f32);
-                         }
-                          if setpoint_yaw.abs() >= MOVEMENT_THRESHOLD_DEG_S || gyro_yaw.abs() >= MOVEMENT_THRESHOLD_DEG_S {
-                             step_response_input_data[2].0.push(time);
-                             step_response_input_data[2].1.push(setpoint_yaw as f32);
-                             step_response_input_data[2].2.push(gyro_yaw as f32);
-                         }
+                         contiguous_sr_input_data[0].0.push(time); contiguous_sr_input_data[0].1.push(setpoint_roll as f32); contiguous_sr_input_data[0].2.push(gyro_roll as f32);
+                         contiguous_sr_input_data[1].0.push(time); contiguous_sr_input_data[1].1.push(setpoint_pitch as f32); contiguous_sr_input_data[1].2.push(gyro_pitch as f32);
+                         contiguous_sr_input_data[2].0.push(time); contiguous_sr_input_data[2].1.push(setpoint_yaw as f32); contiguous_sr_input_data[2].2.push(gyro_yaw as f32);
                      }
                  }
              }
          } else {
-             println!("\nINFO: Skipping Step Response input data filtering: Setpoint or Gyro headers missing.");
+              println!("\nINFO: Skipping Step Response data collection: Setpoint or Gyro headers missing.");
          }
     } else {
          let reason = if first_time.is_none() || last_time.is_none() {
@@ -318,12 +308,13 @@ fn main() -> Result<(), Box<dyn Error>> {
      if let Some(sr) = sample_rate {
         for axis_index in 0..3 {
             // Check if there's *any* movement-filtered data for this axis AND required headers were found
+            // The movement filtering is now inside the calculation function
             let required_headers_found = setpoint_header_found[axis_index] && gyro_header_found[axis_index];
-            if required_headers_found && !step_response_input_data[axis_index].0.is_empty() {
+            if required_headers_found && !contiguous_sr_input_data[axis_index].0.is_empty() {
                 println!("  Attempting step response calculation for Axis {}...", axis_index);
-                let time_arr = Array1::from(step_response_input_data[axis_index].0.clone());
-                let setpoints_arr = Array1::from(step_response_input_data[axis_index].1.clone());
-                let gyros_filtered_arr = Array1::from(step_response_input_data[axis_index].2.clone());
+                let time_arr = Array1::from(contiguous_sr_input_data[axis_index].0.clone());
+                let setpoints_arr = Array1::from(contiguous_sr_input_data[axis_index].1.clone());
+                let gyros_filtered_arr = Array1::from(contiguous_sr_input_data[axis_index].2.clone());
 
                 let min_required_samples = (FRAME_LENGTH_S * sr).ceil() as usize;
                 if time_arr.len() >= min_required_samples {
@@ -347,7 +338,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             } else {
                  let reason = if !required_headers_found {
                      "Setpoint or Gyro headers missing"
-                 } else {
+                 } else { // This case should be caught by the time range check above, but kept for clarity
                      "No movement-filtered input data available"
                  };
                  println!("  Skipping Step Response calculation for Axis {}: {}", axis_index, reason);
