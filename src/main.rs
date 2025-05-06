@@ -255,7 +255,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Calculate Step Response Data ---
     // Prepare step response input data filtered by time and movement threshold *once*.
-    // This filtering logic is now moved inside calculate_step_response_python_style.
+    // This filtering logic is now moved inside calculate_step_response.
     // This needs first_time and last_time which are implicitly available from the first/last row,
     // and requires setpoint and gyro being available in the log data.
     let mut contiguous_sr_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
@@ -318,7 +318,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 let min_required_samples = (FRAME_LENGTH_S * sr).ceil() as usize;
                 if time_arr.len() >= min_required_samples {
-                    match step_response::calculate_step_response_python_style(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) {
+                    match step_response::calculate_step_response(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) {
                         Ok(result) => {
                              let num_qc_windows = result.1.shape()[0]; // Check number of QC windows
                              if num_qc_windows > 0 {

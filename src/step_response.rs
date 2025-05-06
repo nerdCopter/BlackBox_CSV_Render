@@ -243,14 +243,14 @@ pub fn average_responses( // Renamed from weighted_mode_avr
 /// Input: Contiguous time, setpoint, and gyro data within the analysis range, sample rate.
 /// Output: Tuple of (response_time, stacked_qc_responses, qc_window_max_setpoints) or an error.
 /// Note: The responses returned here are UN-NORMALIZED. Averaging and final normalization happen in main.rs.
-pub fn calculate_step_response_python_style(
+pub fn calculate_step_response(
     _time: &Array1<f64>, // Time data is not used directly in this function, but kept for signature consistency
     setpoint: &Array1<f32>, // Contiguous setpoint data within analysis range
     gyro_filtered: &Array1<f32>, // Contiguous gyro data within analysis range
     sample_rate: f64,
 ) -> Result<(Array1<f64>, Array2<f32>, Array1<f32>), Box<dyn Error>> {
     if setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || sample_rate <= 0.0 {
-        return Err("Invalid input to calculate_step_response_python_style: Empty data, length mismatch, or invalid sample rate.".into());
+        return Err("Invalid input to calculate_step_response: Empty data, length mismatch, or invalid sample rate.".into());
     }
 
     // Calculate window lengths in samples.
