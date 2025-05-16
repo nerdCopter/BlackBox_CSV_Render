@@ -41,32 +41,28 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Header Definition and Index Mapping ---
     let target_headers = [
-        "time (us)",
-        "axisP[0]", "axisP[1]", "axisP[2]",
-        "axisI[0]", "axisI[1]", "axisI[2]",
-        "axisD[0]", "axisD[1]", "axisD[2]",
-        "setpoint[0]", "setpoint[1]", "setpoint[2]",
-        "gyroADC[0]", "gyroADC[1]", "gyroADC[2]",
-        "gyroUnfilt[0]", "gyroUnfilt[1]", "gyroUnfilt[2]",
-        "debug[0]", "debug[1]", "debug[2]", "debug[3]",
-        "setpoint[3]", // "throttle"
+        "time (us)",                        // 0
+        "axisP[0]", "axisP[1]", "axisP[2]", // 1, 2, 3
+        "axisI[0]", "axisI[1]", "axisI[2]", // 4, 5, 6
+        "axisD[0]", "axisD[1]", "axisD[2]", // 7, 8, 9
+        "setpoint[0]", "setpoint[1]", "setpoint[2]", // 10, 11, 12
+        "gyroADC[0]", "gyroADC[1]", "gyroADC[2]",    // 13, 14, 15
+        "gyroUnfilt[0]", "gyroUnfilt[1]", "gyroUnfilt[2]", // 16, 17, 18
+        "debug[0]", "debug[1]", "debug[2]", "debug[3]",    // 19, 20, 21, 22
+        "setpoint[3]", // Index 23, used for throttle
     ];
 
     // Flags to track if specific optional or plot-dependent headers are found.
-    // These are used to decide which plots/calculations are possible.
-    // Keep these for header checking logic.
-    let mut setpoint_header_found = [false; 3]; // Tracks if "setpoint[axis]" is present.
-    let mut gyro_header_found = [false; 3]; // Tracks if "gyroADC[axis]" is present (filtered gyro).
-    let mut gyro_unfilt_header_found = [false; 3]; // Tracks if "gyroUnfilt[axis]" is present.
-    let mut debug_header_found = [false; 4]; // Tracks if "debug[idx]" is present.
-    let mut setpoint3_header_found = false; // Tracks if "setpoint[3]" (throttle) is present.
+    let mut setpoint_header_found = [false; 3];
+    let mut gyro_header_found = [false; 3];
+    let mut gyro_unfilt_header_found = [false; 3];
+    let mut debug_header_found = [false; 4];
+    let setpoint3_header_found: bool; // Tracks if "setpoint[3]" (throttle) is present.
 
 
-    // Declare header_indices here so it's accessible outside the block
     let header_indices: Vec<Option<usize>>;
 
-    // Read CSV header and map target headers to indices.
-    { // Block to limit the scope of the file reader
+    {
         let file = File::open(input_file)?;
         let mut reader = ReaderBuilder::new().has_headers(true).trim(csv::Trim::All).from_reader(BufReader::new(file));
         let header_record = reader.headers()?.clone();
@@ -79,60 +75,52 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Header mapping status:");
         let mut essential_pid_headers_found = true;
 
-        // Check essential PID headers (Time, P, I, D[0], D[1]).
-        for i in 0..=8 { // Indices 0 through 8
+        for i in 0..=8 {
             let name = target_headers[i];
-             let found = header_indices[i].is_some(); // Use header_indices here
+             let found = header_indices[i].is_some();
              println!("  '{}': {}", name, if found { "Found" } else { "Not Found" });
-             if !found { // Time (0), P (1-3), I (4-6), D[0-1] (7-8) are essential for PIDsum
+             if !found {
                  essential_pid_headers_found = false;
              }
         }
 
-        // Check optional 'axisD[2]' header (Index 9).
-        let axis_d2_found_in_csv = header_indices[9].is_some(); // Use header_indices here
+        let axis_d2_found_in_csv = header_indices[9].is_some();
         println!("  '{}': {} (Optional, defaults to 0.0 if not found)", target_headers[9], if axis_d2_found_in_csv { "Found" } else { "Not Found" });
 
-        // Check setpoint headers (Indices 10-12).
         for axis in 0..3 {
-            setpoint_header_found[axis] = header_indices[10 + axis].is_some(); // Use header_indices here
+            setpoint_header_found[axis] = header_indices[10 + axis].is_some();
             println!("  '{}': {} (Essential for Setpoint plots and Step Response Axis {})", target_headers[10 + axis], if setpoint_header_found[axis] { "Found" } else { "Not Found" }, axis);
         }
 
-        // Check gyro (filtered) headers (Indices 13-15).
          for axis in 0..3 {
-            gyro_header_found[axis] = header_indices[13 + axis].is_some(); // Use header_indices here
+            gyro_header_found[axis] = header_indices[13 + axis].is_some();
             println!("  '{}': {} (Essential for Step Response, Gyro plots, and PID Error Axis {})", target_headers[13 + axis], if gyro_header_found[axis] { "Found" } else { "Not Found" }, axis);
         }
 
-        // Check gyroUnfilt headers (Indices 16-18).
         for axis in 0..3 {
-            gyro_unfilt_header_found[axis] = header_indices[16 + axis].is_some(); // Use header_indices here
+            gyro_unfilt_header_found[axis] = header_indices[16 + axis].is_some();
             println!("  '{}': {} (Fallback for Gyro vs Unfilt Axis {})", target_headers[16 + axis], if gyro_unfilt_header_found[axis] { "Found" } else { "Not Found" }, axis);
         }
 
-        // Check debug headers (Indices 19-22).
         for idx_offset in 0..4 {
-            debug_header_found[idx_offset] = header_indices[19 + idx_offset].is_some(); // Use header_indices here
+            debug_header_found[idx_offset] = header_indices[19 + idx_offset].is_some();
             println!("  '{}': {} (Fallback for gyroUnfilt[0-2])", target_headers[19 + idx_offset], if debug_header_found[idx_offset] { "Found" } else { "Not Found" });
         }
 
-        // Check setpoint[3] (throttle) header (Index 23).
         setpoint3_header_found = header_indices[23].is_some();
         println!("  '{}': {} (Essential for Throttle Spectrograms)", target_headers[23], if setpoint3_header_found { "Found" } else { "Not Found" });
 
 
         if !essential_pid_headers_found {
-             let missing_essentials: Vec<String> = (0..=8).filter(|&i| header_indices[i].is_none()).map(|i| format!("'{}'", target_headers[i])).collect(); // Use header_indices here
+             let missing_essentials: Vec<String> = (0..=8).filter(|&i| header_indices[i].is_none()).map(|i| format!("'{}'", target_headers[i])).collect();
              return Err(format!("Error: Missing essential headers for PIDsum calculation: {}. Aborting.", missing_essentials.join(", ")).into());
         }
-    } // File reader is dropped here
+    }
 
 
-    // --- Data Reading and Storage ---
     let mut all_log_data: Vec<LogRowData> = Vec::new();
     println!("\nReading data rows...");
-    { // Block to limit the scope of the file reader
+    {
         let file = File::open(input_file)?;
         let mut reader = ReaderBuilder::new().has_headers(true).trim(csv::Trim::All).from_reader(BufReader::new(file));
 
@@ -141,8 +129,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Ok(record) => {
                     let mut current_row_data = LogRowData::default();
 
-                    // Helper closure to parse a value from the record using the target header index.
-                    // Uses the header_indices vector which is now in scope.
                     let parse_f64_by_target_idx = |target_idx: usize| -> Option<f64> {
                         header_indices.get(target_idx)
                             .and_then(|opt_csv_idx| opt_csv_idx.as_ref())
@@ -150,7 +136,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                             .and_then(|val_str| val_str.parse::<f64>().ok())
                     };
 
-                    // Parse Time (us)
                     let time_us = parse_f64_by_target_idx(0);
                     if let Some(t_us) = time_us {
                          current_row_data.time_sec = Some(t_us / 1_000_000.0);
@@ -159,16 +144,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                          continue;
                     }
 
-                    // Parse P, I, D, Setpoint, Gyro (filtered)
                     for axis in 0..3 {
                         current_row_data.p_term[axis] = parse_f64_by_target_idx(1 + axis);
                         current_row_data.i_term[axis] = parse_f64_by_target_idx(4 + axis);
 
-                        // D term with optional axisD[2] fallback
                         let d_target_idx = 7 + axis;
-                        // Use header_indices directly
                         if axis == 2 && header_indices[d_target_idx].is_none() {
-                             current_row_data.d_term[axis] = Some(0.0); // Default to 0.0 if axisD[2] is missing
+                             current_row_data.d_term[axis] = Some(0.0);
                         } else {
                              current_row_data.d_term[axis] = parse_f64_by_target_idx(d_target_idx);
                         }
@@ -177,7 +159,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                         current_row_data.gyro[axis] = parse_f64_by_target_idx(13 + axis);
                     }
 
-                    // Parse gyroUnfilt and debug
                     let mut parsed_gyro_unfilt = [None; 3];
                     let mut parsed_debug = [None; 4];
 
@@ -194,18 +175,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                         current_row_data.debug[idx_offset] = parsed_debug[idx_offset];
                     }
 
-                    // Apply Fallback Logic for gyro_unfilt (debug[0-2] --> gyroUnfilt[0-2])
                     for axis in 0..3 {
                         current_row_data.gyro_unfilt[axis] = match parsed_gyro_unfilt[axis] {
                             Some(val) => Some(val),
                             None => match parsed_debug[axis] {
                                 Some(val) => Some(val),
-                                None => None, // Keep None if both missing, plotting code will handle it
+                                None => None,
                             }
                         };
                     }
 
-                    // Parse Throttle (from setpoint[3])
                     current_row_data.throttle = parse_f64_by_target_idx(23);
 
                     all_log_data.push(current_row_data);
@@ -215,7 +194,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
         }
-    } // File reader is dropped here
+    }
 
 
     println!("Finished reading {} data rows.", all_log_data.len());
@@ -225,7 +204,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    // --- Calculate Average Sample Rate ---
     let mut sample_rate: Option<f64> = None;
     if all_log_data.len() > 1 {
         let mut total_delta = 0.0;
@@ -253,12 +231,6 @@ fn main() -> Result<(), Box<dyn Error>> {
          println!("Warning: Could not determine sample rate (need >= 2 data points with distinct timestamps). Step response calculation might be affected.");
     }
 
-
-    // --- Calculate Step Response Data ---
-    // Prepare step response input data filtered by time and movement threshold *once*.
-    // This filtering logic is now moved inside calculate_step_response.
-    // This needs first_time and last_time which are implicitly available from the first/last row,
-    // and requires setpoint and gyro being available in the log data.
     let mut contiguous_sr_input_data: [(Vec<f64>, Vec<f32>, Vec<f32>); 3] = [
         (Vec::new(), Vec::new(), Vec::new()),
         (Vec::new(), Vec::new(), Vec::new()),
@@ -268,12 +240,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let first_time = all_log_data.first().and_then(|row| row.time_sec);
     let last_time = all_log_data.last().and_then(|row| row.time_sec);
 
-    // Only attempt to filter input data if time range and sample rate are available AND required headers were found
     let required_headers_for_sr_input = setpoint_header_found.iter().all(|&f| f) && gyro_header_found.iter().all(|&f| f);
 
-    if let (Some(first_time_val), Some(last_time_val), Some(_sr)) = (first_time, last_time, sample_rate) { // _sr is unused here
+    if let (Some(first_time_val), Some(last_time_val), Some(_sr)) = (first_time, last_time, sample_rate) {
          if required_headers_for_sr_input {
-              // Collect all data within the time exclusion range
              for row in &all_log_data {
                  if let (Some(time), Some(setpoint_roll), Some(gyro_roll),
                          Some(setpoint_pitch), Some(gyro_pitch),
@@ -303,27 +273,24 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
     println!("\n--- Calculating Step Response ---");
-    // Store the raw QC'd stacked responses and setpoints for later averaging *within the plot function*.
     let mut step_response_calculation_results: [Option<(Array1<f64>, Array2<f32>, Array1<f32>)>; 3] = [None, None, None];
 
-     if let Some(sr) = sample_rate {
+     if let Some(sr_val) = sample_rate { // Renamed sr to sr_val to avoid conflict if _sr above is uncommented
         for axis_index in 0..3 {
-            // Check if there's *any* movement-filtered data for this axis AND required headers were found
-            // The movement filtering is now inside the calculation function
-            let required_headers_found = setpoint_header_found[axis_index] && gyro_header_found[axis_index];
-            if required_headers_found && !contiguous_sr_input_data[axis_index].0.is_empty() {
+            let required_headers_found_sr = setpoint_header_found[axis_index] && gyro_header_found[axis_index];
+            if required_headers_found_sr && !contiguous_sr_input_data[axis_index].0.is_empty() {
                 println!("  Attempting step response calculation for Axis {}...", axis_index);
                 let time_arr = Array1::from(contiguous_sr_input_data[axis_index].0.clone());
                 let setpoints_arr = Array1::from(contiguous_sr_input_data[axis_index].1.clone());
                 let gyros_filtered_arr = Array1::from(contiguous_sr_input_data[axis_index].2.clone());
 
-                let min_required_samples = (FRAME_LENGTH_S * sr).ceil() as usize;
+                let min_required_samples = (FRAME_LENGTH_S * sr_val).ceil() as usize;
                 if time_arr.len() >= min_required_samples {
-                    match step_response::calculate_step_response(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) {
+                    match step_response::calculate_step_response(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr_val) {
                         Ok(result) => {
-                             let num_qc_windows = result.1.shape()[0]; // Check number of QC windows
+                             let num_qc_windows = result.1.shape()[0];
                              if num_qc_windows > 0 {
-                                 step_response_calculation_results[axis_index] = Some(result); // Store the calculated data.
+                                 step_response_calculation_results[axis_index] = Some(result);
                                  println!("    ... Calculation successful for Axis {}. {} windows passed QC.", axis_index, num_qc_windows);
                              } else {
                                 println!("    ... Calculation returned no valid windows for Axis {}. Skipping.", axis_index);
@@ -337,9 +304,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                      println!("    ... Skipping Axis {}: Not enough movement data points ({}) for windowing (need at least {}).", axis_index, time_arr.len(), min_required_samples);
                 }
             } else {
-                 let reason = if !required_headers_found {
+                 let reason = if !required_headers_found_sr {
                      "Setpoint or Gyro headers missing"
-                 } else { // This case should be caught by the time range check above, but kept for clarity
+                 } else {
                      "No movement-filtered input data available"
                  };
                  println!("  Skipping Step Response calculation for Axis {}: {}", axis_index, reason);
@@ -350,19 +317,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
 
-    // --- Generate Plots ---
-    // Pass the full log_data and root_name to each plotting function
     plot_pidsum_error_setpoint(&all_log_data, &root_name)?;
     plot_setpoint_vs_gyro(&all_log_data, &root_name)?;
     plot_gyro_vs_unfilt(&all_log_data, &root_name)?;
-    // Pass step response results and sample rate to the step response plot function
     plot_step_response(&step_response_calculation_results, &root_name, sample_rate)?;
-    // Plot throttle spectrograms if throttle data was available
-    if setpoint3_header_found {
-        plot_throttle_spectrograms(&all_log_data, &root_name, sample_rate)?;
-    } else {
-        println!("\nSkipping Throttle Spectrograms: '{}' header (used for throttle) not found in CSV.", target_headers[23]);
-    }
+    plot_throttle_spectrograms(&all_log_data, &root_name, sample_rate)?;
 
     println!("\nProcessing complete.");
     Ok(())

@@ -59,9 +59,9 @@ pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
 
 // --- Spectrogram Constants ---
 pub const SPECTROGRAM_THROTTLE_BINS: usize = 100; // Number of bins for the throttle axis (e.g., 50 or 100 from image)
-pub const SPECTROGRAM_FFT_WINDOW_SIZE: usize = 256; // Size of the FFT window (determines frequency resolution)
+pub const SPECTROGRAM_FFT_WINDOW_SIZE: usize = 128;  //Size of the FFT window (determines frequency resolution)
 pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 500.0;   // Max frequency to display on Y-axis
-pub const SPECTROGRAM_POWER_CLIP_MAX: f32 = 0.5; // Clip power at this value for color scaling (from image scale)
+pub const SPECTROGRAM_POWER_CLIP_MAX: f32 = 10000.0; // Clip power at this value for color scaling (from image scale)
 // Colors for the "hot" colormap (black background, white foreground for text/axes)
 pub const SPECTROGRAM_COLOR_SCALE: [(f32, RGBColor); 4] = [
     (0.0, BLACK),       // Off
