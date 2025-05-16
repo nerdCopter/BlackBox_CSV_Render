@@ -39,10 +39,6 @@ pub const COLOR_PIDSUM_MAIN: &RGBColor = &GREEN;
 pub const COLOR_PIDERROR_MAIN: &RGBColor = &PURPLE;
 pub const COLOR_SETPOINT_MAIN: &RGBColor = &ORANGE;
 
-// Setpoint vs PIDsum Plot
-pub const COLOR_SETPOINT_VS_PIDSUM_SP: &RGBColor = &ORANGE;
-pub const COLOR_SETPOINT_VS_PIDSUM_PID: &RGBColor = &GREEN;
-
 // Setpoint vs Gyro Plot
 pub const COLOR_SETPOINT_VS_GYRO_SP: &RGBColor = &ORANGE;
 pub const COLOR_SETPOINT_VS_GYRO_GYRO: &RGBColor = &LIGHTBLUE;

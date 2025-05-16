@@ -22,7 +22,6 @@ use crate::constants::{
     POST_AVERAGING_SMOOTHING_WINDOW, STEADY_STATE_START_S, STEADY_STATE_END_S,
     // Import specific color constants needed
     COLOR_PIDSUM_MAIN, COLOR_PIDERROR_MAIN, COLOR_SETPOINT_MAIN,
-    COLOR_SETPOINT_VS_PIDSUM_SP, COLOR_SETPOINT_VS_PIDSUM_PID,
     COLOR_SETPOINT_VS_GYRO_SP, COLOR_SETPOINT_VS_GYRO_GYRO,
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT,
     COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
@@ -306,106 +305,6 @@ pub fn plot_pidsum_error_setpoint(
 
             Some((
                 format!("Axis {} PIDsum vs PID Error vs Setpoint", axis_index),
-                x_range,
-                y_range,
-                series,
-                "Time (s)".to_string(),
-                "Value".to_string(),
-            ))
-        },
-    )
-}
-
-/// Generates the Stacked Setpoint vs PIDsum Plot (Yellow, Red)
-pub fn plot_setpoint_vs_pidsum(
-    log_data: &[LogRowData],
-    root_name: &str,
-) -> Result<(), Box<dyn Error>> {
-    let output_file_setpoint = format!("{}_SetpointVsPIDsum_stacked.png", root_name);
-    let plot_type_name = "Setpoint/PIDsum";
-
-     // Prepare data for all axes in one pass
-    let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>)>; 3] = Default::default();
-    for row in log_data {
-        if let Some(time) = row.time_sec {
-            for axis_index in 0..3 {
-                 let pidsum = row.p_term[axis_index].and_then(|p| {
-                    row.i_term[axis_index].and_then(|i| {
-                        row.d_term[axis_index].map(|d| p + i + d)
-                    })
-                });
-                axis_plot_data[axis_index].push((time, row.setpoint[axis_index], pidsum));
-            }
-        }
-    }
-
-    // Bind constants to local variables outside the closure
-    let color_setpoint: RGBColor = *COLOR_SETPOINT_VS_PIDSUM_SP; // Dereference the static reference
-    let color_pidsum_vs: RGBColor = *COLOR_SETPOINT_VS_PIDSUM_PID; // Dereference the static reference
-    let line_stroke_plot = LINE_WIDTH_PLOT; // Use plot width
-
-    draw_stacked_plot(
-        &output_file_setpoint,
-        root_name,
-        plot_type_name,
-        move |axis_index| { // Use move to capture axis_plot_data and local constants
-             let data = &axis_plot_data[axis_index];
-             if data.is_empty() {
-                 return None;
-             }
-
-             let mut setpoint_series_data: Vec<(f64, f64)> = Vec::new();
-             let mut pidsum_series_data: Vec<(f64, f64)> = Vec::new();
-
-             let mut time_min = f64::INFINITY;
-             let mut time_max = f64::NEG_INFINITY;
-             let mut val_min = f64::INFINITY;
-             let mut val_max = f64::NEG_INFINITY;
-
-             for (time, setpoint, pidsum) in data {
-                 time_min = time_min.min(*time);
-                 time_max = time_max.max(*time);
-
-                 if let Some(s) = setpoint {
-                     setpoint_series_data.push((*time, *s));
-                     val_min = val_min.min(*s);
-                     val_max = val_max.max(*s);
-                 }
-                 if let Some(p) = pidsum {
-                     pidsum_series_data.push((*time, *p));
-                     val_min = val_min.min(*p);
-                     val_max = val_max.max(*p);
-                 }
-             }
-
-            if setpoint_series_data.is_empty() && pidsum_series_data.is_empty() {
-                 return None; // No actual data collected for this axis
-            }
-
-            let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
-            let x_range = time_min..time_max;
-            let y_range = final_value_min..final_value_max;
-
-            let mut series = Vec::new();
-            if !setpoint_series_data.is_empty() {
-                 series.push(PlotSeries {
-                     data: setpoint_series_data,
-                     label: "Setpoint".to_string(),
-                     color: color_setpoint, // Use captured constant (RGBColor)
-                     stroke_width: line_stroke_plot, // Use captured constant
-                 });
-             }
-             if !pidsum_series_data.is_empty() {
-                 series.push(PlotSeries {
-                     data: pidsum_series_data,
-                     label: "PIDsum".to_string(),
-                     color: color_pidsum_vs, // Use captured constant (RGBColor)
-                     stroke_width: line_stroke_plot, // Use captured constant
-                 });
-             }
-
-            Some((
-                format!("Axis {} Setpoint vs PIDsum", axis_index),
                 x_range,
                 y_range,
                 series,

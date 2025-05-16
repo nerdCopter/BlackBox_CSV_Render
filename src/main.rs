@@ -21,7 +21,6 @@ use constants::*;
 // Import the specific plot functions
 use plotting_utils::{
     plot_pidsum_error_setpoint,
-    plot_setpoint_vs_pidsum,
     plot_setpoint_vs_gyro,
     plot_gyro_vs_unfilt,
     plot_step_response,
@@ -352,7 +351,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     // --- Generate Plots ---
     // Pass the full log_data and root_name to each plotting function
     plot_pidsum_error_setpoint(&all_log_data, &root_name)?;
-    plot_setpoint_vs_pidsum(&all_log_data, &root_name)?;
     plot_setpoint_vs_gyro(&all_log_data, &root_name)?;
     plot_gyro_vs_unfilt(&all_log_data, &root_name)?;
     // Pass step response results and sample rate to the step response plot function
