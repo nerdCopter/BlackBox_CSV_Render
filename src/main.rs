@@ -24,6 +24,7 @@ use plotting_utils::{
     plot_setpoint_vs_gyro,
     plot_gyro_vs_unfilt,
     plot_step_response,
+    plot_throttle_spectrograms,
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -48,7 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "gyroADC[0]", "gyroADC[1]", "gyroADC[2]",
         "gyroUnfilt[0]", "gyroUnfilt[1]", "gyroUnfilt[2]",
         "debug[0]", "debug[1]", "debug[2]", "debug[3]",
-        "throttle",
+        "setpoint[3]", // "throttle"
     ];
 
     // Flags to track if specific optional or plot-dependent headers are found.
@@ -58,6 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut gyro_header_found = [false; 3]; // Tracks if "gyroADC[axis]" is present (filtered gyro).
     let mut gyro_unfilt_header_found = [false; 3]; // Tracks if "gyroUnfilt[axis]" is present.
     let mut debug_header_found = [false; 4]; // Tracks if "debug[idx]" is present.
+    let mut setpoint3_header_found = false; // Tracks if "setpoint[3]" (throttle) is present.
 
 
     // Declare header_indices here so it's accessible outside the block
@@ -115,9 +117,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("  '{}': {} (Fallback for gyroUnfilt[0-2])", target_headers[19 + idx_offset], if debug_header_found[idx_offset] { "Found" } else { "Not Found" });
         }
 
-        // Check throttle header (Index 23).
-        let throttle_found_in_csv = header_indices[23].is_some(); // Use header_indices here
-        println!("  '{}': {} (Optional, for filtering)", target_headers[23], if throttle_found_in_csv { "Found" } else { "Not Found" });
+        // Check setpoint[3] (throttle) header (Index 23).
+        setpoint3_header_found = header_indices[23].is_some();
+        println!("  '{}': {} (Essential for Throttle Spectrograms)", target_headers[23], if setpoint3_header_found { "Found" } else { "Not Found" });
 
 
         if !essential_pid_headers_found {
@@ -203,7 +205,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         };
                     }
 
-                    // Parse Throttle
+                    // Parse Throttle (from setpoint[3])
                     current_row_data.throttle = parse_f64_by_target_idx(23);
 
                     all_log_data.push(current_row_data);
@@ -355,7 +357,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     plot_gyro_vs_unfilt(&all_log_data, &root_name)?;
     // Pass step response results and sample rate to the step response plot function
     plot_step_response(&step_response_calculation_results, &root_name, sample_rate)?;
-
+    // Plot throttle spectrograms if throttle data was available
+    if setpoint3_header_found {
+        plot_throttle_spectrograms(&all_log_data, &root_name, sample_rate)?;
+    } else {
+        println!("\nSkipping Throttle Spectrograms: '{}' header (used for throttle) not found in CSV.", target_headers[23]);
+    }
 
     println!("\nProcessing complete.");
     Ok(())

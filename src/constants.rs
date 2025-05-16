@@ -1,8 +1,9 @@
 // src/constants.rs
 
 // Import specific colors needed
-use plotters::style::RGBColor;
-use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE};
+use plotters::style::{RGBColor};
+use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, BLACK, WHITE, YELLOW};
+
 
 // Plot dimensions.
 pub const PLOT_WIDTH: u32 = 1920;
@@ -55,5 +56,21 @@ pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
 // Stroke widths for lines
 pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
 pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
+
+// --- Spectrogram Constants ---
+pub const SPECTROGRAM_THROTTLE_BINS: usize = 100; // Number of bins for the throttle axis (e.g., 50 or 100 from image)
+pub const SPECTROGRAM_FFT_WINDOW_SIZE: usize = 256; // Size of the FFT window (determines frequency resolution)
+pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 500.0;   // Max frequency to display on Y-axis
+pub const SPECTROGRAM_POWER_CLIP_MAX: f32 = 0.5; // Clip power at this value for color scaling (from image scale)
+// Colors for the "hot" colormap (black background, white foreground for text/axes)
+pub const SPECTROGRAM_COLOR_SCALE: [(f32, RGBColor); 4] = [
+    (0.0, BLACK),       // Off
+    (0.05, RGBColor(100,0,0)), // Dark Red for very low values near black
+    (0.5, RED),         // Red
+    (1.0, YELLOW),      // Yellow transitioning to white for peak
+    // Max (clipped) value will be white, handled by interpolation logic if peak val is 1.0
+];
+pub const SPECTROGRAM_TEXT_COLOR: &RGBColor = &WHITE;
+pub const SPECTROGRAM_GRID_COLOR: RGBColor = RGBColor(80,80,80); // Dark grey for grid on black
 
 // src/constants.rs

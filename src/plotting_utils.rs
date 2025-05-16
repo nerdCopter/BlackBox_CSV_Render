@@ -3,16 +3,16 @@
 // Plotters imports - explicitly list what's used
 use plotters::backend::{BitMapBackend, DrawingBackend};
 use plotters::drawing::{DrawingArea, IntoDrawingArea};
-use plotters::style::{RGBColor, IntoFont, Color};
-use plotters::element::Text;
+use plotters::style::{RGBColor, IntoFont, Color, ShapeStyle, TextStyle};
+use plotters::element::{Text, Rectangle, PathElement};
 use plotters::chart::{ChartBuilder, SeriesLabelPosition};
-use plotters::element::PathElement;
+use plotters::coord::{Shift};
 use plotters::series::LineSeries;
 use plotters::style::colors::{WHITE, BLACK, RED};
 
 use std::error::Error;
 
-use ndarray::{Array1, Array2, s};
+use ndarray::{Array1, Array2, s}; // Removed Axis
 use ndarray_stats::QuantileExt;
 
 // Explicitly import constants used within this file
@@ -26,9 +26,14 @@ use crate::constants::{
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT,
     COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
     LINE_WIDTH_PLOT, LINE_WIDTH_LEGEND, // Import line widths
+    // Spectrogram constants
+    SPECTROGRAM_THROTTLE_BINS, SPECTROGRAM_FFT_WINDOW_SIZE, SPECTROGRAM_MAX_FREQ_HZ,
+    SPECTROGRAM_POWER_CLIP_MAX, SPECTROGRAM_COLOR_SCALE, SPECTROGRAM_TEXT_COLOR,
+    SPECTROGRAM_GRID_COLOR,
 };
 use crate::log_data::LogRowData;
 use crate::step_response;
+use crate::fft_utils;
 
 
 /// Calculate plot range with padding.
@@ -674,6 +679,345 @@ pub fn plot_step_response(
             plot_data_per_axis[axis_index].take()
         },
     )
+}
+
+
+/// Interpolates color based on a value and a predefined scale.
+fn get_spectrogram_color(value: f32, min_clip: f32, max_clip: f32) -> RGBColor {
+    let normalized_value = ((value - min_clip) / (max_clip - min_clip).max(1e-6)).clamp(0.0, 1.0);
+
+    if normalized_value <= SPECTROGRAM_COLOR_SCALE[0].0 { // Should be 0.0
+        return SPECTROGRAM_COLOR_SCALE[0].1;
+    }
+
+    for i in 0..(SPECTROGRAM_COLOR_SCALE.len() - 1) {
+        let (p1, c1) = SPECTROGRAM_COLOR_SCALE[i];
+        let (p2, _c2) = SPECTROGRAM_COLOR_SCALE[i + 1]; // Prefixed c2
+        if normalized_value <= p2 {
+            let t = (normalized_value - p1) / (p2 - p1).max(1e-6);
+            // mix returns RGBAColor, convert back to RGBColor
+            let (r,g,b) = c1.mix(t.into()).rgb();
+            return RGBColor(r,g,b);
+        }
+    }
+    SPECTROGRAM_COLOR_SCALE.last().unwrap().1 // Return the last color if above all points
+}
+
+
+/// Draws a single throttle vs frequency spectrogram.
+fn draw_single_throttle_spectrogram<DB: DrawingBackend>(
+    area: &DrawingArea<DB, Shift>,
+    title_prefix: &str,
+    axis_name: &str,
+    psd_matrix: &Array2<f32>,      // Freq x ThrottleBin
+    freq_bins: &Array1<f32>,       // Frequencies for rows
+    throttle_bins: &Array1<f32>, // Throttle bin centers for columns
+) -> Result<(), Box<dyn Error>>
+where DB::ErrorType: 'static
+{
+    area.fill(&BLACK)?; // Black background for the spectrogram chart area
+
+    let x_range = 0f32..100f32; // Throttle %
+    let y_range = 0f32..SPECTROGRAM_MAX_FREQ_HZ;
+
+    let mut chart = ChartBuilder::on(area)
+        .caption(format!("{} {}", title_prefix, axis_name), TextStyle::from(("sans-serif", 18).into_font().color(SPECTROGRAM_TEXT_COLOR)))
+        .margin_top(25) // Make space for title
+        .margin_right(20)
+        .x_label_area_size(30)
+        .y_label_area_size(40)
+        .build_cartesian_2d(x_range.clone(), y_range.clone())?;
+
+    chart.configure_mesh()
+        .axis_style(ShapeStyle::from(SPECTROGRAM_TEXT_COLOR).stroke_width(1))
+        .x_desc("% Throttle")
+        .y_desc("Frequency (Hz)")
+        .label_style(("sans-serif", 12).into_font().color(SPECTROGRAM_TEXT_COLOR))
+        .light_line_style(&SPECTROGRAM_GRID_COLOR) // Grid lines
+        .bold_line_style(&SPECTROGRAM_GRID_COLOR)
+        .x_labels(10)
+        .y_labels(5)
+        .draw()?;
+
+    let (num_freq_bins_total, num_throttle_plot_bins) = psd_matrix.dim();
+    if num_freq_bins_total == 0 || num_throttle_plot_bins == 0 || freq_bins.len() != num_freq_bins_total || throttle_bins.len() != num_throttle_plot_bins {
+        let text_style = ("sans-serif", 16).into_font().color(&RED);
+        // Position text using data coordinates (f32, f32)
+        let text_x = x_range.start + (x_range.end - x_range.start) * 0.1;
+        let text_y = y_range.start + (y_range.end - y_range.start) * 0.5;
+        chart.plotting_area().draw(&Text::new(
+            "Spectrogram data empty or mismatched",
+            (text_x, text_y),
+            text_style,
+        ))?;
+        return Ok(());
+    }
+
+    let throttle_cell_width = if num_throttle_plot_bins > 1 {
+        100.0 / num_throttle_plot_bins as f32 // Use average width based on total range and #bins
+    } else {
+        100.0 // Fallback if only one bin, covers full range
+    };
+
+
+    let mut max_power_overall = 0.0f32;
+    let mut total_power_sum = 0.0f32;
+    let mut power_count = 0;
+
+    for j in 0..num_throttle_plot_bins { // Iterate throttle bins (columns)
+        let throttle_center = throttle_bins[j];
+        let x0 = throttle_center - throttle_cell_width / 2.0;
+        let x1 = throttle_center + throttle_cell_width / 2.0;
+
+        for i in 0..num_freq_bins_total { // Iterate frequency bins (rows)
+            let freq_center = freq_bins[i];
+            if freq_center > SPECTROGRAM_MAX_FREQ_HZ + 1e-3 { // Add epsilon for float comparison
+                continue; // Don't plot frequencies above max
+            }
+
+            // Determine frequency cell height
+            let freq_cell_height = if i + 1 < num_freq_bins_total {
+                freq_bins[i+1] - freq_bins[i]
+            } else if i > 0 {
+                freq_bins[i] - freq_bins[i-1] // For the last bin
+            } else {
+                 SPECTROGRAM_MAX_FREQ_HZ / num_freq_bins_total as f32 // Fallback if only one freq bin (use y_range.end)
+            };
+            let y0 = freq_center - freq_cell_height / 2.0;
+            let y1 = freq_center + freq_cell_height / 2.0;
+
+
+            let power = psd_matrix[[i, j]];
+            max_power_overall = max_power_overall.max(power);
+            if power > 1e-6 { // Consider only non-negligible power for mean
+                 total_power_sum += power;
+                 power_count += 1;
+            }
+
+            let color = get_spectrogram_color(power, 0.0, SPECTROGRAM_POWER_CLIP_MAX);
+             // Draw if not the same as background (BLACK)
+            if color != BLACK {
+                let rect = Rectangle::new([(x0.max(0.0), y0.max(0.0)), (x1.min(100.0), y1.min(SPECTROGRAM_MAX_FREQ_HZ))], color.filled());
+                chart.plotting_area().draw(&rect)?;
+            }
+        }
+    }
+
+    // Calculate mean of displayed power (non-zero, within freq range)
+    let mean_power = if power_count > 0 { total_power_sum / power_count as f32 } else { 0.0 };
+
+    let text_style = ("sans-serif", 12).into_font().color(SPECTROGRAM_TEXT_COLOR);
+    // Ensure text coordinates are f32
+    let text_pos_x = x_range.end * 0.65_f32;
+    let text_pos_y = y_range.end * 0.9_f32;
+    chart.plotting_area().draw(&Text::new(
+        format!("mean={:.4}\npeak={:.4}", mean_power, max_power_overall),
+        (text_pos_x, text_pos_y),
+        text_style,
+    ))?;
+
+
+    Ok(())
+}
+
+/// Draws a color bar for the spectrogram.
+fn draw_spectrogram_colorbar<DB: DrawingBackend>(
+    area: &DrawingArea<DB, Shift>,
+    title: &str,
+) -> Result<(), Box<dyn Error>>
+where DB::ErrorType: 'static
+{
+    area.fill(&WHITE)?; // White background for the colorbar area
+
+    let mut chart = ChartBuilder::on(area)
+        .caption(title, ("sans-serif", 12).into_font().color(&BLACK))
+        .margin(5)
+        .build_cartesian_2d(0f32..SPECTROGRAM_POWER_CLIP_MAX, 0f32..1f32)?; // X is power, Y is dummy
+
+    chart.configure_mesh()
+        .disable_y_axis()
+        .x_labels(6) // e.g., 0, 0.1, 0.2, 0.3, 0.4, 0.5
+        .x_label_formatter(&|x| format!("{:.1}", x))
+        .label_style(("sans-serif", 10).into_font().color(&BLACK))
+        .draw()?;
+
+    let x_coord_range = chart.x_range(); // This is std::ops::Range<f32>
+    let x_start = x_coord_range.start;
+    let x_end = x_coord_range.end;
+    let num_steps = 100; // Number of rectangles to draw for the gradient
+    let step_width = (x_end - x_start) / num_steps as f32;
+
+    for i in 0..num_steps {
+        let val_start = x_start + i as f32 * step_width;
+        let val_end = x_start + (i + 1) as f32 * step_width;
+        let mid_val = (val_start + val_end) / 2.0;
+
+        let color = get_spectrogram_color(mid_val, 0.0, SPECTROGRAM_POWER_CLIP_MAX);
+        let rect = Rectangle::new([(val_start, 0.0), (val_end, 1.0)], color.filled());
+        chart.plotting_area().draw(&rect)?;
+    }
+    Ok(())
+}
+
+
+/// Generates the Stacked Throttle vs Frequency Spectrogram plot.
+pub fn plot_throttle_spectrograms(
+    log_data: &[LogRowData],
+    root_name: &str,
+    sample_rate: Option<f64>,
+) -> Result<(), Box<dyn Error>> {
+    let sr = match sample_rate {
+        Some(s) => s,
+        None => {
+            println!("Warning: Sample rate unknown, skipping throttle spectrograms.");
+            return Ok(());
+        }
+    };
+
+    let output_filename = format!("{}_throttle_spectrograms.png", root_name);
+    let root_area = BitMapBackend::new(&output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
+    root_area.fill(&WHITE)?; // Overall white background
+
+    let main_title_area_height = 50;
+    let colorbar_area_height = 70;
+    let _plot_area_height = PLOT_HEIGHT - main_title_area_height - colorbar_area_height - 20; // 20 for bottom margin, prefixed
+
+    let (main_title_area, remaining_area) = root_area.split_vertically(main_title_area_height);
+    let (colorbar_area, plot_grid_area) = remaining_area.split_vertically(colorbar_area_height);
+
+    // Draw main title
+    main_title_area.draw(&Text::new(
+        format!("{} Throttle Spectrograms", root_name),
+        (10, 10), // Pixel coordinates for root area
+        ("sans-serif", 24).into_font().color(&BLACK),
+    ))?;
+
+    // Draw color bar
+    draw_spectrogram_colorbar(&colorbar_area.margin(0, 100, 0, 100), "Scale (Power)")?; // Margin for centering
+
+    // Split plot area into 3 rows (Roll, Pitch, Yaw)
+    let axis_plot_areas = plot_grid_area.split_evenly((3, 1)); // 3 rows, 1 column
+    let axis_names = ["Roll", "Pitch", "Yaw"];
+
+    let mut any_spectrogram_plotted = false;
+
+    for axis_index in 0..3 {
+        let row_area = &axis_plot_areas[axis_index];
+        // Split each row into 2 columns (Unfiltered, Filtered)
+        let (unfilt_area, filt_area) = row_area.split_horizontally(PLOT_WIDTH / 2);
+
+        // --- Process Unfiltered Gyro ---
+        let mut gyro_unfilt_data: Vec<f32> = Vec::new();
+        let mut throttle_data_unfilt: Vec<f32> = Vec::new();
+        for row in log_data {
+            // Throttle comes from row.throttle (which is setpoint[3])
+            if let (Some(gu), Some(th)) = (row.gyro_unfilt[axis_index], row.throttle) {
+                gyro_unfilt_data.push(gu as f32);
+                throttle_data_unfilt.push(th as f32);
+            }
+        }
+
+        if !gyro_unfilt_data.is_empty() && !throttle_data_unfilt.is_empty() {
+            match fft_utils::calculate_throttle_psd(
+                &Array1::from(gyro_unfilt_data),
+                &Array1::from(throttle_data_unfilt),
+                sr,
+                SPECTROGRAM_THROTTLE_BINS,
+                SPECTROGRAM_FFT_WINDOW_SIZE,
+            ) {
+                Ok((psd_matrix, freq_bins, throttle_bins)) => {
+                    draw_single_throttle_spectrogram(
+                        &unfilt_area,
+                        "Unfiltered Gyro",
+                        axis_names[axis_index],
+                        &psd_matrix,
+                        &freq_bins,
+                        &throttle_bins,
+                    )?;
+                    any_spectrogram_plotted = true;
+                }
+                Err(e) => {
+                    eprintln!("Error calculating unfiltered spectrogram for Axis {}: {}", axis_index, e);
+                    let area_clone = unfilt_area.clone(); // Clone for message drawing if needed
+                    area_clone.fill(&BLACK)?; // Ensure black background for message
+                    area_clone.draw(&Text::new(
+                        format!("Unfiltered {} Data Error:\n{}", axis_names[axis_index], e),
+                        (20_i32, 20_i32), // Pixel coordinates for sub-area message
+                        ("sans-serif", 14).into_font().color(&RED),
+                    ))?;
+                }
+            }
+        } else {
+            let area_clone = unfilt_area.clone();
+            area_clone.fill(&BLACK)?;
+            area_clone.draw(&Text::new(
+                format!("Unfiltered {} No Data", axis_names[axis_index]),
+                (20_i32, 20_i32), // Pixel coordinates for sub-area message
+                ("sans-serif", 14).into_font().color(&RED),
+            ))?;
+        }
+
+        // --- Process Filtered Gyro ---
+        let mut gyro_filt_data: Vec<f32> = Vec::new();
+        let mut throttle_data_filt: Vec<f32> = Vec::new();
+        for row in log_data {
+            if let (Some(gf), Some(th)) = (row.gyro[axis_index], row.throttle) {
+                gyro_filt_data.push(gf as f32);
+                throttle_data_filt.push(th as f32);
+            }
+        }
+
+        if !gyro_filt_data.is_empty() && !throttle_data_filt.is_empty() {
+            match fft_utils::calculate_throttle_psd(
+                &Array1::from(gyro_filt_data),
+                &Array1::from(throttle_data_filt),
+                sr,
+                SPECTROGRAM_THROTTLE_BINS,
+                SPECTROGRAM_FFT_WINDOW_SIZE,
+            ) {
+                Ok((psd_matrix, freq_bins, throttle_bins)) => {
+                    draw_single_throttle_spectrogram(
+                        &filt_area,
+                        "Filtered Gyro",
+                        axis_names[axis_index],
+                        &psd_matrix,
+                        &freq_bins,
+                        &throttle_bins,
+                    )?;
+                    any_spectrogram_plotted = true;
+                }
+                Err(e) => {
+                    eprintln!("Error calculating filtered spectrogram for Axis {}: {}", axis_index, e);
+                     let area_clone = filt_area.clone();
+                     area_clone.fill(&BLACK)?;
+                     area_clone.draw(&Text::new(
+                        format!("Filtered {} Data Error:\n{}", axis_names[axis_index], e),
+                        (20_i32, 20_i32), // Pixel coordinates for sub-area message
+                        ("sans-serif", 14).into_font().color(&RED),
+                    ))?;
+                }
+            }
+        } else {
+            let area_clone = filt_area.clone();
+            area_clone.fill(&BLACK)?;
+            area_clone.draw(&Text::new(
+                format!("Filtered {} No Data", axis_names[axis_index]),
+                (20_i32, 20_i32), // Pixel coordinates for sub-area message
+                ("sans-serif", 14).into_font().color(&RED),
+            ))?;
+        }
+    }
+
+
+    if any_spectrogram_plotted {
+        root_area.present()?;
+        println!("  Throttle spectrograms saved as '{}'.", output_filename);
+    } else {
+        root_area.present()?; // Still save the file with titles/messages
+        println!("  Skipping '{}' throttle spectrogram saving: No data available for any axis to plot.", output_filename);
+    }
+
+    Ok(())
 }
 
 // src/plotting_utils.rs

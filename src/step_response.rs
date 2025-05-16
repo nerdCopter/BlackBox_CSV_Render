@@ -14,7 +14,7 @@ use crate::fft_utils; // Import the new FFT utility module
 
 
 /// Makes a Tukey window for enveloping.
-fn tukeywin(num: usize, alpha: f64) -> Array1<f32> {
+pub fn tukeywin(num: usize, alpha: f64) -> Array1<f32> {
     if alpha <= 0.0 {
         return Array1::ones(num); // rectangular window
     } else if alpha >= 1.0 {
