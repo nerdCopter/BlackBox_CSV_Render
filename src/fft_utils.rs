@@ -81,6 +81,7 @@ pub fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> { // n is fft_window_size, 
 }
 
 /// Calculates Power Spectral Density (PSD) for gyro data, binned by throttle.
+/// Uses Welch's method idea by averaging PSDs of overlapping (50%) Hanning-windowed segments.
 pub fn calculate_throttle_psd(
     gyro_signal: &Array1<f32>,
     throttle_signal: &Array1<f32>,
@@ -94,6 +95,12 @@ pub fn calculate_throttle_psd(
     if gyro_signal.is_empty() || num_throttle_bins == 0 || fft_window_size == 0 || sample_rate <= 0.0 {
         return Err("Empty signals, zero bins/window size, or invalid sample rate.".into());
     }
+    if fft_window_size % 2 != 0 {
+        // RealFFT prefers even lengths, though it might handle odd.
+        // Our hop size calculation also benefits from even window size.
+        eprintln!("Warning: fft_window_size {} is odd, even is preferred. Results might be unexpected.", fft_window_size);
+    }
+
 
     let mut binned_gyro_samples: Vec<Vec<f32>> = vec![Vec::new(); num_throttle_bins];
     let throttle_bin_width = 100.0 / num_throttle_bins as f32;
@@ -104,26 +111,30 @@ pub fn calculate_throttle_psd(
         if bin_index >= num_throttle_bins {
             bin_index = num_throttle_bins - 1;
         }
-        // Diagnostic print for first few samples going into first few bins
-        // if i < 20 && bin_index < 2 {
-        //     println!("Debug binning: gyro: {:.2}, throttle_val: {:.2}, bin_width: {:.2}, bin_idx: {}", gyro_signal[i], throttle_val, throttle_bin_width, bin_index);
-        // }
         binned_gyro_samples[bin_index].push(gyro_signal[i]);
     }
 
     let num_freq_bins_output = fft_window_size / 2 + 1;
     let mut psd_matrix = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
     let hanning_window = tukeywin(fft_window_size, 1.0);
+    let hop_size = fft_window_size / 2; // 50% overlap
+
+    if hop_size == 0 {
+        return Err("FFT window size is too small for 50% overlap (hop_size is 0).".into());
+    }
 
     for bin_idx in 0..num_throttle_bins {
         let samples_in_bin = &binned_gyro_samples[bin_idx];
         let num_samples_in_bin = samples_in_bin.len();
 
-        if num_samples_in_bin > 0 {
-             println!("Diag: Throttle Bin {}: {} samples", bin_idx, num_samples_in_bin);
+        if num_samples_in_bin > 0 && num_samples_in_bin < fft_window_size {
+             println!("Diag: Throttle Bin {}: {} samples (less than FFT window size {})", bin_idx, num_samples_in_bin, fft_window_size);
         }
 
         if num_samples_in_bin >= fft_window_size {
+             if num_samples_in_bin > 0 { // Print even if not enough for a segment initially, but enough for FFT
+                 println!("Diag: Throttle Bin {}: {} samples (>= FFT window size {})", bin_idx, num_samples_in_bin, fft_window_size);
+            }
             let mut averaged_psd_for_bin = Array1::<f32>::zeros(num_freq_bins_output);
             let mut num_segments_averaged = 0;
 
@@ -143,15 +154,15 @@ pub fn calculate_throttle_psd(
                 } else {
                      eprintln!("Warning: FFT output length mismatch for a segment in throttle bin {}. Expected {}, got {}.", bin_idx, num_freq_bins_output, spectrum_complex.len());
                 }
-                current_pos += fft_window_size;
+                current_pos += hop_size; // Advance by hop_size for overlap
             }
 
             if num_segments_averaged > 0 {
-                println!("Diag: Throttle Bin {}: Averaged {} segments.", bin_idx, num_segments_averaged);
+                println!("Diag: Throttle Bin {}: Averaged {} overlapping segments.", bin_idx, num_segments_averaged);
                 for freq_idx in 0..num_freq_bins_output {
                     psd_matrix[[freq_idx, bin_idx]] = averaged_psd_for_bin[freq_idx] / num_segments_averaged as f32;
                 }
-                if bin_idx < 2 || bin_idx >= num_throttle_bins.saturating_sub(2) {
+                if bin_idx < 2 || bin_idx >= num_throttle_bins.saturating_sub(2) { // Print for first 2 and last 2 bins
                      println!("Diag: PSD for bin {} (first 5 vals): {:?}", bin_idx, psd_matrix.column(bin_idx).iter().take(5).map(|&x| format!("{:.4}", x)).collect::<Vec<_>>());
                 }
             }
