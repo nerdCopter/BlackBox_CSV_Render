@@ -59,17 +59,17 @@ pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
 
 // --- Spectrogram Constants ---
 pub const SPECTROGRAM_THROTTLE_BINS: usize = 100;
-pub const SPECTROGRAM_FFT_WINDOW_SIZE: usize = 128;
+pub const SPECTROGRAM_FFT_WINDOW_SIZE: usize = 56;
 pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 500.0;
-pub const SPECTROGRAM_POWER_CLIP_MAX: f32 = 20000.0; // Adjusted this based on potential peak values, make this the value that maps to 0.5 on colorbar for reference
+pub const SPECTROGRAM_POWER_CLIP_MAX: f32 = 10000.0; // Adjusted this based on potential peak values, make this the value that maps to 0.5 on colorbar for reference
 // Revised "hot" colormap - values are normalized power (0.0 to 1.0)
 pub const SPECTROGRAM_COLOR_SCALE: [(f32, RGBColor); 6] = [
-    (0.0, BLACK),               // Min value
-    (0.02, RGBColor(50,0,0)),   // Very dark red
-    (0.15, RED),                // Red
-    (0.4, ORANGE),              // Orange
-    (0.7, YELLOW),              // Yellow
-    (1.0, WHITE),               // Max value (brightest)
+    (0.00, BLACK),               // Min value
+    (0.05, RGBColor(50,0,0)),   // Very dark red
+    (0.25, RED),                // Red
+    (0.5 , ORANGE),              // Orange
+    (0.75, YELLOW),              // Yellow
+    (1.00, WHITE),               // Max value (brightest)
 ];
 pub const SPECTROGRAM_TEXT_COLOR: &RGBColor = &WHITE; // THIS LINE IS IMPORTANT
 pub const SPECTROGRAM_GRID_COLOR: RGBColor = RGBColor(80,80,80);
