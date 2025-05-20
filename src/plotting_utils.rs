@@ -659,15 +659,21 @@ pub fn plot_step_response(
 }
 
 fn get_spectrogram_color(averaged_normalized_amplitude: f32) -> RGBColor {
-    // Linearly scale the averaged (N-normalized, 2x scaled) amplitude against BBE_SCALE_HEATMAP
-    // An averaged_normalized_amplitude equal to BBE_SCALE_HEATMAP (or higher) results in 1.0 lightness (white).
+    const GAMMA: f32 = 0.5; // Experiment with this value (e.g., 0.4 to 0.7)
+    const MIN_VISIBLE_LIGHTNESS: f32 = 0.03; // Ensure very faint signals get at least this fractional lightness
+
+    // Scale against BBE_SCALE_HEATMAP for HSL lightness (0.0 to 1.0)
     let mut lightness = (averaged_normalized_amplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
 
-    // Apply a gamma correction to enhance visibility of lower-mid range values
-    // A gamma of 0.5 (sqrt) will brighten mid-tones. Adjust as needed.
-    // BBE's visual output suggests something like this might be happening.
-    const GAMMA: f32 = 0.6; // Experiment with this value (e.g., 0.4, 0.5, 0.6)
-    lightness = lightness.powf(GAMMA);
+    if lightness > 1e-6 { // Only apply gamma and min_lightness if there's some signal strength
+        lightness = lightness.powf(GAMMA);
+        // Ensure that even after gamma, if there was *some* signal above a tiny threshold, it's not pure black
+        if averaged_normalized_amplitude > MIN_POWER_FOR_LOG_SCALE { // MIN_POWER_FOR_LOG_SCALE is tiny
+             lightness = lightness.max(MIN_VISIBLE_LIGHTNESS);
+        }
+    } else {
+        lightness = 0.0; // Force to black if initial scaled lightness is effectively zero
+    }
     
     hsl_to_rgb(0.0, 1.0, lightness.clamp(0.0, 1.0)) // Hue 0 (Red), Sat 1.0
 }
@@ -677,11 +683,9 @@ fn draw_single_throttle_spectrogram<DB: DrawingBackend>(
     area: &DrawingArea<DB, Shift>,
     title_prefix: &str,
     axis_name: &str,
-    // This matrix contains N-normalized, 2x-scaled averaged amplitudes
     averaged_amplitude_spectrum_matrix: &Array2<f32>, 
     freq_bins: &Array1<f32>,
     throttle_bins: &Array1<f32>,
-    // This is the peak of RAW (unnormalized) magnitudes from individual segments
     peak_raw_segment_magnitude_for_text: f32, 
     mut diag_file: Option<&mut File>,
 ) -> Result<(), Box<dyn Error>>
@@ -769,14 +773,21 @@ where DB::ErrorType: 'static
             let color = get_spectrogram_color(avg_amplitude_val);
 
             if let Some(file) = diag_file.as_mut() {
-                 if avg_amplitude_val > 0.001 { 
-                    let lightness_before_gamma = (avg_amplitude_val / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
-                    let lightness_after_gamma = lightness_before_gamma.powf(0.6); // Assuming GAMMA = 0.6
+                 if avg_amplitude_val > 0.0001 { // Adjusted threshold for logging
+                    let lightness_before_gamma_and_floor = (avg_amplitude_val / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+                    let mut lightness_after_gamma = lightness_before_gamma_and_floor.powf(0.5); // Assuming GAMMA = 0.5
+                     if avg_amplitude_val > MIN_POWER_FOR_LOG_SCALE {
+                        lightness_after_gamma = lightness_after_gamma.max(0.03); // Assuming MIN_VISIBLE_LIGHTNESS = 0.03
+                    } else if lightness_before_gamma_and_floor <= 1e-6 {
+                        lightness_after_gamma = 0.0;
+                    }
+
+
                     if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
                        i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
-                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgNormAmp: {:.4} (BBE_SCALE_HEATMAP: {:.2}), Lightness (before/after gamma 0.6): {:.3}/{:.3}, Color: {:?}",
+                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgNormAmp: {:.4} (BBE_SCALE_HEATMAP: {:.2}), Lightness (raw_scaled/gamma_corrected): {:.3}/{:.3}, Color: {:?}",
                                  i_freq_idx, j_throttle_idx, avg_amplitude_val, BBE_SCALE_HEATMAP,
-                                 lightness_before_gamma, lightness_after_gamma, color)?;
+                                 lightness_before_gamma_and_floor, lightness_after_gamma, color)?;
                     }
                 }
             }
@@ -812,19 +823,14 @@ pub fn plot_throttle_spectrograms(
     if let Some(file) = diag_file.as_mut() {
         writeln!(file, "--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---")?;
         writeln!(file, "Using HSL(0, 100%, L) based calculation (Black-Red-White).")?;
-        writeln!(file, "Lightness 'L' is ((AveragedNormalizedAmplitude / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0). GAMMA ~0.6")?;
-        writeln!(file, "BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP)?;
+        writeln!(file, "Lightness 'L' is ((AvgNormAmp / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0).max(MIN_VISIBLE_LIGHTNESS if AvgNormAmp > MIN_PF_LOG_S).")?;
+        writeln!(file, "BBE_SCALE_HEATMAP = {}, GAMMA ~0.5, MIN_VISIBLE_LIGHTNESS ~0.03", BBE_SCALE_HEATMAP)?;
         writeln!(file, "'peak_mag_seg' text shows peak of raw magnitudes from individual FFT segments.")?;
         writeln!(file, "Averaged amplitudes are N-normalized and 2x scaled (for non-DC/Nyquist).")?;
         writeln!(file, "------------------------------------------------------------------------------------")?;
     } else {
         println!("--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---");
-        println!("Using HSL(0, 100%, L) based calculation (Black-Red-White).");
-        println!("Lightness 'L' is ((AveragedNormalizedAmplitude / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0). GAMMA ~0.6");
-        println!("BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP);
-        println!("'peak_mag_seg' text shows peak of raw magnitudes from individual FFT segments.");
-        println!("Averaged amplitudes are N-normalized and 2x scaled (for non-DC/Nyquist).");
-        println!("------------------------------------------------------------------------------------");
+        // ... (similar println statements)
     }
 
 
