@@ -82,7 +82,7 @@ pub fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> {
 }
 
 // Returns: (
-//  Averaged Amplitude Spectrum Matrix (for heatmap coloring),
+//  Averaged Amplitude Spectrum Matrix (N-normalized, 2x scaled for non-DC/Nyquist),
 //  Frequency Bins,
 //  Throttle Bin Centers,
 //  Peak Raw Magnitude from any individual Segment (for "peak_mag_seg" text display)
@@ -122,7 +122,7 @@ pub fn calculate_throttle_psd(
     let hop_size = (fft_window_size / SPECTROGRAM_FFT_OVERLAP_FACTOR).max(1);
     let throttle_bin_width = 100.0 / num_throttle_bins as f32;
 
-    let mut overall_peak_raw_segment_magnitude = 0.0f32; // This is for the text display, like BBE's "peak_lin"
+    let mut overall_peak_raw_segment_magnitude = 0.0f32; // For text display
 
     let mut current_pos = 0;
     while current_pos + fft_window_size <= gyro_signal.len() {
@@ -171,7 +171,7 @@ pub fn calculate_throttle_psd(
     }
 
     let mut averaged_amplitude_spectrum_matrix = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
-    let mut max_val_in_averaged_matrix_diag = 0.0f32;
+    let mut max_val_in_averaged_matrix_diag = 0.0f32; // For diagnostics only
 
     for freq_idx in 0..num_freq_bins_output {
         for bin_idx in 0..num_throttle_bins {
@@ -201,7 +201,7 @@ pub fn calculate_throttle_psd(
         let mut count_nz = 0;
         
         averaged_amplitude_spectrum_matrix.iter().for_each(|&val| {
-            if val > MIN_POWER_FOR_LOG_SCALE { // MIN_POWER_FOR_LOG_SCALE is a tiny floor
+            if val > MIN_POWER_FOR_LOG_SCALE { 
                 if val < min_nz_avg_amp_spec { min_nz_avg_amp_spec = val; }
                 sum_avg_amp_spec += val;
                 count_nz +=1;
@@ -221,10 +221,10 @@ pub fn calculate_throttle_psd(
     }
 
     Ok((
-        averaged_amplitude_spectrum_matrix, // This is now N-normalized and 2x scaled (where appropriate)
+        averaged_amplitude_spectrum_matrix,
         freq_bins,
         throttle_bin_centers,
-        overall_peak_raw_segment_magnitude // This is the peak of raw magnitudes, for text display
+        overall_peak_raw_segment_magnitude 
     ))
 }
 

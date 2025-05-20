@@ -658,10 +658,10 @@ pub fn plot_step_response(
     )
 }
 
-fn get_spectrogram_color(averaged_raw_magnitude: f32) -> RGBColor {
+fn get_spectrogram_color(averaged_normalized_amplitude: f32) -> RGBColor {
     // Scale against BBE_SCALE_HEATMAP for HSL lightness (0.0 to 1.0)
-    // An averaged_raw_magnitude equal to BBE_SCALE_HEATMAP (or higher) results in 1.0 lightness (white).
-    let lightness = (averaged_raw_magnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+    // An averaged_normalized_amplitude equal to BBE_SCALE_HEATMAP (or higher) results in 1.0 lightness (white).
+    let lightness = (averaged_normalized_amplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
     
     hsl_to_rgb(0.0, 1.0, lightness) // Hue 0 (Red), Sat 1.0
 }
@@ -671,9 +671,11 @@ fn draw_single_throttle_spectrogram<DB: DrawingBackend>(
     area: &DrawingArea<DB, Shift>,
     title_prefix: &str,
     axis_name: &str,
-    averaged_raw_magnitude_matrix: &Array2<f32>, 
+    // This matrix contains N-normalized, 2x-scaled averaged amplitudes
+    averaged_amplitude_spectrum_matrix: &Array2<f32>, 
     freq_bins: &Array1<f32>,
     throttle_bins: &Array1<f32>,
+    // This is the peak of RAW (unnormalized) magnitudes from individual segments
     peak_raw_segment_magnitude_for_text: f32, 
     mut diag_file: Option<&mut File>,
 ) -> Result<(), Box<dyn Error>>
@@ -703,7 +705,7 @@ where DB::ErrorType: 'static
         .y_labels(5)
         .draw()?;
 
-    let (num_freq_bins_total, num_throttle_plot_bins) = averaged_raw_magnitude_matrix.dim();
+    let (num_freq_bins_total, num_throttle_plot_bins) = averaged_amplitude_spectrum_matrix.dim();
     if num_freq_bins_total == 0 || num_throttle_plot_bins == 0 || freq_bins.len() != num_freq_bins_total || throttle_bins.len() != num_throttle_plot_bins {
         let text_style = ("sans-serif", 16).into_font().color(&RED);
         let text_x = x_range_spec.start + (x_range_spec.end - x_range_spec.start) * 0.1;
@@ -722,8 +724,8 @@ where DB::ErrorType: 'static
         100.0
     };
 
-    let mut total_avg_raw_magnitude_sum = 0.0f32;
-    let mut avg_raw_magnitude_count = 0;
+    let mut total_avg_amplitude_sum = 0.0f32;
+    let mut avg_amplitude_count = 0;
 
     for j_throttle_idx in 0..num_throttle_plot_bins {
         let throttle_center = throttle_bins[j_throttle_idx];
@@ -752,21 +754,21 @@ where DB::ErrorType: 'static
             let x0_freq = freq_center - freq_cell_width / 2.0;
             let x1_freq = freq_center + freq_cell_width / 2.0;
 
-            let avg_raw_mag = averaged_raw_magnitude_matrix[[i_freq_idx, j_throttle_idx]];
-            if avg_raw_mag > MIN_POWER_FOR_LOG_SCALE { // Using MIN_POWER_FOR_LOG_SCALE as a threshold for non-zero
-                 total_avg_raw_magnitude_sum += avg_raw_mag;
-                 avg_raw_magnitude_count += 1;
+            let avg_amplitude_val = averaged_amplitude_spectrum_matrix[[i_freq_idx, j_throttle_idx]];
+            if avg_amplitude_val > MIN_POWER_FOR_LOG_SCALE { 
+                 total_avg_amplitude_sum += avg_amplitude_val;
+                 avg_amplitude_count += 1;
             }
             
-            let color = get_spectrogram_color(avg_raw_mag);
+            let color = get_spectrogram_color(avg_amplitude_val);
 
             if let Some(file) = diag_file.as_mut() {
-                 if avg_raw_mag > 0.001 { 
-                    let lightness_debug = (avg_raw_mag / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+                 if avg_amplitude_val > 0.001 { 
+                    let lightness_debug = (avg_amplitude_val / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
                     if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
                        i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
-                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgRawMag: {:.4} (BBE_SCALE_HEATMAP: {:.2}), Lightness: {:.3}, Color: {:?}",
-                                 i_freq_idx, j_throttle_idx, avg_raw_mag, BBE_SCALE_HEATMAP,
+                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgNormAmp: {:.4} (BBE_SCALE_HEATMAP: {:.2}), Lightness: {:.3}, Color: {:?}",
+                                 i_freq_idx, j_throttle_idx, avg_amplitude_val, BBE_SCALE_HEATMAP,
                                  lightness_debug, color)?;
                     }
                 }
@@ -781,13 +783,14 @@ where DB::ErrorType: 'static
         }
     }
 
-    let mean_of_avg_raw_magnitudes = if avg_raw_magnitude_count > 0 { total_avg_raw_magnitude_sum / avg_raw_magnitude_count as f32 } else { 0.0 };
+    let mean_of_avg_amplitudes = if avg_amplitude_count > 0 { total_avg_amplitude_sum / avg_amplitude_count as f32 } else { 0.0 };
 
     let text_style_spec = ("sans-serif", 12).into_font().color(SPECTROGRAM_TEXT_COLOR);
     let text_pos_x = x_range_spec.end * 0.65_f32;
     let text_pos_y = y_range_spec.end * 0.9_f32;
     chart.plotting_area().draw(&Text::new(
-        format!("mean_mag={:.1} peak_mag_seg={:.1}", mean_of_avg_raw_magnitudes, peak_raw_segment_magnitude_for_text),
+        // Display mean of N-normalized, 2x-scaled amplitudes, and peak of raw segment magnitudes
+        format!("mean_mag={:.1} peak_mag_seg={:.1}", mean_of_avg_amplitudes, peak_raw_segment_magnitude_for_text),
         (text_pos_x, text_pos_y),
         text_style_spec,
     ))?;
@@ -803,16 +806,18 @@ pub fn plot_throttle_spectrograms(
     if let Some(file) = diag_file.as_mut() {
         writeln!(file, "--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---")?;
         writeln!(file, "Using HSL(0, 100%, L) based calculation (Black-Red-White).")?;
-        writeln!(file, "Lightness 'L' is (AveragedRawMagnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).")?;
+        writeln!(file, "Lightness 'L' is (AveragedNormalizedAmplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).")?;
         writeln!(file, "BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP)?;
         writeln!(file, "'peak_mag_seg' text shows peak of raw magnitudes from individual FFT segments.")?;
+        writeln!(file, "Averaged amplitudes are N-normalized and 2x scaled (for non-DC/Nyquist).")?;
         writeln!(file, "------------------------------------------------------------------------------------")?;
     } else {
         println!("--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---");
         println!("Using HSL(0, 100%, L) based calculation (Black-Red-White).");
-        println!("Lightness 'L' is (AveragedRawMagnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).");
+        println!("Lightness 'L' is (AveragedNormalizedAmplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).");
         println!("BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP);
         println!("'peak_mag_seg' text shows peak of raw magnitudes from individual FFT segments.");
+        println!("Averaged amplitudes are N-normalized and 2x scaled (for non-DC/Nyquist).");
         println!("------------------------------------------------------------------------------------");
     }
 
@@ -868,7 +873,7 @@ pub fn plot_throttle_spectrograms(
                 SPECTROGRAM_FFT_TIME_WINDOW_MS,
                 diag_file.as_mut().map(|df| &mut **df),
             ) {
-                Ok((avg_raw_mag_matrix, freq_bins, throttle_bins, peak_raw_segment_mag_for_text)) => {
+                Ok((avg_norm_amp_matrix, freq_bins, throttle_bins, peak_raw_segment_mag_for_text)) => {
                     if let Some(file) = diag_file.as_mut() {
                         writeln!(file, "Plotting Unfiltered Gyro Axis {} with PeakRawSegmentMag (for text): {:.2}", 
                             axis_names[axis_index], peak_raw_segment_mag_for_text)?;
@@ -877,7 +882,7 @@ pub fn plot_throttle_spectrograms(
                         &unfilt_area,
                         "Unfiltered Gyro",
                         axis_names[axis_index],
-                        &avg_raw_mag_matrix,
+                        &avg_norm_amp_matrix,
                         &freq_bins,
                         &throttle_bins,
                         peak_raw_segment_mag_for_text,
@@ -924,7 +929,7 @@ pub fn plot_throttle_spectrograms(
                 SPECTROGRAM_FFT_TIME_WINDOW_MS,
                 diag_file.as_mut().map(|df| &mut **df),
             ) {
-                 Ok((avg_raw_mag_matrix, freq_bins, throttle_bins, peak_raw_segment_mag_for_text)) => {
+                 Ok((avg_norm_amp_matrix, freq_bins, throttle_bins, peak_raw_segment_mag_for_text)) => {
                      if let Some(file) = diag_file.as_mut() {
                         writeln!(file, "Plotting Filtered Gyro Axis {} with PeakRawSegmentMag (for text): {:.2}", 
                             axis_names[axis_index], peak_raw_segment_mag_for_text)?;
@@ -933,7 +938,7 @@ pub fn plot_throttle_spectrograms(
                         &filt_area,
                         "Filtered Gyro",
                         axis_names[axis_index],
-                        &avg_raw_mag_matrix,
+                        &avg_norm_amp_matrix,
                         &freq_bins,
                         &throttle_bins,
                         peak_raw_segment_mag_for_text,
