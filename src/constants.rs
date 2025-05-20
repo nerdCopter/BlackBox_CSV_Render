@@ -1,8 +1,8 @@
 // src/constants.rs
 
 // Import specific colors needed
-use plotters::style::{RGBColor}; 
-use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE, YELLOW}; // Removed unused BLACK
+use plotters::style::{RGBColor};
+use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE, YELLOW};
 
 
 // Plot dimensions.
@@ -46,33 +46,22 @@ pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE;
 pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
 
 // Stroke widths for lines
-pub const LINE_WIDTH_PLOT: u32 = 1; 
+pub const LINE_WIDTH_PLOT: u32 = 1;
 pub const LINE_WIDTH_LEGEND: u32 = 2;
 
 // --- Spectrogram Constants ---
-pub const SPECTROGRAM_THROTTLE_BINS: usize = 100; // BBE uses 100. You were testing 512, then lower.
-pub const SPECTROGRAM_FFT_TIME_WINDOW_MS: f64 = 300.0; // BBE uses 300ms. This replaces SPECTROGRAM_FFT_WINDOW_SIZE_TARGET
+pub const SPECTROGRAM_THROTTLE_BINS: usize = 100;
+pub const SPECTROGRAM_FFT_TIME_WINDOW_MS: f64 = 300.0;
 pub const SPECTROGRAM_FFT_OVERLAP_FACTOR: usize = 6; // BBE uses 6 (for hop size = window/6) -> ~83% overlap
 
-pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0; // Set based on Nyquist (e.g., sample_rate / 2)
+pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0; 
 
-// For LOGARITHMIC scaling:
-// MIN_POWER_FOR_LOG_SCALE is the LINEAR power that maps to the bottom (black/darkest) of the log scale.
-pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.001; // EXPERIMENT! Start very low to see faint signals.
-// AUTO_CLIP_MAX_SCALE_FACTOR scales the auto-detected maximum power from the data.
-pub const AUTO_CLIP_MAX_SCALE_FACTOR: f32 = 1.0; // 1.0 means the "white point" is the max power in the current data.
+// MIN_POWER_FOR_LOG_SCALE is the LINEAR power that maps to the bottom (black) of the log scale for the colormap.
+pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.001;
+// AUTO_CLIP_MAX_SCALE_FACTOR scales the auto-detected maximum power from the *averaged* data.
+// Set to 1.0 to use the actual peak of the averaged PSD as the "white point" in the log color scale.
+pub const AUTO_CLIP_MAX_SCALE_FACTOR: f32 = 1.0;
 
-pub const SPECTROGRAM_NUM_COLORS: usize = 256; 
-
-pub const HOT_COLORMAP_ANCHORS: &[(f32, RGBColor)] = &[
-    (0.0, plotters::style::colors::BLACK), // Start with true black
-    (0.1, RGBColor(80, 0, 0)),   
-    (0.25, RGBColor(180, 0, 0)), 
-    (0.4, RED),                  
-    (0.6, ORANGE),               
-    (0.8, YELLOW),              
-    (1.0, WHITE),                
-];
 
 pub const SPECTROGRAM_TEXT_COLOR: &RGBColor = &WHITE;
 pub const SPECTROGRAM_GRID_COLOR: RGBColor = RGBColor(80,80,80);

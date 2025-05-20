@@ -7,15 +7,15 @@ use plotters::element::{Text, Rectangle, PathElement};
 use plotters::chart::{ChartBuilder, SeriesLabelPosition};
 use plotters::coord::{Shift};
 use plotters::series::LineSeries;
-use plotters::style::colors::{WHITE, BLACK, RED}; 
+use plotters::style::colors::{WHITE, BLACK, RED};
 
 use std::error::Error;
-use std::sync::OnceLock;
-use std::fs::File; 
-use std::io::Write; 
+// Removed OnceLock as generate_hot_colormap_once is removed
+use std::fs::File;
+use std::io::Write;
 
 
-use ndarray::{Array1, Array2, s}; 
+use ndarray::{Array1, Array2, s};
 use ndarray_stats::QuantileExt;
 
 use crate::constants::{
@@ -26,74 +26,51 @@ use crate::constants::{
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT,
     COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
     LINE_WIDTH_PLOT, LINE_WIDTH_LEGEND,
-    SPECTROGRAM_THROTTLE_BINS, 
-    SPECTROGRAM_FFT_TIME_WINDOW_MS, 
+    SPECTROGRAM_THROTTLE_BINS,
+    SPECTROGRAM_FFT_TIME_WINDOW_MS,
     SPECTROGRAM_MAX_FREQ_HZ,
-    SPECTROGRAM_NUM_COLORS, HOT_COLORMAP_ANCHORS,
-    MIN_POWER_FOR_LOG_SCALE, 
-    SPECTROGRAM_TEXT_COLOR, SPECTROGRAM_GRID_COLOR, 
+    MIN_POWER_FOR_LOG_SCALE,
+    SPECTROGRAM_TEXT_COLOR, SPECTROGRAM_GRID_COLOR,
     // AUTO_CLIP_MAX_SCALE_FACTOR is used in fft_utils to calculate effective_clip_max
 };
 use crate::log_data::LogRowData;
 use crate::step_response;
 use crate::fft_utils;
 
-static GENERATED_HOT_COLORMAP: OnceLock<Vec<(f32, RGBColor)>> = OnceLock::new();
+// Removed generate_hot_colormap_once and GENERATED_HOT_COLORMAP
 
-fn generate_hot_colormap_once() -> &'static Vec<(f32, RGBColor)> {
-    GENERATED_HOT_COLORMAP.get_or_init(|| {
-        let mut colormap = Vec::with_capacity(SPECTROGRAM_NUM_COLORS);
-        if HOT_COLORMAP_ANCHORS.is_empty() {
-            for i in 0..SPECTROGRAM_NUM_COLORS {
-                let p = i as f32 / (SPECTROGRAM_NUM_COLORS - 1) as f32;
-                let shade = (p * 255.0).round() as u8;
-                colormap.push((p, RGBColor(shade, shade, shade)));
-            }
-            return colormap;
-        }
-        if HOT_COLORMAP_ANCHORS.len() == 1 {
-            for i in 0..SPECTROGRAM_NUM_COLORS {
-                let p = i as f32 / (SPECTROGRAM_NUM_COLORS - 1) as f32;
-                colormap.push((p, HOT_COLORMAP_ANCHORS[0].1));
-            }
-            return colormap;
-        }
+// Helper function to convert HSL to RGB
+// h (hue) is 0-360 (we'll use 0 for red), s (saturation) is 0-1, l (lightness) is 0-1
+fn hsl_to_rgb(h_degrees: f32, s: f32, l: f32) -> RGBColor {
+    if s == 0.0 { // achromatic
+        let val = (l * 255.0).round().clamp(0.0, 255.0) as u8;
+        return RGBColor(val, val, val);
+    }
 
-        for i in 0..SPECTROGRAM_NUM_COLORS {
-            let p_norm = i as f32 / (SPECTROGRAM_NUM_COLORS.saturating_sub(1)).max(1) as f32;
-            let mut color = HOT_COLORMAP_ANCHORS[0].1; 
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let h_prime = (h_degrees % 360.0) / 60.0; 
+    let x = c * (1.0 - (h_prime % 2.0 - 1.0).abs());
+    let m = l - c / 2.0;
 
-            for j in 0..(HOT_COLORMAP_ANCHORS.len() - 1) {
-                let (p1, c1) = HOT_COLORMAP_ANCHORS[j];
-                let (p2, c2) = HOT_COLORMAP_ANCHORS[j + 1];
+    let (r1, g1, b1) = if h_prime >= 0.0 && h_prime < 1.0 {
+        (c, x, 0.0)
+    } else if h_prime >= 1.0 && h_prime < 2.0 {
+        (x, c, 0.0)
+    } else if h_prime >= 2.0 && h_prime < 3.0 {
+        (0.0, c, x)
+    } else if h_prime >= 3.0 && h_prime < 4.0 {
+        (0.0, x, c)
+    } else if h_prime >= 4.0 && h_prime < 5.0 {
+        (x, 0.0, c)
+    } else { // h_prime >= 5.0 && h_prime < 6.0
+        (c, 0.0, x)
+    };
 
-                if p_norm >= p1 && p_norm <= p2 {
-                    if (p2 - p1).abs() < 1e-6 { 
-                        color = c1;
-                    } else {
-                        let t = (p_norm - p1) / (p2 - p1);
-                        let r1 = c1.rgb().0 as f32;
-                        let g1 = c1.rgb().1 as f32;
-                        let b1 = c1.rgb().2 as f32;
-                        let r2 = c2.rgb().0 as f32;
-                        let g2 = c2.rgb().1 as f32;
-                        let b2 = c2.rgb().2 as f32;
-
-                        let r_mixed = (r1 * (1.0 - t) + r2 * t).round().clamp(0.0, 255.0) as u8;
-                        let g_mixed = (g1 * (1.0 - t) + g2 * t).round().clamp(0.0, 255.0) as u8;
-                        let b_mixed = (b1 * (1.0 - t) + b2 * t).round().clamp(0.0, 255.0) as u8;
-                        color = RGBColor(r_mixed, g_mixed, b_mixed);
-                    }
-                    break;
-                } else if p_norm > p2 && j == HOT_COLORMAP_ANCHORS.len() - 2 { 
-                    color = c2; 
-                    break;
-                }
-            }
-            colormap.push((p_norm, color));
-        }
-        colormap
-    })
+    RGBColor(
+        ((r1 + m) * 255.0).round().clamp(0.0, 255.0) as u8,
+        ((g1 + m) * 255.0).round().clamp(0.0, 255.0) as u8,
+        ((b1 + m) * 255.0).round().clamp(0.0, 255.0) as u8,
+    )
 }
 
 
@@ -113,7 +90,7 @@ pub fn draw_unavailable_message(
     let text_style = ("sans-serif", 20).into_font().color(&RED);
     area.draw(&Text::new(
         format!("Axis {} {} Data Unavailable:\n{}", axis_index, plot_type, reason),
-        (width as i32 / 2 - 150, height as i32 / 2 - 20), 
+        (width as i32 / 2 - 150, height as i32 / 2 - 20),
         text_style,
     ))?;
     Ok(())
@@ -148,7 +125,7 @@ fn draw_single_axis_chart(
         .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
     let mut series_drawn_count = 0;
-    for s_item in series { 
+    for s_item in series {
         if !s_item.data.is_empty() {
             chart.draw_series(LineSeries::new(
                 s_item.data.iter().cloned(),
@@ -243,7 +220,7 @@ pub fn plot_pidsum_error_setpoint(
             for axis_index in 0..3 {
                  let pidsum = row.p_term[axis_index].and_then(|p| {
                     row.i_term[axis_index].and_then(|i| {
-                        row.d_term[axis_index].map(|d_val| p + i + d_val) 
+                        row.d_term[axis_index].map(|d_val| p + i + d_val)
                     })
                 });
                 axis_plot_data[axis_index].push((time, row.setpoint[axis_index], row.gyro[axis_index], pidsum));
@@ -284,7 +261,7 @@ pub fn plot_pidsum_error_setpoint(
                     val_min = val_min.min(*p);
                     val_max = val_max.max(*p);
                 }
-                if let Some(s_val) = setpoint { 
+                if let Some(s_val) = setpoint {
                     setpoint_series_data.push((*time, *s_val));
                     val_min = val_min.min(*s_val);
                     val_max = val_max.max(*s_val);
@@ -384,7 +361,7 @@ pub fn plot_setpoint_vs_gyro(
                  time_min = time_min.min(*time);
                  time_max = time_max.max(*time);
 
-                 if let Some(s_val) = setpoint { 
+                 if let Some(s_val) = setpoint {
                      setpoint_series_data.push((*time, *s_val));
                      val_min = val_min.min(*s_val);
                      val_max = val_max.max(*s_val);
@@ -532,10 +509,10 @@ pub fn plot_step_response(
     sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
     let step_response_plot_duration_s = STEP_RESPONSE_PLOT_DURATION_S;
-    let steady_state_start_s_const = STEADY_STATE_START_S; 
-    let steady_state_end_s_const = STEADY_STATE_END_S;     
-    let setpoint_threshold_const = SETPOINT_THRESHOLD;     
-    let post_averaging_smoothing_window_const = POST_AVERAGING_SMOOTHING_WINDOW; 
+    let steady_state_start_s_const = STEADY_STATE_START_S;
+    let steady_state_end_s_const = STEADY_STATE_END_S;
+    let setpoint_threshold_const = SETPOINT_THRESHOLD;
+    let post_averaging_smoothing_window_const = POST_AVERAGING_SMOOTHING_WINDOW;
     let color_high_sp: RGBColor = *COLOR_STEP_RESPONSE_HIGH_SP;
     let color_combined: RGBColor = *COLOR_STEP_RESPONSE_COMBINED;
     let color_low_sp: RGBColor = *COLOR_STEP_RESPONSE_LOW_SP;
@@ -585,7 +562,7 @@ pub fn plot_step_response(
                          let smoothed_resp = step_response::moving_average_smooth_f64(&avg_resp, smoothing_window);
                          if smoothed_resp.is_empty() { return None; }
                          let mut shifted_response = smoothed_resp;
-                         if shifted_response.is_empty() { return None; } 
+                         if shifted_response.is_empty() { return None; }
                          let first_val = shifted_response[0];
                          shifted_response.mapv_inplace(|v| v - first_val);
                          let steady_state_segment = shifted_response.slice(s![ss_start_idx..ss_end_idx]);
@@ -647,7 +624,7 @@ pub fn plot_step_response(
             if let Some(resp) = final_high_response {
                  series.push(PlotSeries {
                      data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
-                     label: format!("\u{2265} {} deg/s", setpoint_threshold_const), 
+                     label: format!("\u{2265} {} deg/s", setpoint_threshold_const),
                      color: color_high_sp,
                      stroke_width: line_stroke_plot,
                  });
@@ -684,26 +661,21 @@ pub fn plot_step_response(
     )
 }
 
-fn get_spectrogram_color(linear_power: f32, effective_clip_max: f32) -> RGBColor {
-    let colormap = generate_hot_colormap_once();
-    if colormap.is_empty() { return BLACK; }
-    
-    let power_val = linear_power.max(MIN_POWER_FOR_LOG_SCALE); 
+// effective_clip_max is the peak of the *averaged* PSD matrix, scaled by AUTO_CLIP_MAX_SCALE_FACTOR
+fn get_spectrogram_color(linear_power: f32, effective_clip_max_for_color_scale: f32) -> RGBColor {
+    let power_val = linear_power.max(MIN_POWER_FOR_LOG_SCALE);
 
-    let log_max_val = effective_clip_max.max(MIN_POWER_FOR_LOG_SCALE).log10(); 
-    let log_min_val = MIN_POWER_FOR_LOG_SCALE.log10();          
+    let log_max_val = effective_clip_max_for_color_scale.max(MIN_POWER_FOR_LOG_SCALE).log10();
+    let log_min_val = MIN_POWER_FOR_LOG_SCALE.log10();
     let current_log_power = power_val.log10();
 
-    let normalized_value = if log_max_val <= log_min_val { 
+    let lightness = if log_max_val <= log_min_val {
         0.0 
     } else {
         ((current_log_power - log_min_val) / (log_max_val - log_min_val)).clamp(0.0, 1.0)
     };
-    
-    let index = (normalized_value * (SPECTROGRAM_NUM_COLORS - 1) as f32).round() as usize;
-    let safe_index = index.min(SPECTROGRAM_NUM_COLORS - 1); 
-    
-    colormap[safe_index].1
+
+    hsl_to_rgb(0.0, 1.0, lightness) // Hue 0 (Red), Sat 1.0
 }
 
 
@@ -711,17 +683,19 @@ fn draw_single_throttle_spectrogram<DB: DrawingBackend>(
     area: &DrawingArea<DB, Shift>,
     title_prefix: &str,
     axis_name: &str,
-    psd_matrix: &Array2<f32>, 
-    freq_bins: &Array1<f32>,  
+    averaged_psd_matrix: &Array2<f32>, // This is the matrix of averaged PSD values
+    freq_bins: &Array1<f32>,
     throttle_bins: &Array1<f32>,
-    effective_clip_max: f32, 
-    mut diag_file: Option<&mut File>, 
+    // This is the peak from the averaged_psd_matrix, scaled by AUTO_CLIP_MAX_SCALE_FACTOR.
+    // Used for both color scaling and the "peak_lin" display text.
+    effective_clip_max_for_plot: f32,
+    mut diag_file: Option<&mut File>,
 ) -> Result<(), Box<dyn Error>>
 where DB::ErrorType: 'static
 {
-    area.fill(&BLACK)?; 
+    area.fill(&BLACK)?;
 
-    let x_range_spec = 0f32..SPECTROGRAM_MAX_FREQ_HZ; 
+    let x_range_spec = 0f32..SPECTROGRAM_MAX_FREQ_HZ;
     let y_range_spec = 0f32..100f32;
 
     let mut chart = ChartBuilder::on(area)
@@ -739,15 +713,15 @@ where DB::ErrorType: 'static
         .label_style(("sans-serif", 12).into_font().color(SPECTROGRAM_TEXT_COLOR))
         .light_line_style(&SPECTROGRAM_GRID_COLOR)
         .bold_line_style(&SPECTROGRAM_GRID_COLOR)
-        .x_labels(10) 
-        .y_labels(5)  
+        .x_labels(10)
+        .y_labels(5)
         .draw()?;
 
-    let (num_freq_bins_total, num_throttle_plot_bins) = psd_matrix.dim();
+    let (num_freq_bins_total, num_throttle_plot_bins) = averaged_psd_matrix.dim();
     if num_freq_bins_total == 0 || num_throttle_plot_bins == 0 || freq_bins.len() != num_freq_bins_total || throttle_bins.len() != num_throttle_plot_bins {
         let text_style = ("sans-serif", 16).into_font().color(&RED);
-        let text_x = x_range_spec.start + (x_range_spec.end - x_range_spec.start) * 0.1; 
-        let text_y = y_range_spec.start + (y_range_spec.end - y_range_spec.start) * 0.5; 
+        let text_x = x_range_spec.start + (x_range_spec.end - x_range_spec.start) * 0.1;
+        let text_y = y_range_spec.start + (y_range_spec.end - y_range_spec.start) * 0.5;
         chart.plotting_area().draw(&Text::new(
             "Spectrogram data empty or mismatched",
             (text_x, text_y),
@@ -759,11 +733,10 @@ where DB::ErrorType: 'static
     let throttle_cell_height = if num_throttle_plot_bins > 0 {
         100.0 / num_throttle_plot_bins as f32
     } else {
-        100.0 
+        100.0
     };
-    
-    let mut max_power_overall_linear = 0.0f32; 
-    let mut total_power_sum_linear = 0.0f32; 
+
+    let mut total_power_sum_linear = 0.0f32;
     let mut power_count = 0;
 
     for j_throttle_idx in 0..num_throttle_plot_bins {
@@ -774,57 +747,56 @@ where DB::ErrorType: 'static
         for i_freq_idx in 0..num_freq_bins_total {
             let freq_center = freq_bins[i_freq_idx];
 
-            if freq_center > SPECTROGRAM_MAX_FREQ_HZ + 1e-3 { 
+            if freq_center > SPECTROGRAM_MAX_FREQ_HZ + 1e-3 {
                 continue;
             }
-            
+
             let freq_cell_width = if num_freq_bins_total > 0 {
                 if i_freq_idx + 1 < num_freq_bins_total {
                     freq_bins[i_freq_idx + 1] - freq_bins[i_freq_idx]
-                } else if i_freq_idx > 0 { 
+                } else if i_freq_idx > 0 {
                     freq_bins[i_freq_idx] - freq_bins[i_freq_idx - 1]
-                } else { 
+                } else {
                     SPECTROGRAM_MAX_FREQ_HZ / num_freq_bins_total.max(1) as f32
                 }
             } else {
-                SPECTROGRAM_MAX_FREQ_HZ 
+                SPECTROGRAM_MAX_FREQ_HZ
             };
 
             let x0_freq = freq_center - freq_cell_width / 2.0;
             let x1_freq = freq_center + freq_cell_width / 2.0;
 
-            let power = psd_matrix[[i_freq_idx, j_throttle_idx]]; 
-            max_power_overall_linear = max_power_overall_linear.max(power);
-            if power > 1e-6 { 
+            let power = averaged_psd_matrix[[i_freq_idx, j_throttle_idx]]; // Use the averaged power for coloring
+            if power > 1e-9 { // Consider non-zero for mean calculation
                  total_power_sum_linear += power;
                  power_count += 1;
             }
-            let color = get_spectrogram_color(power, effective_clip_max); 
-            
+            // Use effective_clip_max_for_plot (derived from peak of averaged PSD) for color scaling
+            let color = get_spectrogram_color(power, effective_clip_max_for_plot);
+
             if let Some(file) = diag_file.as_mut() {
-                if power > 0.00001 { 
-                    let log_max_val_debug = effective_clip_max.max(MIN_POWER_FOR_LOG_SCALE).log10();
+                if power > 0.00001 { // Log only significant power values
+                    let log_max_val_debug = effective_clip_max_for_plot.max(MIN_POWER_FOR_LOG_SCALE).log10();
                     let log_min_val_debug = MIN_POWER_FOR_LOG_SCALE.log10();
                     let current_log_power_debug = power.max(MIN_POWER_FOR_LOG_SCALE).log10();
-                    let normalized_power_debug = if log_max_val_debug <= log_min_val_debug { 0.0 } else {
+                    let normalized_lightness_debug = if log_max_val_debug <= log_min_val_debug { 0.0 } else {
                         ((current_log_power_debug - log_min_val_debug) / (log_max_val_debug - log_min_val_debug)).clamp(0.0, 1.0)
                     };
 
-                    if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 && 
+                    if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
                        i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
-                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- LinPower: {:.4}, LogPower: {:.2} (MinLinP: {:.4}, EffectiveMaxLinP: {:.2} -> LogRange: {:.2} to {:.2}), NormP_log: {:.3}, Color: {:?}", 
-                                 i_freq_idx, j_throttle_idx, power, current_log_power_debug, 
-                                 MIN_POWER_FOR_LOG_SCALE, effective_clip_max, 
-                                 log_min_val_debug, log_max_val_debug, 
-                                 normalized_power_debug, color)?;
+                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgLinPower: {:.4}, LogPower: {:.2} (MinLinP_Scale: {:.4}, EffectiveClipMax_Scale: {:.2} -> LogRange: {:.2} to {:.2}), Lightness: {:.3}, Color: {:?}",
+                                 i_freq_idx, j_throttle_idx, power, current_log_power_debug,
+                                 MIN_POWER_FOR_LOG_SCALE, effective_clip_max_for_plot,
+                                 log_min_val_debug, log_max_val_debug,
+                                 normalized_lightness_debug, color)?;
                     }
                 }
             }
 
-            // Ensure all cells are drawn
             let rect_coords = [
-                (x0_freq.max(0.0), y0_throttle.max(0.0)), 
-                (x1_freq.min(SPECTROGRAM_MAX_FREQ_HZ), y1_throttle.min(100.0)) 
+                (x0_freq.max(0.0), y0_throttle.max(0.0)),
+                (x1_freq.min(SPECTROGRAM_MAX_FREQ_HZ), y1_throttle.min(100.0))
             ];
             let rect = Rectangle::new(rect_coords, color.filled());
             chart.plotting_area().draw(&rect)?;
@@ -834,10 +806,11 @@ where DB::ErrorType: 'static
     let mean_linear_power = if power_count > 0 { total_power_sum_linear / power_count as f32 } else { 0.0 };
 
     let text_style_spec = ("sans-serif", 12).into_font().color(SPECTROGRAM_TEXT_COLOR);
-    let text_pos_x = x_range_spec.end * 0.65_f32; 
-    let text_pos_y = y_range_spec.end * 0.9_f32; 
+    let text_pos_x = x_range_spec.end * 0.65_f32;
+    let text_pos_y = y_range_spec.end * 0.9_f32;
     chart.plotting_area().draw(&Text::new(
-        format!("mean_lin={:.1} peak_lin={:.1}", mean_linear_power, max_power_overall_linear), 
+        // peak_lin should display the effective_clip_max_for_plot (max of averaged PSD)
+        format!("mean_lin={:.1} peak_lin={:.1}", mean_linear_power, effective_clip_max_for_plot),
         (text_pos_x, text_pos_y),
         text_style_spec,
     ))?;
@@ -848,57 +821,49 @@ pub fn plot_throttle_spectrograms(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
-    mut diag_file: Option<&mut File>, 
+    mut diag_file: Option<&mut File>,
 ) -> Result<(), Box<dyn Error>> {
-    let colormap_ref = generate_hot_colormap_once();
     if let Some(file) = diag_file.as_mut() {
-        writeln!(file, "--- Colormap Sample (plotting_utils.rs @ plot_throttle_spectrograms entry) ---")?;
-        for i in (0..colormap_ref.len()).step_by(colormap_ref.len()/10_usize.max(1).max(1)) { 
-            writeln!(file, "Idx {}: Norm_P: {:.3}, Color: {:?}", i, colormap_ref[i].0, colormap_ref[i].1)?;
-        }
-         if !colormap_ref.is_empty(){
-            let last_idx = colormap_ref.len() -1;
-            writeln!(file, "Idx {}: Norm_P: {:.3}, Color: {:?}", last_idx, colormap_ref[last_idx].0, colormap_ref[last_idx].1)?;
-        }
-        writeln!(file, "--------------------------------------------------------------------------")?;
-    } else { 
-        println!("--- Colormap Sample (plotting_utils.rs @ plot_throttle_spectrograms entry) ---");
-        for i in (0..colormap_ref.len()).step_by(colormap_ref.len()/10_usize.max(1).max(1)) { 
-            println!("Idx {}: Norm_P: {:.3}, Color: {:?}", i, colormap_ref[i].0, colormap_ref[i].1);
-        }
-         if !colormap_ref.is_empty(){
-            let last_idx = colormap_ref.len() -1;
-            println!("Idx {}: Norm_P: {:.3}, Color: {:?}", last_idx, colormap_ref[last_idx].0, colormap_ref[last_idx].1);
-        }
-        println!("--------------------------------------------------------------------------");
+        writeln!(file, "--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---")?;
+        writeln!(file, "Using direct HSL(0, 100%, L) based calculation (Black-Red-White).")?;
+        writeln!(file, "Lightness 'L' is derived logarithmically from power relative to MIN_POWER_FOR_LOG_SCALE and effective_clip_max_for_plot.")?;
+        writeln!(file, "effective_clip_max_for_plot is the peak of the averaged PSD matrix, scaled by AUTO_CLIP_MAX_SCALE_FACTOR.")?;
+        writeln!(file, "------------------------------------------------------------------------------------")?;
+    } else {
+        println!("--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---");
+        println!("Using direct HSL(0, 100%, L) based calculation (Black-Red-White).");
+        println!("Lightness 'L' is derived logarithmically from power relative to MIN_POWER_FOR_LOG_SCALE and effective_clip_max_for_plot.");
+        println!("effective_clip_max_for_plot is the peak of the averaged PSD matrix, scaled by AUTO_CLIP_MAX_SCALE_FACTOR.");
+        println!("------------------------------------------------------------------------------------");
     }
+
 
     let sr = match sample_rate {
         Some(s_rate) => s_rate,
-        None => { 
+        None => {
             let msg = "Warning: Sample rate unknown, skipping throttle spectrograms.";
             println!("{}", msg);
             if let Some(file) = diag_file.as_mut() { writeln!(file, "{}", msg)?;}
-            return Ok(()); 
+            return Ok(());
         }
     };
 
     let output_filename = format!("{}_throttle_spectrograms.png", root_name);
     let root_area = BitMapBackend::new(&output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
     root_area.fill(&WHITE)?;
-    
-    let main_title_area_height = 50; 
-    let top_padding = 15; 
+
+    let main_title_area_height = 50;
+    let top_padding = 15;
     let (main_title_area, temp_area1) = root_area.split_vertically(main_title_area_height);
-    let (_padding_top_area, plot_grid_area) = temp_area1.split_vertically(top_padding); 
-        
+    let (_padding_top_area, plot_grid_area) = temp_area1.split_vertically(top_padding);
+
     main_title_area.draw(&Text::new(
         format!("{} Throttle Spectrograms", root_name),
-        (10, 10), 
+        (10, 10),
         ("sans-serif", 24).into_font().color(&BLACK),
     ))?;
 
-    let axis_plot_areas = plot_grid_area.split_evenly((3, 1)); 
+    let axis_plot_areas = plot_grid_area.split_evenly((3, 1));
     let axis_names = ["Roll", "Pitch", "Yaw"];
     let mut any_spectrogram_plotted = false;
 
@@ -920,13 +885,14 @@ pub fn plot_throttle_spectrograms(
                 &Array1::from(gyro_unfilt_data),
                 &Array1::from(throttle_data_unfilt),
                 sr,
-                SPECTROGRAM_THROTTLE_BINS,        
-                SPECTROGRAM_FFT_TIME_WINDOW_MS, 
-                diag_file.as_mut().map(|df| &mut **df), 
+                SPECTROGRAM_THROTTLE_BINS,
+                SPECTROGRAM_FFT_TIME_WINDOW_MS,
+                diag_file.as_mut().map(|df| &mut **df),
             ) {
-                Ok((psd_matrix, freq_bins, throttle_bins, auto_clip_max)) => {
-                    if let Some(file) = diag_file.as_mut() { 
-                        writeln!(file, "Plotting Unfiltered Gyro Axis {} with EffectiveClipMax (Linear): {:.2}", axis_names[axis_index], auto_clip_max)?;
+                // averaged_psd_matrix, freq_bins, throttle_bins, effective_clip_max_for_plot (peak of averaged PSD)
+                Ok((psd_matrix, freq_bins, throttle_bins, effective_clip_max)) => {
+                    if let Some(file) = diag_file.as_mut() {
+                        writeln!(file, "Plotting Unfiltered Gyro Axis {} with EffectiveClipMax (from avg PSD): {:.2}", axis_names[axis_index], effective_clip_max)?;
                     }
                     draw_single_throttle_spectrogram(
                         &unfilt_area,
@@ -935,25 +901,25 @@ pub fn plot_throttle_spectrograms(
                         &psd_matrix,
                         &freq_bins,
                         &throttle_bins,
-                        auto_clip_max, 
+                        effective_clip_max, // This is now peak of averaged PSD
                         diag_file.as_mut().map(|df| &mut **df),
                     )?;
                     any_spectrogram_plotted = true;
                 }
-                Err(_e) => { 
+                Err(_e) => {
                     let msg = format!("Error calculating unfiltered spectrogram for Axis {}: {:?}", axis_names[axis_index], _e);
-                    eprintln!("{}", msg); 
+                    eprintln!("{}", msg);
                     if let Some(file) = diag_file.as_mut() { writeln!(file, "{}", msg).ok(); }
-                    let area_clone = unfilt_area.clone(); 
+                    let area_clone = unfilt_area.clone();
                     area_clone.fill(&BLACK)?;
                     area_clone.draw(&Text::new(
-                        format!("Unfiltered {} Data Error:\n{:?}", axis_names[axis_index], _e), // Using {:?} for error
+                        format!("Unfiltered {} Data Error:\n{:?}", axis_names[axis_index], _e),
                         (20_i32, 20_i32),
                         ("sans-serif", 14).into_font().color(&RED),
                     ))?;
                 }
             }
-        } else { 
+        } else {
             let msg = format!("Unfiltered {} No Data", axis_names[axis_index]);
             if let Some(file) = diag_file.as_mut() { writeln!(file, "{}", msg)?; }
             let area_clone = unfilt_area.clone();
@@ -976,12 +942,12 @@ pub fn plot_throttle_spectrograms(
                 &Array1::from(throttle_data_filt),
                 sr,
                 SPECTROGRAM_THROTTLE_BINS,
-                SPECTROGRAM_FFT_TIME_WINDOW_MS, 
+                SPECTROGRAM_FFT_TIME_WINDOW_MS,
                 diag_file.as_mut().map(|df| &mut **df),
             ) {
-                Ok((psd_matrix, freq_bins, throttle_bins, auto_clip_max)) => {
-                     if let Some(file) = diag_file.as_mut() { 
-                        writeln!(file, "Plotting Filtered Gyro Axis {} with EffectiveClipMax (Linear): {:.2}", axis_names[axis_index], auto_clip_max)?;
+                 Ok((psd_matrix, freq_bins, throttle_bins, effective_clip_max)) => {
+                     if let Some(file) = diag_file.as_mut() {
+                        writeln!(file, "Plotting Filtered Gyro Axis {} with EffectiveClipMax (from avg PSD): {:.2}", axis_names[axis_index], effective_clip_max)?;
                     }
                     draw_single_throttle_spectrogram(
                         &filt_area,
@@ -990,25 +956,25 @@ pub fn plot_throttle_spectrograms(
                         &psd_matrix,
                         &freq_bins,
                         &throttle_bins,
-                        auto_clip_max, 
+                        effective_clip_max, // This is now peak of averaged PSD
                         diag_file.as_mut().map(|df| &mut **df),
                     )?;
                     any_spectrogram_plotted = true;
                 }
-                Err(_e) => { 
+                Err(_e) => {
                     let msg = format!("Error calculating filtered spectrogram for Axis {}: {:?}", axis_names[axis_index], _e);
                     eprintln!("{}", msg);
                     if let Some(file) = diag_file.as_mut() { writeln!(file, "{}", msg).ok(); }
                      let area_clone = filt_area.clone();
                      area_clone.fill(&BLACK)?;
                      area_clone.draw(&Text::new(
-                        format!("Filtered {} Data Error:\n{:?}", axis_names[axis_index], _e), // Using {:?} for error
+                        format!("Filtered {} Data Error:\n{:?}", axis_names[axis_index], _e),
                         (20_i32, 20_i32),
                         ("sans-serif", 14).into_font().color(&RED),
                     ))?;
                 }
             }
-        } else { 
+        } else {
              let msg = format!("Filtered {} No Data", axis_names[axis_index]);
              if let Some(file) = diag_file.as_mut() { writeln!(file, "{}", msg)?; }
             let area_clone = filt_area.clone();
@@ -1021,7 +987,7 @@ pub fn plot_throttle_spectrograms(
         root_area.present()?;
         println!("  Throttle spectrograms saved as '{}'.", output_filename);
     } else {
-        root_area.present()?; 
+        root_area.present()?;
         println!("  Skipping '{}' throttle spectrogram saving (or only placeholders shown): No actual spectrogram data plotted.", output_filename);
     }
 
