@@ -2,7 +2,7 @@
 
 // Import specific colors needed
 use plotters::style::{RGBColor}; 
-use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE, YELLOW};
+use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE, YELLOW}; // Removed unused BLACK
 
 
 // Plot dimensions.
@@ -50,21 +50,22 @@ pub const LINE_WIDTH_PLOT: u32 = 1;
 pub const LINE_WIDTH_LEGEND: u32 = 2;
 
 // --- Spectrogram Constants ---
-pub const SPECTROGRAM_THROTTLE_BINS: usize = 100; // BBE uses 100. You had 512, adjust if needed.
-pub const SPECTROGRAM_FFT_TIME_WINDOW_MS: f64 = 300.0; // BBE uses 300ms
+pub const SPECTROGRAM_THROTTLE_BINS: usize = 100; // BBE uses 100. You were testing 512, then lower.
+pub const SPECTROGRAM_FFT_TIME_WINDOW_MS: f64 = 300.0; // BBE uses 300ms. This replaces SPECTROGRAM_FFT_WINDOW_SIZE_TARGET
 pub const SPECTROGRAM_FFT_OVERLAP_FACTOR: usize = 6; // BBE uses 6 (for hop size = window/6) -> ~83% overlap
 
 pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0; // Set based on Nyquist (e.g., sample_rate / 2)
 
 // For LOGARITHMIC scaling:
-pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.0001; // EXPERIMENT! Linear power for bottom of log scale.
-// SPECTROGRAM_POWER_CLIP_MAX is now auto-determined by calculate_throttle_psd and scaled by AUTO_CLIP_MAX_SCALE_FACTOR
-pub const AUTO_CLIP_MAX_SCALE_FACTOR: f32 = 1.0; // 1.0 means clip at detected max. >1 gives headroom. <1 saturates more.
+// MIN_POWER_FOR_LOG_SCALE is the LINEAR power that maps to the bottom (black/darkest) of the log scale.
+pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.001; // EXPERIMENT! Start very low to see faint signals.
+// AUTO_CLIP_MAX_SCALE_FACTOR scales the auto-detected maximum power from the data.
+pub const AUTO_CLIP_MAX_SCALE_FACTOR: f32 = 1.0; // 1.0 means the "white point" is the max power in the current data.
 
 pub const SPECTROGRAM_NUM_COLORS: usize = 256; 
 
 pub const HOT_COLORMAP_ANCHORS: &[(f32, RGBColor)] = &[
-    (0.0, plotters::style::colors::BLACK), 
+    (0.0, plotters::style::colors::BLACK), // Start with true black
     (0.1, RGBColor(80, 0, 0)),   
     (0.25, RGBColor(180, 0, 0)), 
     (0.4, RED),                  

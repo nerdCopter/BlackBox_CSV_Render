@@ -98,15 +98,14 @@ pub fn calculate_throttle_psd(
     }
 
     let mut fft_window_size = (fft_window_time_ms / 1000.0 * sample_rate).round() as usize;
-    if fft_window_size == 0 { // Ensure fft_window_size is not zero before next_power_of_two
-        fft_window_size = 2; // A very small default if calculated as zero
+    if fft_window_size == 0 { 
+        fft_window_size = 2; 
     }
     fft_window_size = fft_window_size.next_power_of_two(); 
 
-    if fft_window_size == 0 { // Should be caught by above, but as a failsafe
+    if fft_window_size == 0 { 
         return Err("Calculated FFT window size is zero after attempting to make it power of two.".into());
     }
-    // Note: fft_window_size % 2 != 0 check is now redundant due to next_power_of_two (unless size is 1, which is unlikely)
 
     let mut binned_gyro_samples: Vec<Vec<f32>> = vec![Vec::new(); num_throttle_bins];
     let throttle_bin_width = 100.0 / num_throttle_bins as f32;
