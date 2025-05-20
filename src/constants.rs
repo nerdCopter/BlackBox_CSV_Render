@@ -2,7 +2,7 @@
 
 // Import specific colors needed
 use plotters::style::{RGBColor}; 
-use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE, YELLOW}; // Removed unused BLACK from here
+use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE, YELLOW};
 
 
 // Plot dimensions.
@@ -34,48 +34,43 @@ pub const STEADY_STATE_MIN_VAL: f64 = 0.5; // Minimum allowed value in steady-st
 pub const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-state for quality control (applied to UN-NORMALIZED response)
 
 // --- Plot Color Assignments (Based on Screenshots) ---
-
-// PIDsum vs PID Error vs Setpoint Plot
 pub const COLOR_PIDSUM_MAIN: &RGBColor = &GREEN;
 pub const COLOR_PIDERROR_MAIN: &RGBColor = &PURPLE;
 pub const COLOR_SETPOINT_MAIN: &RGBColor = &ORANGE;
-
-// Setpoint vs Gyro Plot
 pub const COLOR_SETPOINT_VS_GYRO_SP: &RGBColor = &ORANGE;
 pub const COLOR_SETPOINT_VS_GYRO_GYRO: &RGBColor = &LIGHTBLUE;
-
-// Gyro vs Unfilt Gyro Plot
 pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
 pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;
-
-// Step Response Plot
 pub const COLOR_STEP_RESPONSE_LOW_SP: &RGBColor = &LIGHTBLUE;
 pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE;
 pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
 
 // Stroke widths for lines
-pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
-pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
+pub const LINE_WIDTH_PLOT: u32 = 1; 
+pub const LINE_WIDTH_LEGEND: u32 = 2;
 
 // --- Spectrogram Constants ---
-pub const SPECTROGRAM_THROTTLE_BINS: usize = 1000;
-pub const SPECTROGRAM_FFT_WINDOW_SIZE_TARGET: usize = 1024;
-pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0;
+pub const SPECTROGRAM_THROTTLE_BINS: usize = 100; // BBE uses 100. You had 512, adjust if needed.
+pub const SPECTROGRAM_FFT_TIME_WINDOW_MS: f64 = 300.0; // BBE uses 300ms
+pub const SPECTROGRAM_FFT_OVERLAP_FACTOR: usize = 6; // BBE uses 6 (for hop size = window/6) -> ~83% overlap
 
-pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.0000001; // EXPERIMENT! Start very low to see faint signals. // MIN_POWER_FOR_LOG_SCALE is the LINEAR power that maps to the bottom (black/darkest) of the log scale.
-pub const SPECTROGRAM_POWER_CLIP_MAX: f32 = 500.0; // EXPERIMENT! Start based on previous diagnostics, adjust as needed. // SPECTROGRAM_POWER_CLIP_MAX is the LINEAR power that maps to the top (white/brightest) of the log scale.
+pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0; // Set based on Nyquist (e.g., sample_rate / 2)
+
+// For LOGARITHMIC scaling:
+pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.0001; // EXPERIMENT! Linear power for bottom of log scale.
+// SPECTROGRAM_POWER_CLIP_MAX is now auto-determined by calculate_throttle_psd and scaled by AUTO_CLIP_MAX_SCALE_FACTOR
+pub const AUTO_CLIP_MAX_SCALE_FACTOR: f32 = 1.0; // 1.0 means clip at detected max. >1 gives headroom. <1 saturates more.
 
 pub const SPECTROGRAM_NUM_COLORS: usize = 256; 
 
-// Anchor points for the programmatic "hot" colormap
 pub const HOT_COLORMAP_ANCHORS: &[(f32, RGBColor)] = &[
-    (0.0, plotters::style::colors::BLACK), // Use explicit BLACK from plotters 
-    (0.1, RGBColor(80, 0, 0)),   // Dark Red
-    (0.25, RGBColor(180, 0, 0)), // Medium Red
-    (0.4, RED),                  // Full Red
-    (0.6, ORANGE),               // Orange
-    (0.8, YELLOW),               // Yellow
-    (1.0, WHITE),                // White
+    (0.0, plotters::style::colors::BLACK), 
+    (0.1, RGBColor(80, 0, 0)),   
+    (0.25, RGBColor(180, 0, 0)), 
+    (0.4, RED),                  
+    (0.6, ORANGE),               
+    (0.8, YELLOW),              
+    (1.0, WHITE),                
 ];
 
 pub const SPECTROGRAM_TEXT_COLOR: &RGBColor = &WHITE;

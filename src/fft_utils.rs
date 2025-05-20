@@ -4,12 +4,13 @@ use ndarray::{Array1, Array2};
 use realfft::num_complex::Complex32;
 use realfft::RealFftPlanner;
 use std::error::Error;
-use std::fs::File; // For diagnostic file
-use std::io::Write; // For diagnostic file
+use std::fs::File; 
+use std::io::Write; 
 
-use crate::step_response::tukeywin; // For Hanning window
-/// Computes the Fast Fourier Transform (FFT) of a real-valued signal.
-/// Returns the complex frequency spectrum. Handles empty input.
+use crate::step_response::tukeywin; 
+use crate::constants::{SPECTROGRAM_FFT_OVERLAP_FACTOR, AUTO_CLIP_MAX_SCALE_FACTOR, MIN_POWER_FOR_LOG_SCALE};
+
+
 pub fn fft_forward(data: &Array1<f32>) -> Array1<Complex32> {
     if data.is_empty() {
         return Array1::zeros(0);
@@ -19,7 +20,6 @@ pub fn fft_forward(data: &Array1<f32>) -> Array1<Complex32> {
     let planner = RealFftPlanner::<f32>::new().plan_fft_forward(n);
     let mut output = planner.make_output_vec();
     if planner.process(&mut input, &mut output).is_err() {
-        // Optionally write to diag_file if passed here
         eprintln!("Warning: FFT forward processing failed.");
         let expected_complex_len = if n % 2 == 0 { n / 2 + 1 } else { (n + 1) / 2 };
         return Array1::zeros(expected_complex_len);
@@ -27,9 +27,7 @@ pub fn fft_forward(data: &Array1<f32>) -> Array1<Complex32> {
     Array1::from(output)
 }
 
-/// Computes the Inverse Fast Fourier Transform (IFFT) of a complex spectrum.
-/// Returns the reconstructed real-valued signal. Requires the original signal length N.
-/// Normalizes the output. Handles empty input or length mismatches.
+
 pub fn fft_inverse(data: &Array1<Complex32>, original_length_n: usize) -> Array1<f32> {
     if data.is_empty() || original_length_n == 0 {
         return Array1::zeros(original_length_n);
@@ -64,9 +62,9 @@ pub fn fft_inverse(data: &Array1<Complex32>, original_length_n: usize) -> Array1
     }
 }
 
-/// Calculates the frequencies for the real FFT output.
+
 #[allow(dead_code)]
-pub fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> { // n is fft_window_size, d is sample_interval (1.0/sample_rate)
+pub fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> { 
     if n == 0 || d <= 0.0 {
         return Array1::zeros(0);
     }
@@ -83,28 +81,32 @@ pub fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> { // n is fft_window_size, 
     freqs
 }
 
-/// Calculates Power Spectral Density (PSD) for gyro data, binned by throttle.
-/// Uses Welch's method idea by averaging PSDs of overlapping (50%) Hanning-windowed segments.
+// Returns: (PSD Matrix, Frequency Bins, Throttle Bin Centers, Detected Max Linear Power for Auto-Clipping)
 pub fn calculate_throttle_psd(
     gyro_signal: &Array1<f32>,
     throttle_signal: &Array1<f32>,
     sample_rate: f64,
     num_throttle_bins: usize,
-    fft_window_size: usize, // This is SPECTROGRAM_FFT_WINDOW_SIZE_TARGET
-    mut diag_file: Option<&mut File>, // Added for diagnostic output
-) -> Result<(Array2<f32>, Array1<f32>, Array1<f32>), Box<dyn Error>> {
+    fft_window_time_ms: f64, 
+    mut diag_file: Option<&mut File>, 
+) -> Result<(Array2<f32>, Array1<f32>, Array1<f32>, f32), Box<dyn Error>> {
     if gyro_signal.len() != throttle_signal.len() {
         return Err("Gyro and throttle signals must have the same length.".into());
     }
-    if gyro_signal.is_empty() || num_throttle_bins == 0 || fft_window_size == 0 || sample_rate <= 0.0 {
-        return Err("Empty signals, zero bins/window size, or invalid sample rate.".into());
-    }
-    if fft_window_size % 2 != 0 {
-        let msg = format!("Warning: fft_window_size {} is odd, even is preferred. Results might be unexpected.", fft_window_size);
-        eprintln!("{}", msg);
-        if let Some(file) = diag_file.as_mut() { writeln!(file, "{}", msg)?; }
+    if gyro_signal.is_empty() || num_throttle_bins == 0 || fft_window_time_ms <= 0.0 || sample_rate <= 0.0 {
+        return Err("Empty signals, zero bins/window time, or invalid sample rate.".into());
     }
 
+    let mut fft_window_size = (fft_window_time_ms / 1000.0 * sample_rate).round() as usize;
+    if fft_window_size == 0 { // Ensure fft_window_size is not zero before next_power_of_two
+        fft_window_size = 2; // A very small default if calculated as zero
+    }
+    fft_window_size = fft_window_size.next_power_of_two(); 
+
+    if fft_window_size == 0 { // Should be caught by above, but as a failsafe
+        return Err("Calculated FFT window size is zero after attempting to make it power of two.".into());
+    }
+    // Note: fft_window_size % 2 != 0 check is now redundant due to next_power_of_two (unless size is 1, which is unlikely)
 
     let mut binned_gyro_samples: Vec<Vec<f32>> = vec![Vec::new(); num_throttle_bins];
     let throttle_bin_width = 100.0 / num_throttle_bins as f32;
@@ -120,17 +122,15 @@ pub fn calculate_throttle_psd(
 
     let num_freq_bins_output = fft_window_size / 2 + 1;
     let mut psd_matrix = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
-    let hanning_window = tukeywin(fft_window_size, 1.0);
-    let hop_size = fft_window_size / 2; 
+    let hanning_window = tukeywin(fft_window_size, 1.0); 
+    
+    let hop_size = (fft_window_size / SPECTROGRAM_FFT_OVERLAP_FACTOR).max(1); 
 
-    if hop_size == 0 {
-        return Err("FFT window size is too small for 50% overlap (hop_size is 0).".into());
-    }
+    let mut overall_max_psd_val = 0.0f32;
 
     for bin_idx in 0..num_throttle_bins {
         let samples_in_bin = &binned_gyro_samples[bin_idx];
         let num_samples_in_bin = samples_in_bin.len();
-
 
         if num_samples_in_bin >= fft_window_size {
             let mut averaged_psd_for_bin = Array1::<f32>::zeros(num_freq_bins_output);
@@ -146,7 +146,8 @@ pub fn calculate_throttle_psd(
                 let spectrum_complex = fft_forward(&segment);
                 if spectrum_complex.len() == num_freq_bins_output {
                     for freq_idx in 0..num_freq_bins_output {
-                        averaged_psd_for_bin[freq_idx] += spectrum_complex[freq_idx].norm(); 
+                        let power = spectrum_complex[freq_idx].norm();
+                        averaged_psd_for_bin[freq_idx] += power; 
                     }
                     num_segments_averaged += 1;
                 } else {
@@ -159,7 +160,11 @@ pub fn calculate_throttle_psd(
 
             if num_segments_averaged > 0 {
                 for freq_idx in 0..num_freq_bins_output {
-                    psd_matrix[[freq_idx, bin_idx]] = averaged_psd_for_bin[freq_idx] / num_segments_averaged as f32;
+                    let avg_power_for_bin_freq = averaged_psd_for_bin[freq_idx] / num_segments_averaged as f32;
+                    psd_matrix[[freq_idx, bin_idx]] = avg_power_for_bin_freq;
+                    if avg_power_for_bin_freq > overall_max_psd_val {
+                        overall_max_psd_val = avg_power_for_bin_freq;
+                    }
                 }
             }
         }
@@ -169,60 +174,40 @@ pub fn calculate_throttle_psd(
     let throttle_bin_centers = Array1::from_shape_fn(num_throttle_bins, |i| {
         (i as f32 + 0.5) * throttle_bin_width
     });
+    
+    let auto_ranged_clip_max = overall_max_psd_val * AUTO_CLIP_MAX_SCALE_FACTOR;
 
-    // --- TEMPORARY DIAGNOSTIC ---
     if let Some(file) = diag_file.as_mut() {
-        if !psd_matrix.is_empty() {
-            let mut max_psd_val = 0.0f32;
-            let mut min_nz_psd_val = f32::MAX; 
-            let mut sum_psd_val = 0.0f32;
-            let mut count_nz = 0;
-            let mut typical_mid_values = Vec::new();
-            let (num_freq_bins_diag, num_throttle_bins_diag) = psd_matrix.dim();
-
-            for (idx_tuple, &val) in psd_matrix.indexed_iter() {
-                let (freq_idx_diag, throttle_idx_diag) = idx_tuple;
-                if val > max_psd_val {
-                    max_psd_val = val;
-                }
-                if val > 1e-9 { 
-                    if val < min_nz_psd_val {
-                        min_nz_psd_val = val;
-                    }
-                    sum_psd_val += val;
-                    count_nz += 1;
-
-                    if throttle_idx_diag > num_throttle_bins_diag / 3 && throttle_idx_diag < 2 * num_throttle_bins_diag / 3 &&
-                       freq_idx_diag > num_freq_bins_diag / 4 && freq_idx_diag < 3 * num_freq_bins_diag / 4 &&
-                       typical_mid_values.len() < 20 {
-                        typical_mid_values.push(val);
-                    }
-                }
+        writeln!(file, "--- PSD Matrix Diagnostic (fft_utils.rs) ---")?;
+        writeln!(file, "FFT Window Time (ms): {}, Calculated FFT Window Size (samples): {}", fft_window_time_ms, fft_window_size)?;
+        writeln!(file, "Hop Size (samples): {}, Overlap Factor: {}", hop_size, SPECTROGRAM_FFT_OVERLAP_FACTOR)?;
+        writeln!(file, "Dimensions: {} freq_bins x {} throttle_bins", psd_matrix.shape()[0], psd_matrix.shape()[1])?;
+        
+        let mut min_nz_psd_val = f32::MAX; 
+        let mut sum_psd_val = 0.0f32;
+        let mut count_nz = 0;
+        psd_matrix.iter().for_each(|&val| {
+            if val > 1e-9 {
+                if val < min_nz_psd_val { min_nz_psd_val = val; }
+                sum_psd_val += val;
+                count_nz +=1;
             }
-            writeln!(file, "--- PSD Matrix Diagnostic (fft_utils.rs) ---")?;
-            writeln!(file, "FFT Window Size Used: {}", fft_window_size)?;
-            writeln!(file, "Dimensions: {} freq_bins x {} throttle_bins", num_freq_bins_diag, num_throttle_bins_diag)?;
-            writeln!(file, "Max PSD value: {}", max_psd_val)?;
-            if count_nz > 0 {
-                writeln!(file, "Min Non-Zero PSD value: {}", min_nz_psd_val)?;
-                writeln!(file, "Avg Non-Zero PSD value: {}", sum_psd_val / count_nz as f32)?;
-                if !typical_mid_values.is_empty() {
-                    writeln!(file, "Some typical mid-range PSD values: {:?}", typical_mid_values.iter().map(|v| format!("{:.4}", v)).collect::<Vec<String>>())?;
-                } else {
-                     writeln!(file, "No typical mid-range PSD values collected (check conditions or data sparsity).")?;
-                }
-            } else {
-                writeln!(file, "PSD Matrix contains all zero or near-zero values.")?;
-            }
-            writeln!(file, "Relevant constants from constants.rs for plotting:")?;
-            writeln!(file, "  SPECTROGRAM_POWER_CLIP_MAX: {}", crate::constants::SPECTROGRAM_POWER_CLIP_MAX)?;
-            writeln!(file, "  MIN_POWER_FOR_LOG_SCALE: {}", crate::constants::MIN_POWER_FOR_LOG_SCALE)?;
-            writeln!(file, "------------------------------------------")?;
+        });
+
+        writeln!(file, "Max Calculated PSD value (overall_max_psd_val): {}", overall_max_psd_val)?;
+        writeln!(file, "Auto-Ranged Clip Max (for plotting, before log): {}", auto_ranged_clip_max)?;
+        if count_nz > 0 {
+            writeln!(file, "Min Non-Zero PSD value in Matrix: {}", min_nz_psd_val)?;
+            writeln!(file, "Avg Non-Zero PSD value in Matrix: {}", sum_psd_val / count_nz as f32)?;
+        } else {
+            writeln!(file, "PSD Matrix effectively empty or all zeros.")?;
         }
+        writeln!(file, "Constant MIN_POWER_FOR_LOG_SCALE: {}", MIN_POWER_FOR_LOG_SCALE)?;
+        writeln!(file, "Constant AUTO_CLIP_MAX_SCALE_FACTOR: {}", AUTO_CLIP_MAX_SCALE_FACTOR)?;
+        writeln!(file, "------------------------------------------")?;
     }
-    // --- END TEMPORARY DIAGNOSTIC ---
 
-    Ok((psd_matrix, freq_bins, throttle_bin_centers))
+    Ok((psd_matrix, freq_bins, throttle_bin_centers, auto_ranged_clip_max))
 }
 
 // src/fft_utils.rs
