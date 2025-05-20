@@ -28,8 +28,8 @@ use crate::constants::{
     SPECTROGRAM_THROTTLE_BINS,
     SPECTROGRAM_FFT_TIME_WINDOW_MS,
     SPECTROGRAM_MAX_FREQ_HZ,
-    BBE_SCALE_HEATMAP, // Using BBE's scaling constant
-    MIN_POWER_FOR_LOG_SCALE, // Still useful as a floor
+    BBE_SCALE_HEATMAP, 
+    MIN_POWER_FOR_LOG_SCALE, 
     SPECTROGRAM_TEXT_COLOR, SPECTROGRAM_GRID_COLOR,
 };
 use crate::log_data::LogRowData;
@@ -661,23 +661,14 @@ pub fn plot_step_response(
 
 // Get color based on BBE's HSL lightness scaling.
 // `averaged_magnitude` is the value from the averaged magnitude matrix for the current cell.
-// `clip_magnitude_for_hsl_scale` is BBE_SCALE_HEATMAP (e.g., 1.3).
-fn get_spectrogram_color(averaged_magnitude: f32, clip_magnitude_for_hsl_scale: f32) -> RGBColor {
+// BBE_SCALE_HEATMAP is the magnitude value that should correspond to 100% lightness (white).
+fn get_spectrogram_color(averaged_magnitude: f32) -> RGBColor {
     // Linearly scale the averaged magnitude against BBE_SCALE_HEATMAP for lightness.
-    // An averaged_magnitude equal to clip_magnitude_for_hsl_scale (or higher) results in 1.0 lightness (white).
-    let lightness = (averaged_magnitude / clip_magnitude_for_hsl_scale).clamp(0.0, 1.0);
-
-    // Ensure very small magnitudes (close to or below MIN_POWER_FOR_LOG_SCALE, though here it's magnitude)
-    // result in black or very dark red.
-    // BBE's HSL naturally handles this: small lightness -> dark color.
-    // If averaged_magnitude is very small, lightness will be near 0.
-    let effective_lightness = if averaged_magnitude < MIN_POWER_FOR_LOG_SCALE { // MIN_POWER_FOR_LOG_SCALE is tiny, acting as a noise floor
-        0.0
-    } else {
-        lightness
-    };
+    // An averaged_magnitude equal to BBE_SCALE_HEATMAP (or higher) results in 1.0 lightness (white).
+    // The result is then clamped to the 0.0-1.0 range for HSL.
+    let lightness = (averaged_magnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
     
-    hsl_to_rgb(0.0, 1.0, effective_lightness) // Hue 0 (Red), Sat 1.0
+    hsl_to_rgb(0.0, 1.0, lightness) // Hue 0 (Red), Sat 1.0
 }
 
 
@@ -685,11 +676,10 @@ fn draw_single_throttle_spectrogram<DB: DrawingBackend>(
     area: &DrawingArea<DB, Shift>,
     title_prefix: &str,
     axis_name: &str,
-    averaged_magnitude_matrix: &Array2<f32>, // This is the matrix of averaged magnitudes
+    averaged_magnitude_matrix: &Array2<f32>, 
     freq_bins: &Array1<f32>,
     throttle_bins: &Array1<f32>,
-    // This is the peak magnitude from *any individual segment's FFT*, used for "peak_lin" text.
-    peak_segment_magnitude_for_text: f32,
+    peak_segment_magnitude_for_text: f32, // Used for "peak_lin" text display
     mut diag_file: Option<&mut File>,
 ) -> Result<(), Box<dyn Error>>
 where DB::ErrorType: 'static
@@ -768,19 +758,19 @@ where DB::ErrorType: 'static
             let x1_freq = freq_center + freq_cell_width / 2.0;
 
             let avg_magnitude = averaged_magnitude_matrix[[i_freq_idx, j_throttle_idx]];
-            if avg_magnitude > MIN_POWER_FOR_LOG_SCALE { // Use a small threshold for mean calculation
+            if avg_magnitude > MIN_POWER_FOR_LOG_SCALE { 
                  total_magnitude_sum += avg_magnitude;
                  magnitude_count += 1;
             }
             
-            let color = get_spectrogram_color(avg_magnitude, BBE_SCALE_HEATMAP);
+            let color = get_spectrogram_color(avg_magnitude); // Pass only avg_magnitude
 
             if let Some(file) = diag_file.as_mut() {
-                if avg_magnitude > 0.01 { // Log only somewhat significant averaged magnitudes
+                 if avg_magnitude > 0.01 { 
                     let lightness_debug = (avg_magnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
                     if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
                        i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
-                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgMag: {:.4} (ClipMagForHSL: {:.2}), Lightness: {:.3}, Color: {:?}",
+                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgMag: {:.4} (BBE_SCALE_HEATMAP: {:.2}), Lightness: {:.3}, Color: {:?}",
                                  i_freq_idx, j_throttle_idx, avg_magnitude, BBE_SCALE_HEATMAP,
                                  lightness_debug, color)?;
                     }
@@ -820,14 +810,14 @@ pub fn plot_throttle_spectrograms(
         writeln!(file, "Using direct HSL(0, 100%, L) based calculation (Black-Red-White).")?;
         writeln!(file, "Lightness 'L' is (AveragedMagnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).")?;
         writeln!(file, "BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP)?;
-        writeln!(file, "'peak_lin' text will show peak magnitude from any individual FFT segment.")?;
+        writeln!(file, "'peak_mag_seg' text will show peak magnitude from any individual FFT segment.")?;
         writeln!(file, "------------------------------------------------------------------------------------")?;
     } else {
         println!("--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---");
         println!("Using direct HSL(0, 100%, L) based calculation (Black-Red-White).");
         println!("Lightness 'L' is (AveragedMagnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).");
         println!("BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP);
-        println!("'peak_lin' text will show peak magnitude from any individual FFT segment.");
+        println!("'peak_mag_seg' text will show peak magnitude from any individual FFT segment.");
         println!("------------------------------------------------------------------------------------");
     }
 

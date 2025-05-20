@@ -2,7 +2,7 @@
 
 // Import specific colors needed
 use plotters::style::{RGBColor};
-use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE, YELLOW};
+use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE};
 
 
 // Plot dimensions.
