@@ -1,8 +1,8 @@
 // src/constants.rs
 
 // Import specific colors needed
-use plotters::style::{RGBColor}; // Removed unused TRANSPARENT
-use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, BLACK, WHITE, YELLOW};
+use plotters::style::{RGBColor}; 
+use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE, YELLOW}; // Removed unused BLACK from here
 
 
 // Plot dimensions.
@@ -58,31 +58,27 @@ pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
 pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
 
 // --- Spectrogram Constants ---
-pub const SPECTROGRAM_THROTTLE_BINS: usize = 100;
-pub const SPECTROGRAM_FFT_WINDOW_SIZE_TARGET: usize = 128;
+pub const SPECTROGRAM_THROTTLE_BINS: usize = 1000;
+pub const SPECTROGRAM_FFT_WINDOW_SIZE_TARGET: usize = 1024;
 pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0;
-pub const SPECTROGRAM_POWER_CLIP_MAX: f32 = 5000.0; // Adjusted this based on potential peak values
-// Revised "hot" colormap with 16 points for smoother/more detailed gradient
-// Values are normalized power (0.0 to 1.0)
-pub const SPECTROGRAM_COLOR_SCALE: [(f32, RGBColor); 16] = [
-    (0.0/15.0, BLACK),                     // 1. Black
-    (1.0/15.0, RGBColor(32, 0, 0)),       // 2. Very Dark Red
-    (2.0/15.0, RGBColor(64, 0, 0)),       // 3. Dark Red
-    (3.0/15.0, RGBColor(96, 0, 0)),       // 4.
-    (4.0/15.0, RGBColor(128, 0, 0)),      // 5. Medium Dark Red
-    (5.0/15.0, RGBColor(160, 0, 0)),      // 6.
-    (6.0/15.0, RGBColor(192, 0, 0)),      // 7. Brighter Dark Red
-    (7.0/15.0, RED),                       // 8. Red (220,0,0)
-    (8.0/15.0, RGBColor(230, 55, 0)),     // 9. Red-Orange
-    (9.0/15.0, RGBColor(242, 110, 0)),    // 10. Orange-Red
-    (10.0/15.0, ORANGE),                   // 11. Orange (255,165,0)
-    (11.0/15.0, RGBColor(255, 195, 0)),    // 12. Light Orange / Orange-Yellow
-    (12.0/15.0, RGBColor(255, 225, 0)),    // 13. Yellow-Orange
-    (13.0/15.0, YELLOW),                   // 14. Yellow (255,255,0)
-    (14.0/15.0, RGBColor(255, 255, 128)),  // 15. Pale Yellow
-    (15.0/15.0, WHITE),                    // 16. White
+
+pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.0000001; // EXPERIMENT! Start very low to see faint signals. // MIN_POWER_FOR_LOG_SCALE is the LINEAR power that maps to the bottom (black/darkest) of the log scale.
+pub const SPECTROGRAM_POWER_CLIP_MAX: f32 = 500.0; // EXPERIMENT! Start based on previous diagnostics, adjust as needed. // SPECTROGRAM_POWER_CLIP_MAX is the LINEAR power that maps to the top (white/brightest) of the log scale.
+
+pub const SPECTROGRAM_NUM_COLORS: usize = 256; 
+
+// Anchor points for the programmatic "hot" colormap
+pub const HOT_COLORMAP_ANCHORS: &[(f32, RGBColor)] = &[
+    (0.0, plotters::style::colors::BLACK), // Use explicit BLACK from plotters 
+    (0.1, RGBColor(80, 0, 0)),   // Dark Red
+    (0.25, RGBColor(180, 0, 0)), // Medium Red
+    (0.4, RED),                  // Full Red
+    (0.6, ORANGE),               // Orange
+    (0.8, YELLOW),               // Yellow
+    (1.0, WHITE),                // White
 ];
-pub const SPECTROGRAM_TEXT_COLOR: &RGBColor = &WHITE; // THIS LINE IS IMPORTANT
+
+pub const SPECTROGRAM_TEXT_COLOR: &RGBColor = &WHITE;
 pub const SPECTROGRAM_GRID_COLOR: RGBColor = RGBColor(80,80,80);
 
 // src/constants.rs

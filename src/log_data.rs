@@ -11,6 +11,7 @@ pub struct LogRowData {
     pub setpoint: [Option<f64>; 3],   // Target setpoint value [Roll, Pitch, Yaw].
     pub gyro: [Option<f64>; 3],       // Gyroscope readings (filtered) [Roll, Pitch, Yaw].
     pub gyro_unfilt: [Option<f64>; 3], // Unfiltered Gyroscope readings [Roll, Pitch, Yaw]. Fallback: debug[0..2].
+    #[allow(dead_code)] // Suppress warning if debug fields are only for gyro_unfilt fallback or future use
     pub debug: [Option<f64>; 4],      // Debug values [0..3].
     pub throttle: Option<f64>,       // Throttle percentage. (setpoint[3])
 }
