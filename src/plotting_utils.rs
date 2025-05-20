@@ -38,9 +38,8 @@ use crate::fft_utils;
 
 
 // Helper function to convert HSL to RGB
-// h (hue) is 0-360 (we'll use 0 for red), s (saturation) is 0-1, l (lightness) is 0-1
 fn hsl_to_rgb(h_degrees: f32, s: f32, l: f32) -> RGBColor {
-    if s == 0.0 { // achromatic
+    if s == 0.0 { 
         let val = (l * 255.0).round().clamp(0.0, 255.0) as u8;
         return RGBColor(val, val, val);
     }
@@ -60,7 +59,7 @@ fn hsl_to_rgb(h_degrees: f32, s: f32, l: f32) -> RGBColor {
         (0.0, x, c)
     } else if h_prime >= 4.0 && h_prime < 5.0 {
         (x, 0.0, c)
-    } else { // h_prime >= 5.0 && h_prime < 6.0
+    } else { 
         (c, 0.0, x)
     };
 
@@ -660,13 +659,10 @@ pub fn plot_step_response(
 }
 
 // Get color based on BBE's HSL lightness scaling.
-// `averaged_magnitude` is the value from the averaged magnitude matrix for the current cell.
-// BBE_SCALE_HEATMAP is the magnitude value that should correspond to 100% lightness (white).
-fn get_spectrogram_color(averaged_magnitude: f32) -> RGBColor {
+// `averaged_normalized_magnitude` is the value from the averaged (and N-normalized, 2x scaled) magnitude matrix.
+fn get_spectrogram_color(averaged_normalized_magnitude: f32) -> RGBColor {
     // Linearly scale the averaged magnitude against BBE_SCALE_HEATMAP for lightness.
-    // An averaged_magnitude equal to BBE_SCALE_HEATMAP (or higher) results in 1.0 lightness (white).
-    // The result is then clamped to the 0.0-1.0 range for HSL.
-    let lightness = (averaged_magnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+    let lightness = (averaged_normalized_magnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
     
     hsl_to_rgb(0.0, 1.0, lightness) // Hue 0 (Red), Sat 1.0
 }
@@ -676,10 +672,11 @@ fn draw_single_throttle_spectrogram<DB: DrawingBackend>(
     area: &DrawingArea<DB, Shift>,
     title_prefix: &str,
     axis_name: &str,
-    averaged_magnitude_matrix: &Array2<f32>, 
+    averaged_normalized_magnitude_matrix: &Array2<f32>, 
     freq_bins: &Array1<f32>,
     throttle_bins: &Array1<f32>,
-    peak_segment_magnitude_for_text: f32, // Used for "peak_lin" text display
+    peak_normalized_segment_magnitude_for_text: f32, 
+    // max_in_averaged_matrix_for_color_scale: f32, // This parameter is removed
     mut diag_file: Option<&mut File>,
 ) -> Result<(), Box<dyn Error>>
 where DB::ErrorType: 'static
@@ -708,7 +705,7 @@ where DB::ErrorType: 'static
         .y_labels(5)
         .draw()?;
 
-    let (num_freq_bins_total, num_throttle_plot_bins) = averaged_magnitude_matrix.dim();
+    let (num_freq_bins_total, num_throttle_plot_bins) = averaged_normalized_magnitude_matrix.dim();
     if num_freq_bins_total == 0 || num_throttle_plot_bins == 0 || freq_bins.len() != num_freq_bins_total || throttle_bins.len() != num_throttle_plot_bins {
         let text_style = ("sans-serif", 16).into_font().color(&RED);
         let text_x = x_range_spec.start + (x_range_spec.end - x_range_spec.start) * 0.1;
@@ -757,21 +754,21 @@ where DB::ErrorType: 'static
             let x0_freq = freq_center - freq_cell_width / 2.0;
             let x1_freq = freq_center + freq_cell_width / 2.0;
 
-            let avg_magnitude = averaged_magnitude_matrix[[i_freq_idx, j_throttle_idx]];
-            if avg_magnitude > MIN_POWER_FOR_LOG_SCALE { 
-                 total_magnitude_sum += avg_magnitude;
+            let avg_norm_mag = averaged_normalized_magnitude_matrix[[i_freq_idx, j_throttle_idx]];
+            if avg_norm_mag > MIN_POWER_FOR_LOG_SCALE { 
+                 total_magnitude_sum += avg_norm_mag;
                  magnitude_count += 1;
             }
             
-            let color = get_spectrogram_color(avg_magnitude); // Pass only avg_magnitude
+            let color = get_spectrogram_color(avg_norm_mag); // Uses BBE_SCALE_HEATMAP internally
 
             if let Some(file) = diag_file.as_mut() {
-                 if avg_magnitude > 0.01 { 
-                    let lightness_debug = (avg_magnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+                 if avg_norm_mag > 0.0001 { // Log values that might actually show up
+                    let lightness_debug = (avg_norm_mag / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
                     if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
                        i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
-                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgMag: {:.4} (BBE_SCALE_HEATMAP: {:.2}), Lightness: {:.3}, Color: {:?}",
-                                 i_freq_idx, j_throttle_idx, avg_magnitude, BBE_SCALE_HEATMAP,
+                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgNormMag: {:.4} (BBE_SCALE_HEATMAP: {:.2}), Lightness: {:.3}, Color: {:?}",
+                                 i_freq_idx, j_throttle_idx, avg_norm_mag, BBE_SCALE_HEATMAP,
                                  lightness_debug, color)?;
                     }
                 }
@@ -792,7 +789,7 @@ where DB::ErrorType: 'static
     let text_pos_x = x_range_spec.end * 0.65_f32;
     let text_pos_y = y_range_spec.end * 0.9_f32;
     chart.plotting_area().draw(&Text::new(
-        format!("mean_mag={:.1} peak_mag_seg={:.1}", mean_avg_magnitude, peak_segment_magnitude_for_text),
+        format!("mean_mag={:.1} peak_mag_seg={:.1}", mean_avg_magnitude, peak_normalized_segment_magnitude_for_text),
         (text_pos_x, text_pos_y),
         text_style_spec,
     ))?;
@@ -808,16 +805,16 @@ pub fn plot_throttle_spectrograms(
     if let Some(file) = diag_file.as_mut() {
         writeln!(file, "--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---")?;
         writeln!(file, "Using direct HSL(0, 100%, L) based calculation (Black-Red-White).")?;
-        writeln!(file, "Lightness 'L' is (AveragedMagnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).")?;
+        writeln!(file, "Lightness 'L' is (AveragedNormalizedMagnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).")?;
         writeln!(file, "BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP)?;
-        writeln!(file, "'peak_mag_seg' text will show peak magnitude from any individual FFT segment.")?;
+        writeln!(file, "'peak_mag_seg' text will show N-normalized (and x2) peak magnitude from any individual FFT segment.")?;
         writeln!(file, "------------------------------------------------------------------------------------")?;
     } else {
         println!("--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---");
         println!("Using direct HSL(0, 100%, L) based calculation (Black-Red-White).");
-        println!("Lightness 'L' is (AveragedMagnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).");
+        println!("Lightness 'L' is (AveragedNormalizedMagnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).");
         println!("BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP);
-        println!("'peak_mag_seg' text will show peak magnitude from any individual FFT segment.");
+        println!("'peak_mag_seg' text will show N-normalized (and x2) peak magnitude from any individual FFT segment.");
         println!("------------------------------------------------------------------------------------");
     }
 
@@ -873,18 +870,21 @@ pub fn plot_throttle_spectrograms(
                 SPECTROGRAM_FFT_TIME_WINDOW_MS,
                 diag_file.as_mut().map(|df| &mut **df),
             ) {
-                Ok((avg_mag_matrix, freq_bins, throttle_bins, peak_segment_mag_for_text)) => {
+                // avg_norm_mag_matrix is for heatmap, peak_norm_segment_mag is for text
+                Ok((avg_norm_mag_matrix, freq_bins, throttle_bins, peak_norm_segment_mag)) => {
                     if let Some(file) = diag_file.as_mut() {
-                        writeln!(file, "Plotting Unfiltered Gyro Axis {} with PeakSegmentMagnitude (for text): {:.2}", axis_names[axis_index], peak_segment_mag_for_text)?;
+                        writeln!(file, "Plotting Unfiltered Gyro Axis {} with PeakNormSegmentMag (for text): {:.2}", 
+                            axis_names[axis_index], peak_norm_segment_mag)?;
                     }
                     draw_single_throttle_spectrogram(
                         &unfilt_area,
                         "Unfiltered Gyro",
                         axis_names[axis_index],
-                        &avg_mag_matrix,
+                        &avg_norm_mag_matrix,
                         &freq_bins,
                         &throttle_bins,
-                        peak_segment_mag_for_text,
+                        peak_norm_segment_mag, // For text display
+                        // BBE_SCALE_HEATMAP is now used implicitly by get_spectrogram_color
                         diag_file.as_mut().map(|df| &mut **df),
                     )?;
                     any_spectrogram_plotted = true;
@@ -928,18 +928,20 @@ pub fn plot_throttle_spectrograms(
                 SPECTROGRAM_FFT_TIME_WINDOW_MS,
                 diag_file.as_mut().map(|df| &mut **df),
             ) {
-                 Ok((avg_mag_matrix, freq_bins, throttle_bins, peak_segment_mag_for_text)) => {
+                 Ok((avg_norm_mag_matrix, freq_bins, throttle_bins, peak_norm_segment_mag)) => {
                      if let Some(file) = diag_file.as_mut() {
-                        writeln!(file, "Plotting Filtered Gyro Axis {} with PeakSegmentMagnitude (for text): {:.2}", axis_names[axis_index], peak_segment_mag_for_text)?;
+                        writeln!(file, "Plotting Filtered Gyro Axis {} with PeakNormSegmentMag (for text): {:.2}", 
+                            axis_names[axis_index], peak_norm_segment_mag)?;
                     }
                     draw_single_throttle_spectrogram(
                         &filt_area,
                         "Filtered Gyro",
                         axis_names[axis_index],
-                        &avg_mag_matrix,
+                        &avg_norm_mag_matrix,
                         &freq_bins,
                         &throttle_bins,
-                        peak_segment_mag_for_text,
+                        peak_norm_segment_mag, // For text display
+                        // BBE_SCALE_HEATMAP is now used implicitly by get_spectrogram_color
                         diag_file.as_mut().map(|df| &mut **df),
                     )?;
                     any_spectrogram_plotted = true;
