@@ -20,20 +20,20 @@ pub const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning wind
 pub const SETPOINT_THRESHOLD: f64 = 500.0; // Threshold for low/high setpoint masking
 
 // Constants for filtering data based on movement and flight phase.
-pub const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0; // Minimum setpoint/gyro magnitude for a window to be considered for analysis (from PTstepcalc.m minInput)
-pub const EXCLUDE_START_S: f64 = 3.0; // Exclude this many seconds from the start of the log
-pub const EXCLUDE_END_S: f64 = 3.0; // Exclude this many seconds from the end of the log
+pub const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0; 
+pub const EXCLUDE_START_S: f64 = 3.0; 
+pub const EXCLUDE_END_S: f64 = 3.0; 
 
 // Constant for post-averaging smoothing of the step response curves.
-pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; // Moving average window size (in samples)
+pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; 
 
-// Constants for individual window step response quality control (from PTstepcalc.m)
-pub const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check within the response window (relative to response start)
-pub const STEADY_STATE_END_S: f64 = 0.5; // End time for steady-state check within the response window (relative to response start)
-pub const STEADY_STATE_MIN_VAL: f64 = 0.5; // Minimum allowed value in steady-state for quality control (applied to UN-NORMALIZED response mean)
-pub const STEADY_STATE_MAX_VAL: f64 = 3.0; // Maximum allowed value in steady-state for quality control (applied to UN-NORMALIZED response)
+// Constants for individual window step response quality control
+pub const STEADY_STATE_START_S: f64 = 0.2; 
+pub const STEADY_STATE_END_S: f64 = 0.5; 
+pub const STEADY_STATE_MIN_VAL: f64 = 0.5; 
+pub const STEADY_STATE_MAX_VAL: f64 = 3.0; 
 
-// --- Plot Color Assignments (Based on Screenshots) ---
+// --- Plot Color Assignments ---
 pub const COLOR_PIDSUM_MAIN: &RGBColor = &GREEN;
 pub const COLOR_PIDERROR_MAIN: &RGBColor = &PURPLE;
 pub const COLOR_SETPOINT_MAIN: &RGBColor = &ORANGE;
@@ -52,21 +52,21 @@ pub const LINE_WIDTH_LEGEND: u32 = 2;
 // --- Spectrogram Constants ---
 pub const SPECTROGRAM_THROTTLE_BINS: usize = 100;
 pub const SPECTROGRAM_FFT_TIME_WINDOW_MS: f64 = 300.0;
-pub const SPECTROGRAM_FFT_OVERLAP_FACTOR: usize = 6; // BBE uses 6 (for hop size = window/6) -> ~83% overlap
+pub const SPECTROGRAM_FFT_OVERLAP_FACTOR: usize = 6; 
 
 pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0;
 
 // BBE uses a fixed scaling factor for its heatmap cell colors.
-// An averaged magnitude of BBE_SCALE_HEATMAP in a cell corresponds to 100% lightness (white).
+// An averaged magnitude of BBE_SCALE_HEATMAP in a cell corresponds to 100% lightness (white) *before gamma*.
 pub const BBE_SCALE_HEATMAP: f32 = 1.3;
 
-// MIN_POWER_FOR_LOG_SCALE is less critical for BBE's HSL lightness but can act as a floor.
-// BBE's HSL naturally maps small magnitudes to dark colors.
-pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.00001; // Adjusted to be very small, effectively letting HSL handle darkness.
+// MIN_POWER_FOR_LOG_SCALE is used as a general small value, e.g. for calculating mean of non-trivial values
+pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.00001; 
 
-// AUTO_CLIP_MAX_SCALE_FACTOR is not used for the spectrogram color scaling if BBE_SCALE_HEATMAP is used.
-// It was for scaling the peak of the *averaged data* as the white point.
-// pub const AUTO_CLIP_MAX_SCALE_FACTOR: f32 = 1.0;
+// Gamma value for spectrogram color mapping to adjust brightness curve.
+pub const SPECTROGRAM_GAMMA: f32 = 0.8; // User preferred value
+// Threshold for N-normalized, 2x-scaled averaged amplitude, below which it's mapped to black.
+pub const SPECTROGRAM_BLACK_THRESHOLD: f32 = 0.005;
 
 
 pub const SPECTROGRAM_TEXT_COLOR: &RGBColor = &WHITE;

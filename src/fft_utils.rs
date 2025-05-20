@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io::Write;
 
 use crate::step_response::tukeywin;
-use crate::constants::{SPECTROGRAM_FFT_OVERLAP_FACTOR, MIN_POWER_FOR_LOG_SCALE};
+use crate::constants::{SPECTROGRAM_FFT_OVERLAP_FACTOR};
 
 
 pub fn fft_forward(data: &Array1<f32>) -> Array1<Complex32> {
