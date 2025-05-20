@@ -29,7 +29,7 @@ use crate::constants::{
     SPECTROGRAM_FFT_TIME_WINDOW_MS,
     SPECTROGRAM_MAX_FREQ_HZ,
     BBE_SCALE_HEATMAP, 
-    MIN_POWER_FOR_LOG_SCALE, // Used for calculating mean_mag, not directly in color unless new logic uses it
+    MIN_POWER_FOR_LOG_SCALE,
     SPECTROGRAM_TEXT_COLOR, SPECTROGRAM_GRID_COLOR,
 };
 use crate::log_data::LogRowData;
@@ -659,20 +659,19 @@ pub fn plot_step_response(
 }
 
 fn get_spectrogram_color(averaged_normalized_amplitude: f32) -> RGBColor {
-    const GAMMA: f32 = 0.45; 
-    const MIN_SIGNAL_THRESHOLD_FOR_COLOR: f32 = 0.005; // Amplitudes below this are effectively black
+    const GAMMA: f32 = 0.8;  //0.8 was better than 0.45
+    const MIN_SIGNAL_THRESHOLD_FOR_COLOR: f32 = 0.005; 
 
     let mut lightness;
 
     if averaged_normalized_amplitude < MIN_SIGNAL_THRESHOLD_FOR_COLOR {
         lightness = 0.0;
     } else {
-        // Scale against BBE_SCALE_HEATMAP for HSL lightness (0.0 to 1.0)
         lightness = (averaged_normalized_amplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
-        lightness = lightness.powf(GAMMA); // Apply gamma correction
+        lightness = lightness.powf(GAMMA); 
     }
     
-    hsl_to_rgb(0.0, 1.0, lightness.clamp(0.0, 1.0)) // Hue 0 (Red), Sat 1.0
+    hsl_to_rgb(0.0, 1.0, lightness.clamp(0.0, 1.0))
 }
 
 
@@ -762,7 +761,7 @@ where DB::ErrorType: 'static
             let x1_freq = freq_center + freq_cell_width / 2.0;
 
             let avg_amplitude_val = averaged_amplitude_spectrum_matrix[[i_freq_idx, j_throttle_idx]];
-            if avg_amplitude_val > MIN_POWER_FOR_LOG_SCALE { // Using MIN_POWER_FOR_LOG_SCALE for mean calculation threshold
+            if avg_amplitude_val > MIN_POWER_FOR_LOG_SCALE { 
                  total_avg_amplitude_sum += avg_amplitude_val;
                  avg_amplitude_count += 1;
             }
@@ -772,10 +771,10 @@ where DB::ErrorType: 'static
             if let Some(file) = diag_file.as_mut() {
                  if avg_amplitude_val > 0.001 { 
                     let lightness_raw_scaled = (avg_amplitude_val / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
-                    let lightness_gamma_corrected = if avg_amplitude_val < 0.005 { // Mirroring MIN_SIGNAL_THRESHOLD_FOR_COLOR
+                    let lightness_gamma_corrected = if avg_amplitude_val < 0.005 { 
                         0.0
                     } else {
-                        lightness_raw_scaled.powf(0.45) // Assuming GAMMA = 0.45
+                        lightness_raw_scaled.powf(0.45) 
                     };
                     if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
                        i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
@@ -817,8 +816,8 @@ pub fn plot_throttle_spectrograms(
     if let Some(file) = diag_file.as_mut() {
         writeln!(file, "--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---")?;
         writeln!(file, "Using HSL(0, 100%, L) based calculation (Black-Red-White).")?;
-        writeln!(file, "Lightness 'L' is ((AvgNormAmp / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0), with floor for values < MIN_SIGNAL_THRESHOLD.")?;
-        writeln!(file, "BBE_SCALE_HEATMAP = {}, GAMMA ~0.45", BBE_SCALE_HEATMAP)?;
+        writeln!(file, "Lightness 'L' is ((AvgNormAmp / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0), with floor for values < MIN_SIGNAL_THRESHOLD_FOR_COLOR.")?;
+        writeln!(file, "BBE_SCALE_HEATMAP = {}, GAMMA ~0.45, MIN_SIGNAL_THRESHOLD_FOR_COLOR ~0.005", BBE_SCALE_HEATMAP)?;
         writeln!(file, "'peak_mag_seg' text shows peak of raw magnitudes from individual FFT segments.")?;
         writeln!(file, "Averaged amplitudes are N-normalized and 2x scaled (for non-DC/Nyquist).")?;
         writeln!(file, "------------------------------------------------------------------------------------")?;
