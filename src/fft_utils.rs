@@ -82,13 +82,11 @@ pub fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> {
 }
 
 // Returns: (
-// Averaged Normalized Magnitude Matrix (for heatmap coloring),
-// Frequency Bins,
-// Throttle Bin Centers,
-// Peak Normalized Magnitude from any individual Segment (for "peak_mag_seg" text display)
+//  Averaged Amplitude Spectrum Matrix (for heatmap coloring),
+//  Frequency Bins,
+//  Throttle Bin Centers,
+//  Peak Raw Magnitude from any individual Segment (for "peak_mag_seg" text display)
 // )
-// Note: The 4th element (peak_normalized_segment_magnitude) is used for the text display.
-// The averaged_normalized_magnitudes_matrix is used for coloring, scaled against BBE_SCALE_HEATMAP.
 pub fn calculate_throttle_psd(
     gyro_signal: &Array1<f32>,
     throttle_signal: &Array1<f32>,
@@ -105,7 +103,7 @@ pub fn calculate_throttle_psd(
     }
 
     let mut fft_window_size = (fft_window_time_ms / 1000.0 * sample_rate).round() as usize;
-    if fft_window_size == 0 { fft_window_size = 2; }  // Ensure not zero
+    if fft_window_size == 0 { fft_window_size = 2; }
     fft_window_size = fft_window_size.next_power_of_two();
 
     if fft_window_size == 0 || fft_window_size > gyro_signal.len() {
@@ -116,14 +114,15 @@ pub fn calculate_throttle_psd(
     }
 
     let num_freq_bins_output = fft_window_size / 2 + 1;
-    let mut sum_normalized_magnitudes_matrix = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
+    // Stores sums of N-normalized and 2x-scaled amplitudes
+    let mut sum_amplitude_spectrum_matrix = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
     let mut counts_matrix = Array2::<usize>::zeros((num_freq_bins_output, num_throttle_bins));
 
     let hanning_window = tukeywin(fft_window_size, 1.0);
     let hop_size = (fft_window_size / SPECTROGRAM_FFT_OVERLAP_FACTOR).max(1);
     let throttle_bin_width = 100.0 / num_throttle_bins as f32;
 
-    let mut overall_peak_normalized_segment_magnitude = 0.0f32;
+    let mut overall_peak_raw_segment_magnitude = 0.0f32; // This is for the text display, like BBE's "peak_lin"
 
     let mut current_pos = 0;
     while current_pos + fft_window_size <= gyro_signal.len() {
@@ -144,16 +143,20 @@ pub fn calculate_throttle_psd(
         if spectrum_complex.len() == num_freq_bins_output {
             for freq_idx in 0..num_freq_bins_output {
                 let raw_magnitude = spectrum_complex[freq_idx].norm();
-                let mut normalized_magnitude = raw_magnitude / (fft_window_size as f32);
 
-                if freq_idx != 0 && freq_idx != num_freq_bins_output -1 {
-                    normalized_magnitude *= 2.0;
+                if raw_magnitude > overall_peak_raw_segment_magnitude {
+                    overall_peak_raw_segment_magnitude = raw_magnitude;
                 }
 
-                if normalized_magnitude > overall_peak_normalized_segment_magnitude {
-                    overall_peak_normalized_segment_magnitude = normalized_magnitude;
+                // Normalize by N for amplitude spectrum
+                let mut amplitude_spectrum_val = raw_magnitude / (fft_window_size as f32);
+                
+                // For one-sided spectrum, scale non-DC and non-Nyquist bins by 2
+                if freq_idx != 0 && freq_idx != num_freq_bins_output - 1 {
+                    amplitude_spectrum_val *= 2.0;
                 }
-                sum_normalized_magnitudes_matrix[[freq_idx, throttle_bin_index]] += normalized_magnitude;
+                
+                sum_amplitude_spectrum_matrix[[freq_idx, throttle_bin_index]] += amplitude_spectrum_val;
                 counts_matrix[[freq_idx, throttle_bin_index]] += 1;
             }
         } else {
@@ -167,16 +170,16 @@ pub fn calculate_throttle_psd(
         current_pos += hop_size;
     }
 
-    let mut averaged_normalized_magnitudes_matrix = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
-    let mut max_val_in_averaged_matrix = 0.0f32; // Track max for diagnostics, not for primary color scaling anymore
+    let mut averaged_amplitude_spectrum_matrix = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
+    let mut max_val_in_averaged_matrix_diag = 0.0f32;
 
     for freq_idx in 0..num_freq_bins_output {
         for bin_idx in 0..num_throttle_bins {
             if counts_matrix[[freq_idx, bin_idx]] > 0 {
-                let avg_val = sum_normalized_magnitudes_matrix[[freq_idx, bin_idx]] / counts_matrix[[freq_idx, bin_idx]] as f32;
-                averaged_normalized_magnitudes_matrix[[freq_idx, bin_idx]] = avg_val;
-                if avg_val > max_val_in_averaged_matrix {
-                    max_val_in_averaged_matrix = avg_val;
+                let avg_val = sum_amplitude_spectrum_matrix[[freq_idx, bin_idx]] / counts_matrix[[freq_idx, bin_idx]] as f32;
+                averaged_amplitude_spectrum_matrix[[freq_idx, bin_idx]] = avg_val;
+                if avg_val > max_val_in_averaged_matrix_diag {
+                    max_val_in_averaged_matrix_diag = avg_val;
                 }
             }
         }
@@ -188,42 +191,41 @@ pub fn calculate_throttle_psd(
     });
 
     if let Some(file) = diag_file.as_mut() {
-        writeln!(file, "--- PSD (Normalized Magnitude, x2 for non-DC/Nyquist) Matrix Diagnostic (fft_utils.rs) ---")?;
+        writeln!(file, "--- PSD (Averaged N-Norm & x2 Amplitude Spectrum) Matrix Diagnostic (fft_utils.rs) ---")?;
         writeln!(file, "FFT Window Time (ms): {}, Calculated FFT Window Size (samples): {}", fft_window_time_ms, fft_window_size)?;
         writeln!(file, "Hop Size (samples): {}, Overlap Factor: {}", hop_size, SPECTROGRAM_FFT_OVERLAP_FACTOR)?;
-        writeln!(file, "Dimensions: {} freq_bins x {} throttle_bins", averaged_normalized_magnitudes_matrix.shape()[0], averaged_normalized_magnitudes_matrix.shape()[1])?;
+        writeln!(file, "Dimensions: {} freq_bins x {} throttle_bins", averaged_amplitude_spectrum_matrix.shape()[0], averaged_amplitude_spectrum_matrix.shape()[1])?;
         
-        let mut min_nz_avg_norm_mag = f32::MAX;
-        let mut sum_avg_norm_mag = 0.0f32;
+        let mut min_nz_avg_amp_spec = f32::MAX;
+        let mut sum_avg_amp_spec = 0.0f32;
         let mut count_nz = 0;
         
-        averaged_normalized_magnitudes_matrix.iter().for_each(|&val| {
-            if val > MIN_POWER_FOR_LOG_SCALE { 
-                if val < min_nz_avg_norm_mag { min_nz_avg_norm_mag = val; }
-                sum_avg_norm_mag += val;
+        averaged_amplitude_spectrum_matrix.iter().for_each(|&val| {
+            if val > MIN_POWER_FOR_LOG_SCALE { // MIN_POWER_FOR_LOG_SCALE is a tiny floor
+                if val < min_nz_avg_amp_spec { min_nz_avg_amp_spec = val; }
+                sum_avg_amp_spec += val;
                 count_nz +=1;
             }
         });
 
-        writeln!(file, "Overall Peak Normalized Segment Magnitude (for text display 'peak_mag_seg'): {:.2}", overall_peak_normalized_segment_magnitude)?;
-        writeln!(file, "Max value in Averaged Normalized Magnitude Matrix (for diagnostics): {:.6}", max_val_in_averaged_matrix)?;
+        writeln!(file, "Overall Peak Raw Segment Magnitude (for text display 'peak_mag_seg'): {:.2}", overall_peak_raw_segment_magnitude)?;
+        writeln!(file, "Max value in Averaged Amplitude Spectrum Matrix (for diagnostics): {:.6}", max_val_in_averaged_matrix_diag)?;
         if count_nz > 0 {
-            writeln!(file, "Min Non-Zero Averaged Normalized Magnitude in Matrix: {:.6}", min_nz_avg_norm_mag)?;
-            writeln!(file, "Avg Non-Zero Averaged Normalized Magnitude in Matrix: {:.6}", sum_avg_norm_mag / count_nz as f32)?;
+            writeln!(file, "Min Non-Zero Averaged Amplitude Spectrum in Matrix: {:.6}", min_nz_avg_amp_spec)?;
+            writeln!(file, "Avg Non-Zero Averaged Amplitude Spectrum in Matrix: {:.6}", sum_avg_amp_spec / count_nz as f32)?;
         } else {
-            writeln!(file, "Averaged Normalized Magnitude Matrix effectively empty or all very small values.")?;
+            writeln!(file, "Averaged Amplitude Spectrum Matrix effectively empty or all very small values.")?;
         }
         writeln!(file, "Constant MIN_POWER_FOR_LOG_SCALE (used as floor for plotting): {}", MIN_POWER_FOR_LOG_SCALE)?;
         writeln!(file, "--------------------------------------------------------------------")?;
     }
 
-    // The 4th element is overall_peak_normalized_segment_magnitude, which BBE seems to display as "peak_lin".
-    // The averaged_normalized_magnitudes_matrix is used for the heatmap colors, scaled against BBE_SCALE_HEATMAP.
     Ok((
-        averaged_normalized_magnitudes_matrix,
+        averaged_amplitude_spectrum_matrix, // This is now N-normalized and 2x scaled (where appropriate)
         freq_bins,
         throttle_bin_centers,
-        overall_peak_normalized_segment_magnitude 
+        overall_peak_raw_segment_magnitude // This is the peak of raw magnitudes, for text display
     ))
 }
+
 // src/fft_utils.rs
