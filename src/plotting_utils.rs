@@ -659,11 +659,17 @@ pub fn plot_step_response(
 }
 
 fn get_spectrogram_color(averaged_normalized_amplitude: f32) -> RGBColor {
-    // Scale against BBE_SCALE_HEATMAP for HSL lightness (0.0 to 1.0)
+    // Linearly scale the averaged (N-normalized, 2x scaled) amplitude against BBE_SCALE_HEATMAP
     // An averaged_normalized_amplitude equal to BBE_SCALE_HEATMAP (or higher) results in 1.0 lightness (white).
-    let lightness = (averaged_normalized_amplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+    let mut lightness = (averaged_normalized_amplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+
+    // Apply a gamma correction to enhance visibility of lower-mid range values
+    // A gamma of 0.5 (sqrt) will brighten mid-tones. Adjust as needed.
+    // BBE's visual output suggests something like this might be happening.
+    const GAMMA: f32 = 0.6; // Experiment with this value (e.g., 0.4, 0.5, 0.6)
+    lightness = lightness.powf(GAMMA);
     
-    hsl_to_rgb(0.0, 1.0, lightness) // Hue 0 (Red), Sat 1.0
+    hsl_to_rgb(0.0, 1.0, lightness.clamp(0.0, 1.0)) // Hue 0 (Red), Sat 1.0
 }
 
 
@@ -764,12 +770,13 @@ where DB::ErrorType: 'static
 
             if let Some(file) = diag_file.as_mut() {
                  if avg_amplitude_val > 0.001 { 
-                    let lightness_debug = (avg_amplitude_val / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+                    let lightness_before_gamma = (avg_amplitude_val / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+                    let lightness_after_gamma = lightness_before_gamma.powf(0.6); // Assuming GAMMA = 0.6
                     if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
                        i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
-                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgNormAmp: {:.4} (BBE_SCALE_HEATMAP: {:.2}), Lightness: {:.3}, Color: {:?}",
+                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgNormAmp: {:.4} (BBE_SCALE_HEATMAP: {:.2}), Lightness (before/after gamma 0.6): {:.3}/{:.3}, Color: {:?}",
                                  i_freq_idx, j_throttle_idx, avg_amplitude_val, BBE_SCALE_HEATMAP,
-                                 lightness_debug, color)?;
+                                 lightness_before_gamma, lightness_after_gamma, color)?;
                     }
                 }
             }
@@ -789,7 +796,6 @@ where DB::ErrorType: 'static
     let text_pos_x = x_range_spec.end * 0.65_f32;
     let text_pos_y = y_range_spec.end * 0.9_f32;
     chart.plotting_area().draw(&Text::new(
-        // Display mean of N-normalized, 2x-scaled amplitudes, and peak of raw segment magnitudes
         format!("mean_mag={:.1} peak_mag_seg={:.1}", mean_of_avg_amplitudes, peak_raw_segment_magnitude_for_text),
         (text_pos_x, text_pos_y),
         text_style_spec,
@@ -806,7 +812,7 @@ pub fn plot_throttle_spectrograms(
     if let Some(file) = diag_file.as_mut() {
         writeln!(file, "--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---")?;
         writeln!(file, "Using HSL(0, 100%, L) based calculation (Black-Red-White).")?;
-        writeln!(file, "Lightness 'L' is (AveragedNormalizedAmplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).")?;
+        writeln!(file, "Lightness 'L' is ((AveragedNormalizedAmplitude / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0). GAMMA ~0.6")?;
         writeln!(file, "BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP)?;
         writeln!(file, "'peak_mag_seg' text shows peak of raw magnitudes from individual FFT segments.")?;
         writeln!(file, "Averaged amplitudes are N-normalized and 2x scaled (for non-DC/Nyquist).")?;
@@ -814,7 +820,7 @@ pub fn plot_throttle_spectrograms(
     } else {
         println!("--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---");
         println!("Using HSL(0, 100%, L) based calculation (Black-Red-White).");
-        println!("Lightness 'L' is (AveragedNormalizedAmplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).");
+        println!("Lightness 'L' is ((AveragedNormalizedAmplitude / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0). GAMMA ~0.6");
         println!("BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP);
         println!("'peak_mag_seg' text shows peak of raw magnitudes from individual FFT segments.");
         println!("Averaged amplitudes are N-normalized and 2x scaled (for non-DC/Nyquist).");
