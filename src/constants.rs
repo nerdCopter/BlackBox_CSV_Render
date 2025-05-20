@@ -54,13 +54,19 @@ pub const SPECTROGRAM_THROTTLE_BINS: usize = 100;
 pub const SPECTROGRAM_FFT_TIME_WINDOW_MS: f64 = 300.0;
 pub const SPECTROGRAM_FFT_OVERLAP_FACTOR: usize = 6; // BBE uses 6 (for hop size = window/6) -> ~83% overlap
 
-pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0; 
+pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0;
 
-// MIN_POWER_FOR_LOG_SCALE is the LINEAR power that maps to the bottom (black) of the log scale for the colormap.
-pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.001;
-// AUTO_CLIP_MAX_SCALE_FACTOR scales the auto-detected maximum power from the *averaged* data.
-// Set to 1.0 to use the actual peak of the averaged PSD as the "white point" in the log color scale.
-pub const AUTO_CLIP_MAX_SCALE_FACTOR: f32 = 1.0;
+// BBE uses a fixed scaling factor for its heatmap cell colors.
+// An averaged magnitude of BBE_SCALE_HEATMAP in a cell corresponds to 100% lightness (white).
+pub const BBE_SCALE_HEATMAP: f32 = 1.3;
+
+// MIN_POWER_FOR_LOG_SCALE is less critical for BBE's HSL lightness but can act as a floor.
+// BBE's HSL naturally maps small magnitudes to dark colors.
+pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.00001; // Adjusted to be very small, effectively letting HSL handle darkness.
+
+// AUTO_CLIP_MAX_SCALE_FACTOR is not used for the spectrogram color scaling if BBE_SCALE_HEATMAP is used.
+// It was for scaling the peak of the *averaged data* as the white point.
+// pub const AUTO_CLIP_MAX_SCALE_FACTOR: f32 = 1.0;
 
 
 pub const SPECTROGRAM_TEXT_COLOR: &RGBColor = &WHITE;

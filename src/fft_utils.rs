@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io::Write;
 
 use crate::step_response::tukeywin;
-use crate::constants::{SPECTROGRAM_FFT_OVERLAP_FACTOR, AUTO_CLIP_MAX_SCALE_FACTOR, MIN_POWER_FOR_LOG_SCALE};
+use crate::constants::{SPECTROGRAM_FFT_OVERLAP_FACTOR, MIN_POWER_FOR_LOG_SCALE}; // Removed AUTO_CLIP_MAX_SCALE_FACTOR
 
 
 pub fn fft_forward(data: &Array1<f32>) -> Array1<Complex32> {
@@ -81,7 +81,7 @@ pub fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> {
     freqs
 }
 
-// Returns: (Averaged PSD Matrix, Frequency Bins, Throttle Bin Centers, Max Power from Averaged PSD for Auto-Clipping)
+// Returns: (Averaged Magnitude Matrix, Frequency Bins, Throttle Bin Centers, Peak Magnitude from any Segment for text display)
 pub fn calculate_throttle_psd(
     gyro_signal: &Array1<f32>,
     throttle_signal: &Array1<f32>,
@@ -109,19 +109,20 @@ pub fn calculate_throttle_psd(
     }
 
     let num_freq_bins_output = fft_window_size / 2 + 1;
-    let mut psd_matrix_sum = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
-    let mut psd_matrix_counts = Array2::<usize>::zeros((num_freq_bins_output, num_throttle_bins));
+    let mut sum_magnitudes_matrix = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
+    let mut counts_matrix = Array2::<usize>::zeros((num_freq_bins_output, num_throttle_bins));
 
     let hanning_window = tukeywin(fft_window_size, 1.0); // Alpha 1.0 for Hanning
     let hop_size = (fft_window_size / SPECTROGRAM_FFT_OVERLAP_FACTOR).max(1);
     let throttle_bin_width = 100.0 / num_throttle_bins as f32;
+
+    let mut overall_peak_segment_magnitude = 0.0f32; // To track BBE's maxNoise equivalent
 
     let mut current_pos = 0;
     while current_pos + fft_window_size <= gyro_signal.len() {
         let gyro_segment_slice = &gyro_signal.slice(ndarray::s![current_pos..(current_pos + fft_window_size)]);
         let throttle_segment_slice = &throttle_signal.slice(ndarray::s![current_pos..(current_pos + fft_window_size)]);
 
-        // Calculate average throttle for this segment
         let avg_throttle_in_segment: f32 = throttle_segment_slice.mean().unwrap_or(0.0);
         let mut throttle_bin_index = (avg_throttle_in_segment.clamp(0.0, 100.0) / throttle_bin_width).floor() as usize;
         if throttle_bin_index >= num_throttle_bins {
@@ -135,9 +136,14 @@ pub fn calculate_throttle_psd(
 
         if spectrum_complex.len() == num_freq_bins_output {
             for freq_idx in 0..num_freq_bins_output {
-                let power = spectrum_complex[freq_idx].norm(); // Magnitude of complex number
-                psd_matrix_sum[[freq_idx, throttle_bin_index]] += power;
-                psd_matrix_counts[[freq_idx, throttle_bin_index]] += 1;
+                // BBE uses magnitude (sqrt of power or c.norm())
+                let magnitude = spectrum_complex[freq_idx].norm(); // .norm() is sqrt(re*re + im*im)
+                
+                if magnitude > overall_peak_segment_magnitude {
+                    overall_peak_segment_magnitude = magnitude;
+                }
+                sum_magnitudes_matrix[[freq_idx, throttle_bin_index]] += magnitude;
+                counts_matrix[[freq_idx, throttle_bin_index]] += 1;
             }
         } else {
             let msg = format!(
@@ -150,17 +156,12 @@ pub fn calculate_throttle_psd(
         current_pos += hop_size;
     }
 
-    let mut averaged_psd_matrix = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
-    let mut overall_max_averaged_psd_val = 0.0f32;
-
+    let mut averaged_magnitudes_matrix = Array2::<f32>::zeros((num_freq_bins_output, num_throttle_bins));
     for freq_idx in 0..num_freq_bins_output {
         for bin_idx in 0..num_throttle_bins {
-            if psd_matrix_counts[[freq_idx, bin_idx]] > 0 {
-                let avg_power = psd_matrix_sum[[freq_idx, bin_idx]] / psd_matrix_counts[[freq_idx, bin_idx]] as f32;
-                averaged_psd_matrix[[freq_idx, bin_idx]] = avg_power;
-                if avg_power > overall_max_averaged_psd_val {
-                    overall_max_averaged_psd_val = avg_power;
-                }
+            if counts_matrix[[freq_idx, bin_idx]] > 0 {
+                averaged_magnitudes_matrix[[freq_idx, bin_idx]] =
+                    sum_magnitudes_matrix[[freq_idx, bin_idx]] / counts_matrix[[freq_idx, bin_idx]] as f32;
             }
         }
     }
@@ -170,39 +171,37 @@ pub fn calculate_throttle_psd(
         (i as f32 + 0.5) * throttle_bin_width
     });
 
-    // This is the value used for the "peak_lin" display and for auto-ranging the colormap.
-    let effective_clip_max_for_plot = overall_max_averaged_psd_val * AUTO_CLIP_MAX_SCALE_FACTOR;
-
     if let Some(file) = diag_file.as_mut() {
-        writeln!(file, "--- PSD Matrix Diagnostic (fft_utils.rs) ---")?;
+        writeln!(file, "--- PSD (Magnitude) Matrix Diagnostic (fft_utils.rs) ---")?;
         writeln!(file, "FFT Window Time (ms): {}, Calculated FFT Window Size (samples): {}", fft_window_time_ms, fft_window_size)?;
         writeln!(file, "Hop Size (samples): {}, Overlap Factor: {}", hop_size, SPECTROGRAM_FFT_OVERLAP_FACTOR)?;
-        writeln!(file, "Dimensions: {} freq_bins x {} throttle_bins", averaged_psd_matrix.shape()[0], averaged_psd_matrix.shape()[1])?;
+        writeln!(file, "Dimensions: {} freq_bins x {} throttle_bins", averaged_magnitudes_matrix.shape()[0], averaged_magnitudes_matrix.shape()[1])?;
         
-        let mut min_nz_psd_val = f32::MAX;
-        let mut sum_psd_val = 0.0f32;
+        let mut min_nz_avg_mag = f32::MAX;
+        let mut sum_avg_mag = 0.0f32;
         let mut count_nz = 0;
-        averaged_psd_matrix.iter().for_each(|&val| {
-            if val > 1e-9 { // Consider non-zero
-                if val < min_nz_psd_val { min_nz_psd_val = val; }
-                sum_psd_val += val;
+        let mut max_avg_mag = 0.0f32;
+        averaged_magnitudes_matrix.iter().for_each(|&val| {
+            if val > MIN_POWER_FOR_LOG_SCALE { // Use a small threshold
+                if val < min_nz_avg_mag { min_nz_avg_mag = val; }
+                if val > max_avg_mag {max_avg_mag = val;}
+                sum_avg_mag += val;
                 count_nz +=1;
             }
         });
 
-        writeln!(file, "Max Averaged PSD value (overall_max_averaged_psd_val): {}", overall_max_averaged_psd_val)?;
-        writeln!(file, "Effective Clip Max for Plotting (based on averaged PSD, before log): {}", effective_clip_max_for_plot)?;
+        writeln!(file, "Overall Peak Segment Magnitude (for text display 'peak_lin'): {:.2}", overall_peak_segment_magnitude)?;
+        writeln!(file, "Max value in Averaged Magnitude Matrix: {:.2}", max_avg_mag)?;
         if count_nz > 0 {
-            writeln!(file, "Min Non-Zero Averaged PSD value in Matrix: {}", min_nz_psd_val)?;
-            writeln!(file, "Avg Non-Zero Averaged PSD value in Matrix: {}", sum_psd_val / count_nz as f32)?;
+            writeln!(file, "Min Non-Zero Averaged Magnitude in Matrix: {:.6}", min_nz_avg_mag)?;
+            writeln!(file, "Avg Non-Zero Averaged Magnitude in Matrix: {:.2}", sum_avg_mag / count_nz as f32)?;
         } else {
-            writeln!(file, "Averaged PSD Matrix effectively empty or all zeros.")?;
+            writeln!(file, "Averaged Magnitude Matrix effectively empty or all very small values.")?;
         }
-        writeln!(file, "Constant MIN_POWER_FOR_LOG_SCALE: {}", MIN_POWER_FOR_LOG_SCALE)?;
-        writeln!(file, "Constant AUTO_CLIP_MAX_SCALE_FACTOR: {}", AUTO_CLIP_MAX_SCALE_FACTOR)?;
-        writeln!(file, "------------------------------------------")?;
+        writeln!(file, "Constant MIN_POWER_FOR_LOG_SCALE (used as floor for plotting): {}", MIN_POWER_FOR_LOG_SCALE)?;
+        writeln!(file, "-----------------------------------------------------------")?;
     }
 
-    Ok((averaged_psd_matrix, freq_bins, throttle_bin_centers, effective_clip_max_for_plot))
+    Ok((averaged_magnitudes_matrix, freq_bins, throttle_bin_centers, overall_peak_segment_magnitude))
 }
 // src/fft_utils.rs

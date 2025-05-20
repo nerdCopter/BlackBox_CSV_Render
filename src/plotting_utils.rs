@@ -10,7 +10,6 @@ use plotters::series::LineSeries;
 use plotters::style::colors::{WHITE, BLACK, RED};
 
 use std::error::Error;
-// Removed OnceLock as generate_hot_colormap_once is removed
 use std::fs::File;
 use std::io::Write;
 
@@ -29,15 +28,14 @@ use crate::constants::{
     SPECTROGRAM_THROTTLE_BINS,
     SPECTROGRAM_FFT_TIME_WINDOW_MS,
     SPECTROGRAM_MAX_FREQ_HZ,
-    MIN_POWER_FOR_LOG_SCALE,
+    BBE_SCALE_HEATMAP, // Using BBE's scaling constant
+    MIN_POWER_FOR_LOG_SCALE, // Still useful as a floor
     SPECTROGRAM_TEXT_COLOR, SPECTROGRAM_GRID_COLOR,
-    // AUTO_CLIP_MAX_SCALE_FACTOR is used in fft_utils to calculate effective_clip_max
 };
 use crate::log_data::LogRowData;
 use crate::step_response;
 use crate::fft_utils;
 
-// Removed generate_hot_colormap_once and GENERATED_HOT_COLORMAP
 
 // Helper function to convert HSL to RGB
 // h (hue) is 0-360 (we'll use 0 for red), s (saturation) is 0-1, l (lightness) is 0-1
@@ -48,7 +46,7 @@ fn hsl_to_rgb(h_degrees: f32, s: f32, l: f32) -> RGBColor {
     }
 
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let h_prime = (h_degrees % 360.0) / 60.0; 
+    let h_prime = (h_degrees % 360.0) / 60.0;
     let x = c * (1.0 - (h_prime % 2.0 - 1.0).abs());
     let m = l - c / 2.0;
 
@@ -661,21 +659,25 @@ pub fn plot_step_response(
     )
 }
 
-// effective_clip_max is the peak of the *averaged* PSD matrix, scaled by AUTO_CLIP_MAX_SCALE_FACTOR
-fn get_spectrogram_color(linear_power: f32, effective_clip_max_for_color_scale: f32) -> RGBColor {
-    let power_val = linear_power.max(MIN_POWER_FOR_LOG_SCALE);
+// Get color based on BBE's HSL lightness scaling.
+// `averaged_magnitude` is the value from the averaged magnitude matrix for the current cell.
+// `clip_magnitude_for_hsl_scale` is BBE_SCALE_HEATMAP (e.g., 1.3).
+fn get_spectrogram_color(averaged_magnitude: f32, clip_magnitude_for_hsl_scale: f32) -> RGBColor {
+    // Linearly scale the averaged magnitude against BBE_SCALE_HEATMAP for lightness.
+    // An averaged_magnitude equal to clip_magnitude_for_hsl_scale (or higher) results in 1.0 lightness (white).
+    let lightness = (averaged_magnitude / clip_magnitude_for_hsl_scale).clamp(0.0, 1.0);
 
-    let log_max_val = effective_clip_max_for_color_scale.max(MIN_POWER_FOR_LOG_SCALE).log10();
-    let log_min_val = MIN_POWER_FOR_LOG_SCALE.log10();
-    let current_log_power = power_val.log10();
-
-    let lightness = if log_max_val <= log_min_val {
-        0.0 
+    // Ensure very small magnitudes (close to or below MIN_POWER_FOR_LOG_SCALE, though here it's magnitude)
+    // result in black or very dark red.
+    // BBE's HSL naturally handles this: small lightness -> dark color.
+    // If averaged_magnitude is very small, lightness will be near 0.
+    let effective_lightness = if averaged_magnitude < MIN_POWER_FOR_LOG_SCALE { // MIN_POWER_FOR_LOG_SCALE is tiny, acting as a noise floor
+        0.0
     } else {
-        ((current_log_power - log_min_val) / (log_max_val - log_min_val)).clamp(0.0, 1.0)
+        lightness
     };
-
-    hsl_to_rgb(0.0, 1.0, lightness) // Hue 0 (Red), Sat 1.0
+    
+    hsl_to_rgb(0.0, 1.0, effective_lightness) // Hue 0 (Red), Sat 1.0
 }
 
 
@@ -683,12 +685,11 @@ fn draw_single_throttle_spectrogram<DB: DrawingBackend>(
     area: &DrawingArea<DB, Shift>,
     title_prefix: &str,
     axis_name: &str,
-    averaged_psd_matrix: &Array2<f32>, // This is the matrix of averaged PSD values
+    averaged_magnitude_matrix: &Array2<f32>, // This is the matrix of averaged magnitudes
     freq_bins: &Array1<f32>,
     throttle_bins: &Array1<f32>,
-    // This is the peak from the averaged_psd_matrix, scaled by AUTO_CLIP_MAX_SCALE_FACTOR.
-    // Used for both color scaling and the "peak_lin" display text.
-    effective_clip_max_for_plot: f32,
+    // This is the peak magnitude from *any individual segment's FFT*, used for "peak_lin" text.
+    peak_segment_magnitude_for_text: f32,
     mut diag_file: Option<&mut File>,
 ) -> Result<(), Box<dyn Error>>
 where DB::ErrorType: 'static
@@ -717,7 +718,7 @@ where DB::ErrorType: 'static
         .y_labels(5)
         .draw()?;
 
-    let (num_freq_bins_total, num_throttle_plot_bins) = averaged_psd_matrix.dim();
+    let (num_freq_bins_total, num_throttle_plot_bins) = averaged_magnitude_matrix.dim();
     if num_freq_bins_total == 0 || num_throttle_plot_bins == 0 || freq_bins.len() != num_freq_bins_total || throttle_bins.len() != num_throttle_plot_bins {
         let text_style = ("sans-serif", 16).into_font().color(&RED);
         let text_x = x_range_spec.start + (x_range_spec.end - x_range_spec.start) * 0.1;
@@ -736,8 +737,8 @@ where DB::ErrorType: 'static
         100.0
     };
 
-    let mut total_power_sum_linear = 0.0f32;
-    let mut power_count = 0;
+    let mut total_magnitude_sum = 0.0f32;
+    let mut magnitude_count = 0;
 
     for j_throttle_idx in 0..num_throttle_plot_bins {
         let throttle_center = throttle_bins[j_throttle_idx];
@@ -766,30 +767,22 @@ where DB::ErrorType: 'static
             let x0_freq = freq_center - freq_cell_width / 2.0;
             let x1_freq = freq_center + freq_cell_width / 2.0;
 
-            let power = averaged_psd_matrix[[i_freq_idx, j_throttle_idx]]; // Use the averaged power for coloring
-            if power > 1e-9 { // Consider non-zero for mean calculation
-                 total_power_sum_linear += power;
-                 power_count += 1;
+            let avg_magnitude = averaged_magnitude_matrix[[i_freq_idx, j_throttle_idx]];
+            if avg_magnitude > MIN_POWER_FOR_LOG_SCALE { // Use a small threshold for mean calculation
+                 total_magnitude_sum += avg_magnitude;
+                 magnitude_count += 1;
             }
-            // Use effective_clip_max_for_plot (derived from peak of averaged PSD) for color scaling
-            let color = get_spectrogram_color(power, effective_clip_max_for_plot);
+            
+            let color = get_spectrogram_color(avg_magnitude, BBE_SCALE_HEATMAP);
 
             if let Some(file) = diag_file.as_mut() {
-                if power > 0.00001 { // Log only significant power values
-                    let log_max_val_debug = effective_clip_max_for_plot.max(MIN_POWER_FOR_LOG_SCALE).log10();
-                    let log_min_val_debug = MIN_POWER_FOR_LOG_SCALE.log10();
-                    let current_log_power_debug = power.max(MIN_POWER_FOR_LOG_SCALE).log10();
-                    let normalized_lightness_debug = if log_max_val_debug <= log_min_val_debug { 0.0 } else {
-                        ((current_log_power_debug - log_min_val_debug) / (log_max_val_debug - log_min_val_debug)).clamp(0.0, 1.0)
-                    };
-
+                if avg_magnitude > 0.01 { // Log only somewhat significant averaged magnitudes
+                    let lightness_debug = (avg_magnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
                     if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
                        i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
-                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgLinPower: {:.4}, LogPower: {:.2} (MinLinP_Scale: {:.4}, EffectiveClipMax_Scale: {:.2} -> LogRange: {:.2} to {:.2}), Lightness: {:.3}, Color: {:?}",
-                                 i_freq_idx, j_throttle_idx, power, current_log_power_debug,
-                                 MIN_POWER_FOR_LOG_SCALE, effective_clip_max_for_plot,
-                                 log_min_val_debug, log_max_val_debug,
-                                 normalized_lightness_debug, color)?;
+                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgMag: {:.4} (ClipMagForHSL: {:.2}), Lightness: {:.3}, Color: {:?}",
+                                 i_freq_idx, j_throttle_idx, avg_magnitude, BBE_SCALE_HEATMAP,
+                                 lightness_debug, color)?;
                     }
                 }
             }
@@ -803,14 +796,13 @@ where DB::ErrorType: 'static
         }
     }
 
-    let mean_linear_power = if power_count > 0 { total_power_sum_linear / power_count as f32 } else { 0.0 };
+    let mean_avg_magnitude = if magnitude_count > 0 { total_magnitude_sum / magnitude_count as f32 } else { 0.0 };
 
     let text_style_spec = ("sans-serif", 12).into_font().color(SPECTROGRAM_TEXT_COLOR);
     let text_pos_x = x_range_spec.end * 0.65_f32;
     let text_pos_y = y_range_spec.end * 0.9_f32;
     chart.plotting_area().draw(&Text::new(
-        // peak_lin should display the effective_clip_max_for_plot (max of averaged PSD)
-        format!("mean_lin={:.1} peak_lin={:.1}", mean_linear_power, effective_clip_max_for_plot),
+        format!("mean_mag={:.1} peak_mag_seg={:.1}", mean_avg_magnitude, peak_segment_magnitude_for_text),
         (text_pos_x, text_pos_y),
         text_style_spec,
     ))?;
@@ -826,14 +818,16 @@ pub fn plot_throttle_spectrograms(
     if let Some(file) = diag_file.as_mut() {
         writeln!(file, "--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---")?;
         writeln!(file, "Using direct HSL(0, 100%, L) based calculation (Black-Red-White).")?;
-        writeln!(file, "Lightness 'L' is derived logarithmically from power relative to MIN_POWER_FOR_LOG_SCALE and effective_clip_max_for_plot.")?;
-        writeln!(file, "effective_clip_max_for_plot is the peak of the averaged PSD matrix, scaled by AUTO_CLIP_MAX_SCALE_FACTOR.")?;
+        writeln!(file, "Lightness 'L' is (AveragedMagnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).")?;
+        writeln!(file, "BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP)?;
+        writeln!(file, "'peak_lin' text will show peak magnitude from any individual FFT segment.")?;
         writeln!(file, "------------------------------------------------------------------------------------")?;
     } else {
         println!("--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---");
         println!("Using direct HSL(0, 100%, L) based calculation (Black-Red-White).");
-        println!("Lightness 'L' is derived logarithmically from power relative to MIN_POWER_FOR_LOG_SCALE and effective_clip_max_for_plot.");
-        println!("effective_clip_max_for_plot is the peak of the averaged PSD matrix, scaled by AUTO_CLIP_MAX_SCALE_FACTOR.");
+        println!("Lightness 'L' is (AveragedMagnitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0).");
+        println!("BBE_SCALE_HEATMAP = {}.", BBE_SCALE_HEATMAP);
+        println!("'peak_lin' text will show peak magnitude from any individual FFT segment.");
         println!("------------------------------------------------------------------------------------");
     }
 
@@ -889,19 +883,18 @@ pub fn plot_throttle_spectrograms(
                 SPECTROGRAM_FFT_TIME_WINDOW_MS,
                 diag_file.as_mut().map(|df| &mut **df),
             ) {
-                // averaged_psd_matrix, freq_bins, throttle_bins, effective_clip_max_for_plot (peak of averaged PSD)
-                Ok((psd_matrix, freq_bins, throttle_bins, effective_clip_max)) => {
+                Ok((avg_mag_matrix, freq_bins, throttle_bins, peak_segment_mag_for_text)) => {
                     if let Some(file) = diag_file.as_mut() {
-                        writeln!(file, "Plotting Unfiltered Gyro Axis {} with EffectiveClipMax (from avg PSD): {:.2}", axis_names[axis_index], effective_clip_max)?;
+                        writeln!(file, "Plotting Unfiltered Gyro Axis {} with PeakSegmentMagnitude (for text): {:.2}", axis_names[axis_index], peak_segment_mag_for_text)?;
                     }
                     draw_single_throttle_spectrogram(
                         &unfilt_area,
                         "Unfiltered Gyro",
                         axis_names[axis_index],
-                        &psd_matrix,
+                        &avg_mag_matrix,
                         &freq_bins,
                         &throttle_bins,
-                        effective_clip_max, // This is now peak of averaged PSD
+                        peak_segment_mag_for_text,
                         diag_file.as_mut().map(|df| &mut **df),
                     )?;
                     any_spectrogram_plotted = true;
@@ -945,18 +938,18 @@ pub fn plot_throttle_spectrograms(
                 SPECTROGRAM_FFT_TIME_WINDOW_MS,
                 diag_file.as_mut().map(|df| &mut **df),
             ) {
-                 Ok((psd_matrix, freq_bins, throttle_bins, effective_clip_max)) => {
+                 Ok((avg_mag_matrix, freq_bins, throttle_bins, peak_segment_mag_for_text)) => {
                      if let Some(file) = diag_file.as_mut() {
-                        writeln!(file, "Plotting Filtered Gyro Axis {} with EffectiveClipMax (from avg PSD): {:.2}", axis_names[axis_index], effective_clip_max)?;
+                        writeln!(file, "Plotting Filtered Gyro Axis {} with PeakSegmentMagnitude (for text): {:.2}", axis_names[axis_index], peak_segment_mag_for_text)?;
                     }
                     draw_single_throttle_spectrogram(
                         &filt_area,
                         "Filtered Gyro",
                         axis_names[axis_index],
-                        &psd_matrix,
+                        &avg_mag_matrix,
                         &freq_bins,
                         &throttle_bins,
-                        effective_clip_max, // This is now peak of averaged PSD
+                        peak_segment_mag_for_text,
                         diag_file.as_mut().map(|df| &mut **df),
                     )?;
                     any_spectrogram_plotted = true;
