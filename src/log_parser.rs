@@ -164,7 +164,11 @@ pub fn parse_csv(
 
     let sample_rate_option = if time_values.len() > 1 {
         let total_time = time_values.last().unwrap() - time_values.first().unwrap();
-        Some((time_values.len() - 1) as f64 / total_time)
+        if total_time > std::f64::EPSILON {
+            Some((time_values.len() - 1) as f64 / total_time)
+        } else {
+            None  // or return an Err(...) explaining corrupted timestamps
+        }
     } else {
         None
     };

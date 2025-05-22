@@ -70,7 +70,7 @@ pub fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> {
     }
     let num_freqs = if n % 2 == 0 { n / 2 + 1 } else { (n + 1) / 2 };
     let mut freqs = Array1::<f32>::zeros(num_freqs);
-    let sample_rate = 1.0 / d;
+    let sample_rate = 1.0f32 / d;
     if num_freqs <= 1 {
         if num_freqs == 1 { freqs[0] = 0.0; }
         return freqs;

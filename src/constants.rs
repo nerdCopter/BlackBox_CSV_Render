@@ -59,6 +59,7 @@ pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0;
 // BBE uses a fixed scaling factor for its heatmap cell colors.
 // An averaged magnitude of BBE_SCALE_HEATMAP in a cell corresponds to 100% lightness (white) *before gamma*.
 pub const BBE_SCALE_HEATMAP: f32 = 1.3;
+pub const MIN_VISIBLE_SPECTROGRAM_LIGHTNESS: f32 = 0.05; // A very small non-zero lightness value to ensure visibility
 
 // MIN_POWER_FOR_LOG_SCALE is used as a general small value, e.g. for calculating mean of non-trivial values
 pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.00001; 

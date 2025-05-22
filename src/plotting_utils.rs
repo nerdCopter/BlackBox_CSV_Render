@@ -1,47 +1,40 @@
 // src/plotting_utils.rs
 
-use plotters::backend::{BitMapBackend, DrawingBackend};
-use plotters::drawing::{DrawingArea, IntoDrawingArea};
-use plotters::style::{RGBColor, RGBAColor, IntoFont, Color, ShapeStyle, TextStyle};
-use plotters::element::{Text, Rectangle, PathElement};
-use plotters::chart::{ChartBuilder, SeriesLabelPosition};
-use plotters::coord::{Shift};
-use plotters::series::LineSeries;
-use plotters::style::colors::{WHITE, BLACK, RED};
+use plotters::prelude::*;
 
 use std::error::Error;
 use std::fs::File;
 use std::io::Write;
-
+use plotters::coord::Shift; // Explicitly import Shift
 
 use ndarray::{Array1, Array2, s};
 use ndarray_stats::QuantileExt;
 
-use crate::constants::{
-    PLOT_WIDTH, PLOT_HEIGHT, STEP_RESPONSE_PLOT_DURATION_S, SETPOINT_THRESHOLD,
-    POST_AVERAGING_SMOOTHING_WINDOW, STEADY_STATE_START_S, STEADY_STATE_END_S,
-    COLOR_PIDSUM_MAIN, COLOR_PIDERROR_MAIN, COLOR_SETPOINT_MAIN,
-    COLOR_SETPOINT_VS_GYRO_SP, COLOR_SETPOINT_VS_GYRO_GYRO,
-    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT,
-    COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
-    LINE_WIDTH_PLOT, LINE_WIDTH_LEGEND,
-    SPECTROGRAM_THROTTLE_BINS,
-    SPECTROGRAM_FFT_TIME_WINDOW_MS,
-    SPECTROGRAM_MAX_FREQ_HZ,
-    BBE_SCALE_HEATMAP, 
-    MIN_POWER_FOR_LOG_SCALE, 
-    SPECTROGRAM_TEXT_COLOR, SPECTROGRAM_GRID_COLOR,
-    SPECTROGRAM_GAMMA, SPECTROGRAM_BLACK_THRESHOLD, // Ensure these are used
+use crate::{
+    constants::{
+        BBE_SCALE_HEATMAP, COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT,
+        COLOR_PIDERROR_MAIN, COLOR_PIDSUM_MAIN, COLOR_SETPOINT_MAIN,
+        COLOR_SETPOINT_VS_GYRO_GYRO, COLOR_SETPOINT_VS_GYRO_SP, COLOR_STEP_RESPONSE_COMBINED,
+        COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_LOW_SP, LINE_WIDTH_LEGEND,
+        LINE_WIDTH_PLOT, MIN_POWER_FOR_LOG_SCALE, PLOT_HEIGHT, PLOT_WIDTH,
+        POST_AVERAGING_SMOOTHING_WINDOW, SETPOINT_THRESHOLD, SPECTROGRAM_BLACK_THRESHOLD,
+        SPECTROGRAM_FFT_TIME_WINDOW_MS, SPECTROGRAM_GAMMA, SPECTROGRAM_GRID_COLOR,
+        SPECTROGRAM_MAX_FREQ_HZ, SPECTROGRAM_THROTTLE_BINS, SPECTROGRAM_TEXT_COLOR,
+        STEADY_STATE_END_S, STEADY_STATE_START_S, STEP_RESPONSE_PLOT_DURATION_S,
+        MIN_VISIBLE_SPECTROGRAM_LIGHTNESS, // Import the new constant
+    },
+    fft_utils, log_data::LogRowData, step_response,
 };
-use crate::log_data::LogRowData;
-use crate::step_response;
-use crate::fft_utils;
 
 
 // Helper function to convert HSL to RGB
 fn hsl_to_rgb(h_degrees: f32, s: f32, l: f32) -> RGBColor {
-    if s == 0.0 { 
-        let val = (l * 255.0).round().clamp(0.0, 255.0) as u8;
+    if s == 0.0 {
+        let mut val = (l * 255.0).round().clamp(0.0, 255.0) as u8;
+        // If lightness is non-zero but rounds to 0, force it to 1 to ensure visibility.
+        if l > 0.0 && val == 0 {
+            val = 1;
+        }
         return RGBColor(val, val, val);
     }
 
@@ -50,7 +43,7 @@ fn hsl_to_rgb(h_degrees: f32, s: f32, l: f32) -> RGBColor {
     let x = c * (1.0 - (h_prime % 2.0 - 1.0).abs());
     let m = l - c / 2.0;
 
-    let (r1, g1, b1) = if h_prime >= 0.0 && h_prime < 1.0 {
+    let (r_base, g_base, b_base) = if h_prime >= 0.0 && h_prime < 1.0 {
         (c, x, 0.0)
     } else if h_prime >= 1.0 && h_prime < 2.0 {
         (x, c, 0.0)
@@ -60,15 +53,25 @@ fn hsl_to_rgb(h_degrees: f32, s: f32, l: f32) -> RGBColor {
         (0.0, x, c)
     } else if h_prime >= 4.0 && h_prime < 5.0 {
         (x, 0.0, c)
-    } else { 
+    } else {
         (c, 0.0, x)
     };
 
-    RGBColor(
-        ((r1 + m) * 255.0).round().clamp(0.0, 255.0) as u8,
-        ((g1 + m) * 255.0).round().clamp(0.0, 255.0) as u8,
-        ((b1 + m) * 255.0).round().clamp(0.0, 255.0) as u8,
-    )
+    let r_float_val = (r_base + m) * 255.0;
+    let g_float_val = (g_base + m) * 255.0;
+    let b_float_val = (b_base + m) * 255.0;
+
+    let mut r = r_float_val.round().clamp(0.0, 255.0) as u8;
+    let mut g = g_float_val.round().clamp(0.0, 255.0) as u8;
+    let mut b = b_float_val.round().clamp(0.0, 255.0) as u8;
+
+    // If the float value was > 0 but rounded to 0, force it to 1.
+    // This is the crucial part for very dark but non-black colors.
+    if r_float_val > 0.0 && r == 0 { r = 1; }
+    if g_float_val > 0.0 && g == 0 { g = 1; }
+    if b_float_val > 0.0 && b == 0 { b = 1; }
+
+    RGBColor(r, g, b)
 }
 
 
@@ -250,6 +253,7 @@ pub fn plot_pidsum_error_setpoint(
             let mut val_min = f64::INFINITY;
             let mut val_max = f64::NEG_INFINITY;
 
+            // Corrected destructuring to include pidsum
             for (time, setpoint, gyro_filt, pidsum) in data {
                 time_min = time_min.min(*time);
                 time_max = time_max.max(*time);
@@ -507,8 +511,8 @@ pub fn plot_step_response(
     sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
     let step_response_plot_duration_s = STEP_RESPONSE_PLOT_DURATION_S;
-    let steady_state_start_s_const = STEADY_STATE_START_S;
-    let steady_state_end_s_const = STEADY_STATE_END_S;
+    let _steady_state_start_s_const = STEADY_STATE_START_S; // Suppress warning
+    let _steady_state_end_s_const = STEADY_STATE_END_S;     // Suppress warning
     let setpoint_threshold_const = SETPOINT_THRESHOLD;
     let post_averaging_smoothing_window_const = POST_AVERAGING_SMOOTHING_WINDOW;
     let color_high_sp: RGBColor = *COLOR_STEP_RESPONSE_HIGH_SP;
@@ -530,29 +534,29 @@ pub fn plot_step_response(
             }
 
             let num_qc_windows = valid_stacked_responses.shape()[0];
-            let ss_start_sample = (steady_state_start_s_const * sr).floor() as usize;
-            let ss_end_sample = (steady_state_end_s_const * sr).ceil() as usize;
+            let ss_start_sample = (STEADY_STATE_START_S * sr).floor() as usize;
+            let ss_end_sample = (STEADY_STATE_END_S * sr).ceil() as usize;
             let current_ss_start_sample = ss_start_sample.min(response_length_samples);
             let current_ss_end_sample = ss_end_sample.min(response_length_samples);
-
-            if current_ss_start_sample >= current_ss_end_sample {
+            
+            if ss_start_sample >= ss_end_sample {
                 eprintln!("Warning: Axis {} Step Response: Steady-state window is invalid (start >= end). Skipping final normalization and plot for this axis.", axis_index);
-                 continue;
+                continue;
             }
-
+            
             let low_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v.abs() < setpoint_threshold_const as f32 { 1.0 } else { 0.0 });
             let high_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| if v.abs() >= setpoint_threshold_const as f32 { 1.0 } else { 0.0 });
             let combined_mask: Array1<f32> = Array1::ones(num_qc_windows);
 
-            let process_response = |
+            let process_response = move |
                 mask: &Array1<f32>,
                 stacked_resp: &Array2<f32>,
                 resp_len_samples: usize,
-                ss_start_idx: usize,
-                ss_end_idx: usize,
                 smoothing_window: usize,
             | -> Option<Array1<f64>> {
-                if !mask.iter().any(|&w| w > 0.0) { return None; }
+                if !mask.iter().any(|&w| w > 0.0) {
+                    return None;
+                }
                 step_response::average_responses(stacked_resp, mask, resp_len_samples)
                     .ok()
                     .and_then(|avg_resp| {
@@ -563,26 +567,27 @@ pub fn plot_step_response(
                          if shifted_response.is_empty() { return None; }
                          let first_val = shifted_response[0];
                          shifted_response.mapv_inplace(|v| v - first_val);
-                         let steady_state_segment = shifted_response.slice(s![ss_start_idx..ss_end_idx]);
-                         steady_state_segment.mean()
+                        
+                        let steady_state_segment = shifted_response.slice(s![current_ss_start_sample..current_ss_end_sample]);
+                        steady_state_segment.mean()
                             .and_then(|steady_state_mean| {
-                                 if steady_state_mean.abs() > 1e-9 {
-                                      let normalized_response = shifted_response.mapv(|v| v / steady_state_mean);
-                                      normalized_response.slice(s![ss_start_idx..ss_end_idx]).mean()
+                                if steady_state_mean.abs() > 1e-9 {
+                                    let normalized_response = shifted_response.mapv(|v| v / steady_state_mean);
+                                    normalized_response.slice(s![current_ss_start_sample..current_ss_end_sample]).mean()
                                         .and_then(|normalized_ss_mean| {
                                             const STEADY_STATE_TOLERANCE: f64 = 0.2;
-                                             if (normalized_ss_mean - 1.0).abs() <= STEADY_STATE_TOLERANCE {
-                                                 Some(normalized_response)
-                                             } else { None }
+                                            if (normalized_ss_mean - 1.0).abs() <= STEADY_STATE_TOLERANCE {
+                                                Some(normalized_response)
+                                            } else { None }
                                         })
-                                 } else { None }
+                                } else { None }
                             })
                     })
             };
 
-            let final_low_response = process_response(&low_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window_const);
-            let final_high_response = process_response(&high_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window_const);
-            let final_combined_response = process_response(&combined_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window_const);
+            let final_low_response = process_response(&low_mask, valid_stacked_responses, response_length_samples, post_averaging_smoothing_window_const);
+            let final_high_response = process_response(&high_mask, valid_stacked_responses, response_length_samples, post_averaging_smoothing_window_const);
+            let final_combined_response = process_response(&combined_mask, valid_stacked_responses, response_length_samples, post_averaging_smoothing_window_const);
 
             let final_low_response_cloned = final_low_response.clone();
             let final_high_response_cloned = final_high_response.clone();
@@ -660,18 +665,17 @@ pub fn plot_step_response(
 }
 
 fn get_spectrogram_color(averaged_normalized_amplitude: f32) -> RGBColor {
-    // Uses SPECTROGRAM_GAMMA and SPECTROGRAM_BLACK_THRESHOLD from constants.rs
+    // Uses SPECTROGRAM_GAMMA and BBE_SCALE_HEATMAP from constants.rs
     let mut lightness;
 
-    if averaged_normalized_amplitude < SPECTROGRAM_BLACK_THRESHOLD {
-        lightness = 0.0;
-    } else {
-        // Scale against BBE_SCALE_HEATMAP for HSL lightness (0.0 to 1.0)
-        lightness = (averaged_normalized_amplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
-        // Apply gamma correction to the scaled lightness
-        lightness = lightness.powf(SPECTROGRAM_GAMMA); 
-    }
+    // Scale against BBE_SCALE_HEATMAP for HSL lightness (0.0 to 1.0)
+    lightness = (averaged_normalized_amplitude / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+    // Apply gamma correction to the scaled lightness
+    lightness = lightness.powf(SPECTROGRAM_GAMMA);
     
+    // Ensure a minimum visible lightness, preventing pure black bands
+    lightness = lightness.max(MIN_VISIBLE_SPECTROGRAM_LIGHTNESS);
+
     // Ensure lightness is strictly within [0,1] after all operations
     hsl_to_rgb(0.0, 1.0, lightness.clamp(0.0, 1.0))
 }
@@ -681,10 +685,10 @@ fn draw_single_throttle_spectrogram<DB: DrawingBackend>(
     area: &DrawingArea<DB, Shift>,
     title_prefix: &str,
     axis_name: &str,
-    averaged_amplitude_spectrum_matrix: &Array2<f32>, 
+    averaged_amplitude_spectrum_matrix: &Array2<f32>,
     freq_bins: &Array1<f32>,
     throttle_bins: &Array1<f32>,
-    peak_raw_segment_magnitude_for_text: f32, 
+    peak_raw_segment_magnitude_for_text: f32,
     mut diag_file: Option<&mut File>,
 ) -> Result<(), Box<dyn Error>>
 where DB::ErrorType: 'static
@@ -763,27 +767,25 @@ where DB::ErrorType: 'static
             let x1_freq = freq_center + freq_cell_width / 2.0;
 
             let avg_amplitude_val = averaged_amplitude_spectrum_matrix[[i_freq_idx, j_throttle_idx]];
-            if avg_amplitude_val > MIN_POWER_FOR_LOG_SCALE { 
+            if avg_amplitude_val > MIN_POWER_FOR_LOG_SCALE {
                  total_avg_amplitude_sum += avg_amplitude_val;
                  avg_amplitude_count += 1;
             }
-            
+
             let color = get_spectrogram_color(avg_amplitude_val);
 
             if let Some(file) = diag_file.as_mut() {
-                 if avg_amplitude_val > 0.001 { 
-                    let lightness_raw_scaled = (avg_amplitude_val / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
-                    let lightness_gamma_corrected = if avg_amplitude_val < SPECTROGRAM_BLACK_THRESHOLD { 
-                        0.0
-                    } else {
-                        lightness_raw_scaled.powf(SPECTROGRAM_GAMMA) 
-                    };
-                    if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
-                       i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
-                        writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgNormAmp: {:.4} (BBE_SCALE_HEATMAP: {:.2}, GAMMA: {:.2}, BLACK_THRESH: {:.5}), Lightness (raw_scaled/final_hsl): {:.3}/{:.3}, Color: {:?}",
-                                 i_freq_idx, j_throttle_idx, avg_amplitude_val, BBE_SCALE_HEATMAP, SPECTROGRAM_GAMMA, SPECTROGRAM_BLACK_THRESHOLD,
-                                 lightness_raw_scaled, lightness_gamma_corrected.clamp(0.0,1.0), color)?;
-                    }
+                // Re-introducing conditional logging to prevent massive file I/O, but ensuring some samples are logged.
+                let lightness_raw_scaled = (avg_amplitude_val / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
+                let lightness_gamma_corrected = lightness_raw_scaled.powf(SPECTROGRAM_GAMMA);
+                let final_lightness_for_diag = lightness_gamma_corrected.max(MIN_VISIBLE_SPECTROGRAM_LIGHTNESS);
+                
+                // Only log a sample of pixels to avoid performance issues
+                if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
+                   i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
+                    writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgNormAmp: {:.4} (BBE_SCALE_HEATMAP: {:.2}, GAMMA: {:.2}, BLACK_THRESH: {:.5}), Lightness (raw_scaled/final_hsl): {:.3}/{:.3}, Color: {:?}",
+                             i_freq_idx, j_throttle_idx, avg_amplitude_val, BBE_SCALE_HEATMAP, SPECTROGRAM_GAMMA, SPECTROGRAM_BLACK_THRESHOLD,
+                             lightness_raw_scaled, final_lightness_for_diag.clamp(0.0,1.0), color)?;
                 }
             }
 
@@ -818,18 +820,21 @@ pub fn plot_throttle_spectrograms(
     if let Some(file) = diag_file.as_mut() {
         writeln!(file, "--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---")?;
         writeln!(file, "Using HSL(0, 100%, L) based calculation (Black-Red-White).")?;
-        writeln!(file, "Lightness 'L' is ((AvgNormAmp / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0), with floor for values < SPECTROGRAM_BLACK_THRESHOLD.")?;
-        writeln!(file, "BBE_SCALE_HEATMAP = {}, GAMMA = {:.2}, SPECTROGRAM_BLACK_THRESHOLD = {:.5}", 
-                 BBE_SCALE_HEATMAP, SPECTROGRAM_GAMMA, SPECTROGRAM_BLACK_THRESHOLD)?;
+        // Update the comment to reflect actual use of MIN_VISIBLE_SPECTROGRAM_LIGHTNESS
+        writeln!(file, "Lightness 'L' is ((AvgNormAmp / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0), then clamped to MIN_VISIBLE_SPECTROGRAM_LIGHTNESS.")?;
+        writeln!(file, "BBE_SCALE_HEATMAP = {}, GAMMA = {:.2}, MIN_VISIBLE_SPECTROGRAM_LIGHTNESS = {:.5}",
+                 BBE_SCALE_HEATMAP, SPECTROGRAM_GAMMA, MIN_VISIBLE_SPECTROGRAM_LIGHTNESS)?;
+        writeln!(file, "Note: SPECTROGRAM_BLACK_THRESHOLD ({:.5}) is for reference/original BBE logic, not directly used in color mapping.", SPECTROGRAM_BLACK_THRESHOLD)?;
         writeln!(file, "'peak_mag_seg' text shows peak of raw magnitudes from individual FFT segments.")?;
         writeln!(file, "Averaged amplitudes are N-normalized and 2x scaled (for non-DC/Nyquist).")?;
         writeln!(file, "------------------------------------------------------------------------------------")?;
     } else {
         println!("--- Spectrogram Colormap Info (plotting_utils.rs @ plot_throttle_spectrograms entry) ---");
         println!("Using HSL(0, 100%, L) based calculation (Black-Red-White).");
-        println!("Lightness 'L' is ((AvgNormAmp / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0), with floor for values < SPECTROGRAM_BLACK_THRESHOLD.");
-        println!("BBE_SCALE_HEATMAP = {}, GAMMA = {:.2}, SPECTROGRAM_BLACK_THRESHOLD = {:.5}",
-                 BBE_SCALE_HEATMAP, SPECTROGRAM_GAMMA, SPECTROGRAM_BLACK_THRESHOLD);
+        println!("Lightness 'L' is ((AvgNormAmp / BBE_SCALE_HEATMAP).powf(GAMMA)).clamp(0.0, 1.0), then clamped to MIN_VISIBLE_SPECTROGRAM_LIGHTNESS.");
+        println!("BBE_SCALE_HEATMAP = {}, GAMMA = {:.2}, MIN_VISIBLE_SPECTROGRAM_LIGHTNESS = {:.5}",
+                 BBE_SCALE_HEATMAP, SPECTROGRAM_GAMMA, MIN_VISIBLE_SPECTROGRAM_LIGHTNESS);
+        println!("Note: SPECTROGRAM_BLACK_THRESHOLD ({:.5}) is for reference/original BBE logic, not directly used in color mapping.", SPECTROGRAM_BLACK_THRESHOLD);
         println!("'peak_mag_seg' text shows peak of raw magnitudes from individual FFT segments.");
         println!("Averaged amplitudes are N-normalized and 2x scaled (for non-DC/Nyquist).");
         println!("------------------------------------------------------------------------------------");
@@ -889,7 +894,7 @@ pub fn plot_throttle_spectrograms(
             ) {
                 Ok((avg_norm_amp_matrix, freq_bins, throttle_bins, peak_raw_segment_mag_for_text)) => {
                     if let Some(file) = diag_file.as_mut() {
-                        writeln!(file, "Plotting Unfiltered Gyro Axis {} with PeakRawSegmentMag (for text): {:.2}", 
+                        writeln!(file, "Plotting Unfiltered Gyro Axis {} with PeakRawSegmentMag (for text): {:.2}",
                             axis_names[axis_index], peak_raw_segment_mag_for_text)?;
                     }
                     draw_single_throttle_spectrogram(
@@ -945,7 +950,7 @@ pub fn plot_throttle_spectrograms(
             ) {
                  Ok((avg_norm_amp_matrix, freq_bins, throttle_bins, peak_raw_segment_mag_for_text)) => {
                      if let Some(file) = diag_file.as_mut() {
-                        writeln!(file, "Plotting Filtered Gyro Axis {} with PeakRawSegmentMag (for text): {:.2}", 
+                        writeln!(file, "Plotting Filtered Gyro Axis {} with PeakRawSegmentMag (for text): {:.2}",
                             axis_names[axis_index], peak_raw_segment_mag_for_text)?;
                     }
                     draw_single_throttle_spectrogram(
