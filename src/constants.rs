@@ -1,9 +1,8 @@
 // src/constants.rs
 
 // Import specific colors needed
-use plotters::style::{RGBColor, RGBAColor};
-use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE};
-
+use plotters::style::colors::full_palette::{AMBER, GREEN, LIGHTBLUE, ORANGE, PURPLE, RED, WHITE};
+use plotters::style::{RGBAColor, RGBColor};
 
 // Plot dimensions.
 pub const PLOT_WIDTH: u32 = 1920;
@@ -20,18 +19,18 @@ pub const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning wind
 pub const SETPOINT_THRESHOLD: f64 = 500.0; // Threshold for low/high setpoint masking
 
 // Constants for filtering data based on movement and flight phase.
-pub const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0; 
-pub const EXCLUDE_START_S: f64 = 3.0; 
-pub const EXCLUDE_END_S: f64 = 3.0; 
+pub const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0;
+pub const EXCLUDE_START_S: f64 = 3.0;
+pub const EXCLUDE_END_S: f64 = 3.0;
 
 // Constant for post-averaging smoothing of the step response curves.
-pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; 
+pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5;
 
 // Constants for individual window step response quality control
-pub const STEADY_STATE_START_S: f64 = 0.2; 
-pub const STEADY_STATE_END_S: f64 = 0.5; 
-pub const STEADY_STATE_MIN_VAL: f64 = 0.5; 
-pub const STEADY_STATE_MAX_VAL: f64 = 3.0; 
+pub const STEADY_STATE_START_S: f64 = 0.2;
+pub const STEADY_STATE_END_S: f64 = 0.5;
+pub const STEADY_STATE_MIN_VAL: f64 = 0.5;
+pub const STEADY_STATE_MAX_VAL: f64 = 3.0;
 
 // --- Plot Color Assignments ---
 pub const COLOR_PIDSUM_MAIN: &RGBColor = &GREEN;
@@ -52,7 +51,7 @@ pub const LINE_WIDTH_LEGEND: u32 = 2;
 // --- Spectrogram Constants ---
 pub const SPECTROGRAM_THROTTLE_BINS: usize = 100;
 pub const SPECTROGRAM_FFT_TIME_WINDOW_MS: f64 = 300.0;
-pub const SPECTROGRAM_FFT_OVERLAP_FACTOR: usize = 6; 
+pub const SPECTROGRAM_FFT_OVERLAP_FACTOR: usize = 6;
 
 pub const SPECTROGRAM_MAX_FREQ_HZ: f32 = 1000.0;
 
@@ -62,15 +61,13 @@ pub const BBE_SCALE_HEATMAP: f32 = 1.3;
 pub const MIN_VISIBLE_SPECTROGRAM_LIGHTNESS: f32 = 0.05; // A very small non-zero lightness value to ensure visibility
 
 // MIN_POWER_FOR_LOG_SCALE is used as a general small value, e.g. for calculating mean of non-trivial values
-pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.00001; 
+pub const MIN_POWER_FOR_LOG_SCALE: f32 = 0.00001;
 
 // Gamma value for spectrogram color mapping to adjust brightness curve.
-pub const SPECTROGRAM_GAMMA: f32 = 0.8; // User preferred value
-// Threshold for N-normalized, 2x-scaled averaged amplitude, below which it's mapped to black.
+pub const SPECTROGRAM_GAMMA: f32 = 0.8; // Threshold for N-normalized, 2x-scaled averaged amplitude, below which it's mapped to black.
 pub const SPECTROGRAM_BLACK_THRESHOLD: f32 = 0.005;
 
-
 pub const SPECTROGRAM_TEXT_COLOR: &RGBColor = &WHITE;
-pub const SPECTROGRAM_GRID_COLOR: RGBColor = RGBColor(80,80,80);
+pub const SPECTROGRAM_GRID_COLOR: RGBColor = RGBColor(80, 80, 80);
 
 // src/constants.rs

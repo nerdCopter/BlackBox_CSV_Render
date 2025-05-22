@@ -93,7 +93,30 @@ pub fn parse_csv(
     let time_index = column_indices.get("time (us)").copied();
     let throttle_index = column_indices.get("setpoint[3]").copied(); // Throttle from setpoint[3]
 
-    // Diagnostic print for header mapping status
+    // ---------- Validate essential headers ----------
+    let mut missing_essential: Vec<&str> = Vec::new();
+    for (name, idx) in [
+        ("time (us)", time_index),
+        ("setpoint[0]", setpoint_indices[0]),
+        ("setpoint[1]", setpoint_indices[1]),
+        ("setpoint[2]", setpoint_indices[2]),
+        ("gyroADC[0]", gyro_adc_indices[0]),
+        ("gyroADC[1]", gyro_adc_indices[1]),
+        ("gyroADC[2]", gyro_adc_indices[2]),
+    ] {
+        if idx.is_none() {
+            missing_essential.push(name);
+        }
+    }
+    if !missing_essential.is_empty() {
+        let msg = format!("Missing essential CSV headers: {:?}", missing_essential);
+        if let Some(file) = diag_file.as_mut() {
+            writeln!(file, "{}", msg)?;
+        }
+        return Err(msg.into());
+    }
+
+    // ---------- Diagnostic print for header mapping status ----------
     if let Some(file) = diag_file.as_mut() {
         writeln!(file, "Header mapping status:")?;
         let mut check_header = |name: &str, index: Option<usize>, essential: bool, fallback: Option<&str>| {

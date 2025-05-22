@@ -779,9 +779,9 @@ where DB::ErrorType: 'static
                 let lightness_raw_scaled = (avg_amplitude_val / BBE_SCALE_HEATMAP).clamp(0.0, 1.0);
                 let lightness_gamma_corrected = lightness_raw_scaled.powf(SPECTROGRAM_GAMMA);
                 let final_lightness_for_diag = lightness_gamma_corrected.max(MIN_VISIBLE_SPECTROGRAM_LIGHTNESS);
-                
-                // Only log a sample of pixels to avoid performance issues
-                if j_throttle_idx % (num_throttle_plot_bins / 5_usize.max(1) + 1) == 0 &&
+                let step_t = (num_throttle_plot_bins / 5).max(1);
+ 
+                if j_throttle_idx % step_t == 0 &&
                    i_freq_idx % (num_freq_bins_total / 10_usize.max(1) + 1) == 0 {
                     writeln!(file, "Diag (draw_single_throttle_spectrogram): FreqBin {}, ThrBin {} -- AvgNormAmp: {:.4} (BBE_SCALE_HEATMAP: {:.2}, GAMMA: {:.2}, BLACK_THRESH: {:.5}), Lightness (raw_scaled/final_hsl): {:.3}/{:.3}, Color: {:?}",
                              i_freq_idx, j_throttle_idx, avg_amplitude_val, BBE_SCALE_HEATMAP, SPECTROGRAM_GAMMA, SPECTROGRAM_BLACK_THRESHOLD,

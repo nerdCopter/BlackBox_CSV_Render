@@ -155,9 +155,13 @@ pub fn calculate_throttle_psd(
                 sum_amplitude_spectrum_matrix[[freq_idx, throttle_bin_index]] += amplitude_spectrum_val;
                 counts_matrix[[freq_idx, throttle_bin_index]] += 1;
             }
-        } else {
-            // ... error handling ...
-        }
+} else {
+    return Err(format!(
+        "FFT output length ({}) did not match expected ({})",
+        spectrum_complex.len(),
+        num_freq_bins_output
+    ).into());
+ }
         current_pos += hop_size;
     }
 
