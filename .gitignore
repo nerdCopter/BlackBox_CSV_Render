@@ -14,3 +14,7 @@ src/**
 
 # Include gitignore
 !.gitignore
+
+# Include .github directory and its contents
+!.github/
+!.github/**
