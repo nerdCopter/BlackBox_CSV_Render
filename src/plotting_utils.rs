@@ -2,7 +2,7 @@
 
 use plotters::backend::{BitMapBackend, DrawingBackend};
 use plotters::drawing::{DrawingArea, IntoDrawingArea};
-use plotters::style::{RGBColor, IntoFont, Color, ShapeStyle, TextStyle};
+use plotters::style::{RGBColor, RGBAColor, IntoFont, Color, ShapeStyle, TextStyle};
 use plotters::element::{Text, Rectangle, PathElement};
 use plotters::chart::{ChartBuilder, SeriesLabelPosition};
 use plotters::coord::{Shift};
@@ -98,7 +98,7 @@ pub fn draw_unavailable_message(
 pub struct PlotSeries {
     pub data: Vec<(f64, f64)>,
     pub label: String,
-    pub color: RGBColor,
+    pub color: RGBAColor,
     pub stroke_width: u32,
 }
 
@@ -130,7 +130,7 @@ fn draw_single_axis_chart(
                 s_item.color.stroke_width(s_item.stroke_width),
             ))?
             .label(&s_item.label)
-            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], s_item.color.stroke_width(LINE_WIDTH_LEGEND)));
+            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], RGBAColor(s_item.color.0, s_item.color.1, s_item.color.2, 1.0).stroke_width(LINE_WIDTH_LEGEND)));
             series_drawn_count += 1;
         }
     }
@@ -285,7 +285,7 @@ pub fn plot_pidsum_error_setpoint(
                 series.push(PlotSeries {
                     data: pidsum_series_data,
                     label: "PIDsum (P+I+D)".to_string(),
-                    color: color_pidsum,
+                    color: color_pidsum.into(),
                     stroke_width: line_stroke_plot,
                 });
             }
@@ -293,7 +293,7 @@ pub fn plot_pidsum_error_setpoint(
                 series.push(PlotSeries {
                     data: pid_error_series_data,
                     label: "PID Error (Setpoint - GyroADC)".to_string(),
-                    color: color_pid_error,
+                    color: color_pid_error.into(),
                     stroke_width: line_stroke_plot,
                 });
             }
@@ -301,7 +301,7 @@ pub fn plot_pidsum_error_setpoint(
                 series.push(PlotSeries {
                     data: setpoint_series_data,
                     label: "Setpoint".to_string(),
-                    color: color_setpoint,
+                    color: color_setpoint.into(),
                     stroke_width: line_stroke_plot,
                 });
             }
@@ -384,7 +384,7 @@ pub fn plot_setpoint_vs_gyro(
                  series.push(PlotSeries {
                      data: gyro_series_data,
                      label: "Gyro (gyroADC)".to_string(),
-                     color: color_gyro,
+                     color: color_gyro.into(),
                      stroke_width: line_stroke_plot,
                  });
             }
@@ -392,7 +392,7 @@ pub fn plot_setpoint_vs_gyro(
                  series.push(PlotSeries {
                      data: setpoint_series_data,
                      label: "Setpoint".to_string(),
-                     color: color_sp,
+                     color: color_sp.into(),
                      stroke_width: line_stroke_plot,
                  });
              }
@@ -424,8 +424,8 @@ pub fn plot_gyro_vs_unfilt(
          }
      }
 
-    let color_gyro_unfilt: RGBColor = *COLOR_GYRO_VS_UNFILT_UNFILT;
-    let color_gyro_filt: RGBColor = *COLOR_GYRO_VS_UNFILT_FILT;
+    let color_gyro_unfilt: RGBAColor = COLOR_GYRO_VS_UNFILT_UNFILT;
+    let color_gyro_filt: RGBAColor = COLOR_GYRO_VS_UNFILT_FILT;
     let line_stroke_plot = LINE_WIDTH_PLOT;
 
     draw_stacked_plot(
@@ -476,7 +476,7 @@ pub fn plot_gyro_vs_unfilt(
                  series.push(PlotSeries {
                      data: unfilt_series_data,
                      label: "Unfiltered Gyro (gyroUnfilt/debug)".to_string(),
-                     color: color_gyro_unfilt,
+                     color: color_gyro_unfilt.into(),
                      stroke_width: line_stroke_plot,
                  });
             }
@@ -484,7 +484,7 @@ pub fn plot_gyro_vs_unfilt(
                  series.push(PlotSeries {
                      data: filt_series_data,
                      label: "Filtered Gyro (gyroADC)".to_string(),
-                     color: color_gyro_filt,
+                     color: color_gyro_filt.into(),
                      stroke_width: line_stroke_plot,
                  });
             }
@@ -615,7 +615,7 @@ pub fn plot_step_response(
                  series.push(PlotSeries {
                      data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
                      label: format!("< {} deg/s", setpoint_threshold_const),
-                     color: color_low_sp,
+                     color: color_low_sp.into(),
                      stroke_width: line_stroke_plot,
                  });
             }
@@ -623,7 +623,7 @@ pub fn plot_step_response(
                  series.push(PlotSeries {
                      data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
                      label: format!("\u{2265} {} deg/s", setpoint_threshold_const),
-                     color: color_high_sp,
+                     color: color_high_sp.into(),
                      stroke_width: line_stroke_plot,
                  });
              }
@@ -632,7 +632,7 @@ pub fn plot_step_response(
                      series.push(PlotSeries {
                          data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
                          label: "Combined".to_string(),
-                         color: color_combined,
+                         color: color_combined.into(),
                          stroke_width: line_stroke_plot,
                      });
                  }

@@ -1,7 +1,7 @@
 // src/constants.rs
 
 // Import specific colors needed
-use plotters::style::{RGBColor};
+use plotters::style::{RGBColor, RGBAColor};
 use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE, WHITE};
 
 
@@ -39,8 +39,8 @@ pub const COLOR_PIDERROR_MAIN: &RGBColor = &PURPLE;
 pub const COLOR_SETPOINT_MAIN: &RGBColor = &ORANGE;
 pub const COLOR_SETPOINT_VS_GYRO_SP: &RGBColor = &ORANGE;
 pub const COLOR_SETPOINT_VS_GYRO_GYRO: &RGBColor = &LIGHTBLUE;
-pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
-pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;
+pub const COLOR_GYRO_VS_UNFILT_FILT: RGBAColor = RGBAColor(LIGHTBLUE.0, LIGHTBLUE.1, LIGHTBLUE.2, 0.1);
+pub const COLOR_GYRO_VS_UNFILT_UNFILT: RGBAColor = RGBAColor(AMBER.0, AMBER.1, AMBER.2, 1.0);
 pub const COLOR_STEP_RESPONSE_LOW_SP: &RGBColor = &LIGHTBLUE;
 pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE;
 pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
