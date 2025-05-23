@@ -31,6 +31,7 @@ use crate::constants::{
 };
 use crate::log_data::LogRowData;
 use crate::step_response;
+// Removed: use crate::fft_utils; // This line is not needed as fft_utils functions are called with full path
 
 
 /// Calculate plot range with padding.
@@ -80,6 +81,7 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
     x_label: &str,
     y_label: &str,
     series: &[PlotSeries], // Use concrete PlotSeries
+    peak_info: Option<(f64, f64)>, // New parameter for peak frequency and amplitude
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
         .caption(chart_title, ("sans-serif", 20))
@@ -110,6 +112,20 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
     if series_drawn_count > 0 {
         chart.configure_series_labels().position(SeriesLabelPosition::UpperRight)
             .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
+    }
+
+    // Add the peak label here
+    if let Some((peak_freq, peak_amp)) = peak_info {
+        if peak_amp > 0.0 { // Only draw if a meaningful peak was found
+            // Corrected: Use chart.backend_coord for data-to-pixel mapping
+            let text_pos = chart.backend_coord(&(peak_freq, peak_amp));
+            // Adjust text_pos slightly to not overlap the point
+            area.draw(&Text::new(
+                format!("{:.0} Hz", peak_freq),
+                (text_pos.0 as i32 + 5, text_pos.1 as i32 - 15), // Adjust position for visibility
+                ("sans-serif", 15).into_font().color(&BLACK)
+            ))?;
+        }
     }
 
     Ok(())
@@ -172,6 +188,7 @@ where
                          &x_label,
                          &y_label,
                          &series_data,
+                         None, // No peak info for this plot type
                      )?;
                      any_axis_plotted = true;
                  } else {
@@ -218,7 +235,7 @@ fn draw_dual_spectrum_plot<'a, F>(
     mut get_axis_plot_data: F,
 ) -> Result<(), Box<dyn Error>>
 where
-    F: FnMut(usize) -> Option<[Option<(String, std::ops::Range<f64>, std::ops::Range<f64>, Vec<PlotSeries>, String, String)>; 2]> + Send + Sync + 'static,
+    F: FnMut(usize) -> Option<[Option<(String, std::ops::Range<f64>, std::ops::Range<f64>, Vec<PlotSeries>, String, String, Option<(f64, f64)>)>; 2]> + Send + Sync + 'static,
     <BitMapBackend<'a> as DrawingBackend>::ErrorType: 'static,
 {
     let root_area = BitMapBackend::new(output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
@@ -244,7 +261,8 @@ where
 
             if let Some(plots_for_axis) = plots_for_axis_option.as_ref() {
                 if let Some(plot_config) = plots_for_axis[col_idx].as_ref() {
-                    let (chart_title, x_range, y_range, series_data, x_label, y_label) = plot_config;
+                    // Unpack the new tuple format
+                    let (chart_title, x_range, y_range, series_data, x_label, y_label, peak_info) = plot_config;
 
                     let has_data = series_data.iter().any(|s| !s.data.is_empty());
                     let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
@@ -254,10 +272,11 @@ where
                             area,
                             chart_title,
                             x_range.clone(),
-                            y_range.clone(),
+                            y_range.clone(), // Clone y_range for the second subplot
                             x_label,
                             y_label,
                             series_data,
+                            *peak_info, // Pass the peak_info
                         )?;
                         any_plot_drawn = true;
                     } else {
@@ -693,17 +712,6 @@ pub fn plot_step_response(
             let is_low_response_valid = final_low_response_cloned.is_some();
             let is_high_response_valid = final_high_response_cloned.is_some();
 
-            // CodeRabbit
-            // combined_response_valid logic is overly restrictive
-            // Combined response validity currently depends on high-SP validity:
-            // 
-            // let is_combined_response_valid = is_high_response_valid && final_combined_response_cloned.is_some();
-            // If only the low-SP mask passes QC, the combined mask may still be meaningful but will be suppressed.
-            // Recommend dropping the is_high_response_valid dependency:
-            // 
-            // -let is_combined_response_valid = is_high_response_valid && final_combined_response_cloned.is_some();
-            // +let is_combined_response_valid = final_combined_response_cloned.is_some();
-
             //let is_combined_response_valid = is_high_response_valid && final_combined_response_cloned.is_some(); // Only plot combined if high SP was valid
             let is_combined_response_valid = final_combined_response_cloned.is_some();
 
@@ -790,7 +798,6 @@ pub fn plot_gyro_spectrums(
     // Extract sample rate early; if None, return Ok(()) to skip plotting.
     // This also ensures 'sr_value' is available for the global max calculation
     // and subsequent plot range calculations.
-    //let sr_value: f64;
     let sr_value = if let Some(sr) = sample_rate {
         sr
     } else {
@@ -798,22 +805,22 @@ pub fn plot_gyro_spectrums(
         return Ok(()); // Exit early as sample rate is essential for frequency calculation
     };
 
-    // Pre-calculate all FFT data for all axes.
-    // Stores: [axis_index] -> ([unfilt_series_data, filt_series_data], max_amp_unfilt, max_amp_filt).
-    // The stored f64 values for max_amp_unfilt and max_amp_filt are per-axis, but not
-    // directly used for plot ranges anymore, which will be determined by global max.
-    let mut all_fft_data: [Option<([Vec<(f64, f64)>; 2], f64, f64)>; 3] = Default::default(); // Keep storing per-axis, if needed for other debugging
+    // Store: [axis_index] -> (unfilt_series, unfilt_peak_info, filt_series, filt_peak_info)
+    let mut all_fft_data: [Option<(Vec<(f64, f64)>, Option<(f64, f64)>, Vec<(f64, f64)>, Option<(f64, f64)>)>; 3] = Default::default();
 
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
     let mut overall_max_y_amplitude = 0.0f64; // The single max for all plots
 
-    for axis_index in 0..3 {
+    let axis_names = ["Roll", "Pitch", "Yaw"];
+
+    for axis_idx in 0..3 {
+            let axis_name = axis_names[axis_idx];
             let mut unfilt_samples: Vec<f32> = Vec::new();
             let mut filt_samples: Vec<f32> = Vec::new();
 
             for row in log_data {
-                if let (Some(unfilt_val), Some(filt_val)) = (row.gyro_unfilt[axis_index], row.gyro[axis_index]) {
+                if let (Some(unfilt_val), Some(filt_val)) = (row.gyro_unfilt[axis_idx], row.gyro[axis_idx]) {
                     unfilt_samples.push(unfilt_val as f32);
                     filt_samples.push(filt_val as f32);
                 }
@@ -821,12 +828,16 @@ pub fn plot_gyro_spectrums(
 
             // Only proceed if both unfiltered and filtered data are available for this axis
             if unfilt_samples.is_empty() || filt_samples.is_empty() {
+                println!("  No unfiltered or filtered gyro data for {} axis. Skipping spectrum peak analysis.", axis_name);
                 continue;
             }
 
             // For simplicity and aligned FFTs, process only up to the minimum available length.
             let min_len = unfilt_samples.len().min(filt_samples.len());
-            if min_len == 0 { continue; }
+            if min_len == 0 {
+                println!("  Not enough common gyro data for {} axis. Skipping spectrum peak analysis.", axis_name);
+                continue;
+            }
 
             let unfilt_samples_slice = &unfilt_samples[0..min_len];
             let filt_samples_slice = &filt_samples[0..min_len];
@@ -849,6 +860,7 @@ pub fn plot_gyro_spectrums(
             let filt_spec = crate::fft_utils::fft_forward(&padded_filt);
 
             if unfilt_spec.is_empty() || filt_spec.is_empty() {
+                println!("  FFT computation failed or resulted in empty spectrums for {} axis. Skipping spectrum peak analysis.", axis_name);
                 continue;
             }
 
@@ -861,19 +873,51 @@ pub fn plot_gyro_spectrums(
             let num_unique_freqs = if fft_padded_len % 2 == 0 { fft_padded_len / 2 + 1 } else { (fft_padded_len + 1) / 2 };
 
             let mut max_amp_unfilt = 0.0f64;
+            let mut peak_unfilt_freq = 0.0f64;
             let mut max_amp_filt = 0.0f64;
+            let mut peak_filt_freq = 0.0f64;
 
             for i in 0..num_unique_freqs {
                 let freq_val = i as f64 * freq_step;
-                let amp_unfilt = unfilt_spec[i].norm() as f64; // Calculate magnitude (amplitude), no capping here yet
-                let amp_filt = filt_spec[i].norm() as f64; // Calculate magnitude (amplitude), no capping here yet
+                let amp_unfilt = unfilt_spec[i].norm() as f64; // Calculate magnitude (amplitude)
+                let amp_filt = filt_spec[i].norm() as f64; // Calculate magnitude (amplitude)
 
                 unfilt_series_data.push((freq_val, amp_unfilt));
                 filt_series_data.push((freq_val, amp_filt));
 
-                max_amp_unfilt = max_amp_unfilt.max(amp_unfilt);
-                max_amp_filt = max_amp_filt.max(amp_filt);
+                // Find peak for Unfiltered Gyro
+                if freq_val >= SPECTRUM_NOISE_FLOOR_HZ {
+                    if amp_unfilt > max_amp_unfilt {
+                        max_amp_unfilt = amp_unfilt;
+                        peak_unfilt_freq = freq_val;
+                    }
+                }
+
+                // Find peak for Filtered Gyro
+                if freq_val >= SPECTRUM_NOISE_FLOOR_HZ {
+                    if amp_filt > max_amp_filt {
+                        max_amp_filt = amp_filt;
+                        peak_filt_freq = freq_val;
+                    }
+                }
             }
+
+            // Print the peak values as requested (to console)
+            let unfilt_peak_info_for_plot = if max_amp_unfilt > 0.0 {
+                println!("  {} Unfiltered Gyro Spectrum: Peak amplitude at {:.0} Hz", axis_name, peak_unfilt_freq);
+                Some((peak_unfilt_freq, max_amp_unfilt))
+            } else {
+                println!("  {} Unfiltered Gyro Spectrum: No significant peak found above noise floor.", axis_name);
+                None
+            };
+
+            let filt_peak_info_for_plot = if max_amp_filt > 0.0 {
+                println!("  {} Filtered Gyro Spectrum: Peak amplitude at {:.0} Hz", axis_name, peak_filt_freq);
+                Some((peak_filt_freq, max_amp_filt))
+            } else {
+                println!("  {} Filtered Gyro Spectrum: No significant peak found above noise floor.", axis_name);
+                None
+            };
 
             // Calculate dynamic Y-axis cap based on max amplitude after noise floor
             let noise_floor_sample_idx = (SPECTRUM_NOISE_FLOOR_HZ / freq_step) as usize;
@@ -888,15 +932,15 @@ pub fn plot_gyro_spectrums(
                 .map(|&(_, amp)| amp)
                 .fold(0.0f64, |max_val, amp| max_val.max(amp));
 
-            let y_max_unfilt = SPECTRUM_Y_AXIS_FLOOR.max(max_amp_after_noise_floor_unfilt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
-            let y_max_filt = SPECTRUM_Y_AXIS_FLOOR.max(max_amp_after_noise_floor_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
+            let y_max_unfilt_for_range = SPECTRUM_Y_AXIS_FLOOR.max(max_amp_after_noise_floor_unfilt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
+            let y_max_filt_for_range = SPECTRUM_Y_AXIS_FLOOR.max(max_amp_after_noise_floor_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
 
-            // Store the processed data for this axis
-            all_fft_data[axis_index] = Some(([unfilt_series_data, filt_series_data], y_max_unfilt, y_max_filt));
+            // Store the processed data and peak info for this axis
+            all_fft_data[axis_idx] = Some((unfilt_series_data, unfilt_peak_info_for_plot, filt_series_data, filt_peak_info_for_plot));
 
             // Update global maximums for consistent Y-axis scaling within unfiltered/filtered groups
-            global_max_y_unfilt = global_max_y_unfilt.max(y_max_unfilt);
-            global_max_y_filt = global_max_y_filt.max(y_max_filt);
+            global_max_y_unfilt = global_max_y_unfilt.max(y_max_unfilt_for_range);
+            global_max_y_filt = global_max_y_filt.max(y_max_filt_for_range);
     }
 
     // Determine the single, overall maximum amplitude to be used for all plots
@@ -910,19 +954,18 @@ pub fn plot_gyro_spectrums(
         // This closure provides the specific plot configuration for each subplot
         // It consumes the `all_fft_data` by moving it.
         move |axis_index| {
-            // We ignore the per-axis max_amp_unfilt and max_amp_filt values stored in all_fft_data
-            // because we are now using global maximums for Y-axis ranges.
-            if let Some((series_data, _, _)) = all_fft_data[axis_index].take() {                let max_freq_val = sr_value / 2.0; // Nyquist frequency as max X-axis value
+            if let Some((unfilt_series_data, unfilt_peak_info, filt_series_data, filt_peak_info)) = all_fft_data[axis_index].take() {
+                let max_freq_val = sr_value / 2.0; // Nyquist frequency as max X-axis value
                 let x_range = 0.0..max_freq_val * 1.05; // Extend X-axis slightly for readability
 
                 // Use the single overall maximum amplitude for both unfiltered and filtered plots
-                let y_range_unfilt = 0.0..overall_max_y_amplitude;
-                let y_range_filt = 0.0..overall_max_y_amplitude;
+                // Corrected: Clone y_range_for_all to avoid move error.
+                let y_range_for_all_clone = 0.0..overall_max_y_amplitude;
 
                 // Create PlotSeries for unfiltered gyro
                 let unfilt_plot_series = vec![
                     PlotSeries {
-                        data: series_data[0].clone(), // Clone the Vec to avoid move errors from array
+                        data: unfilt_series_data,
                         label: "Unfiltered Gyro".to_string(),
                         color: *COLOR_GYRO_VS_UNFILT_UNFILT,
                         stroke_width: LINE_WIDTH_PLOT,
@@ -931,7 +974,7 @@ pub fn plot_gyro_spectrums(
                 // Create PlotSeries for filtered gyro
                 let filt_plot_series = vec![
                     PlotSeries {
-                        data: series_data[1].clone(), // Clone the Vec to avoid move errors from array
+                        data: filt_series_data,
                         label: "Filtered Gyro".to_string(),
                         color: *COLOR_GYRO_VS_UNFILT_FILT,
                         stroke_width: LINE_WIDTH_PLOT,
@@ -941,20 +984,22 @@ pub fn plot_gyro_spectrums(
                 // Return an array of two Options, one for the left subplot and one for the right
                 Some([
                     Some((
-                        format!("{} Unfiltered Gyro Spectrum", ["Roll", "Pitch", "Yaw"][axis_index]),
+                        format!("{} Unfiltered Gyro Spectrum", axis_names[axis_index]),
                         x_range.clone(), // Clone x_range as it's used by both plots
-                        y_range_unfilt,
+                        y_range_for_all_clone.clone(), // Clone y_range for the first subplot
                         unfilt_plot_series,
                         "Frequency (Hz)".to_string(),
                         "Amplitude".to_string(),
+                        unfilt_peak_info, // Pass the peak info here
                     )),
                     Some((
-                        format!("{} Filtered Gyro Spectrum", ["Roll", "Pitch", "Yaw"][axis_index]),
+                        format!("{} Filtered Gyro Spectrum", axis_names[axis_index]),
                         x_range,
-                        y_range_filt,
+                        y_range_for_all_clone, // Use the cloned y_range for the second subplot
                         filt_plot_series,
                         "Frequency (Hz)".to_string(),
                         "Amplitude".to_string(),
+                        filt_peak_info, // Pass the peak info here
                     )),
                 ])
             } else {
