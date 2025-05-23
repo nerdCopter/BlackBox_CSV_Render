@@ -18,6 +18,7 @@ use plotting_utils::{
     plot_setpoint_vs_gyro,
     plot_gyro_vs_unfilt,
     plot_step_response,
+    plot_gyro_spectrums, // New import for the gyro spectrum plot
 };
 use log_parser::parse_log_file; // Import the new parsing function
 
@@ -157,6 +158,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     plot_gyro_vs_unfilt(&all_log_data, &root_name)?;
     // Pass step response results and sample rate to the step response plot function
     plot_step_response(&step_response_calculation_results, &root_name, sample_rate)?;
+    // New: Plot Gyro Spectrums
+    plot_gyro_spectrums(&all_log_data, &root_name, sample_rate)?;
 
 
     println!("\nProcessing complete.");

@@ -26,6 +26,9 @@ pub const EXCLUDE_END_S: f64 = 3.0; // Exclude this many seconds from the end of
 // Constant for post-averaging smoothing of the step response curves.
 pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; // Moving average window size (in samples)
 
+// Maximum amplitude for spectrum plots.
+pub const SPECTRUM_AMPLITUDE_CAP: f64 = 20000.0;
+
 // Constants for individual window step response quality control (from PTstepcalc.m)
 pub const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check within the response window (relative to response start)
 pub const STEADY_STATE_END_S: f64 = 0.5; // End time for steady-state check within the response window (relative to response start)

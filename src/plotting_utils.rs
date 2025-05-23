@@ -20,6 +20,7 @@ use ndarray_stats::QuantileExt;
 use crate::constants::{
     PLOT_WIDTH, PLOT_HEIGHT, STEP_RESPONSE_PLOT_DURATION_S, SETPOINT_THRESHOLD,
     POST_AVERAGING_SMOOTHING_WINDOW, STEADY_STATE_START_S, STEADY_STATE_END_S,
+    SPECTRUM_AMPLITUDE_CAP,
     // Import specific color constants needed
     COLOR_PIDSUM_MAIN, COLOR_PIDERROR_MAIN, COLOR_SETPOINT_MAIN,
     COLOR_SETPOINT_VS_GYRO_SP, COLOR_SETPOINT_VS_GYRO_GYRO,
@@ -130,7 +131,7 @@ fn draw_stacked_plot<'a, F>(
 ) -> Result<(), Box<dyn Error>>
 where
     F: FnMut(usize) -> Option<(String, std::ops::Range<f64>, std::ops::Range<f64>, Vec<PlotSeries>, String, String)> + Send + Sync + 'static,
-    // BitMapBackend error type needs to be 'static, add 'a lifetime
+    // BitMapBackend error type needs to be 'static
     <BitMapBackend<'a> as DrawingBackend>::ErrorType: 'static,
 {
     let root_area = BitMapBackend::new(output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area(); // Use PLOT_WIDTH/HEIGHT from constants
@@ -190,6 +191,93 @@ where
     } else {
         // If no axes had data, we still present the plot with "Unavailable" messages
         // This ensures the placeholder file is created
+        root_area.present()?;
+        println!("  Skipping '{}' plot saving: No data available for any axis to plot, only placeholder messages shown.", output_filename);
+    }
+
+    Ok(())
+}
+
+
+/// Creates a stacked plot image with three rows and two columns for subplots.
+/// The `get_axis_plot_data` closure provides the data and configuration for each axis's
+/// two subplots (left column, right column).
+///
+/// The closure `get_axis_plot_data` is called for each axis (0, 1, 2) and should return:
+/// - `Some([Option<PlotConfig>, Option<PlotConfig>])`: An array of two Options, where each Option
+///   contains `(chart_title, x_range, y_range, series_data, x_label, y_label)` for its respective subplot.
+///   A `None` for a specific subplot means no data is available for that subplot.
+/// - `None`: If no data or configuration is available for *either* subplot for this axis.
+///
+/// The `plot_type_name` is used for the "Data Unavailable" message.
+fn draw_dual_spectrum_plot<'a, F>(
+    output_filename: &'a str,
+    root_name: &str,
+    plot_type_name: &str,
+    mut get_axis_plot_data: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(usize) -> Option<[Option<(String, std::ops::Range<f64>, std::ops::Range<f64>, Vec<PlotSeries>, String, String)>; 2]> + Send + Sync + 'static,
+    <BitMapBackend<'a> as DrawingBackend>::ErrorType: 'static,
+{
+    let root_area = BitMapBackend::new(output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
+    root_area.fill(&WHITE)?;
+
+    root_area.draw(&Text::new(
+        root_name,
+        (10, 10),
+        ("sans-serif", 24).into_font().color(&BLACK),
+    ))?;
+
+    let margined_root_area = root_area.margin(50, 5, 5, 5);
+    let sub_plot_areas = margined_root_area.split_evenly((3, 2)); // 3 rows, 2 columns
+
+    let mut any_plot_drawn = false;
+
+    for axis_index in 0..3 {
+        // Get the plot configurations for the current axis (left and right subplots)
+        let plots_for_axis_option = get_axis_plot_data(axis_index);
+
+        for col_idx in 0..2 { // 0 for left (unfiltered), 1 for right (filtered)
+            let area = &sub_plot_areas[axis_index * 2 + col_idx]; // Calculate the correct subplot index
+
+            if let Some(plots_for_axis) = plots_for_axis_option.as_ref() {
+                if let Some(plot_config) = plots_for_axis[col_idx].as_ref() {
+                    let (chart_title, x_range, y_range, series_data, x_label, y_label) = plot_config;
+
+                    let has_data = series_data.iter().any(|s| !s.data.is_empty());
+                    let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
+
+                    if has_data && valid_ranges {
+                        draw_single_axis_chart(
+                            area,
+                            chart_title,
+                            x_range.clone(),
+                            y_range.clone(),
+                            x_label,
+                            y_label,
+                            series_data,
+                        )?;
+                        any_plot_drawn = true;
+                    } else {
+                        let reason = if !has_data { "No data points" } else { "Invalid ranges" };
+                        draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
+                    }
+                } else {
+                    // No plot config for this specific subplot
+                    draw_unavailable_message(area, axis_index, plot_type_name, "Data Not Available")?;
+                }
+            } else {
+                // No data/config for this entire axis (both subplots)
+                draw_unavailable_message(area, axis_index, plot_type_name, "Data Not Available")?;
+            }
+        }
+    }
+
+    if any_plot_drawn {
+        root_area.present()?;
+        println!("  Stacked plot saved as '{}'.", output_filename);
+    } else {
         root_area.present()?;
         println!("  Skipping '{}' plot saving: No data available for any axis to plot, only placeholder messages shown.", output_filename);
     }
@@ -375,6 +463,7 @@ pub fn plot_setpoint_vs_gyro(
             if setpoint_series_data.is_empty() && gyro_series_data.is_empty() {
                  return None; // No actual data collected for this axis
             }
+
 
             let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
             let x_range = time_min..time_max;
@@ -602,8 +691,20 @@ pub fn plot_step_response(
 
             let is_low_response_valid = final_low_response_cloned.is_some();
             let is_high_response_valid = final_high_response_cloned.is_some();
-            let is_combined_response_valid = is_high_response_valid && final_combined_response_cloned.is_some(); // Only plot combined if high SP was valid
 
+            // CodeRabbit
+            // combined_response_valid logic is overly restrictive
+            // Combined response validity currently depends on high-SP validity:
+            // 
+            // let is_combined_response_valid = is_high_response_valid && final_combined_response_cloned.is_some();
+            // If only the low-SP mask passes QC, the combined mask may still be meaningful but will be suppressed.
+            // Recommend dropping the is_high_response_valid dependency:
+            // 
+            // -let is_combined_response_valid = is_high_response_valid && final_combined_response_cloned.is_some();
+            // +let is_combined_response_valid = final_combined_response_cloned.is_some();
+
+            //let is_combined_response_valid = is_high_response_valid && final_combined_response_cloned.is_some(); // Only plot combined if high SP was valid
+            let is_combined_response_valid = final_combined_response_cloned.is_some();
 
             if !(is_low_response_valid || is_high_response_valid) { // Check if at least Low or High is valid
                 continue; // Skip this axis if no valid responses (Low or High)
@@ -672,6 +773,162 @@ pub fn plot_step_response(
         move |axis_index| {
             // Take ownership of the Option for this axis
             plot_data_per_axis[axis_index].take()
+        },
+    )
+}
+
+/// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro spectrums.
+pub fn plot_gyro_spectrums(
+    log_data: &[LogRowData],
+    root_name: &str,
+    sample_rate: Option<f64>,
+) -> Result<(), Box<dyn Error>> {
+    let output_file = format!("{}_Gyro_Spectrums_stacked.png", root_name);
+    let plot_type_name = "Gyro Spectrums";
+
+    // Extract sample rate early; if None, return Ok(()) to skip plotting.
+    let sr_value = if let Some(sr) = sample_rate {
+        sr
+    } else {
+        println!("\nINFO: Skipping Gyro Spectrum Plot: Sample rate could not be determined.");
+        return Ok(()); // Exit early as sample rate is essential for frequency calculation
+    };
+
+    // Pre-calculate all FFT data for all axes.
+    // Stores: [axis_index] -> ([unfilt_series_data, filt_series_data], max_amp_unfilt, max_amp_filt).
+    let mut all_fft_data: [Option<([Vec<(f64, f64)>; 2], f64, f64)>; 3] = Default::default();
+
+    for axis_index in 0..3 {
+            let mut unfilt_samples: Vec<f32> = Vec::new();
+            let mut filt_samples: Vec<f32> = Vec::new();
+
+            for row in log_data {
+                if let (Some(unfilt_val), Some(filt_val)) = (row.gyro_unfilt[axis_index], row.gyro[axis_index]) {
+                    unfilt_samples.push(unfilt_val as f32);
+                    filt_samples.push(filt_val as f32);
+                }
+            }
+
+            // Only proceed if both unfiltered and filtered data are available for this axis
+            if unfilt_samples.is_empty() || filt_samples.is_empty() {
+                continue;
+            }
+
+            // For simplicity and aligned FFTs, process only up to the minimum available length.
+            let min_len = unfilt_samples.len().min(filt_samples.len());
+            if min_len == 0 { continue; }
+
+            let unfilt_samples_slice = &unfilt_samples[0..min_len];
+            let filt_samples_slice = &filt_samples[0..min_len];
+
+            // Apply Hanning window (Tukey window with alpha = 1.0)
+            let window_func = crate::step_response::tukeywin(min_len, 1.0);
+
+            let unfilt_windowed: Array1<f32> = Array1::from_vec(unfilt_samples_slice.to_vec()) * &window_func;
+            let filt_windowed: Array1<f32> = Array1::from_vec(filt_samples_slice.to_vec()) * &window_func;
+
+            // Pad to next power of 2 for efficient FFT computation
+            let fft_padded_len = min_len.next_power_of_two();
+            let mut padded_unfilt = Array1::<f32>::zeros(fft_padded_len);
+            padded_unfilt.slice_mut(s![0..min_len]).assign(&unfilt_windowed);
+            let mut padded_filt = Array1::<f32>::zeros(fft_padded_len);
+            padded_filt.slice_mut(s![0..min_len]).assign(&filt_windowed);
+
+            // Perform Fast Fourier Transform (FFT)
+            let unfilt_spec = crate::fft_utils::fft_forward(&padded_unfilt);
+            let filt_spec = crate::fft_utils::fft_forward(&padded_filt);
+
+            if unfilt_spec.is_empty() || filt_spec.is_empty() {
+                continue;
+            }
+
+            let mut unfilt_series_data: Vec<(f64, f64)> = Vec::new();
+            let mut filt_series_data: Vec<(f64, f64)> = Vec::new();
+
+            // Calculate frequencies for the x-axis and amplitudes (magnitudes) for the y-axis
+            let freq_step = sr_value / fft_padded_len as f64;
+            // For real-valued inputs, the spectrum is symmetric, so we only need the first half + 1 (for DC and Nyquist)
+            let num_unique_freqs = if fft_padded_len % 2 == 0 { fft_padded_len / 2 + 1 } else { (fft_padded_len + 1) / 2 };
+
+            let mut max_amp_unfilt = 0.0f64;
+            let mut max_amp_filt = 0.0f64;
+
+            for i in 0..num_unique_freqs {
+                let freq_val = i as f64 * freq_step;
+                let amp_unfilt = (unfilt_spec[i].norm() as f64).min(SPECTRUM_AMPLITUDE_CAP); // Calculate magnitude (amplitude) and cap
+                let amp_filt = (filt_spec[i].norm() as f64).min(SPECTRUM_AMPLITUDE_CAP); // Calculate magnitude (amplitude) and cap
+
+                unfilt_series_data.push((freq_val, amp_unfilt));
+                filt_series_data.push((freq_val, amp_filt));
+
+                max_amp_unfilt = max_amp_unfilt.max(amp_unfilt);
+                max_amp_filt = max_amp_filt.max(amp_filt);
+            }
+
+            // Store the processed data for this axis
+            all_fft_data[axis_index] = Some(([unfilt_series_data, filt_series_data], max_amp_unfilt, max_amp_filt));
+    }
+
+    // Pass the pre-calculated data to the plotting function
+    draw_dual_spectrum_plot(
+        &output_file,
+        root_name,
+        plot_type_name,
+        // This closure provides the specific plot configuration for each subplot
+        // It consumes the `all_fft_data` by moving it.
+        move |axis_index| {
+            if let Some((series_data, max_amp_unfilt, max_amp_filt)) = all_fft_data[axis_index].take() {
+                let max_freq_val = sr_value / 2.0; // Nyquist frequency as max X-axis value
+                let x_range = 0.0..max_freq_val * 1.05; // Extend X-axis slightly for readability
+
+                // Calculate Y-axis ranges for each subplot independently
+                let (min_amp_unfilt, plot_max_amp_unfilt) = calculate_range(0.0, max_amp_unfilt);
+                let y_range_unfilt = min_amp_unfilt..plot_max_amp_unfilt;
+
+                let (min_amp_filt, plot_max_amp_filt) = calculate_range(0.0, max_amp_filt);
+                let y_range_filt = min_amp_filt..plot_max_amp_filt;
+
+                // Create PlotSeries for unfiltered gyro
+                let unfilt_plot_series = vec![
+                    PlotSeries {
+                        data: series_data[0].clone(), // Clone the Vec to avoid move errors from array
+                        label: "Unfiltered Gyro".to_string(),
+                        color: *COLOR_GYRO_VS_UNFILT_UNFILT,
+                        stroke_width: LINE_WIDTH_PLOT,
+                    }
+                ];
+                // Create PlotSeries for filtered gyro
+                let filt_plot_series = vec![
+                    PlotSeries {
+                        data: series_data[1].clone(), // Clone the Vec to avoid move errors from array
+                        label: "Filtered Gyro".to_string(),
+                        color: *COLOR_GYRO_VS_UNFILT_FILT,
+                        stroke_width: LINE_WIDTH_PLOT,
+                    }
+                ];
+
+                // Return an array of two Options, one for the left subplot and one for the right
+                Some([
+                    Some((
+                        format!("{} Unfiltered Gyro Spectrum", ["Roll", "Pitch", "Yaw"][axis_index]),
+                        x_range.clone(), // Clone x_range as it's used by both plots
+                        y_range_unfilt,
+                        unfilt_plot_series,
+                        "Frequency (Hz)".to_string(),
+                        "Amplitude".to_string(),
+                    )),
+                    Some((
+                        format!("{} Filtered Gyro Spectrum", ["Roll", "Pitch", "Yaw"][axis_index]),
+                        x_range,
+                        y_range_filt,
+                        filt_plot_series,
+                        "Frequency (Hz)".to_string(),
+                        "Amplitude".to_string(),
+                    )),
+                ])
+            } else {
+                Some([None, None]) // If no data for this axis, return two Nones to trigger "Data Unavailable" messages
+            }
         },
     )
 }
