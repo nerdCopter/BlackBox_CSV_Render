@@ -40,21 +40,20 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Header Definition and Index Mapping ---
     let target_headers = [
-        "time (us)",
-        "axisP[0]", "axisP[1]", "axisP[2]",
-        "axisI[0]", "axisI[1]", "axisI[2]",
-        "axisD[0]", "axisD[1]", "axisD[2]",
-        "setpoint[0]", "setpoint[1]", "setpoint[2]",
-        "gyroADC[0]", "gyroADC[1]", "gyroADC[2]",
-        "gyroUnfilt[0]", "gyroUnfilt[1]", "gyroUnfilt[2]",
-        "debug[0]", "debug[1]", "debug[2]", "debug[3]",
-        "throttle",
+        "time (us)",            // 0
+        "axisP[0]", "axisP[1]", "axisP[2]", // 1, 2, 3
+        "axisI[0]", "axisI[1]", "axisI[2]", // 4, 5, 6
+        "axisD[0]", "axisD[1]", "axisD[2]", // 7, 8, 9
+        "setpoint[0]", "setpoint[1]", "setpoint[2]", "setpoint[3]", // 10, 11, 12, 13 (setpoint[3] is throttle)
+        "gyroADC[0]", "gyroADC[1]", "gyroADC[2]", // 14, 15, 16
+        "gyroUnfilt[0]", "gyroUnfilt[1]", "gyroUnfilt[2]", // 17, 18, 19
+        "debug[0]", "debug[1]", "debug[2]", "debug[3]", // 20, 21, 22, 23
     ];
 
     // Flags to track if specific optional or plot-dependent headers are found.
     // These are used to decide which plots/calculations are possible.
     // Keep these for header checking logic.
-    let mut setpoint_header_found = [false; 3]; // Tracks if "setpoint[axis]" is present.
+    let mut setpoint_header_found = [false; 4]; // Tracks if "setpoint[axis]" is present.
     let mut gyro_header_found = [false; 3]; // Tracks if "gyroADC[axis]" is present (filtered gyro).
     let mut gyro_unfilt_header_found = [false; 3]; // Tracks if "gyroUnfilt[axis]" is present.
     let mut debug_header_found = [false; 4]; // Tracks if "debug[idx]" is present.
@@ -91,33 +90,34 @@ fn main() -> Result<(), Box<dyn Error>> {
         let axis_d2_found_in_csv = header_indices[9].is_some(); // Use header_indices here
         println!("  '{}': {} (Optional, defaults to 0.0 if not found)", target_headers[9], if axis_d2_found_in_csv { "Found" } else { "Not Found" });
 
-        // Check setpoint headers (Indices 10-12).
-        for axis in 0..3 {
+        // Check setpoint headers (Indices 10-13).
+        for axis in 0..4 { // Check setpoint[0] to setpoint[3]
             setpoint_header_found[axis] = header_indices[10 + axis].is_some(); // Use header_indices here
-            println!("  '{}': {} (Essential for Setpoint plots and Step Response Axis {})", target_headers[10 + axis], if setpoint_header_found[axis] { "Found" } else { "Not Found" }, axis);
+            let purpose = if axis < 3 {
+                format!("Essential for Setpoint plots and Step Response Axis {}", axis)
+            } else {
+                "Throttle (setpoint[3])".to_string()
+            };
+            println!("  '{}': {} ({})", target_headers[10 + axis], if setpoint_header_found[axis] { "Found" } else { "Not Found" }, purpose);
         }
 
-        // Check gyro (filtered) headers (Indices 13-15).
+        // Check gyro (filtered) headers (Indices 14-16).
          for axis in 0..3 {
-            gyro_header_found[axis] = header_indices[13 + axis].is_some(); // Use header_indices here
-            println!("  '{}': {} (Essential for Step Response, Gyro plots, and PID Error Axis {})", target_headers[13 + axis], if gyro_header_found[axis] { "Found" } else { "Not Found" }, axis);
+            gyro_header_found[axis] = header_indices[14 + axis].is_some(); // Use header_indices here
+            println!("  '{}': {} (Essential for Step Response, Gyro plots, and PID Error Axis {})", target_headers[14 + axis], if gyro_header_found[axis] { "Found" } else { "Not Found" }, axis);
         }
 
-        // Check gyroUnfilt headers (Indices 16-18).
+        // Check gyroUnfilt headers (Indices 17-19).
         for axis in 0..3 {
-            gyro_unfilt_header_found[axis] = header_indices[16 + axis].is_some(); // Use header_indices here
-            println!("  '{}': {} (Fallback for Gyro vs Unfilt Axis {})", target_headers[16 + axis], if gyro_unfilt_header_found[axis] { "Found" } else { "Not Found" }, axis);
+            gyro_unfilt_header_found[axis] = header_indices[17 + axis].is_some(); // Use header_indices here
+            println!("  '{}': {} (Fallback for Gyro vs Unfilt Axis {})", target_headers[17 + axis], if gyro_unfilt_header_found[axis] { "Found" } else { "Not Found" }, axis);
         }
 
-        // Check debug headers (Indices 19-22).
+        // Check debug headers (Indices 20-23).
         for idx_offset in 0..4 {
-            debug_header_found[idx_offset] = header_indices[19 + idx_offset].is_some(); // Use header_indices here
-            println!("  '{}': {} (Fallback for gyroUnfilt[0-2])", target_headers[19 + idx_offset], if debug_header_found[idx_offset] { "Found" } else { "Not Found" });
+            debug_header_found[idx_offset] = header_indices[20 + idx_offset].is_some(); // Use header_indices here
+            println!("  '{}': {} (Fallback for gyroUnfilt[0-2])", target_headers[20 + idx_offset], if debug_header_found[idx_offset] { "Found" } else { "Not Found" });
         }
-
-        // Check throttle header (Index 23).
-        let throttle_found_in_csv = header_indices[23].is_some(); // Use header_indices here
-        println!("  '{}': {} (Optional, for filtering)", target_headers[23], if throttle_found_in_csv { "Found" } else { "Not Found" });
 
 
         if !essential_pid_headers_found {
@@ -157,22 +157,24 @@ fn main() -> Result<(), Box<dyn Error>> {
                          continue;
                     }
 
-                    // Parse P, I, D, Setpoint, Gyro (filtered)
+                    // Parse P, I, D, Gyro (for axes 0-2)
                     for axis in 0..3 {
                         current_row_data.p_term[axis] = parse_f64_by_target_idx(1 + axis);
                         current_row_data.i_term[axis] = parse_f64_by_target_idx(4 + axis);
 
                         // D term with optional axisD[2] fallback
                         let d_target_idx = 7 + axis;
-                        // Use header_indices directly
                         if axis == 2 && header_indices[d_target_idx].is_none() {
                              current_row_data.d_term[axis] = Some(0.0); // Default to 0.0 if axisD[2] is missing
                         } else {
                              current_row_data.d_term[axis] = parse_f64_by_target_idx(d_target_idx);
                         }
+                        current_row_data.gyro[axis] = parse_f64_by_target_idx(14 + axis); // Index shifted
+                    }
 
-                        current_row_data.setpoint[axis] = parse_f64_by_target_idx(10 + axis);
-                        current_row_data.gyro[axis] = parse_f64_by_target_idx(13 + axis);
+                    // Parse Setpoint (for axes 0-3)
+                    for axis in 0..4 {
+                        current_row_data.setpoint[axis] = parse_f64_by_target_idx(10 + axis); // Parses setpoint[0-3]
                     }
 
                     // Parse gyroUnfilt and debug
@@ -181,13 +183,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                     for axis in 0..3 {
                         if gyro_unfilt_header_found[axis] {
-                            parsed_gyro_unfilt[axis] = parse_f64_by_target_idx(16 + axis);
+                            parsed_gyro_unfilt[axis] = parse_f64_by_target_idx(17 + axis); // Index shifted
                         }
                     }
 
                     for idx_offset in 0..4 {
                         if debug_header_found[idx_offset] {
-                            parsed_debug[idx_offset] = parse_f64_by_target_idx(19 + idx_offset);
+                            parsed_debug[idx_offset] = parse_f64_by_target_idx(20 + idx_offset); // Index shifted
                         }
                         current_row_data.debug[idx_offset] = parsed_debug[idx_offset];
                     }
@@ -202,9 +204,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                             }
                         };
                     }
-
-                    // Parse Throttle
-                    current_row_data.throttle = parse_f64_by_target_idx(23);
 
                     all_log_data.push(current_row_data);
                 }
@@ -267,7 +266,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let last_time = all_log_data.last().and_then(|row| row.time_sec);
 
     // Only attempt to filter input data if time range and sample rate are available AND required headers were found
-    let required_headers_for_sr_input = setpoint_header_found.iter().all(|&f| f) && gyro_header_found.iter().all(|&f| f);
+    let mut required_headers_for_sr_input = true;
+    for axis in 0..3 { // Only check setpoint[0-2] for step response input
+        if !setpoint_header_found[axis] || !gyro_header_found[axis] {
+            required_headers_for_sr_input = false;
+            break;
+        }
+    }
 
     if let (Some(first_time_val), Some(last_time_val), Some(_sr)) = (first_time, last_time, sample_rate) { // _sr is unused here
          if required_headers_for_sr_input {
