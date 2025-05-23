@@ -788,6 +788,9 @@ pub fn plot_gyro_spectrums(
     let plot_type_name = "Gyro Spectrums";
 
     // Extract sample rate early; if None, return Ok(()) to skip plotting.
+    // This also ensures 'sr_value' is available for the global max calculation
+    // and subsequent plot range calculations.
+    //let sr_value: f64;
     let sr_value = if let Some(sr) = sample_rate {
         sr
     } else {
@@ -797,7 +800,13 @@ pub fn plot_gyro_spectrums(
 
     // Pre-calculate all FFT data for all axes.
     // Stores: [axis_index] -> ([unfilt_series_data, filt_series_data], max_amp_unfilt, max_amp_filt).
-    let mut all_fft_data: [Option<([Vec<(f64, f64)>; 2], f64, f64)>; 3] = Default::default();
+    // The stored f64 values for max_amp_unfilt and max_amp_filt are per-axis, but not
+    // directly used for plot ranges anymore, which will be determined by global max.
+    let mut all_fft_data: [Option<([Vec<(f64, f64)>; 2], f64, f64)>; 3] = Default::default(); // Keep storing per-axis, if needed for other debugging
+
+    let mut global_max_y_unfilt = 0.0f64;
+    let mut global_max_y_filt = 0.0f64;
+    let mut overall_max_y_amplitude = 0.0f64; // The single max for all plots
 
     for axis_index in 0..3 {
             let mut unfilt_samples: Vec<f32> = Vec::new();
@@ -881,9 +890,17 @@ pub fn plot_gyro_spectrums(
 
             let y_max_unfilt = SPECTRUM_Y_AXIS_FLOOR.max(max_amp_after_noise_floor_unfilt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
             let y_max_filt = SPECTRUM_Y_AXIS_FLOOR.max(max_amp_after_noise_floor_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
+
             // Store the processed data for this axis
             all_fft_data[axis_index] = Some(([unfilt_series_data, filt_series_data], y_max_unfilt, y_max_filt));
+
+            // Update global maximums for consistent Y-axis scaling within unfiltered/filtered groups
+            global_max_y_unfilt = global_max_y_unfilt.max(y_max_unfilt);
+            global_max_y_filt = global_max_y_filt.max(y_max_filt);
     }
+
+    // Determine the single, overall maximum amplitude to be used for all plots
+    overall_max_y_amplitude = overall_max_y_amplitude.max(global_max_y_unfilt).max(global_max_y_filt);
 
     // Pass the pre-calculated data to the plotting function
     draw_dual_spectrum_plot(
@@ -893,13 +910,14 @@ pub fn plot_gyro_spectrums(
         // This closure provides the specific plot configuration for each subplot
         // It consumes the `all_fft_data` by moving it.
         move |axis_index| {
-            if let Some((series_data, max_amp_unfilt, max_amp_filt)) = all_fft_data[axis_index].take() {
-                let max_freq_val = sr_value / 2.0; // Nyquist frequency as max X-axis value
+            // We ignore the per-axis max_amp_unfilt and max_amp_filt values stored in all_fft_data
+            // because we are now using global maximums for Y-axis ranges.
+            if let Some((series_data, _, _)) = all_fft_data[axis_index].take() {                let max_freq_val = sr_value / 2.0; // Nyquist frequency as max X-axis value
                 let x_range = 0.0..max_freq_val * 1.05; // Extend X-axis slightly for readability
 
-                // We now directly use the calculated y_max values for the range
-                let y_range_unfilt = 0.0..max_amp_unfilt;
-                let y_range_filt = 0.0..max_amp_filt;
+                // Use the single overall maximum amplitude for both unfiltered and filtered plots
+                let y_range_unfilt = 0.0..overall_max_y_amplitude;
+                let y_range_filt = 0.0..overall_max_y_amplitude;
 
                 // Create PlotSeries for unfiltered gyro
                 let unfilt_plot_series = vec![

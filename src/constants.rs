@@ -29,7 +29,7 @@ pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; // Moving average window s
 // Maximum amplitude for spectrum plots.
 pub const SPECTRUM_Y_AXIS_FLOOR: f64 = 20000.0;
 // Frequency threshold below which to ignore for dynamic Y-axis scaling (e.g., motor idle noise).
-pub const SPECTRUM_NOISE_FLOOR_HZ: f64 = 30.0;
+pub const SPECTRUM_NOISE_FLOOR_HZ: f64 = 40.0;
 // Factor to extend Y-axis above the highest peak (after noise floor) for better visibility.
 pub const SPECTRUM_Y_AXIS_HEADROOM_FACTOR: f64 = 1.2;
 
