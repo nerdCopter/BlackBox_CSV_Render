@@ -12,8 +12,6 @@ use std::env;
 use std::path::Path;
 use std::fs::{File, OpenOptions}; // Added for diagnostic file
 use std::io::Write; // Added for diagnostic file
-// BufReader was used in your copy 20, so keeping it for consistency with your original parsing
-// use std::io::BufReader; // Only if log_parser uses it; log_parser provided earlier doesn't.
 
 use ndarray::{Array1, Array2};
 
@@ -39,9 +37,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // --- Setup Diagnostic File ---
     let diag_filename = format!("{}_diag.txt", root_name);
-    if Path::new(&diag_filename).exists() {
-        File::create(&diag_filename)?; 
-    }
     let mut diag_file = OpenOptions::new()
         .append(true)
         .create(true)
@@ -50,35 +45,30 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     writeln!(diag_file, "Starting processing for: {}", input_file)?;
     println!("Reading {}...", input_file);
-    
+
     // --- Data Reading and Header Processing ---
-    // Assuming log_parser::parse_csv now handles header checking and prints/writes to diag_file internally
-    let (all_log_data, sample_rate, _headers, setpoint_header_found, gyro_header_found, setpoint3_header_found) = 
+    let (all_log_data, sample_rate, headers) =
         match log_parser::parse_csv(input_file, Some(&mut diag_file)) {
-            Ok((data, sr_opt, hdr)) => {
-                // Reconstruct header found flags based on what parse_csv might infer or what you need
-                // This part needs to align with how your parse_csv now communicates header presence if needed by main
-                // For simplicity, let's assume parse_csv handles all necessary header checks and main just gets data.
-                // The flags below are illustrative based on your "copy 20" logic.
-                // You'll need to get these true/false values based on your actual parsing result.
-                
-                // Example: Check if specific essential headers for plotting were found by looking at the data or _headers.
-                // This is simplified; your original `main (copy 20)` had detailed checks.
-                // For now, we'll assume parse_csv makes these available or we infer them.
-                // Let's assume parse_csv returns enough info or we check the first row.
-                let s_h_f = [true; 3]; // Placeholder - replace with actual logic
-                let g_h_f = [true; 3]; // Placeholder
-                let s3_h_f = if !data.is_empty() { data[0].throttle.is_some() } else { false };
-
-
-                (data, sr_opt, hdr, s_h_f, g_h_f, s3_h_f)
-            }
+            Ok((data, sr_opt, hdr)) => (data, sr_opt, hdr),
             Err(e) => {
                 eprintln!("Fatal error during CSV parsing: {}", e);
                 writeln!(diag_file, "Fatal error during CSV parsing: {}", e)?;
                 return Err(e);
             }
         };
+
+    // Derive header-presence flags
+    let setpoint_header_found = [
+        headers.contains(&"setpoint[0]".to_string()),
+        headers.contains(&"setpoint[1]".to_string()),
+        headers.contains(&"setpoint[2]".to_string()),
+    ];
+    let gyro_header_found = [
+        headers.contains(&"gyroADC[0]".to_string()),
+        headers.contains(&"gyroADC[1]".to_string()),
+        headers.contains(&"gyroADC[2]".to_string()),
+    ];
+    let throttle_header_found = headers.contains(&"throttle".to_string());
 
     println!("Finished reading {} data rows.", all_log_data.len());
     if let Some(sr_val) = sample_rate {
@@ -204,14 +194,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     if let Err(e) = plot_step_response(&step_response_calculation_results, &root_name, sample_rate) {
         eprintln!("Error plotting step response: {}", e);
     }
-    if setpoint3_header_found { // Check if throttle header was found
+    if throttle_header_found {
         if let Err(e) = plot_throttle_spectrograms(&all_log_data, &root_name, sample_rate, Some(&mut diag_file)) {
             eprintln!("Error plotting throttle spectrograms: {}", e);
         }
     } else {
-        let msg = format!("\nSkipping Throttle Spectrograms: 'setpoint[3]' header (used for throttle) not found in CSV.");
+        let msg = "\nSkipping Throttle Spectrograms: 'throttle' header not found in CSV.";
         println!("{}", msg);
-        writeln!(diag_file, "{}",msg)?;
+        writeln!(diag_file, "{}", msg)?;
     }
 
     println!("\nProcessing complete. Diagnostic log saved to {}", diag_filename);

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021" # Use 2021 edition as it's standard, 2024 is not yet released/stable
 
 [dependencies]
+num-complex = "0.4"
 plotters = "0.3"
 csv = "1.1"
 realfft = "3.3"

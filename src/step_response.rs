@@ -11,32 +11,33 @@ use crate::constants::{
 };
 
 use crate::fft_utils; // Import the new FFT utility module
-
+use num_complex::Complex32;
 
 /// Makes a Tukey window for enveloping.
 pub fn tukeywin(num: usize, alpha: f64) -> Array1<f32> {
-    if alpha <= 0.0 {
-        return Array1::ones(num); // rectangular window
-    } else if alpha >= 1.0 {
-        // Hanning window is a special case of Tukey with alpha=1.0
-        let mut window = Array1::<f32>::zeros(num);
-        for i in 0..num {
-            window[i] = 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / (num as f64 - 1.0)).cos()) as f32;
-        }
+    let mut window = Array1::<f32>::zeros(num);
+    if num == 0 {
         return window;
     }
-
-    let mut window = Array1::<f32>::ones(num);
-    let alpha_half = alpha / 2.0;
-    let n_alpha = (alpha_half * (num as f64 - 1.0)).floor() as usize;
-
-    for i in 0..n_alpha {
-        window[i] = 0.5 * (1.0 + (std::f64::consts::PI * i as f64 / (n_alpha as f64)).cos()) as f32;
-        window[num - 1 - i] = window[i];
+    for n in 0..num {
+        let val = if alpha <= 0.0 {
+            1.0
+        } else if alpha >= 1.0 {
+            0.5 * (1.0 - (2.0 * std::f64::consts::PI * n as f64 / (num as f64 - 1.0)).cos())
+        } else {
+            let ratio = n as f64 / (num as f64 - 1.0);
+            if ratio < alpha / 2.0 {
+                0.5 * (1.0 + (std::f64::consts::PI * (2.0 * ratio / alpha - 1.0)).cos())
+            } else if ratio <= 1.0 - alpha / 2.0 {
+                1.0
+            } else {
+                0.5 * (1.0 + (std::f64::consts::PI * (2.0 * ratio / alpha - 2.0 / alpha + 1.0)).cos())
+            }
+        };
+        window[n] = val as f32;
     }
     window
 }
-
 
 /// Generates overlapping windows from contiguous input data.
 /// Returns a tuple of stacked input and output windows.
@@ -54,8 +55,8 @@ fn winstacker_contiguous(
 
     let shift = frame_length_samples / superposition_factor;
     if shift == 0 {
-         eprintln!("Warning: Window shift is zero. Adjust frame_length_samples or superposition_factor.");
-         return (Array2::zeros((0, 0)), Array2::zeros((0, 0)));
+        eprintln!("Warning: Window shift is zero. Adjust frame_length_samples or superposition_factor.");
+        return (Array2::zeros((0, 0)), Array2::zeros((0, 0)));
     }
 
     // Calculate the number of windows that can fit entirely within the data
@@ -64,7 +65,6 @@ fn winstacker_contiguous(
     } else {
         0
     };
-
 
     if num_windows == 0 {
         return (Array2::zeros((0, 0)), Array2::zeros((0, 0)));
@@ -106,20 +106,19 @@ fn wiener_deconvolution_window(
     let mut output_padded = Array1::<f32>::zeros(padded_n);
     output_padded.slice_mut(s![0..n]).assign(output_window);
 
-
     let h_spec = fft_utils::fft_forward(&input_padded); // Use fft_utils
     let g_spec = fft_utils::fft_forward(&output_padded); // Use fft_utils
 
     if h_spec.is_empty() || g_spec.is_empty() || h_spec.len() != g_spec.len() {
-         eprintln!("Warning: FFT output empty or length mismatch in Wiener deconvolution.");
-         return Array1::zeros(n);
+        eprintln!("Warning: FFT output empty or length mismatch in Wiener deconvolution.");
+        return Array1::zeros(n);
     }
 
     // Use a small constant regularization term (from PTstepcalc.m 0.0001)
-    let regularization_term = 0.0001;
-    let epsilon = 1e-9; // Small value to prevent division by zero
+    let regularization_term: f32 = 0.0001;
+    let epsilon: f32 = 1e-9;
 
-    let mut deconvolved_spec = Array1::<num_complex::Complex32>::zeros(h_spec.len()); // Use num_complex::Complex32 explicitly
+    let mut deconvolved_spec = Array1::<Complex32>::zeros(h_spec.len());
 
     for i in 0..h_spec.len() {
         let h = h_spec[i];
@@ -132,17 +131,16 @@ fn wiener_deconvolution_window(
         if denominator.abs() > epsilon {
             deconvolved_spec[i] = (g * h_conj) / denominator;
         } else {
-            deconvolved_spec[i] = num_complex::Complex32::new(0.0, 0.0); // Use num_complex::Complex32 explicitly
+            deconvolved_spec[i] = Complex32::new(0.0, 0.0);
         }
     }
 
     // Perform inverse FFT and truncate to original length
-    let deconvolved_impulse = fft_utils::fft_inverse(&deconvolved_spec, padded_n); // Use fft_utils
+    let deconvolved_impulse = fft_utils::fft_inverse(&deconvolved_spec, padded_n);
 
     // Return the impulse response truncated to the original window length
     deconvolved_impulse.slice(s![0..n]).to_owned()
 }
-
 
 /// Calculates the cumulative sum of an array to get the step response from impulse response.
 fn cumulative_sum(data: &Array1<f32>) -> Array1<f32> {
@@ -152,7 +150,7 @@ fn cumulative_sum(data: &Array1<f32>) -> Array1<f32> {
         if val.is_finite() {
             current_sum += val;
         } else {
-             eprintln!("Warning: Non-finite value ({}) detected in impulse response at index {}. Skipping.", val, i);
+            eprintln!("Warning: Non-finite value ({}) detected in impulse response at index {}. Skipping.", val, i);
         }
         cumulative[i] = current_sum;
     }
@@ -190,16 +188,15 @@ pub fn moving_average_smooth_f64(data: &Array1<f64>, window_size: usize) -> Arra
     smoothed_data
 }
 
-
 /// Calculates the mean of the step responses from the stacked windows,
 /// considering only windows with a weight > 0.
 /// Returns the averaged step response curve.
 /// This replaces the histogram-based mode averaging with a simpler mean.
-pub fn average_responses( // Renamed from weighted_mode_avr
-    stacked_responses: &Array2<f32>, // Stack of step responses (windows x time)
-    weights: &Array1<f32>, // Weight for each window (0.0 or 1.0 based on mask)
-    response_len: usize, // Length of the response (number of time points)
-) -> Result<Array1<f64>, Box<dyn Error>> { // Returns the averaged response curve (Array1<f64>)
+pub fn average_responses(
+    stacked_responses: &Array2<f32>,
+    weights: &Array1<f32>,
+    response_len: usize,
+) -> Result<Array1<f64>, Box<dyn Error>> {
     let num_windows = stacked_responses.shape()[0];
 
     if num_windows == 0 || response_len == 0 || weights.len() != num_windows || stacked_responses.shape()[1] != response_len {
@@ -207,181 +204,135 @@ pub fn average_responses( // Renamed from weighted_mode_avr
     }
 
     let mut averaged_response = Array1::<f64>::zeros(response_len);
-    let mut active_window_counts = Array1::<f64>::zeros(response_len); // Count how many weighted windows contribute to each time point
+    let mut active_window_counts = Array1::<f64>::zeros(response_len);
 
-    for i in 0..num_windows { // Iterate over windows
+    for i in 0..num_windows {
         let weight = weights[i] as f64;
-        if weight <= 1e-9 { continue; } // Skip windows with near-zero weight
+        if weight <= 1e-9 { continue; }
 
-        for j in 0..response_len { // Iterate over time points in the response
+        for j in 0..response_len {
             let response_value = stacked_responses[[i, j]] as f64;
-
             if response_value.is_finite() {
-                 // Add the value to the sum for this time point
-                 averaged_response[j] += response_value * weight; // Apply weight (currently 0 or 1)
-                 active_window_counts[j] += weight; // Count active windows (currently 0 or 1)
+                averaged_response[j] += response_value * weight;
+                active_window_counts[j] += weight;
             }
         }
     }
 
-    // Divide the sum by the count of active windows for each time point to get the mean
     for j in 0..response_len {
-        if active_window_counts[j] > 1e-9 { // Avoid division by zero
+        if active_window_counts[j] > 1e-9 {
             averaged_response[j] /= active_window_counts[j];
-        } else {
-            // If no active windows contributed to this time point, leave it as 0.0 (or handle differently if needed)
         }
     }
 
     Ok(averaged_response)
 }
 
-
 /// Calculates the system's step response using windowing and deconvolution,
 /// returning the stacked, quality-controlled step responses and their corresponding
 /// max setpoints for later averaging.
-/// Input: Contiguous time, setpoint, and gyro data within the analysis range, sample rate.
-/// Output: Tuple of (response_time, stacked_qc_responses, qc_window_max_setpoints) or an error.
-/// Note: The responses returned here are UN-NORMALIZED. Averaging and final normalization happen in main.rs.
 pub fn calculate_step_response(
-    _time: &Array1<f64>, // Time data is not used directly in this function, but kept for signature consistency
-    setpoint: &Array1<f32>, // Contiguous setpoint data within analysis range
-    gyro_filtered: &Array1<f32>, // Contiguous gyro data within analysis range
+    _time: &Array1<f64>,
+    setpoint: &Array1<f32>,
+    gyro_filtered: &Array1<f32>,
     sample_rate: f64,
 ) -> Result<(Array1<f64>, Array2<f32>, Array1<f32>), Box<dyn Error>> {
     if setpoint.is_empty() || gyro_filtered.is_empty() || setpoint.len() != gyro_filtered.len() || sample_rate <= 0.0 {
         return Err("Invalid input to calculate_step_response: Empty data, length mismatch, or invalid sample rate.".into());
     }
 
-    // Calculate window lengths in samples.
     let frame_length_samples = (FRAME_LENGTH_S * sample_rate).ceil() as usize;
     let response_length_samples = (RESPONSE_LENGTH_S * sample_rate).ceil() as usize;
-
     if frame_length_samples == 0 || response_length_samples == 0 {
-         return Err("Calculated window length is zero. Adjust constants or sample rate.".into());
+        return Err("Calculated window length is zero. Adjust constants or sample rate.".into());
     }
 
-    // Calculate steady-state window indices for quality control
     let ss_start_sample = (STEADY_STATE_START_S * sample_rate).floor() as usize;
     let ss_end_sample = (STEADY_STATE_END_S * sample_rate).ceil() as usize;
     let ss_start_sample = ss_start_sample.min(response_length_samples);
     let ss_end_sample = ss_end_sample.min(response_length_samples);
-
     if ss_start_sample >= ss_end_sample {
-         eprintln!("Warning: Steady-state window for quality control is invalid (start >= end). Quality control based on steady-state value will be skipped.");
+        eprintln!("Warning: Steady-state window for quality control is invalid (start >= end). Quality control based on steady-state value will be skipped.");
     }
 
-    // Prepare storage for step responses from each window that pass quality control.
     let mut stacked_step_responses_qc: Vec<Array1<f32>> = Vec::new();
-    let mut window_max_setpoints_qc: Vec<f32> = Vec::new(); // Store max setpoint for QC windows
+    let mut window_max_setpoints_qc: Vec<f32> = Vec::new();
 
-
-    // 1. Generate overlapping windows from the contiguous data.
     let (stacked_input_raw, stacked_output_raw) = winstacker_contiguous(
         setpoint,
         gyro_filtered,
         frame_length_samples,
         SUPERPOSITION_FACTOR,
     );
-
     let num_windows = stacked_input_raw.shape()[0];
     if num_windows == 0 {
         return Err("No complete windows could be generated from contiguous data.".into());
     }
 
-    // Apply window function (e.g., Hanning) once
     let window_func = tukeywin(frame_length_samples, TUKEY_ALPHA);
 
-    // Process each window
     for i in 0..num_windows {
         let input_window_raw = stacked_input_raw.row(i).to_owned();
         let output_window_raw = stacked_output_raw.row(i).to_owned();
 
-        // --- Movement Threshold Check (applied to the raw window) ---
         let max_setpoint_in_window = input_window_raw.iter().fold(0.0f32, |max_val, &v| max_val.max(v.abs()));
         let max_gyro_in_window = output_window_raw.iter().fold(0.0f32, |max_val, &v| max_val.max(v.abs()));
-
         if max_setpoint_in_window < MOVEMENT_THRESHOLD_DEG_S as f32 && max_gyro_in_window < MOVEMENT_THRESHOLD_DEG_S as f32 {
-             // Window does not contain significant movement, skip deconvolution and QC
-             continue;
+            continue;
         }
 
-        // Apply window function
         let input_window_windowed = &input_window_raw * &window_func;
         let output_window_windowed = &output_window_raw * &window_func;
-
-        // 2. Perform Wiener deconvolution and cumulative sum for this window.
         let impulse_response = wiener_deconvolution_window(
             &input_window_windowed,
             &output_window_windowed,
             sample_rate,
         );
-
-        // Truncate impulse response to frame length before cumulative sum
-        // Note: wiener_deconvolution_window already returns truncated to input length, but an explicit slice ensures length
         let impulse_response_truncated = impulse_response.slice(s![0..frame_length_samples]).to_owned();
-
         if impulse_response_truncated.is_empty() || impulse_response_truncated.len() != frame_length_samples {
-             eprintln!("Warning: Truncated impulse response length mismatch for window {}. Skipping.", i);
-             continue;
+            eprintln!("Warning: Truncated impulse response length mismatch for window {}. Skipping.", i);
+            continue;
         }
 
         let step_response = cumulative_sum(&impulse_response_truncated);
-
-        // Truncate the step response to the desired response length *before* QC check
         if step_response.len() < response_length_samples {
-             eprintln!("Warning: Step response shorter than response_length_samples for window {}. Skipping.", i);
-             continue;
+            eprintln!("Warning: Step response shorter than response_length_samples for window {}. Skipping.", i);
+            continue;
         }
         let truncated_step_response = step_response.slice(s![0..response_length_samples]).to_owned();
 
-
-        // --- Individual Response Quality Control (based on steady-state value range) ---
         let mut passes_qc = false;
-        if ss_start_sample < ss_end_sample { // Only perform QC if steady-state window is valid
-            let steady_state_segment = truncated_step_response.slice(s![ss_start_sample..ss_end_sample]);
-
-            // Use .mean() from ndarray
-            if let Some(steady_state_mean) = steady_state_segment.mean() {
-                 // Check if the UN-NORMALIZED steady-state mean is within the acceptable range
-                 if steady_state_mean.is_finite() && steady_state_mean >= STEADY_STATE_MIN_VAL as f32 && steady_state_mean <= STEADY_STATE_MAX_VAL as f32 {
-                     passes_qc = true; // Window passes QC based on steady-state value range
-                 } else {
-                     // Optionally print why a window failed QC
-                     // eprintln!("Debug: Window {} failed QC. Steady-state mean: {:.2}", i, steady_state_mean.unwrap_or(f32::NAN));
-                 }
+        if ss_start_sample < ss_end_sample {
+            if let Some(mean) = truncated_step_response.slice(s![ss_start_sample..ss_end_sample]).mean() {
+                if mean.is_finite() && mean >= STEADY_STATE_MIN_VAL as f32 && mean <= STEADY_STATE_MAX_VAL as f32 {
+                    passes_qc = true;
+                }
             } else {
-                 eprintln!("Warning: Could not calculate steady-state mean for window {}. Skipping QC.", i);
+                eprintln!("Warning: Could not calculate steady-state mean for window {}. Skipping QC.", i);
             }
         } else {
-             // If steady-state window is invalid, skip this QC check but still require movement threshold
-             passes_qc = true; // Assume QC passes if steady-state window is invalid
+            passes_qc = true;
         }
-
 
         if passes_qc {
-             // Push the UN-NORMALIZED truncated response
-             stacked_step_responses_qc.push(truncated_step_response);
-             // Store the max setpoint from the *raw* window
-             window_max_setpoints_qc.push(max_setpoint_in_window);
+            stacked_step_responses_qc.push(truncated_step_response);
+            window_max_setpoints_qc.push(max_setpoint_in_window);
         }
     }
-
 
     let num_qc_windows = stacked_step_responses_qc.len();
     if num_qc_windows == 0 {
         return Err("No windows passed movement threshold and quality control.".into());
     }
 
-    // Convert Vec<Array1> to Array2 for averaging
     let valid_stacked_responses = Array2::from_shape_fn((num_qc_windows, response_length_samples), |(i, j)| {
         stacked_step_responses_qc[i][j]
     });
     let valid_window_max_setpoints = Array1::from(window_max_setpoints_qc);
-
-    // Time vector for the response plot (0 to RESPONSE_LENGTH_S).
     let response_time = Array1::linspace(0.0, RESPONSE_LENGTH_S, response_length_samples);
 
+    Ok((response_time.mapv(|t| t as f64), valid_stacked_responses, valid_window_max_setpoints))
+}
 
     // Return the time vector, stacked QC responses, and max setpoints
     Ok((response_time.mapv(|t| t as f64), valid_stacked_responses, valid_window_max_setpoints))

@@ -1,3 +1,19 @@
+//! Module: constants
+//!
+//! This module defines the constants used for plotting (dimensions, colors, line widths),
+//! spectrogram analysis parameters, step response calculations, and data filtering thresholds.
+//! Constants here centralize tuning parameters for visualization and analysis.
+//! Module: constants
+//!
+//! This module defines all plotting and spectroscopy constants, including dimensions, colors,
+//! line widths, window parameters, and filtering thresholds. Centralizing these values
+//! enables easy tuning and clearer documentation of the numerical parameters used.
+//
+//! Module: constants
+//!
+//! This module centralizes all tunable parameters and constants used
+//! throughout the project, including plot dimensions, spectrogram
+//! settings, step-response parameters, and data-filter thresholds.
 // src/constants.rs
 
 // Import specific colors needed

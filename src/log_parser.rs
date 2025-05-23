@@ -89,75 +89,34 @@ pub fn parse_csv(
         column_indices.get("debug[1]").copied(),
         column_indices.get("debug[2]").copied(),
         column_indices.get("debug[3]").copied(),
-    ];
-    let time_index = column_indices.get("time (us)").copied();
-    let throttle_index = column_indices.get("setpoint[3]").copied(); // Throttle from setpoint[3]
+     ];
+     let time_index = column_indices.get("time (us)").copied();
+     let throttle_index = column_indices.get("debug[3]").copied();     // Throttle from debug[3]
 
-    // ---------- Validate essential headers ----------
-    let mut missing_essential: Vec<&str> = Vec::new();
-    for (name, idx) in [
+     // ---------- Validate essential headers ----------
+     let mut missing_essential: Vec<&str> = Vec::new();
+     for (name, idx) in [
         ("time (us)", time_index),
         ("setpoint[0]", setpoint_indices[0]),
         ("setpoint[1]", setpoint_indices[1]),
         ("setpoint[2]", setpoint_indices[2]),
+        ("setpoint[3]", throttle_index),
         ("gyroADC[0]", gyro_adc_indices[0]),
         ("gyroADC[1]", gyro_adc_indices[1]),
         ("gyroADC[2]", gyro_adc_indices[2]),
-    ] {
-        if idx.is_none() {
-            missing_essential.push(name);
-        }
-    }
-    if !missing_essential.is_empty() {
-        let msg = format!("Missing essential CSV headers: {:?}", missing_essential);
-        if let Some(file) = diag_file.as_mut() {
-            writeln!(file, "{}", msg)?;
-        }
-        return Err(msg.into());
-    }
-
-    // ---------- Diagnostic print for header mapping status ----------
-    if let Some(file) = diag_file.as_mut() {
-        writeln!(file, "Header mapping status:")?;
-        let mut check_header = |name: &str, index: Option<usize>, essential: bool, fallback: Option<&str>| {
-            let status = if index.is_some() { "Found" } else { "Not Found" };
-            let note = if essential && index.is_none() { "(ESSENTIAL, MISSING!)" } 
-                       else if index.is_none() && fallback.is_some() {fallback.unwrap()}
-                       else if index.is_none() {"(Optional, defaults to 0.0 if not found)"}
-                       else {""} ;
-            writeln!(file, "  '{}': {} {}", name, status, note)
-        };
-        check_header("time (us)", time_index, true, None)?;
-        for i in 0..3 { check_header(&format!("axisP[{}]", i), p_indices[i], false, None)?; }
-        for i in 0..3 { check_header(&format!("axisI[{}]", i), i_indices[i], false, None)?; }
-        check_header("axisD[0]", d_indices[0], false, None)?;
-        check_header("axisD[1]", d_indices[1], false, None)?;
-        check_header("axisD[2]", d_indices[2], false, Some("(Optional, defaults to 0.0 if not found)"))?; // Specifically note D2 as optional
-        for i in 0..3 { check_header(&format!("setpoint[{}]", i), setpoint_indices[i], true, Some(&format!("(Essential for Setpoint plots and Step Response Axis {})", i)))?; }
-        for i in 0..3 { check_header(&format!("gyroADC[{}]", i), gyro_adc_indices[i], true, Some(&format!("(Essential for Step Response, Gyro plots, and PID Error Axis {})", i)))?; }
-        for i in 0..3 { check_header(&format!("gyroUnfilt[{}]", i), gyro_unfilt_indices[i], false, Some(&format!("(Fallback for Gyro vs Unfilt Axis {})",i)))?; }
-        for i in 0..4 { check_header(&format!("debug[{}]", i), debug_indices[i], false, Some("(Fallback for gyroUnfilt[0-2])"))?; }
-        check_header("setpoint[3]", throttle_index, true, Some("(Essential for Throttle Spectrograms)"))?;
-    }
-
-
-    for result in rdr.records() {
-        let record = result?;
-        let time_us = get_optional_f64(&record, time_index);
-
-        let p_terms = get_f64_array_from_indices(&record, &p_indices);
-        let i_terms = get_f64_array_from_indices(&record, &i_indices);
-        let mut d_terms = get_f64_array_from_indices(&record, &d_indices);
-        // Ensure D[2] defaults to 0.0 if not found, as it's optional
-        if d_indices[2].is_none() {
-            d_terms[2] = Some(0.0);
-        }
-
-        let setpoints = get_f64_array_from_indices(&record, &setpoint_indices);
-        let gyro_adc_values = get_f64_array_from_indices(&record, &gyro_adc_indices);
-        
-        let mut gyro_unfilt_values = get_f64_array_from_indices(&record, &gyro_unfilt_indices);
-        let debug_values = get_f64_debug_array(&record, &debug_indices);
+     ] {
+        // ---------- Validate essential headers ----------
+        let mut missing_essential: Vec<&str> = Vec::new();
+        for (name, idx) in [
+        ("time (us)", time_index),
+        ("setpoint[0]", setpoint_indices[0]),
+        ("setpoint[1]", setpoint_indices[1]),
+        ("setpoint[2]", setpoint_indices[2]),
+        ("setpoint[3]", throttle_index),
+        ("gyroADC[0]", gyro_adc_indices[0]),
+        ("gyroADC[1]", gyro_adc_indices[1]),
+        ("gyroADC[2]", gyro_adc_indices[2]),
+        ] {
 
         // Fallback for gyroUnfilt using debug fields if gyroUnfilt is missing
         for i in 0..3 {
