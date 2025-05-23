@@ -897,9 +897,6 @@ pub fn plot_gyro_spectrums(
                 let max_freq_val = sr_value / 2.0; // Nyquist frequency as max X-axis value
                 let x_range = 0.0..max_freq_val * 1.05; // Extend X-axis slightly for readability
 
-                // Calculate Y-axis ranges for each subplot independently
-                let (min_amp_unfilt, plot_max_amp_unfilt) = calculate_range(0.0, max_amp_unfilt);
-
                 // We now directly use the calculated y_max values for the range
                 let y_range_unfilt = 0.0..max_amp_unfilt;
                 let y_range_filt = 0.0..max_amp_filt;
