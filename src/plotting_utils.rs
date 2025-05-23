@@ -20,7 +20,8 @@ use ndarray_stats::QuantileExt;
 use crate::constants::{
     PLOT_WIDTH, PLOT_HEIGHT, STEP_RESPONSE_PLOT_DURATION_S, SETPOINT_THRESHOLD,
     POST_AVERAGING_SMOOTHING_WINDOW, STEADY_STATE_START_S, STEADY_STATE_END_S,
-    SPECTRUM_AMPLITUDE_CAP,
+    SPECTRUM_Y_AXIS_FLOOR,
+    SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_HEADROOM_FACTOR,
     // Import specific color constants needed
     COLOR_PIDSUM_MAIN, COLOR_PIDERROR_MAIN, COLOR_SETPOINT_MAIN,
     COLOR_SETPOINT_VS_GYRO_SP, COLOR_SETPOINT_VS_GYRO_GYRO,
@@ -783,7 +784,7 @@ pub fn plot_gyro_spectrums(
     root_name: &str,
     sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
-    let output_file = format!("{}_Gyro_Spectrums_stacked.png", root_name);
+    let output_file = format!("{}_Gyro_Spectrums_comparative.png", root_name);
     let plot_type_name = "Gyro Spectrums";
 
     // Extract sample rate early; if None, return Ok(()) to skip plotting.
@@ -855,8 +856,8 @@ pub fn plot_gyro_spectrums(
 
             for i in 0..num_unique_freqs {
                 let freq_val = i as f64 * freq_step;
-                let amp_unfilt = (unfilt_spec[i].norm() as f64).min(SPECTRUM_AMPLITUDE_CAP); // Calculate magnitude (amplitude) and cap
-                let amp_filt = (filt_spec[i].norm() as f64).min(SPECTRUM_AMPLITUDE_CAP); // Calculate magnitude (amplitude) and cap
+                let amp_unfilt = unfilt_spec[i].norm() as f64; // Calculate magnitude (amplitude), no capping here yet
+                let amp_filt = filt_spec[i].norm() as f64; // Calculate magnitude (amplitude), no capping here yet
 
                 unfilt_series_data.push((freq_val, amp_unfilt));
                 filt_series_data.push((freq_val, amp_filt));
@@ -865,8 +866,23 @@ pub fn plot_gyro_spectrums(
                 max_amp_filt = max_amp_filt.max(amp_filt);
             }
 
+            // Calculate dynamic Y-axis cap based on max amplitude after noise floor
+            let noise_floor_sample_idx = (SPECTRUM_NOISE_FLOOR_HZ / freq_step) as usize;
+
+            let max_amp_after_noise_floor_unfilt = unfilt_series_data[noise_floor_sample_idx..]
+                .iter()
+                .map(|&(_, amp)| amp)
+                .fold(0.0f64, |max_val, amp| max_val.max(amp));
+
+            let max_amp_after_noise_floor_filt = filt_series_data[noise_floor_sample_idx..]
+                .iter()
+                .map(|&(_, amp)| amp)
+                .fold(0.0f64, |max_val, amp| max_val.max(amp));
+
+            let y_max_unfilt = SPECTRUM_Y_AXIS_FLOOR.max(max_amp_after_noise_floor_unfilt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
+            let y_max_filt = SPECTRUM_Y_AXIS_FLOOR.max(max_amp_after_noise_floor_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
             // Store the processed data for this axis
-            all_fft_data[axis_index] = Some(([unfilt_series_data, filt_series_data], max_amp_unfilt, max_amp_filt));
+            all_fft_data[axis_index] = Some(([unfilt_series_data, filt_series_data], y_max_unfilt, y_max_filt));
     }
 
     // Pass the pre-calculated data to the plotting function
@@ -883,10 +899,10 @@ pub fn plot_gyro_spectrums(
 
                 // Calculate Y-axis ranges for each subplot independently
                 let (min_amp_unfilt, plot_max_amp_unfilt) = calculate_range(0.0, max_amp_unfilt);
-                let y_range_unfilt = min_amp_unfilt..plot_max_amp_unfilt;
 
-                let (min_amp_filt, plot_max_amp_filt) = calculate_range(0.0, max_amp_filt);
-                let y_range_filt = min_amp_filt..plot_max_amp_filt;
+                // We now directly use the calculated y_max values for the range
+                let y_range_unfilt = 0.0..max_amp_unfilt;
+                let y_range_filt = 0.0..max_amp_filt;
 
                 // Create PlotSeries for unfiltered gyro
                 let unfilt_plot_series = vec![
