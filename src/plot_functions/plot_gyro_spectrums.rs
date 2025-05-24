@@ -128,7 +128,11 @@ pub fn plot_gyro_spectrums(
                         let prev_amp = series_data[j-1].1;
                         let next_amp = series_data[j+1].1;
 
-                        if freq >= SPECTRUM_NOISE_FLOOR_HZ && amp > prev_amp && amp > next_amp { // Is a local maximum
+                        // A point is a potential candidate if:
+                        // - It's a sharp peak (amp > prev_amp && amp > next_amp)
+                        // - OR it's the leftmost point of a plateau (amp > prev_amp && amp == next_amp)
+                        // This can be combined into: (amp > prev_amp && amp >= next_amp)
+                        if freq >= SPECTRUM_NOISE_FLOOR_HZ && (amp > prev_amp && amp >= next_amp) && amp > PEAK_LABEL_MIN_AMPLITUDE {
                             let mut is_valid_secondary = amp > SPECTRUM_Y_AXIS_FLOOR;
 
                             if let Some((primary_freq, primary_amp)) = primary_peak_info {
