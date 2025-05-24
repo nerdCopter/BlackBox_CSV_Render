@@ -4,7 +4,7 @@ use std::error::Error;
 use ndarray::{Array1, s};
 
 use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{draw_dual_spectrum_plot, PlotSeries};
+use crate::plot_framework::{draw_dual_spectrum_plot, PlotSeries, PlotConfig, AxisSpectrum}; // Add PlotConfig and AxisSpectrum
 use crate::constants::{
     SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_HEADROOM_FACTOR,
     COLOR_GYRO_VS_UNFILT_UNFILT, COLOR_GYRO_VS_UNFILT_FILT,
@@ -29,7 +29,10 @@ pub fn plot_gyro_spectrums(
         return Ok(());
     };
 
-    let mut all_fft_data: [Option<(Vec<(f64, f64)>, Option<(f64, f64)>, Vec<(f64, f64)>, Option<(f64, f64)>)>; 3] = Default::default();
+    // Change this to store Option<AxisSpectrum> or the raw data that can be converted to it
+    // For simplicity, we'll keep the raw data and convert it in the closure.
+    // The previous structure was (unfilt_series_data, unfilt_peak_info, filt_series_data, filt_peak_info)
+    let mut all_fft_raw_data: [Option<(Vec<(f64, f64)>, Option<(f64, f64)>, Vec<(f64, f64)>, Option<(f64, f64)>)>; 3] = Default::default();
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
     let mut overall_max_y_amplitude = 0.0f64;
@@ -131,7 +134,7 @@ pub fn plot_gyro_spectrums(
             let y_max_unfilt_for_range = SPECTRUM_Y_AXIS_FLOOR.max(max_amp_after_noise_floor_unfilt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
             let y_max_filt_for_range = SPECTRUM_Y_AXIS_FLOOR.max(max_amp_after_noise_floor_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
 
-            all_fft_data[axis_idx] = Some((unfilt_series_data, unfilt_peak_info_for_plot, filt_series_data, filt_peak_info_for_plot));
+            all_fft_raw_data[axis_idx] = Some((unfilt_series_data, unfilt_peak_info_for_plot, filt_series_data, filt_peak_info_for_plot));
             global_max_y_unfilt = global_max_y_unfilt.max(y_max_unfilt_for_range);
             global_max_y_filt = global_max_y_filt.max(y_max_filt_for_range);
     }
@@ -143,7 +146,7 @@ pub fn plot_gyro_spectrums(
         root_name,
         plot_type_name,
         move |axis_index| {
-            if let Some((unfilt_series_data, unfilt_peak_info, filt_series_data, filt_peak_info)) = all_fft_data[axis_index].take() {
+            if let Some((unfilt_series_data, unfilt_peak_info, filt_series_data, filt_peak_info)) = all_fft_raw_data[axis_index].take() {
                 let max_freq_val = sr_value / 2.0;
                 let x_range = 0.0..max_freq_val * 1.05;
                 let y_range_for_all_clone = 0.0..overall_max_y_amplitude;
@@ -165,28 +168,33 @@ pub fn plot_gyro_spectrums(
                     }
                 ];
 
-                Some([
-                    Some((
-                        format!("{} Unfiltered Gyro Spectrum", axis_names[axis_index]),
-                        x_range.clone(),
-                        y_range_for_all_clone.clone(),
-                        unfilt_plot_series,
-                        "Frequency (Hz)".to_string(),
-                        "Amplitude".to_string(),
-                        unfilt_peak_info,
-                    )),
-                    Some((
-                        format!("{} Filtered Gyro Spectrum", axis_names[axis_index]),
-                        x_range,
-                        y_range_for_all_clone,
-                        filt_plot_series,
-                        "Frequency (Hz)".to_string(),
-                        "Amplitude".to_string(),
-                        filt_peak_info,
-                    )),
-                ])
+                let unfiltered_plot_config = Some(PlotConfig {
+                    title: format!("{} Unfiltered Gyro Spectrum", axis_names[axis_index]),
+                    x_range: x_range.clone(),
+                    y_range: y_range_for_all_clone.clone(),
+                    series: unfilt_plot_series,
+                    x_label: "Frequency (Hz)".to_string(),
+                    y_label: "Amplitude".to_string(),
+                    peak: unfilt_peak_info,
+                });
+
+                let filtered_plot_config = Some(PlotConfig {
+                    title: format!("{} Filtered Gyro Spectrum", axis_names[axis_index]),
+                    x_range,
+                    y_range: y_range_for_all_clone,
+                    series: filt_plot_series,
+                    x_label: "Frequency (Hz)".to_string(),
+                    y_label: "Amplitude".to_string(),
+                    peak: filt_peak_info,
+                });
+
+                Some(AxisSpectrum {
+                    unfiltered: unfiltered_plot_config,
+                    filtered: filtered_plot_config,
+                })
             } else {
-                Some([None, None])
+                // If no data for this axis, return an AxisSpectrum with both fields as None
+                Some(AxisSpectrum { unfiltered: None, filtered: None })
             }
         },
     )

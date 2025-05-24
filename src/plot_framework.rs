@@ -11,6 +11,7 @@ use plotters::series::LineSeries;
 use plotters::style::colors::{WHITE, BLACK, RED}; // Keep specific colors used by framework
 
 use std::error::Error;
+use std::ops::Range; // Import Range for PlotConfig
 
 // Explicitly import constants used within this file by the framework
 use crate::constants::{
@@ -57,6 +58,23 @@ pub struct PlotSeries {
     pub label: String,
     pub color: RGBColor,
     pub stroke_width: u32,
+}
+
+/// Struct to hold configuration for a single plot.
+pub struct PlotConfig {
+    pub title: String,
+    pub x_range: Range<f64>,
+    pub y_range: Range<f64>,
+    pub series: Vec<PlotSeries>,
+    pub x_label: String,
+    pub y_label: String,
+    pub peak: Option<(f64, f64)>,
+}
+
+/// Struct to hold spectrum data for a single axis, distinguishing between unfiltered and filtered.
+pub struct AxisSpectrum {
+    pub unfiltered: Option<PlotConfig>,
+    pub filtered:   Option<PlotConfig>,
 }
 
 /// Draws a single chart for one axis within a stacked plot.
@@ -194,7 +212,7 @@ pub fn draw_dual_spectrum_plot<'a, F>(
     mut get_axis_plot_data: F,
 ) -> Result<(), Box<dyn Error>>
 where
-    F: FnMut(usize) -> Option<[Option<(String, std::ops::Range<f64>, std::ops::Range<f64>, Vec<PlotSeries>, String, String, Option<(f64, f64)>)>; 2]> + Send + Sync + 'static,
+    F: FnMut(usize) -> Option<AxisSpectrum> + Send + Sync + 'static,
     <BitMapBackend<'a> as DrawingBackend>::ErrorType: 'static,
 {
     let root_area = BitMapBackend::new(output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
@@ -210,38 +228,43 @@ where
 
     for axis_index in 0..3 {
         let plots_for_axis_option = get_axis_plot_data(axis_index);
+        let current_axis_name = ["Roll", "Pitch", "Yaw"][axis_index];
+
         for col_idx in 0..2 {
             let area = &sub_plot_areas[axis_index * 2 + col_idx];
-            if let Some(plots_for_axis) = plots_for_axis_option.as_ref() {
-                if let Some(plot_config) = plots_for_axis[col_idx].as_ref() {
-                    let (chart_title, x_range, y_range, series_data, x_label, y_label, peak_info) = plot_config;
-                    let has_data = series_data.iter().any(|s| !s.data.is_empty());
-                    let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
-                    if has_data && valid_ranges {
-                        let current_axis_name = ["Roll", "Pitch", "Yaw"][axis_index];
-                        let label_prefix_string = if col_idx == 0 {
-                            format!("{} Unfiltered", current_axis_name)
-                        } else {
-                            format!("{} Filtered", current_axis_name)
-                        };
-                        draw_single_axis_chart(
-                            area,
-                            chart_title,
-                            x_range.clone(),
-                            y_range.clone(),
-                            x_label,
-                            y_label,
-                            series_data,
-                            label_prefix_string.as_str(),
-                            *peak_info,
-                        )?;
-                        any_plot_drawn = true;
-                    } else {
-                        let reason = if !has_data { "No data points" } else { "Invalid ranges" };
-                        draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
-                    }
+            let plot_config_option = plots_for_axis_option.as_ref().and_then(|axis_spectrum| {
+                if col_idx == 0 {
+                    axis_spectrum.unfiltered.as_ref()
                 } else {
-                    draw_unavailable_message(area, axis_index, plot_type_name, "Data Not Available")?;
+                    axis_spectrum.filtered.as_ref()
+                }
+            });
+
+            if let Some(plot_config) = plot_config_option {
+                let has_data = plot_config.series.iter().any(|s| !s.data.is_empty());
+                let valid_ranges = plot_config.x_range.end > plot_config.x_range.start && plot_config.y_range.end > plot_config.y_range.start;
+
+                if has_data && valid_ranges {
+                    let label_prefix_string = if col_idx == 0 {
+                        format!("{} Unfiltered", current_axis_name)
+                    } else {
+                        format!("{} Filtered", current_axis_name)
+                    };
+                    draw_single_axis_chart(
+                        area,
+                        &plot_config.title,
+                        plot_config.x_range.clone(),
+                        plot_config.y_range.clone(),
+                        &plot_config.x_label,
+                        &plot_config.y_label,
+                        &plot_config.series,
+                        label_prefix_string.as_str(),
+                        plot_config.peak,
+                    )?;
+                    any_plot_drawn = true;
+                } else {
+                    let reason = if !has_data { "No data points" } else { "Invalid ranges" };
+                    draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
                 }
             } else {
                 draw_unavailable_message(area, axis_index, plot_type_name, "Data Not Available")?;
