@@ -11,7 +11,7 @@ use crate::constants::{
     LINE_WIDTH_PLOT,
 };
 use crate::fft_utils; // For fft_forward
-use crate::step_response; // For tukeywin
+use crate::calc_step_response; // For tukeywin
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro spectrums.
 pub fn plot_gyro_spectrums(
@@ -61,7 +61,7 @@ pub fn plot_gyro_spectrums(
 
             let unfilt_samples_slice = &unfilt_samples[0..min_len];
             let filt_samples_slice = &filt_samples[0..min_len];
-            let window_func = step_response::tukeywin(min_len, 1.0); // Use from step_response module
+            let window_func = calc_step_response::tukeywin(min_len, 1.0); // Use from step_response module
             let unfilt_windowed: Array1<f32> = Array1::from_vec(unfilt_samples_slice.to_vec()) * &window_func;
             let filt_windowed: Array1<f32> = Array1::from_vec(filt_samples_slice.to_vec()) * &window_func;
 

@@ -4,7 +4,7 @@ mod log_data;
 mod constants;
 mod plot_framework;  // Shared plotting logic
 mod plot_functions; // Individual plot functions
-mod step_response;
+mod calc_step_response;
 mod fft_utils;
 mod log_parser;
 
@@ -112,7 +112,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 let min_required_samples = (FRAME_LENGTH_S * sr).ceil() as usize;
                 if time_arr.len() >= min_required_samples {
-                    match step_response::calculate_step_response(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) {
+                    match calc_step_response::calculate_step_response(&time_arr, &setpoints_arr, &gyros_filtered_arr, sr) {
                         Ok(result) => {
                              let num_qc_windows = result.1.shape()[0];
                              if num_qc_windows > 0 {

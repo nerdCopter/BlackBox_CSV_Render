@@ -12,7 +12,7 @@ use crate::constants::{
     COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
     LINE_WIDTH_PLOT,
 };
-use crate::step_response; // For average_responses and moving_average_smooth_f64
+use crate::calc_step_response; // For average_responses and moving_average_smooth_f64
 
 /// Generates the Stacked Step Response Plot (Blue, Orange, Red)
 pub fn plot_step_response(
@@ -67,11 +67,11 @@ pub fn plot_step_response(
                 smoothing_window: usize,
             | -> Option<Array1<f64>> {
                 if !mask.iter().any(|&w| w > 0.0) { return None; }
-                step_response::average_responses(stacked_resp, mask, resp_len_samples)
+                calc_step_response::average_responses(stacked_resp, mask, resp_len_samples)
                     .ok()
                     .and_then(|avg_resp| {
                          if avg_resp.is_empty() { return None; }
-                         let smoothed_resp = step_response::moving_average_smooth_f64(&avg_resp, smoothing_window);
+                         let smoothed_resp = calc_step_response::moving_average_smooth_f64(&avg_resp, smoothing_window);
                          if smoothed_resp.is_empty() { return None; }
                          let mut shifted_response = smoothed_resp;
                          let first_val = shifted_response[0];
