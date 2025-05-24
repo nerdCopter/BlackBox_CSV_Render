@@ -93,7 +93,7 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
     chart.configure_mesh()
         .x_desc(x_label)
         .y_desc(y_label)
-        .x_labels(10).y_labels(5)
+        .x_labels(20).y_labels(10)
         .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
     let mut series_drawn_count = 0;
