@@ -22,6 +22,7 @@ use crate::constants::{
     POST_AVERAGING_SMOOTHING_WINDOW, STEADY_STATE_START_S, STEADY_STATE_END_S,
     SPECTRUM_Y_AXIS_FLOOR,
     SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_HEADROOM_FACTOR,
+    PEAK_LABEL_MIN_AMPLITUDE,
     // Import specific color constants needed
     COLOR_PIDSUM_MAIN, COLOR_PIDERROR_MAIN, COLOR_SETPOINT_MAIN,
     COLOR_SETPOINT_VS_GYRO_SP, COLOR_SETPOINT_VS_GYRO_GYRO,
@@ -81,6 +82,7 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
     x_label: &str,
     y_label: &str,
     series: &[PlotSeries], // Use concrete PlotSeries
+    label_prefix: &str, // New parameter for prepending axis name to label
     peak_info: Option<(f64, f64)>, // New parameter for peak frequency and amplitude
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
@@ -116,13 +118,10 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
 
     // Add the peak label here
     if let Some((peak_freq, peak_amp)) = peak_info {
-        if peak_amp > 0.0 { // Only draw if a meaningful peak was found
-            // Corrected: Use chart.backend_coord for data-to-pixel mapping
-            let text_pos = chart.backend_coord(&(peak_freq, peak_amp));
-            // Adjust text_pos slightly to not overlap the point
+        if peak_amp > PEAK_LABEL_MIN_AMPLITUDE { // Only draw if a meaningful peak was found
             area.draw(&Text::new(
-                format!("{:.0} Hz", peak_freq),
-                (text_pos.0 as i32 + 5, text_pos.1 as i32 - 15), // Adjust position for visibility
+                format!("{} Peak amplitude {:.0} at {:.0} Hz", label_prefix, peak_amp, peak_freq), // Prepend axis_name and include amplitude
+                (100 , 50), // Offset by 100, 50 pixels
                 ("sans-serif", 15).into_font().color(&BLACK)
             ))?;
         }
@@ -188,6 +187,7 @@ where
                          &x_label,
                          &y_label,
                          &series_data,
+                         "", // Not applicable for stacked plots, pass empty string
                          None, // No peak info for this plot type
                      )?;
                      any_axis_plotted = true;
@@ -268,6 +268,14 @@ where
                     let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
 
                     if has_data && valid_ranges {
+                        // Create a longer-lived String for the label_prefix
+                        let current_axis_name = ["Roll", "Pitch", "Yaw"][axis_index];
+                        let label_prefix_string = if col_idx == 0 {
+                            format!("{} Unfiltered", current_axis_name)
+                        } else {
+                            format!("{} Filtered", current_axis_name)
+                        };
+
                         draw_single_axis_chart(
                             area,
                             chart_title,
@@ -276,6 +284,7 @@ where
                             x_label,
                             y_label,
                             series_data,
+                            label_prefix_string.as_str(), // Pass the &str from the new String binding
                             *peak_info, // Pass the peak_info
                         )?;
                         any_plot_drawn = true;
@@ -354,6 +363,7 @@ pub fn plot_pidsum_error_setpoint(
             let mut val_min = f64::INFINITY;
             let mut val_max = f64::NEG_INFINITY;
 
+            // Corrected: Add `pidsum` to the destructuring pattern here.
             for (time, setpoint, gyro_filt, pidsum) in data {
                 time_min = time_min.min(*time);
                 time_max = time_max.max(*time);
@@ -582,7 +592,7 @@ pub fn plot_gyro_vs_unfilt(
             }
 
 
-            let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+            let (final_value_min, final_value_max) = calculate_range(val_min, val_max); // Corrected `val_val` to `val_max`
             let x_range = time_min..time_max;
             let y_range = final_value_min..final_value_max;
 
@@ -873,9 +883,9 @@ pub fn plot_gyro_spectrums(
             let num_unique_freqs = if fft_padded_len % 2 == 0 { fft_padded_len / 2 + 1 } else { (fft_padded_len + 1) / 2 };
 
             let mut max_amp_unfilt = 0.0f64;
-            let mut peak_unfilt_freq = 0.0f64;
+            let mut peak_unfilt_freq = f64::NAN; // Initialize to NaN
             let mut max_amp_filt = 0.0f64;
-            let mut peak_filt_freq = 0.0f64;
+            let mut peak_filt_freq = f64::NAN; // Initialize to NaN
 
             for i in 0..num_unique_freqs {
                 let freq_val = i as f64 * freq_step;
@@ -903,16 +913,16 @@ pub fn plot_gyro_spectrums(
             }
 
             // Print the peak values as requested (to console)
-            let unfilt_peak_info_for_plot = if max_amp_unfilt > 0.0 {
-                println!("  {} Unfiltered Gyro Spectrum: Peak amplitude at {:.0} Hz", axis_name, peak_unfilt_freq);
+            let unfilt_peak_info_for_plot = if max_amp_unfilt > 0.0 && !peak_unfilt_freq.is_nan() {
+                println!("  {} Unfiltered Gyro Spectrum: Peak amplitude {:.0} at {:.0} Hz", axis_name, max_amp_unfilt, peak_unfilt_freq); // Log with amplitude
                 Some((peak_unfilt_freq, max_amp_unfilt))
             } else {
                 println!("  {} Unfiltered Gyro Spectrum: No significant peak found above noise floor.", axis_name);
                 None
             };
 
-            let filt_peak_info_for_plot = if max_amp_filt > 0.0 {
-                println!("  {} Filtered Gyro Spectrum: Peak amplitude at {:.0} Hz", axis_name, peak_filt_freq);
+            let filt_peak_info_for_plot = if max_amp_filt > 0.0 && !peak_filt_freq.is_nan() {
+                println!("  {} Filtered Gyro Spectrum: Peak amplitude {:.0} at {:.0} Hz", axis_name, max_amp_filt, peak_filt_freq); // Log with amplitude
                 Some((peak_filt_freq, max_amp_filt))
             } else {
                 println!("  {} Filtered Gyro Spectrum: No significant peak found above noise floor.", axis_name);

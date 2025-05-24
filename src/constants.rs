@@ -26,12 +26,12 @@ pub const EXCLUDE_END_S: f64 = 3.0; // Exclude this many seconds from the end of
 // Constant for post-averaging smoothing of the step response curves.
 pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 5; // Moving average window size (in samples)
 
-// Maximum amplitude for spectrum plots.
-pub const SPECTRUM_Y_AXIS_FLOOR: f64 = 20000.0;
-// Frequency threshold below which to ignore for dynamic Y-axis scaling (e.g., motor idle noise).
-pub const SPECTRUM_NOISE_FLOOR_HZ: f64 = 40.0;
-// Factor to extend Y-axis above the highest peak (after noise floor) for better visibility.
-pub const SPECTRUM_Y_AXIS_HEADROOM_FACTOR: f64 = 1.2;
+// Constants for the spectrum plot
+pub const SPECTRUM_Y_AXIS_FLOOR: f64 = 20000.0; // Maximum amplitude for spectrum plots.
+pub const SPECTRUM_NOISE_FLOOR_HZ: f64 = 50.0; // Frequency threshold below which to ignore for dynamic Y-axis scaling (e.g., motor idle noise).
+pub const SPECTRUM_Y_AXIS_HEADROOM_FACTOR: f64 = 1.2; // Factor to extend Y-axis above the highest peak (after noise floor) for better visibility.
+pub const PEAK_LABEL_MIN_AMPLITUDE: f64 = 1000.0;
+
 
 // Constants for individual window step response quality control (from PTstepcalc.m)
 pub const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check within the response window (relative to response start)
