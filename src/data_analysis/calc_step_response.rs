@@ -10,7 +10,7 @@ use crate::constants::{
     MOVEMENT_THRESHOLD_DEG_S,
 };
 
-use crate::fft_utils; // Import the new FFT utility module
+use crate::data_analysis::fft_utils;
 
 
 /// Makes a Tukey window for enveloping.
