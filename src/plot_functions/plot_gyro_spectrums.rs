@@ -7,8 +7,9 @@ use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_dual_spectrum_plot, PlotSeries, PlotConfig, AxisSpectrum};
 use crate::constants::{
     SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_HEADROOM_FACTOR,
-    COLOR_GYRO_VS_UNFILT_UNFILT, COLOR_GYRO_VS_UNFILT_FILT, LINE_WIDTH_PLOT,
-    PEAK_LABEL_MIN_AMPLITUDE, MAX_PEAKS_TO_LABEL, MIN_SECONDARY_PEAK_FACTOR, MIN_PEAK_SEPARATION_HZ,
+    COLOR_GYRO_VS_UNFILT_UNFILT, COLOR_GYRO_VS_UNFILT_FILT, LINE_WIDTH_PLOT, PEAK_LABEL_MIN_AMPLITUDE,
+    MAX_PEAKS_TO_LABEL, MIN_SECONDARY_PEAK_FACTOR, MIN_PEAK_SEPARATION_HZ,
+    ENABLE_WINDOW_PEAK_DETECTION, PEAK_DETECTION_WINDOW_RADIUS,
 };
 use crate::data_analysis::fft_utils; // For fft_forward
 use crate::calc_step_response; // For tukeywin
@@ -29,7 +30,6 @@ pub fn plot_gyro_spectrums(
         return Ok(());
     };
 
-    // Changed to store Vec<(f64, f64)> for peaks
     let mut all_fft_raw_data: [Option<(Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>)>; 3] = Default::default();
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
@@ -85,7 +85,6 @@ pub fn plot_gyro_spectrums(
             let freq_step = sr_value / fft_padded_len as f64;
             let num_unique_freqs = if fft_padded_len % 2 == 0 { fft_padded_len / 2 + 1 } else { (fft_padded_len + 1) / 2 };
             
-            // Temporary storage for primary peak info
             let mut primary_peak_unfilt: Option<(f64, f64)> = None;
             let mut primary_peak_filt: Option<(f64, f64)> = None;
 
@@ -106,51 +105,85 @@ pub fn plot_gyro_spectrums(
                 }
             }
 
-            // --- Helper function to find and sort peaks ---
             fn find_and_sort_peaks(
                 series_data: &[(f64, f64)],
                 primary_peak_info: Option<(f64, f64)>,
-                axis_name_str: &str, // For logging
-                spectrum_type_str: &str, // For logging
+                axis_name_str: &str, 
+                spectrum_type_str: &str,
             ) -> Vec<(f64, f64)> {
                 let mut peaks_to_plot: Vec<(f64, f64)> = Vec::new();
 
                 if let Some((peak_freq, peak_amp)) = primary_peak_info {
-                    if peak_amp > PEAK_LABEL_MIN_AMPLITUDE { // Use constant from plot_framework or define one locally
+                    if peak_amp > PEAK_LABEL_MIN_AMPLITUDE {
                          peaks_to_plot.push((peak_freq, peak_amp));
                     }
                 }
 
                 if series_data.len() > 2 && peaks_to_plot.len() < MAX_PEAKS_TO_LABEL {
                     let mut candidate_secondary_peaks: Vec<(f64, f64)> = Vec::new();
-                    for j in 1..(series_data.len() - 1) {
+                    for j in 1..(series_data.len() - 1) { // Iterate from second to second-to-last point
                         let (freq, amp) = series_data[j];
-                        let prev_amp = series_data[j-1].1;
-                        let next_amp = series_data[j+1].1;
+                        
+                        let mut is_potential_peak = false;
 
-                        // A point is a potential candidate if:
-                        // - It's a sharp peak (amp > prev_amp && amp > next_amp)
-                        // - OR it's the leftmost point of a plateau (amp > prev_amp && amp == next_amp)
-                        // This can be combined into: (amp > prev_amp && amp >= next_amp)
-                        if freq >= SPECTRUM_NOISE_FLOOR_HZ && (amp > prev_amp && amp >= next_amp) && amp > PEAK_LABEL_MIN_AMPLITUDE {
-                            let mut is_valid_secondary = amp > SPECTRUM_Y_AXIS_FLOOR;
+                        if ENABLE_WINDOW_PEAK_DETECTION {
+                            let w = PEAK_DETECTION_WINDOW_RADIUS;
+                            // Check if a full window can be formed around j
+                            if j >= w && j + w < series_data.len() {
+                                // Full window logic
+                                let mut ge_left_in_window = true;
+                                for k_offset in 1..=w {
+                                    // j >= k_offset is true because j >= w
+                                    if amp < series_data[j - k_offset].1 {
+                                        ge_left_in_window = false;
+                                        break;
+                                    }
+                                }
 
-                            if let Some((primary_freq, primary_amp)) = primary_peak_info {
-                                is_valid_secondary = is_valid_secondary &&
-                                                     (amp >= primary_amp * MIN_SECONDARY_PEAK_FACTOR) && // Relative to primary
-                                                     ((freq - primary_freq).abs() > MIN_PEAK_SEPARATION_HZ); // Not too close to primary
-                            } else { // No primary, so just check against absolute floor
-                                is_valid_secondary = is_valid_secondary && amp > SPECTRUM_Y_AXIS_FLOOR;
+                                let mut gt_right_in_window = true;
+                                if ge_left_in_window {
+                                    for k_offset in 1..=w {
+                                        // j + k_offset < series_data.len() is true because j + w < series_data.len()
+                                        if amp <= series_data[j + k_offset].1 {
+                                            gt_right_in_window = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                                is_potential_peak = ge_left_in_window && gt_right_in_window;
+                            } else {
+                                // Fallback for edges where a full window isn't possible
+                                // Use a 3-point check (rightmost point of plateau or sharp peak)
+                                // This requires j > 0 and j < series_data.len() - 1, which is guaranteed by the loop bounds
+                                let prev_amp = series_data[j-1].1;
+                                let next_amp = series_data[j+1].1;
+                                is_potential_peak = amp >= prev_amp && amp > next_amp;
                             }
-                            
-                            if is_valid_secondary {
+                        } else {
+                            // Original 3-point logic (leftmost point of plateau or sharp peak)
+                            // This requires j > 0 and j < series_data.len() - 1, which is guaranteed by the loop bounds
+                            let prev_amp = series_data[j-1].1;
+                            let next_amp = series_data[j+1].1;
+                            is_potential_peak = amp > prev_amp && amp >= next_amp;
+                        }
+                        
+                        if freq >= SPECTRUM_NOISE_FLOOR_HZ && is_potential_peak && amp > PEAK_LABEL_MIN_AMPLITUDE {
+                            let mut is_valid_for_secondary_consideration = true;
+                            if let Some((primary_freq, primary_amp_val)) = primary_peak_info {
+                                if freq == primary_freq && amp == primary_amp_val {
+                                    is_valid_for_secondary_consideration = false;
+                                } else {
+                                    is_valid_for_secondary_consideration = (amp >= primary_amp_val * MIN_SECONDARY_PEAK_FACTOR) &&
+                                                                          ((freq - primary_freq).abs() > MIN_PEAK_SEPARATION_HZ);
+                                }
+                            }
+                            if is_valid_for_secondary_consideration {
                                 candidate_secondary_peaks.push((freq, amp));
                             }
                         }
                     }
-                    // Sort candidates by amplitude to pick the largest ones first
+                    
                     candidate_secondary_peaks.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
                     for (s_freq, s_amp) in candidate_secondary_peaks {
                         if peaks_to_plot.len() >= MAX_PEAKS_TO_LABEL { break; }
                         let mut too_close_to_existing = false;
@@ -165,10 +198,8 @@ pub fn plot_gyro_spectrums(
                         }
                     }
                 }
-                // Ensure final list is sorted by amplitude (highest first) for consistent plotting
-                peaks_to_plot.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
                 
-                // Print Peak Info
+                peaks_to_plot.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
                 if !peaks_to_plot.is_empty() {
                     let (main_freq, main_amp) = peaks_to_plot[0];
                     println!("  {} {} Gyro Spectrum: Peak amplitude {:.0} at {:.0} Hz", axis_name_str, spectrum_type_str, main_amp, main_freq);
@@ -199,21 +230,18 @@ pub fn plot_gyro_spectrums(
     }
 
     overall_max_y_amplitude = overall_max_y_amplitude.max(global_max_y_unfilt).max(global_max_y_filt);
-    if overall_max_y_amplitude < SPECTRUM_Y_AXIS_FLOOR * 1.1 { // Ensure a minimum sensible y-axis if all data is very low
+    if overall_max_y_amplitude < SPECTRUM_Y_AXIS_FLOOR * 1.1 { 
         overall_max_y_amplitude = SPECTRUM_Y_AXIS_FLOOR * 1.1;
     }
-
 
     draw_dual_spectrum_plot(
         &output_file,
         root_name,
         plot_type_name,
         move |axis_index| {
-            // .take() is used here, ensure all_fft_raw_data is mutable and owned by the closure or clone if needed.
-            // Given the structure, .take() should be fine as each element is processed once.
             if let Some((unfilt_series_data, unfilt_peaks, filt_series_data, filt_peaks)) = all_fft_raw_data[axis_index].take() {
                 let max_freq_val = sr_value / 2.0;
-                let x_range = 0.0..max_freq_val * 1.05; // Add a little padding to x-axis
+                let x_range = 0.0..max_freq_val * 1.05; 
                 let y_range_for_all_clone = 0.0..overall_max_y_amplitude;
 
                 let unfilt_plot_series = vec![
@@ -240,7 +268,7 @@ pub fn plot_gyro_spectrums(
                     series: unfilt_plot_series,
                     x_label: "Frequency (Hz)".to_string(),
                     y_label: "Amplitude".to_string(),
-                    peaks: unfilt_peaks, // Pass the Vec<(f64,f64)>
+                    peaks: unfilt_peaks,
                 });
 
                 let filtered_plot_config = Some(PlotConfig {
@@ -250,7 +278,7 @@ pub fn plot_gyro_spectrums(
                     series: filt_plot_series,
                     x_label: "Frequency (Hz)".to_string(),
                     y_label: "Amplitude".to_string(),
-                    peaks: filt_peaks, // Pass the Vec<(f64,f64)>
+                    peaks: filt_peaks,
                 });
 
                 Some(AxisSpectrum {
