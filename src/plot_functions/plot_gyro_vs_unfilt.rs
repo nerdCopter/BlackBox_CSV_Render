@@ -3,7 +3,7 @@
 use std::error::Error;
 use plotters::style::RGBColor;
 
-use crate::log_data::LogRowData;
+use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries, calculate_range};
 use crate::constants::{
     COLOR_GYRO_VS_UNFILT_UNFILT, COLOR_GYRO_VS_UNFILT_FILT,

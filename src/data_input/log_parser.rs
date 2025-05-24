@@ -4,7 +4,7 @@ use std::path::Path;
 use std::fs::File;
 use std::io::BufReader;
 
-use crate::log_data::LogRowData;
+use crate::data_input::log_data::LogRowData;
 
 /// Parses the CSV log file, extracts data, determines header presence, and calculates sample rate.
 ///

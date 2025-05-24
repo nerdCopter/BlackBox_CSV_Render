@@ -1,28 +1,32 @@
 // src/main.rs
 
-mod log_data;
 mod constants;
-mod plot_framework;  // Shared plotting logic
-mod plot_functions; // Individual plot functions
-mod calc_step_response;
-mod fft_utils;
-mod log_parser;
+mod data_analysis;
+mod data_input;
+mod plot_framework;
+mod plot_functions;
 
 use std::error::Error;
 use std::env;
 use std::path::Path;
 
-use ndarray::{Array1, Array2};
+use ndarray::{Array1, Array2}; // Assuming this is still used directly in main or for types passed around
 
-use constants::*;
-// Import the specific plot functions from their new locations
-use plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
-use plot_functions::plot_setpoint_vs_gyro::plot_setpoint_vs_gyro;
-use plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
-use plot_functions::plot_step_response::plot_step_response;
-use plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
+use crate::constants::*; // Assuming you still want to bring all constants into scope
 
-use log_parser::parse_log_file;
+// Specific plot function imports
+use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
+use crate::plot_functions::plot_setpoint_vs_gyro::plot_setpoint_vs_gyro;
+use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
+use crate::plot_functions::plot_step_response::plot_step_response;
+use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
+
+// Data input import
+use crate::data_input::log_parser::parse_log_file;
+
+// Data analysis imports (if directly used in main, otherwise only used by other modules)
+// For example, calculate_step_response is called directly in main
+use crate::data_analysis::calc_step_response;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // --- Argument Parsing ---

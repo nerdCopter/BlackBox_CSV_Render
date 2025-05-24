@@ -3,14 +3,14 @@
 use std::error::Error;
 use ndarray::{Array1, s};
 
-use crate::log_data::LogRowData;
+use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_dual_spectrum_plot, PlotSeries};
 use crate::constants::{
     SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_HEADROOM_FACTOR,
     COLOR_GYRO_VS_UNFILT_UNFILT, COLOR_GYRO_VS_UNFILT_FILT,
     LINE_WIDTH_PLOT,
 };
-use crate::fft_utils; // For fft_forward
+use crate::data_analysis::fft_utils; // For fft_forward
 use crate::calc_step_response; // For tukeywin
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro spectrums.

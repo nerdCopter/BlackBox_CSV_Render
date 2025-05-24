@@ -3,7 +3,7 @@
 use std::error::Error;
 use plotters::style::RGBColor;
 
-use crate::log_data::LogRowData;
+use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries, calculate_range};
 use crate::constants::{
     COLOR_PIDSUM_MAIN, COLOR_PIDERROR_MAIN, COLOR_SETPOINT_MAIN,

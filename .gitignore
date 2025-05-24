@@ -5,10 +5,11 @@ src/**
 # Include project files
 !src/
 !src/**/*.rs
+!src/plot_functions/
+!src/data_analysis/
+!src/data_input/
 !Cargo.toml
 !Cargo.lock
-!src/plot_functions/
-!src/plot_functions/**/*.rs
 
 # Include README and LICENSE files
 !Readme.md
