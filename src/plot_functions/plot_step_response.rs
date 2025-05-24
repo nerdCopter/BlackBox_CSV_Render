@@ -12,7 +12,7 @@ use crate::constants::{
     COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
     LINE_WIDTH_PLOT,
 };
-use crate::calc_step_response; // For average_responses and moving_average_smooth_f64
+use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
 
 /// Generates the Stacked Step Response Plot (Blue, Orange, Red)
 pub fn plot_step_response(
