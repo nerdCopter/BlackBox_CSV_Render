@@ -86,7 +86,6 @@ fn draw_single_axis_chart(
     x_label: &str,
     y_label: &str,
     series: &[PlotSeries],
-    label_prefix: &str, // For primary peak label
     peaks_info: &[(f64, f64)], // Changed from Option<(f64, f64)> to &[(f64, f64)]
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
@@ -190,7 +189,6 @@ where
                          &x_label,
                          &y_label,
                          &series_data,
-                         "", // No specific label prefix for generic stacked plots
                          &[], // Pass empty slice for peaks as this function doesn't handle them yet
                      )?;
                      any_axis_plotted = true;
@@ -240,7 +238,6 @@ where
 
     for axis_index in 0..3 {
         let plots_for_axis_option = get_axis_plot_data(axis_index);
-        let current_axis_name = ["Roll", "Pitch", "Yaw"][axis_index];
 
         for col_idx in 0..2 {
             let area = &sub_plot_areas[axis_index * 2 + col_idx];
@@ -257,11 +254,6 @@ where
                 let valid_ranges = plot_config.x_range.end > plot_config.x_range.start && plot_config.y_range.end > plot_config.y_range.start;
 
                 if has_data && valid_ranges {
-                    let label_prefix_string = if col_idx == 0 {
-                        format!("{} Unfiltered", current_axis_name)
-                    } else {
-                        format!("{} Filtered", current_axis_name)
-                    };
                     draw_single_axis_chart(
                         area,
                         &plot_config.title,
@@ -270,7 +262,6 @@ where
                         &plot_config.x_label,
                         &plot_config.y_label,
                         &plot_config.series,
-                        label_prefix_string.as_str(),
                         &plot_config.peaks, // Pass the Vec of peaks
                     )?;
                     any_plot_drawn = true;
