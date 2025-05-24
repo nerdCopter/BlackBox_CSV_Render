@@ -22,10 +22,15 @@ use crate::constants::{
 /// Calculate plot range with padding.
 /// Adds 15% padding, or a fixed padding for very small ranges.
 pub fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
-    let range = (max_val - min_val).abs();
+    // Ensure we always return (lower, upper)
+    let (min, max) = if min_val <= max_val {
+        (min_val, max_val)
+    } else {
+        (max_val, min_val)
+    };
+    let range = (max - min).abs();
     let padding = if range < 1e-6 { 0.5 } else { range * 0.15 };
-    (min_val - padding, max_val + padding)
-}
+    (min - padding, max + padding)}
 
 /// Draw a "Data Unavailable" message on a plot area.
 pub fn draw_unavailable_message(
