@@ -68,7 +68,7 @@ pub struct PlotConfig {
     pub series: Vec<PlotSeries>,
     pub x_label: String,
     pub y_label: String,
-    pub peak: Option<(f64, f64)>,
+    pub peaks: Vec<(f64, f64)>, // Changed from Option<(f64, f64)> to Vec<(f64, f64)>
 }
 
 /// Struct to hold spectrum data for a single axis, distinguishing between unfiltered and filtered.
@@ -86,8 +86,8 @@ fn draw_single_axis_chart(
     x_label: &str,
     y_label: &str,
     series: &[PlotSeries],
-    label_prefix: &str,
-    peak_info: Option<(f64, f64)>,
+    label_prefix: &str, // For primary peak label
+    peaks_info: &[(f64, f64)], // Changed from Option<(f64, f64)> to &[(f64, f64)]
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
         .caption(chart_title, ("sans-serif", 20))
@@ -118,21 +118,34 @@ fn draw_single_axis_chart(
             .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
     }
 
-    if let Some((peak_freq, peak_amp)) = peak_info {
+    let plotting_area_offset = chart.plotting_area().get_base_pixel();
+    let (area_x_range, area_y_range) = area.get_pixel_range();
+    let area_width = (area_x_range.end - area_x_range.start) as i32;
+    let area_height = (area_y_range.end - area_y_range.start) as i32;
+    const TEXT_WIDTH_ESTIMATE: i32 = 400; 
+    const TEXT_HEIGHT_ESTIMATE: i32 = 20;
+
+    for (idx, &(peak_freq, peak_amp)) in peaks_info.iter().enumerate() {
         if peak_amp > PEAK_LABEL_MIN_AMPLITUDE {
             let peak_pixel_coords_relative_to_plotting_area = chart.backend_coord(&(peak_freq, peak_amp));
-            let plotting_area_offset = chart.plotting_area().get_base_pixel();
+            
             let mut text_x = peak_pixel_coords_relative_to_plotting_area.0 - plotting_area_offset.0 + 55;
             let mut text_y = peak_pixel_coords_relative_to_plotting_area.1 - plotting_area_offset.1 + 15;
-            let (area_x_range, area_y_range) = area.get_pixel_range();
-            let area_width = (area_x_range.end - area_x_range.start) as i32;
-            let area_height = (area_y_range.end - area_y_range.start) as i32;
-            const TEXT_WIDTH_ESTIMATE: i32 = 400;
-            const TEXT_HEIGHT_ESTIMATE: i32 = 20;
+
+            let label_text;
+
+            if idx == 0 { // Primary peak
+                label_text = format!("{} Peak amplitude {:.0} at {:.0} Hz", label_prefix, peak_amp, peak_freq);
+            } else { // Secondary peaks
+                label_text = format!("Secondary: {:.0} at {:.0} Hz", peak_amp, peak_freq);
+            }
+            
+            // Adjust text position to stay within bounds
             text_x = text_x.max(0).min(area_width - TEXT_WIDTH_ESTIMATE);
             text_y = text_y.max(0).min(area_height - TEXT_HEIGHT_ESTIMATE);
+
             area.draw(&Text::new(
-                format!("{} Peak amplitude {:.0} at {:.0} Hz", label_prefix, peak_amp, peak_freq),
+                label_text,
                 (text_x, text_y),
                 ("sans-serif", 15).into_font().color(&BLACK)
             ))?;
@@ -178,8 +191,8 @@ where
                          &x_label,
                          &y_label,
                          &series_data,
-                         "",
-                         None,
+                         "", // No specific label prefix for generic stacked plots
+                         &[], // Pass empty slice for peaks as this function doesn't handle them yet
                      )?;
                      any_axis_plotted = true;
                  } else {
@@ -259,7 +272,7 @@ where
                         &plot_config.y_label,
                         &plot_config.series,
                         label_prefix_string.as_str(),
-                        plot_config.peak,
+                        &plot_config.peaks, // Pass the Vec of peaks
                     )?;
                     any_plot_drawn = true;
                 } else {

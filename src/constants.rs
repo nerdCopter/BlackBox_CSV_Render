@@ -32,6 +32,10 @@ pub const SPECTRUM_NOISE_FLOOR_HZ: f64 = 50.0; // Frequency threshold below whic
 pub const SPECTRUM_Y_AXIS_HEADROOM_FACTOR: f64 = 1.2; // Factor to extend Y-axis above the highest peak (after noise floor) for better visibility.
 pub const PEAK_LABEL_MIN_AMPLITUDE: f64 = 1000.0;
 
+// Constants for spectrum peak labeling
+pub const MAX_PEAKS_TO_LABEL: usize = 4; // Max number of peaks (including primary) to label on spectrum plots
+pub const MIN_SECONDARY_PEAK_FACTOR: f64 = 0.10; // Secondary peak must be at least this factor of primary peak's amplitude
+pub const MIN_PEAK_SEPARATION_HZ: f64 = 50.0; // Minimum frequency separation between reported peaks on spectrum plots
 
 // Constants for individual window step response quality control (from PTstepcalc.m)
 pub const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check within the response window (relative to response start)
