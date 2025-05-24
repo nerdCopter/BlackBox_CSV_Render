@@ -208,9 +208,9 @@ pub fn plot_gyro_spectrums(
                 peaks_to_plot.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
                 if !peaks_to_plot.is_empty() {
                     let (main_freq, main_amp) = peaks_to_plot[0];
-                    println!("  {} {} Gyro Spectrum: Peak amplitude {:.0} at {:.0} Hz", axis_name_str, spectrum_type_str, main_amp, main_freq);
+                    println!("  {} {} Gyro Spectrum: Primary Peak amplitude {:.0} at {:.0} Hz", axis_name_str, spectrum_type_str, main_amp, main_freq);
                     for (idx, (freq, amp)) in peaks_to_plot.iter().skip(1).enumerate() {
-                        println!("    Secondary Peak {}: {:.0} at {:.0} Hz", idx + 1, amp, freq);
+                        println!("    Subordinate Peak: {}: {:.0} at {:.0} Hz", idx + 1, amp, freq);
                     }
                 } else {
                     println!("  {} {} Gyro Spectrum: No significant peaks found.", axis_name_str, spectrum_type_str);

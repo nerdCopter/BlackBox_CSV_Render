@@ -33,7 +33,7 @@ pub const SPECTRUM_Y_AXIS_HEADROOM_FACTOR: f64 = 1.2; // Factor to extend Y-axis
 pub const PEAK_LABEL_MIN_AMPLITUDE: f64 = 1000.0;
 
 // Constants for spectrum peak labeling
-pub const MAX_PEAKS_TO_LABEL: usize = 4; // Max number of peaks (including primary) to label on spectrum plots
+pub const MAX_PEAKS_TO_LABEL: usize = 3; // Max number of peaks (including primary) to label on spectrum plots
 pub const MIN_SECONDARY_PEAK_FACTOR: f64 = 0.05; // Secondary peak must be at least this factor of primary peak's amplitude
 pub const MIN_PEAK_SEPARATION_HZ: f64 = 70.0; // Minimum frequency separation between reported peaks on spectrum plots
 // Constants for advanced peak detection

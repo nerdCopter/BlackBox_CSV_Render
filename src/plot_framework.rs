@@ -118,26 +118,25 @@ fn draw_single_axis_chart(
             .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
     }
 
-    let plotting_area_offset = chart.plotting_area().get_base_pixel();
+    // Offset of the current sub-area within the root image
+    let area_offset = area.get_base_pixel();
     let (area_x_range, area_y_range) = area.get_pixel_range();
     let area_width = (area_x_range.end - area_x_range.start) as i32;
     let area_height = (area_y_range.end - area_y_range.start) as i32;
-    const TEXT_WIDTH_ESTIMATE: i32 = 400; 
+    const TEXT_WIDTH_ESTIMATE: i32 = 300;
     const TEXT_HEIGHT_ESTIMATE: i32 = 20;
-
     for (idx, &(peak_freq, peak_amp)) in peaks_info.iter().enumerate() {
         if peak_amp > PEAK_LABEL_MIN_AMPLITUDE {
             let peak_pixel_coords_relative_to_plotting_area = chart.backend_coord(&(peak_freq, peak_amp));
-            
-            let mut text_x = peak_pixel_coords_relative_to_plotting_area.0 - plotting_area_offset.0 + 55;
-            let mut text_y = peak_pixel_coords_relative_to_plotting_area.1 - plotting_area_offset.1 + 15;
+            let mut text_x = peak_pixel_coords_relative_to_plotting_area.0 - area_offset.0;
+            let mut text_y = peak_pixel_coords_relative_to_plotting_area.1 - area_offset.1;
 
             let label_text;
 
             if idx == 0 { // Primary peak
-                label_text = format!("{} Peak amplitude {:.0} at {:.0} Hz", label_prefix, peak_amp, peak_freq);
+                label_text = format!("Primary Peak: {:.0} at {:.0} Hz", peak_amp, peak_freq);
             } else { // Secondary peaks
-                label_text = format!("Secondary: {:.0} at {:.0} Hz", peak_amp, peak_freq);
+                label_text = format!("Peak: {:.0} at {:.0} Hz", peak_amp, peak_freq);
             }
             
             // Adjust text position to stay within bounds
