@@ -7,6 +7,8 @@ src/**
 !src/**/*.rs
 !Cargo.toml
 !Cargo.lock
+!src/plot_functions/
+!src/plot_functions/**/*.rs
 
 # Include README and LICENSE files
 !Readme.md
