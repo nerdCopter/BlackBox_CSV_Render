@@ -119,9 +119,35 @@ fn draw_single_axis_chart( // No longer generic over DB or lifetime 'a
     // Add the peak label here
     if let Some((peak_freq, peak_amp)) = peak_info {
         if peak_amp > PEAK_LABEL_MIN_AMPLITUDE { // Only draw if a meaningful peak was found
+            // Get the pixel coordinates of the peak within the chart's plotting area.
+            let peak_pixel_coords_relative_to_plotting_area = chart.backend_coord(&(peak_freq, peak_amp)); 
+            
+            // Get the top-left pixel offset of the plotting area relative to the overall 'area' (subplot).
+            let plotting_area_offset = chart.plotting_area().get_base_pixel();
+
+            // Calculate the final text position relative to the 'area' (subplot).
+            // Add a small offset for readability (e.g., 5 pixels right, 20 pixels up from the peak).
+            let mut text_x = peak_pixel_coords_relative_to_plotting_area.0 - plotting_area_offset.0 + 55;
+            let mut text_y = peak_pixel_coords_relative_to_plotting_area.1 - plotting_area_offset.1 + 15;
+
+            // Get the pixel range of the entire 'area' (subplot) for clamping.
+            let (area_x_range, area_y_range) = area.get_pixel_range();
+            let area_width = (area_x_range.end - area_x_range.start) as i32;
+            let area_height = (area_y_range.end - area_y_range.start) as i32;
+
+            // Simple clamping to keep the label within the subplot boundaries.
+            // Adjust these offsets if the text is still going off-screen or overlapping.
+            const TEXT_WIDTH_ESTIMATE: i32 = 400; // Rough estimate for text width
+            const TEXT_HEIGHT_ESTIMATE: i32 = 20; // Rough estimate for text height
+
+            text_x = text_x.max(0).min(area_width - TEXT_WIDTH_ESTIMATE);
+            text_y = text_y.max(0).min(area_height - TEXT_HEIGHT_ESTIMATE);
+
+            // Draw the text on the 'area' (the entire subplot DrawingArea),
+            // using coordinates relative to 'area's top-left corner.
             area.draw(&Text::new(
-                format!("{} Peak amplitude {:.0} at {:.0} Hz", label_prefix, peak_amp, peak_freq), // Prepend axis_name and include amplitude
-                (100 , 50), // Offset by 100, 50 pixels
+                format!("{} Peak amplitude {:.0} at {:.0} Hz", label_prefix, peak_amp, peak_freq),
+                (text_x, text_y), 
                 ("sans-serif", 15).into_font().color(&BLACK)
             ))?;
         }
@@ -285,7 +311,7 @@ where
                             y_label,
                             series_data,
                             label_prefix_string.as_str(), // Pass the &str from the new String binding
-                            *peak_info, // Pass the peak_info
+                            *peak_info, // Pass the peak info
                         )?;
                         any_plot_drawn = true;
                     } else {
@@ -904,7 +930,7 @@ pub fn plot_gyro_spectrums(
                 }
 
                 // Find peak for Filtered Gyro
-                if freq_val >= SPECTRUM_NOISE_FLOOR_HZ {
+                if freq_val >= SPECTRUM_NOISE_FLOOR_HZ { // Corrected typo here
                     if amp_filt > max_amp_filt {
                         max_amp_filt = amp_filt;
                         peak_filt_freq = freq_val;
