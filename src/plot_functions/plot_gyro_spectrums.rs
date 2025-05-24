@@ -121,62 +121,68 @@ pub fn plot_gyro_spectrums(
 
                 if series_data.len() > 2 && peaks_to_plot.len() < MAX_PEAKS_TO_LABEL {
                     let mut candidate_secondary_peaks: Vec<(f64, f64)> = Vec::new();
-                    for j in 1..(series_data.len() - 1) { // Iterate from second to second-to-last point
+                    // Iterate from the second point to the second-to-last point,
+                    // as peak detection logic needs at least one point on each side.
+                    for j in 1..(series_data.len() - 1) { 
                         let (freq, amp) = series_data[j];
                         
-                        let mut is_potential_peak = false;
-
-                        if ENABLE_WINDOW_PEAK_DETECTION {
-                            let w = PEAK_DETECTION_WINDOW_RADIUS;
-                            // Check if a full window can be formed around j
-                            if j >= w && j + w < series_data.len() {
-                                // Full window logic
-                                let mut ge_left_in_window = true;
-                                for k_offset in 1..=w {
-                                    // j >= k_offset is true because j >= w
-                                    if amp < series_data[j - k_offset].1 {
-                                        ge_left_in_window = false;
-                                        break;
-                                    }
-                                }
-
-                                let mut gt_right_in_window = true;
-                                if ge_left_in_window {
+                        let is_potential_peak = { // Assign directly from the block's result
+                            if ENABLE_WINDOW_PEAK_DETECTION {
+                                let w = PEAK_DETECTION_WINDOW_RADIUS;
+                                // Check if a full window can be formed around j.
+                                // j must be at least w points from the start,
+                                // and j must be at least w points from the end (so j+w is a valid index).
+                                if j >= w && j + w < series_data.len() {
+                                    // Full window logic
+                                    let mut ge_left_in_window = true;
                                     for k_offset in 1..=w {
-                                        // j + k_offset < series_data.len() is true because j + w < series_data.len()
-                                        if amp <= series_data[j + k_offset].1 {
-                                            gt_right_in_window = false;
+                                        // series_data[j - k_offset] is valid because j >= w >= k_offset
+                                        if amp < series_data[j - k_offset].1 {
+                                            ge_left_in_window = false;
                                             break;
                                         }
                                     }
+
+                                    let mut gt_right_in_window = true;
+                                    if ge_left_in_window { // Optimization: only check right if left is good
+                                        for k_offset in 1..=w {
+                                            // series_data[j + k_offset] is valid because j + w < series_data.len()
+                                            // and k_offset <= w
+                                            if amp <= series_data[j + k_offset].1 {
+                                                gt_right_in_window = false;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    ge_left_in_window && gt_right_in_window // Return this value for this path
+                                } else {
+                                    // Fallback for edges where a full window isn't possible.
+                                    // The loop for j ensures j-1 and j+1 are always valid.
+                                    let prev_amp = series_data[j-1].1;
+                                    let next_amp = series_data[j+1].1;
+                                    // Using rightmost point of plateau for consistency with window logic's tendency
+                                    amp >= prev_amp && amp > next_amp // Return this value for this path
                                 }
-                                is_potential_peak = ge_left_in_window && gt_right_in_window;
                             } else {
-                                // Fallback for edges where a full window isn't possible
-                                // Use a 3-point check (rightmost point of plateau or sharp peak)
-                                // This requires j > 0 and j < series_data.len() - 1, which is guaranteed by the loop bounds
+                                // Original 3-point logic (leftmost point of plateau or sharp peak).
+                                // The loop for j ensures j-1 and j+1 are always valid.
                                 let prev_amp = series_data[j-1].1;
                                 let next_amp = series_data[j+1].1;
-                                is_potential_peak = amp >= prev_amp && amp > next_amp;
+                                amp > prev_amp && amp >= next_amp // Return this value for this path
                             }
-                        } else {
-                            // Original 3-point logic (leftmost point of plateau or sharp peak)
-                            // This requires j > 0 and j < series_data.len() - 1, which is guaranteed by the loop bounds
-                            let prev_amp = series_data[j-1].1;
-                            let next_amp = series_data[j+1].1;
-                            is_potential_peak = amp > prev_amp && amp >= next_amp;
-                        }
+                        }; // End of block assignment to is_potential_peak
                         
                         if freq >= SPECTRUM_NOISE_FLOOR_HZ && is_potential_peak && amp > PEAK_LABEL_MIN_AMPLITUDE {
                             let mut is_valid_for_secondary_consideration = true;
                             if let Some((primary_freq, primary_amp_val)) = primary_peak_info {
-                                if freq == primary_freq && amp == primary_amp_val {
+                                if freq == primary_freq && amp == primary_amp_val { // Don't re-add the primary peak
                                     is_valid_for_secondary_consideration = false;
                                 } else {
                                     is_valid_for_secondary_consideration = (amp >= primary_amp_val * MIN_SECONDARY_PEAK_FACTOR) &&
                                                                           ((freq - primary_freq).abs() > MIN_PEAK_SEPARATION_HZ);
                                 }
                             }
+                            // If no primary_peak_info, is_valid_for_secondary_consideration remains true (as long as it's a potential peak and above min amplitude)
                             if is_valid_for_secondary_consideration {
                                 candidate_secondary_peaks.push((freq, amp));
                             }
@@ -193,7 +199,7 @@ pub fn plot_gyro_spectrums(
                                 break;
                             }
                         }
-                        if !too_close_to_existing && s_amp > PEAK_LABEL_MIN_AMPLITUDE {
+                        if !too_close_to_existing && s_amp > PEAK_LABEL_MIN_AMPLITUDE { // Ensure it's still above min amp
                             peaks_to_plot.push((s_freq, s_amp));
                         }
                     }
