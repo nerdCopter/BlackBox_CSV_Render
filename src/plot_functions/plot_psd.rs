@@ -17,6 +17,7 @@ use crate::constants::{
 };
 use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_analysis::calc_step_response; // For tukeywin
+use crate::constants::TUKEY_ALPHA;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro Power Spectral Density (PSD).
 pub fn plot_psd(
@@ -180,7 +181,7 @@ pub fn plot_psd(
 
             let unfilt_samples_slice = &unfilt_samples[0..min_len];
             let filt_samples_slice = &filt_samples[0..min_len];
-            let window_func = calc_step_response::tukeywin(min_len, 1.0); // Hanning window (Tukey alpha=1.0)
+            let window_func = calc_step_response::tukeywin(min_len, TUKEY_ALPHA); // Hanning window
 
             // Apply window and pad to next power of two for FFT
             let fft_padded_len = min_len.next_power_of_two();
@@ -272,7 +273,7 @@ pub fn plot_psd(
             if let Some((unfilt_psd_data, unfilt_peaks, filt_psd_data, filt_peaks)) = all_psd_raw_data[axis_index].take() {
                 let max_freq_val = sr_value / 2.0;
                 let x_range = 0.0..max_freq_val * 1.05; 
-                let y_range_for_all_clone = 0.0..overall_max_y_value;
+                let y_range_for_all_clone = PSD_Y_AXIS_FLOOR..overall_max_y_value;
 
                 let unfilt_plot_series = vec![
                     PlotSeries {

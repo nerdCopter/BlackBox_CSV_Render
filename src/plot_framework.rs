@@ -8,16 +8,18 @@ use plotters::element::Text;
 use plotters::chart::{ChartBuilder, SeriesLabelPosition};
 use plotters::element::PathElement;
 use plotters::series::LineSeries;
-use plotters::style::colors::{WHITE, BLACK, RED}; // Keep specific colors used by framework
+use plotters::style::colors::{WHITE, BLACK, RED, BLUE, GREEN}; // Added BLUE, GREEN for heatmap gradient
+use plotters::element::Rectangle; // NEW: For drawing heatmap cells
 
 use std::error::Error;
-use std::ops::Range; // Import Range for PlotConfig
+use std::ops::Range;
 
 // Explicitly import constants used within this file by the framework
 use crate::constants::{
     PLOT_WIDTH, PLOT_HEIGHT,
     PEAK_LABEL_MIN_AMPLITUDE,
     LINE_WIDTH_LEGEND,
+    HEATMAP_MIN_PSD_DB, HEATMAP_MAX_PSD_DB, // NEW: For heatmap color scaling
 };
 
 /// Calculate plot range with padding.
@@ -68,7 +70,7 @@ pub struct PlotConfig {
     pub series: Vec<PlotSeries>,
     pub x_label: String,
     pub y_label: String,
-    pub peaks: Vec<(f64, f64)>, // Changed from Option<(f64, f64)> to Vec<(f64, f64)>
+    pub peaks: Vec<(f64, f64)>,
 }
 
 /// Struct to hold spectrum data for a single axis, distinguishing between unfiltered and filtered.
@@ -76,6 +78,60 @@ pub struct AxisSpectrum {
     pub unfiltered: Option<PlotConfig>,
     pub filtered:   Option<PlotConfig>,
 }
+
+// --- NEW STRUCTS FOR HEATMAP PLOTTING ---
+
+/// Struct to hold 2D data for a heatmap (spectrogram).
+pub struct HeatmapData {
+    pub x_bins: Vec<f64>, // e.g., time centers
+    pub y_bins: Vec<f64>, // e.g., frequency centers
+    pub values: Vec<Vec<f64>>, // values[x_idx][y_idx] - PSD in dB
+}
+
+/// Struct to hold configuration for a single heatmap plot.
+pub struct HeatmapPlotConfig {
+    pub title: String,
+    pub x_range: Range<f64>,
+    pub y_range: Range<f64>,
+    pub heatmap_data: HeatmapData,
+    pub x_label: String,
+    pub y_label: String,
+}
+
+/// Struct to hold heatmap data for a single axis, distinguishing between unfiltered and filtered.
+pub struct AxisHeatmapSpectrum {
+    pub unfiltered: Option<HeatmapPlotConfig>,
+    pub filtered:   Option<HeatmapPlotConfig>,
+}
+
+// --- NEW HELPER FOR HEATMAP COLOR MAPPING ---
+
+/// Maps a PSD dB value to an RGB color using a gradient.
+/// Values are clamped between min_db and max_db.
+/// Gradient: Blue (low) -> Green (mid) -> Red (high)
+fn map_db_to_color(db_value: f64, min_db: f64, max_db: f64) -> RGBColor {
+    let clamped_db = db_value.max(min_db).min(max_db);
+    let normalized_value = (clamped_db - min_db) / (max_db - min_db); // 0.0 to 1.0
+
+    let r = if normalized_value > 0.5 {
+        ((normalized_value - 0.5) * 2.0 * 255.0) as u8 // Green to Red
+    } else {
+        0
+    };
+    let g = if normalized_value < 0.5 {
+        (normalized_value * 2.0 * 255.0) as u8 // Blue to Green
+    } else {
+        ((1.0 - normalized_value) * 2.0 * 255.0) as u8 // Green to Red
+    };
+    let b = if normalized_value < 0.5 {
+        ((0.5 - normalized_value) * 2.0 * 255.0) as u8 // Blue to Green
+    } else {
+        0
+    };
+
+    RGBColor(r, g, b)
+}
+
 
 /// Draws a single chart for one axis within a stacked plot.
 fn draw_single_axis_chart(
@@ -86,7 +142,7 @@ fn draw_single_axis_chart(
     x_label: &str,
     y_label: &str,
     series: &[PlotSeries],
-    peaks_info: &[(f64, f64)], // Changed from Option<(f64, f64)> to &[(f64, f64)]
+    peaks_info: &[(f64, f64)],
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
         .caption(chart_title, ("sans-serif", 20))
@@ -262,7 +318,7 @@ where
                         &plot_config.x_label,
                         &plot_config.y_label,
                         &plot_config.series,
-                        &plot_config.peaks, // Pass the Vec of peaks
+                        &plot_config.peaks,
                     )?;
                     any_plot_drawn = true;
                 } else {
@@ -281,6 +337,135 @@ where
     } else {
         root_area.present()?;
         println!("  Skipping '{}' plot saving: No data available for any axis to plot, only placeholder messages shown.", output_filename);
+    }
+    Ok(())
+}
+
+// --- NEW DRAWING FUNCTIONS FOR HEATMAPS ---
+
+/// Draws a single heatmap chart (spectrogram) for one axis within a stacked plot.
+fn draw_single_heatmap_chart(
+    area: &DrawingArea<BitMapBackend, plotters::coord::Shift>,
+    chart_title: &str,
+    x_range: std::ops::Range<f64>,
+    y_range: std::ops::Range<f64>,
+    x_label: &str,
+    y_label: &str,
+    heatmap_data: &HeatmapData,
+) -> Result<(), Box<dyn Error>> {
+    let mut chart = ChartBuilder::on(area)
+        .caption(chart_title, ("sans-serif", 20))
+        .margin(5).x_label_area_size(30).y_label_area_size(50)
+        .build_cartesian_2d(x_range.clone(), y_range.clone())?; // Clone ranges for chart builder
+
+    chart.configure_mesh()
+        .x_desc(x_label)
+        .y_desc(y_label)
+        .x_labels(10).y_labels(10) // Fewer labels for potentially dense heatmap
+        .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
+
+    // Calculate bin widths for drawing rectangles
+    let x_bin_width = if heatmap_data.x_bins.len() > 1 {
+        heatmap_data.x_bins[1] - heatmap_data.x_bins[0]
+    } else if x_range.end > x_range.start {
+        (x_range.end - x_range.start) / 10.0 // Default if only one x_bin
+    } else {
+        1.0 // Fallback
+    };
+    let y_bin_height = if heatmap_data.y_bins.len() > 1 {
+        heatmap_data.y_bins[1] - heatmap_data.y_bins[0]
+    } else if y_range.end > y_range.start {
+        (y_range.end - y_range.start) / 10.0 // Default if only one y_bin
+    } else {
+        1.0 // Fallback
+    };
+
+    for (x_idx, &x_val) in heatmap_data.x_bins.iter().enumerate() {
+        for (y_idx, &y_val) in heatmap_data.y_bins.iter().enumerate() {
+            if let Some(row) = heatmap_data.values.get(x_idx) {
+                if let Some(&psd_db) = row.get(y_idx) {
+                    let color = map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, HEATMAP_MAX_PSD_DB);
+                    
+                    // Define the rectangle for the current bin
+                    let rect = Rectangle::new(
+                        [(x_val, y_val), (x_val + x_bin_width, y_val + y_bin_height)],
+                        color.filled(),
+                    );
+                    chart.draw_series(std::iter::once(rect))?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Creates a stacked plot image with three rows and two columns for heatmap subplots (spectrograms).
+pub fn draw_dual_heatmap_plot<'a, F>(
+    output_filename: &'a str,
+    root_name: &str,
+    plot_type_name: &str,
+    mut get_axis_plot_data: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(usize) -> Option<AxisHeatmapSpectrum> + Send + Sync + 'static,
+    <BitMapBackend<'a> as DrawingBackend>::ErrorType: 'static,
+{
+    let root_area = BitMapBackend::new(output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
+    root_area.fill(&WHITE)?;
+    root_area.draw(&Text::new(
+        root_name,
+        (10, 10),
+        ("sans-serif", 24).into_font().color(&BLACK),
+    ))?;
+    let margined_root_area = root_area.margin(50, 5, 5, 5);
+    let sub_plot_areas = margined_root_area.split_evenly((3, 2));
+    let mut any_plot_drawn = false;
+
+    for axis_index in 0..3 {
+        let plots_for_axis_option = get_axis_plot_data(axis_index);
+
+        for col_idx in 0..2 {
+            let area = &sub_plot_areas[axis_index * 2 + col_idx];
+            let plot_config_option = plots_for_axis_option.as_ref().and_then(|axis_spectrum| {
+                if col_idx == 0 {
+                    axis_spectrum.unfiltered.as_ref()
+                } else {
+                    axis_spectrum.filtered.as_ref()
+                }
+            });
+
+            if let Some(plot_config) = plot_config_option {
+                let has_data = !plot_config.heatmap_data.values.is_empty() && 
+                               plot_config.heatmap_data.values.iter().any(|row| !row.is_empty());
+                let valid_ranges = plot_config.x_range.end > plot_config.x_range.start && plot_config.y_range.end > plot_config.y_range.start;
+
+                if has_data && valid_ranges {
+                    draw_single_heatmap_chart(
+                        area,
+                        &plot_config.title,
+                        plot_config.x_range.clone(),
+                        plot_config.y_range.clone(),
+                        &plot_config.x_label,
+                        &plot_config.y_label,
+                        &plot_config.heatmap_data,
+                    )?;
+                    any_plot_drawn = true;
+                } else {
+                    let reason = if !has_data { "No data points" } else { "Invalid ranges" };
+                    draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
+                }
+            } else {
+                draw_unavailable_message(area, axis_index, plot_type_name, "Data Not Available")?;
+            }
+        }
+    }
+
+    if any_plot_drawn {
+        root_area.present()?;
+        println!("  Stacked heatmap plot saved as '{}'.", output_filename);
+    } else {
+        root_area.present()?;
+        println!("  Skipping '{}' heatmap plot saving: No data available for any axis to plot, only placeholder messages shown.", output_filename);
     }
     Ok(())
 }

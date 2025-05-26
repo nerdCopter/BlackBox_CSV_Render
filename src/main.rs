@@ -10,9 +10,9 @@ use std::error::Error;
 use std::env;
 use std::path::Path;
 
-use ndarray::{Array1, Array2}; // Assuming this is still used directly in main or for types passed around
+use ndarray::{Array1, Array2};
 
-use crate::constants::*; // Assuming you still want to bring all constants into scope
+use crate::constants::*;
 
 // Specific plot function imports
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
@@ -21,12 +21,12 @@ use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
 use crate::plot_functions::plot_step_response::plot_step_response;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
 use crate::plot_functions::plot_psd::plot_psd;
+use crate::plot_functions::plot_psd_heatmap::plot_psd_heatmap; // <--- ADD THIS LINE
 
 // Data input import
 use crate::data_input::log_parser::parse_log_file;
 
 // Data analysis imports (if directly used in main, otherwise only used by other modules)
-// For example, calculate_step_response is called directly in main
 use crate::data_analysis::calc_step_response;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -154,6 +154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     plot_step_response(&step_response_calculation_results, &root_name, sample_rate)?;
     plot_gyro_spectrums(&all_log_data, &root_name, sample_rate)?;
     plot_psd(&all_log_data, &root_name, sample_rate)?;
+    plot_psd_heatmap(&all_log_data, &root_name, sample_rate)?; // <--- ADD THIS LINE
 
     println!("\nProcessing complete.");
     Ok(())
