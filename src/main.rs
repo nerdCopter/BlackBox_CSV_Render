@@ -20,6 +20,7 @@ use crate::plot_functions::plot_setpoint_vs_gyro::plot_setpoint_vs_gyro;
 use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
 use crate::plot_functions::plot_step_response::plot_step_response;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
+use crate::plot_functions::plot_psd::plot_psd;
 
 // Data input import
 use crate::data_input::log_parser::parse_log_file;
@@ -152,6 +153,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     plot_gyro_vs_unfilt(&all_log_data, &root_name)?;
     plot_step_response(&step_response_calculation_results, &root_name, sample_rate)?;
     plot_gyro_spectrums(&all_log_data, &root_name, sample_rate)?;
+    plot_psd(&all_log_data, &root_name, sample_rate)?;
 
     println!("\nProcessing complete.");
     Ok(())

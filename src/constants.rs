@@ -32,6 +32,12 @@ pub const SPECTRUM_NOISE_FLOOR_HZ: f64 = 70.0; // Frequency threshold below whic
 pub const SPECTRUM_Y_AXIS_HEADROOM_FACTOR: f64 = 1.2; // Factor to extend Y-axis above the highest peak (after noise floor) for better visibility.
 pub const PEAK_LABEL_MIN_AMPLITUDE: f64 = 1000.0;
 
+// Constants for PSD plots (newly added)
+pub const PSD_Y_AXIS_FLOOR: f64 = 1e-6; // A reasonable floor for PSD values to prevent log scaling issues with zero.
+pub const PSD_Y_AXIS_HEADROOM_FACTOR: f64 = 1.2; // Factor to extend Y-axis above the highest peak.
+pub const PSD_PEAK_LABEL_MIN_VALUE: f64 = 1e-3; // Minimum PSD value for a peak to be labeled.
+
+
 // Constants for spectrum peak labeling
 pub const MAX_PEAKS_TO_LABEL: usize = 3; // Max number of peaks (including primary) to label on spectrum plots
 pub const MIN_SECONDARY_PEAK_FACTOR: f64 = 0.05; // Secondary peak must be at least this factor of primary peak's amplitude
