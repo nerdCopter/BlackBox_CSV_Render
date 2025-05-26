@@ -8,7 +8,7 @@ use crate::plot_framework::{draw_dual_spectrum_plot, PlotSeries, PlotConfig, Axi
 use crate::constants::{
     SPECTRUM_NOISE_FLOOR_HZ, 
     COLOR_GYRO_VS_UNFILT_UNFILT, COLOR_GYRO_VS_UNFILT_FILT, LINE_WIDTH_PLOT,
-    MAX_PEAKS_TO_LABEL, MIN_SECONDARY_PEAK_FACTOR, MIN_PEAK_SEPARATION_HZ,
+    MAX_PEAKS_TO_LABEL, MIN_SECONDARY_PEAK_RATIO, MIN_PEAK_SEPARATION_HZ,
     ENABLE_WINDOW_PEAK_DETECTION, PEAK_DETECTION_WINDOW_RADIUS,
     PSD_Y_AXIS_FLOOR_DB, PSD_Y_AXIS_HEADROOM_FACTOR_DB, PSD_PEAK_LABEL_MIN_VALUE_DB,
     TUKEY_ALPHA, // For the window function
@@ -110,10 +110,10 @@ pub fn plot_psd(
                 if freq >= SPECTRUM_NOISE_FLOOR_HZ && is_potential_peak && amp_db > PSD_PEAK_LABEL_MIN_VALUE_DB { // Use new dB threshold
                     let mut is_valid_for_secondary_consideration = true;
                     if let Some((primary_freq, primary_amp_val_db)) = primary_peak_info {
-                        // For dB values, MIN_SECONDARY_PEAK_FACTOR (a linear ratio) needs to be converted to a dB difference.
+                        // For dB values, MIN_SECONDARY_PEAK_RATIO (a linear ratio) needs to be converted to a dB difference.
                         // A ratio of 0.05 corresponds to 10 * log10(0.05) = -13.01 dB.
-                        // So, a secondary peak must be at least primary_amp_val_db + (-13.01) dB.
-                        let min_secondary_db_relative_to_primary = primary_amp_val_db + 10.0 * MIN_SECONDARY_PEAK_FACTOR.log10();
+                        // Convert linear threshold to dB: 10 * log10(MIN_SECONDARY_PEAK_RATIO) gives the dB difference
+                        let min_secondary_db_relative_to_primary = primary_amp_val_db + 10.0 * MIN_SECONDARY_PEAK_RATIO.log10();
                         
                         if freq == primary_freq && amp_db == primary_amp_val_db { 
                             is_valid_for_secondary_consideration = false;

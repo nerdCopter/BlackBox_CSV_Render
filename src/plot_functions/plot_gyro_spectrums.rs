@@ -8,7 +8,7 @@ use crate::plot_framework::{draw_dual_spectrum_plot, PlotSeries, PlotConfig, Axi
 use crate::constants::{
     SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_HEADROOM_FACTOR,
     COLOR_GYRO_VS_UNFILT_UNFILT, COLOR_GYRO_VS_UNFILT_FILT, LINE_WIDTH_PLOT, PEAK_LABEL_MIN_AMPLITUDE,
-    MAX_PEAKS_TO_LABEL, MIN_SECONDARY_PEAK_FACTOR, MIN_PEAK_SEPARATION_HZ,
+    MAX_PEAKS_TO_LABEL, MIN_SECONDARY_PEAK_RATIO, MIN_PEAK_SEPARATION_HZ,
     ENABLE_WINDOW_PEAK_DETECTION, PEAK_DETECTION_WINDOW_RADIUS,
     TUKEY_ALPHA,
 };
@@ -111,7 +111,7 @@ pub fn plot_gyro_spectrums(
                         if freq == primary_freq && amp == primary_amp_val { // Don't re-add the primary peak
                             is_valid_for_secondary_consideration = false;
                         } else {
-                            is_valid_for_secondary_consideration = (amp >= primary_amp_val * MIN_SECONDARY_PEAK_FACTOR) &&
+                            is_valid_for_secondary_consideration = (amp >= primary_amp_val * MIN_SECONDARY_PEAK_RATIO) &&
                                                                     ((freq - primary_freq).abs() > MIN_PEAK_SEPARATION_HZ);
                         }
                     }
