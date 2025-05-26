@@ -10,7 +10,7 @@ use crate::constants::{
     COLOR_GYRO_VS_UNFILT_UNFILT, COLOR_GYRO_VS_UNFILT_FILT, LINE_WIDTH_PLOT,
     MAX_PEAKS_TO_LABEL, MIN_SECONDARY_PEAK_FACTOR, MIN_PEAK_SEPARATION_HZ,
     ENABLE_WINDOW_PEAK_DETECTION, PEAK_DETECTION_WINDOW_RADIUS,
-    PSD_Y_AXIS_FLOOR_DB, PSD_Y_AXIS_HEADROOM_FACTOR_DB, PSD_PEAK_LABEL_MIN_VALUE_DB, // dB-specific constants
+    PSD_Y_AXIS_FLOOR_DB, PSD_Y_AXIS_HEADROOM_FACTOR_DB, PSD_PEAK_LABEL_MIN_VALUE_DB,
     TUKEY_ALPHA, // For the window function
 };
 use crate::data_analysis::fft_utils;
@@ -147,9 +147,9 @@ pub fn plot_psd(
         peaks_to_plot.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         if !peaks_to_plot.is_empty() {
             let (main_freq, main_amp_db) = peaks_to_plot[0];
-            println!("  {} {} Gyro PSD: Primary Peak value {:.2} dB at {:.0} Hz", axis_name_str, spectrum_type_str, main_amp_db, main_freq); // Print dB value
+            println!("  {} {} Gyro PSD: Primary Peak value {:.2} dB at {:.0} Hz", axis_name_str, spectrum_type_str, main_amp_db, main_freq);
             for (idx, (freq, amp_db)) in peaks_to_plot.iter().skip(1).enumerate() {
-                println!("    Subordinate Peak {}: {:.2} dB at {:.0} Hz", idx + 1, amp_db, freq); // Print dB value
+                println!("    Subordinate Peak {}: {:.2} dB at {:.0} Hz", idx + 1, amp_db, freq);
             }
         } else {
             println!("  {} {} Gyro PSD: No significant peaks found.", axis_name_str, spectrum_type_str);
@@ -182,14 +182,12 @@ pub fn plot_psd(
 
             let unfilt_samples_slice = &unfilt_samples[0..min_len];
             let filt_samples_slice = &filt_samples[0..min_len];
-            // Use TUKEY_ALPHA constant for the window function
-            let window_func = calc_step_response::tukeywin(min_len, TUKEY_ALPHA); 
+            let window_func = calc_step_response::tukeywin(min_len, TUKEY_ALPHA);
 
             let fft_padded_len = min_len.next_power_of_two();
             let mut padded_unfilt = Array1::<f32>::zeros(fft_padded_len);
-            let mut padded_filt = Array1::<f32>::zeros(fft_padded_len);
-            
             padded_unfilt.slice_mut(s![0..min_len]).assign(&(&Array1::from_vec(unfilt_samples_slice.to_vec()) * &window_func));
+            let mut padded_filt = Array1::<f32>::zeros(fft_padded_len);
             padded_filt.slice_mut(s![0..min_len]).assign(&(&Array1::from_vec(filt_samples_slice.to_vec()) * &window_func));
             
             let unfilt_spec = fft_utils::fft_forward(&padded_unfilt);
@@ -213,8 +211,8 @@ pub fn plot_psd(
             for i in 0..num_unique_freqs {
                 let freq_val = i as f64 * freq_step;
                 
-                let mut amp_unfilt_linear_psd = (unfilt_spec[i].re.powi(2) + unfilt_spec[i].im.powi(2)) as f64 * psd_scale;
-                let mut amp_filt_linear_psd = (filt_spec[i].re.powi(2) + filt_spec[i].im.powi(2)) as f64 * psd_scale;
+                let mut amp_unfilt_linear_psd = unfilt_spec[i].norm_sqr() as f64 * psd_scale;
+                let mut amp_filt_linear_psd = filt_spec[i].norm_sqr() as f64 * psd_scale;
 
                 let is_nyquist = fft_padded_len % 2 == 0 && i == num_unique_freqs - 1;
 
@@ -271,7 +269,7 @@ pub fn plot_psd(
         move |axis_index| {
             if let Some((unfilt_psd_data, unfilt_peaks, filt_psd_data, filt_peaks)) = all_psd_raw_data[axis_index].take() {
                 let max_freq_val = sr_value / 2.0;
-                let x_range = 0.0..max_freq_val * 1.05; 
+                let x_range = 0.0..max_freq_val * 1.05;
                 // Use the dB-scaled floor and overall max for the Y-axis range
                 let y_range_for_all_clone = PSD_Y_AXIS_FLOOR_DB..overall_max_y_value_db;
 
@@ -298,8 +296,10 @@ pub fn plot_psd(
                     y_range: y_range_for_all_clone.clone(),
                     series: unfilt_plot_series,
                     x_label: "Frequency (Hz)".to_string(),
-                    y_label: "Power/Frequency (dB)".to_string(), // Updated label
+                    y_label: "Power/Frequency (dB)".to_string(),
                     peaks: unfilt_peaks,
+                    peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
+                    peak_label_format_string: Some("{:.2} dB".to_string()),
                 });
 
                 let filtered_plot_config = Some(PlotConfig {
@@ -308,8 +308,10 @@ pub fn plot_psd(
                     y_range: y_range_for_all_clone,
                     series: filt_plot_series,
                     x_label: "Frequency (Hz)".to_string(),
-                    y_label: "Power/Frequency (dB)".to_string(), // Updated label
+                    y_label: "Power/Frequency (dB)".to_string(),
                     peaks: filt_peaks,
+                    peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
+                    peak_label_format_string: Some("{:.2} dB".to_string()),
                 });
 
                 Some(AxisSpectrum {
