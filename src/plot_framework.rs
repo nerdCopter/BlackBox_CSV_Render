@@ -1,6 +1,5 @@
 // src/plot_framework.rs
 
-// Plotters imports - explicitly list what's used
 use plotters::backend::{BitMapBackend, DrawingBackend};
 use plotters::drawing::{DrawingArea, IntoDrawingArea};
 use plotters::style::{RGBColor, IntoFont, Color};
@@ -8,22 +7,18 @@ use plotters::element::Text;
 use plotters::chart::{ChartBuilder, SeriesLabelPosition};
 use plotters::element::PathElement;
 use plotters::series::LineSeries;
-use plotters::style::colors::{WHITE, BLACK, RED}; // Keep specific colors used by framework
-
+use plotters::style::colors::{WHITE, BLACK, RED};
+ 
 use std::error::Error;
-use std::ops::Range; // Import Range for PlotConfig
+use std::ops::Range;
 
-// Explicitly import constants used within this file by the framework
 use crate::constants::{
     PLOT_WIDTH, PLOT_HEIGHT,
     PEAK_LABEL_MIN_AMPLITUDE,
     LINE_WIDTH_LEGEND,
 };
 
-/// Calculate plot range with padding.
-/// Adds 15% padding, or a fixed padding for very small ranges.
 pub fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
-    // Ensure we always return (lower, upper)
     let (min, max) = if min_val <= max_val {
         (min_val, max_val)
     } else {
@@ -31,9 +26,9 @@ pub fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
     };
     let range = (max - min).abs();
     let padding = if range < 1e-6 { 0.5 } else { range * 0.15 };
-    (min - padding, max + padding)}
+    (min - padding, max + padding)
+}
 
-/// Draw a "Data Unavailable" message on a plot area.
 pub fn draw_unavailable_message(
     area: &DrawingArea<BitMapBackend, plotters::coord::Shift>,
     axis_index: usize,
@@ -51,7 +46,6 @@ pub fn draw_unavailable_message(
     Ok(())
 }
 
-// Define a struct to hold data for a single line series
 #[derive(Clone)]
 pub struct PlotSeries {
     pub data: Vec<(f64, f64)>,
@@ -60,7 +54,6 @@ pub struct PlotSeries {
     pub stroke_width: u32,
 }
 
-/// Struct to hold configuration for a single plot.
 pub struct PlotConfig {
     pub title: String,
     pub x_range: Range<f64>,
@@ -68,39 +61,33 @@ pub struct PlotConfig {
     pub series: Vec<PlotSeries>,
     pub x_label: String,
     pub y_label: String,
-    pub peaks: Vec<(f64, f64)>, // Changed from Option<(f64, f64)> to Vec<(f64, f64)>
+    pub peaks: Vec<(f64, f64)>,
+    pub peak_label_threshold: Option<f64>,
+    pub peak_label_format_string: Option<String>,
 }
 
-/// Struct to hold spectrum data for a single axis, distinguishing between unfiltered and filtered.
 pub struct AxisSpectrum {
     pub unfiltered: Option<PlotConfig>,
     pub filtered:   Option<PlotConfig>,
 }
 
-/// Draws a single chart for one axis within a stacked plot.
-fn draw_single_axis_chart(
+fn draw_single_axis_chart_with_config(
     area: &DrawingArea<BitMapBackend, plotters::coord::Shift>,
-    chart_title: &str,
-    x_range: std::ops::Range<f64>,
-    y_range: std::ops::Range<f64>,
-    x_label: &str,
-    y_label: &str,
-    series: &[PlotSeries],
-    peaks_info: &[(f64, f64)], // Changed from Option<(f64, f64)> to &[(f64, f64)]
+    plot_config: &PlotConfig,
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
-        .caption(chart_title, ("sans-serif", 20))
+        .caption(&plot_config.title, ("sans-serif", 20))
         .margin(5).x_label_area_size(30).y_label_area_size(50)
-        .build_cartesian_2d(x_range, y_range)?;
+        .build_cartesian_2d(plot_config.x_range.clone(), plot_config.y_range.clone())?;
 
     chart.configure_mesh()
-        .x_desc(x_label)
-        .y_desc(y_label)
+        .x_desc(&plot_config.x_label)
+        .y_desc(&plot_config.y_label)
         .x_labels(20).y_labels(10)
         .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
     let mut series_drawn_count = 0;
-    for s in series {
+    for s in &plot_config.series {
         if !s.data.is_empty() {
             chart.draw_series(LineSeries::new(
                 s.data.iter().cloned(),
@@ -117,25 +104,33 @@ fn draw_single_axis_chart(
             .background_style(&WHITE.mix(0.8)).border_style(&BLACK).label_font(("sans-serif", 12)).draw()?;
     }
 
-    // Offset of the current sub-area within the root image
     let area_offset = area.get_base_pixel();
     let (area_x_range, area_y_range) = area.get_pixel_range();
     let area_width = (area_x_range.end - area_x_range.start) as i32;
     let area_height = (area_y_range.end - area_y_range.start) as i32;
     const TEXT_WIDTH_ESTIMATE: i32 = 300;
     const TEXT_HEIGHT_ESTIMATE: i32 = 20;
-    for (idx, &(peak_freq, peak_amp)) in peaks_info.iter().enumerate() {
-        if peak_amp > PEAK_LABEL_MIN_AMPLITUDE {
+
+    let peak_label_threshold = plot_config.peak_label_threshold.unwrap_or(PEAK_LABEL_MIN_AMPLITUDE);
+    let peak_label_format_string_ref = plot_config.peak_label_format_string.as_deref().unwrap_or("{:.0}");
+
+    for (idx, &(peak_freq, peak_amp)) in plot_config.peaks.iter().enumerate() {
+        if peak_amp > peak_label_threshold {
             let peak_pixel_coords_relative_to_plotting_area = chart.backend_coord(&(peak_freq, peak_amp));
             let mut text_x = peak_pixel_coords_relative_to_plotting_area.0 - area_offset.0;
             let mut text_y = peak_pixel_coords_relative_to_plotting_area.1 - area_offset.1;
 
             let label_text;
+            let formatted_peak_amp = if peak_label_format_string_ref == "{:.2} dB" {
+                format!("{:.2} dB", peak_amp)
+            } else {
+                format!("{:.0}", peak_amp)
+            };
 
-            if idx == 0 { // Primary peak
-                label_text = format!("Primary Peak: {:.0} at {:.0} Hz", peak_amp, peak_freq);
-            } else { // Secondary peaks
-                label_text = format!("Peak: {:.0} at {:.0} Hz", peak_amp, peak_freq);
+            if idx == 0 {
+                label_text = format!("Primary Peak: {} at {:.0} Hz", formatted_peak_amp, peak_freq);
+            } else {
+                label_text = format!("Peak: {} at {:.0} Hz", formatted_peak_amp, peak_freq);
             }
             
             // Adjust text position to stay within bounds
@@ -181,16 +176,18 @@ where
                  let has_data = series_data.iter().any(|s| !s.data.is_empty());
                  let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
                  if has_data && valid_ranges {
-                     draw_single_axis_chart(
-                         area,
-                         &chart_title,
+                     let temp_plot_config = PlotConfig {
+                         title: chart_title,
                          x_range,
                          y_range,
-                         &x_label,
-                         &y_label,
-                         &series_data,
-                         &[], // Pass empty slice for peaks as this function doesn't handle them yet
-                     )?;
+                         series: series_data,
+                         x_label,
+                         y_label,
+                         peaks: vec![],
+                         peak_label_threshold: None,
+                         peak_label_format_string: None,
+                     };
+                     draw_single_axis_chart_with_config(area, &temp_plot_config)?;
                      any_axis_plotted = true;
                  } else {
                       let reason = if !has_data { "No data points" } else { "Invalid ranges" };
@@ -254,15 +251,9 @@ where
                 let valid_ranges = plot_config.x_range.end > plot_config.x_range.start && plot_config.y_range.end > plot_config.y_range.start;
 
                 if has_data && valid_ranges {
-                    draw_single_axis_chart(
+                    draw_single_axis_chart_with_config(
                         area,
-                        &plot_config.title,
-                        plot_config.x_range.clone(),
-                        plot_config.y_range.clone(),
-                        &plot_config.x_label,
-                        &plot_config.y_label,
-                        &plot_config.series,
-                        &plot_config.peaks, // Pass the Vec of peaks
+                        plot_config,
                     )?;
                     any_plot_drawn = true;
                 } else {

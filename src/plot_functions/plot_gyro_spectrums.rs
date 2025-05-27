@@ -8,11 +8,12 @@ use crate::plot_framework::{draw_dual_spectrum_plot, PlotSeries, PlotConfig, Axi
 use crate::constants::{
     SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_HEADROOM_FACTOR,
     COLOR_GYRO_VS_UNFILT_UNFILT, COLOR_GYRO_VS_UNFILT_FILT, LINE_WIDTH_PLOT, PEAK_LABEL_MIN_AMPLITUDE,
-    MAX_PEAKS_TO_LABEL, MIN_SECONDARY_PEAK_FACTOR, MIN_PEAK_SEPARATION_HZ,
+    MAX_PEAKS_TO_LABEL, MIN_SECONDARY_PEAK_RATIO, MIN_PEAK_SEPARATION_HZ,
     ENABLE_WINDOW_PEAK_DETECTION, PEAK_DETECTION_WINDOW_RADIUS,
+    TUKEY_ALPHA,
 };
 use crate::data_analysis::fft_utils; // For fft_forward
-use crate::calc_step_response; // For tukeywin
+use crate::data_analysis::calc_step_response; // For tukeywin
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro spectrums.
 pub fn plot_gyro_spectrums(
@@ -76,7 +77,7 @@ pub fn plot_gyro_spectrums(
                             }
 
                             let mut gt_right_in_window = true;
-                            if ge_left_in_window { // Optimization: only check right if left is good
+                            if ge_left_in_window {  // Optimization: only check right if left is good
                                 for k_offset in 1..=w {
                                     // series_data[j + k_offset] is valid because j + w < series_data.len()
                                     // and k_offset <= w
@@ -110,7 +111,7 @@ pub fn plot_gyro_spectrums(
                         if freq == primary_freq && amp == primary_amp_val { // Don't re-add the primary peak
                             is_valid_for_secondary_consideration = false;
                         } else {
-                            is_valid_for_secondary_consideration = (amp >= primary_amp_val * MIN_SECONDARY_PEAK_FACTOR) &&
+                            is_valid_for_secondary_consideration = (amp >= primary_amp_val * MIN_SECONDARY_PEAK_RATIO) &&
                                                                     ((freq - primary_freq).abs() > MIN_PEAK_SEPARATION_HZ);
                         }
                     }
@@ -175,15 +176,13 @@ pub fn plot_gyro_spectrums(
 
             let unfilt_samples_slice = &unfilt_samples[0..min_len];
             let filt_samples_slice = &filt_samples[0..min_len];
-            let window_func = calc_step_response::tukeywin(min_len, 1.0);
-            let unfilt_windowed: Array1<f32> = Array1::from_vec(unfilt_samples_slice.to_vec()) * &window_func;
-            let filt_windowed: Array1<f32> = Array1::from_vec(filt_samples_slice.to_vec()) * &window_func;
+            let window_func = calc_step_response::tukeywin(min_len, TUKEY_ALPHA);
 
             let fft_padded_len = min_len.next_power_of_two();
             let mut padded_unfilt = Array1::<f32>::zeros(fft_padded_len);
-            padded_unfilt.slice_mut(s![0..min_len]).assign(&unfilt_windowed);
+            padded_unfilt.slice_mut(s![0..min_len]).assign(&(&Array1::from_vec(unfilt_samples_slice.to_vec()) * &window_func));
             let mut padded_filt = Array1::<f32>::zeros(fft_padded_len);
-            padded_filt.slice_mut(s![0..min_len]).assign(&filt_windowed);
+            padded_filt.slice_mut(s![0..min_len]).assign(&(&Array1::from_vec(filt_samples_slice.to_vec()) * &window_func));
 
             let unfilt_spec = fft_utils::fft_forward(&padded_unfilt);
             let filt_spec = fft_utils::fft_forward(&padded_filt);
@@ -275,6 +274,9 @@ pub fn plot_gyro_spectrums(
                     x_label: "Frequency (Hz)".to_string(),
                     y_label: "Amplitude".to_string(),
                     peaks: unfilt_peaks,
+                    // MINIMAL CHANGE: Initialize new fields to Some for linear amplitude plots
+                    peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
+                    peak_label_format_string: Some("{:.0}".to_string()),
                 });
 
                 let filtered_plot_config = Some(PlotConfig {
@@ -285,6 +287,9 @@ pub fn plot_gyro_spectrums(
                     x_label: "Frequency (Hz)".to_string(),
                     y_label: "Amplitude".to_string(),
                     peaks: filt_peaks,
+                    // MINIMAL CHANGE: Initialize new fields to Some for linear amplitude plots
+                    peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
+                    peak_label_format_string: Some("{:.0}".to_string()),
                 });
 
                 Some(AxisSpectrum {
