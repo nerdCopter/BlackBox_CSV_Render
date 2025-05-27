@@ -334,24 +334,34 @@ fn draw_single_heatmap_chart(
         .x_labels(10).y_labels(10)
         .light_line_style(&WHITE.mix(0.7)).label_style(("sans-serif", 12)).draw()?;
 
+    // Calculate bin widths for rectangle sizing
+    let x_bin_width = if heatmap_data.x_bins.len() > 1 {
+        heatmap_data.x_bins[1] - heatmap_data.x_bins[0]
+    } else {
+        1.0 // fallback for single bin
+    };
+    let y_bin_width = if heatmap_data.y_bins.len() > 1 {
+        heatmap_data.y_bins[1] - heatmap_data.y_bins[0]
+    } else {
+        1.0 // fallback for single bin
+    };
+
     for (x_idx, &x_val) in heatmap_data.x_bins.iter().enumerate() {
         for (y_idx, &y_val) in heatmap_data.y_bins.iter().enumerate() {
             if let Some(row) = heatmap_data.values.get(x_idx) {
                 if let Some(&psd_db) = row.get(y_idx) {
-                    let color = map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, HEATMAP_MAX_PSD_DB);
-                    
+                    let color =
+                        map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, HEATMAP_MAX_PSD_DB);
+
                     let rect = Rectangle::new(
                         [
-                            (x_val - x_bin_width * 0.5, y_val - y_bin_height * 0.5),
-                            (x_val + x_bin_width * 0.5, y_val + y_bin_height * 0.5),
+                            (x_val - x_bin_width * 0.5, y_val - y_bin_width * 0.5),
+                            (x_val + x_bin_width * 0.5, y_val + y_bin_width * 0.5),
                         ],
                         color.filled(),
                     );
                     chart.draw_series(std::iter::once(rect))?;
                 }
-            }
-        }
-    }
             }
         }
     }
