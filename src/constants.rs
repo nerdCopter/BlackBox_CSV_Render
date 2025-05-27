@@ -37,6 +37,17 @@ pub const PSD_Y_AXIS_FLOOR_DB: f64 = -80.0; // A reasonable floor for PSD values
 pub const PSD_Y_AXIS_HEADROOM_FACTOR_DB: f64 = 10.0; // Factor to extend Y-axis above the highest peak (in dB, e.g., 10 dB headroom)
 pub const PSD_PEAK_LABEL_MIN_VALUE_DB: f64 = -60.0; // Minimum PSD value in dB for a peak to be labeled. (Adjust as needed)
 
+// Constants for Spectrogram/Heatmap plots (re-introduced)
+pub const STFT_WINDOW_DURATION_S: f64 = 0.1; // Duration of each STFT window in seconds
+pub const STFT_OVERLAP_FACTOR: f64 = 0.75; // Overlap between windows (e.g., 0.75 for 75% overlap)
+pub const HEATMAP_MIN_PSD_DB: f64 = -80.0; // Minimum PSD value in dB for heatmap color scaling
+pub const HEATMAP_MAX_PSD_DB: f64 = -10.0; // Maximum PSD value in dB for heatmap color scaling (adjust based on typical values)
+
+// Constants for Setpoint-Frequency Heatmap (NEW)
+pub const SETPOINT_MIN_BIN_VALUE: f64 = 0.0; // Minimum setpoint value for binning
+pub const SETPOINT_MAX_BIN_VALUE: f64 = 2000.0; // Maximum setpoint value for binning (e.g., max deg/s)
+pub const SETPOINT_BIN_COUNT: usize = 50; // Number of bins for setpoint axis
+
 // Constants for spectrum peak labeling
 pub const MAX_PEAKS_TO_LABEL: usize = 3; // Max number of peaks (including primary) to label on spectrum plots
 pub const MIN_SECONDARY_PEAK_RATIO: f64 = 0.05; // Secondary peak must be ≥ this linear ratio of the primary peak’s amplitude
