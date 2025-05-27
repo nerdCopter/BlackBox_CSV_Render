@@ -1,4 +1,4 @@
-// src/plot_functions/plot_psd_dB_heatmap.rs
+// src/plot_functions/plot_psd_db_heatmap.rs
 
 use std::error::Error;
 use ndarray::{Array1, s};
@@ -23,7 +23,7 @@ fn linear_to_db_for_heatmap(value: f64) -> f64 {
 }
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro Power Spectral Density (PSD) as heatmaps (spectrograms).
-pub fn plot_psd_dB_heatmap(
+pub fn plot_psd_db_heatmap(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
@@ -218,4 +218,4 @@ pub fn plot_psd_dB_heatmap(
     )
 }
 
-// src/plot_functions/plot_psd_dB_heatmap.rs
+// src/plot_functions/plot_psd_db_heatmap.rs

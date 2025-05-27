@@ -21,8 +21,7 @@ use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
 use crate::plot_functions::plot_step_response::plot_step_response;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
 use crate::plot_functions::plot_psd::plot_psd;
-use crate::plot_functions::plot_psd_dB_heatmap::plot_psd_dB_heatmap; // NEW: Import dB heatmap
-use crate::plot_functions::plot_psd_throttle_heatmap::plot_psd_throttle_heatmap; // NEW: Import throttle heatmap
+use crate::plot_functions::plot_psd_db_heatmap::plot_psd_db_heatmap;
 
 // Data input import
 use crate::data_input::log_parser::parse_log_file;
@@ -155,8 +154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     plot_step_response(&step_response_calculation_results, &root_name, sample_rate)?;
     plot_gyro_spectrums(&all_log_data, &root_name, sample_rate)?;
     plot_psd(&all_log_data, &root_name, sample_rate)?;
-    plot_psd_dB_heatmap(&all_log_data, &root_name, sample_rate)?; // NEW
-    plot_psd_throttle_heatmap(&all_log_data, &root_name, sample_rate)?; // NEW
+    plot_psd_db_heatmap(&all_log_data, &root_name, sample_rate)?; // NEW
 
     println!("\nProcessing complete.");
     Ok(())
