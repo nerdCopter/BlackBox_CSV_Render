@@ -45,8 +45,8 @@ pub const HEATMAP_MAX_PSD_DB: f64 = -10.0; // Maximum PSD value in dB for heatma
 
 // Constants for Throttle-Frequency Heatmap
 pub const THROTTLE_Y_BINS_COUNT: usize = 50; // Number of bins for the throttle (Y) axis
-pub const THROTTLE_Y_MIN_VALUE: f64 = -100.0; // Minimum throttle value for plotting range
-pub const THROTTLE_Y_MAX_VALUE: f64 = 1100.0; // Maximum throttle value for plotting range
+pub const THROTTLE_Y_MIN_VALUE: f64 = 0.0; // Minimum throttle value for plotting range
+pub const THROTTLE_Y_MAX_VALUE: f64 = 1000.0; // Maximum throttle value for plotting range
 
 // Constants for spectrum peak labeling
 pub const MAX_PEAKS_TO_LABEL: usize = 3; // Max number of peaks (including primary) to label on spectrum plots
