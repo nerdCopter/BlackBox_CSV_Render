@@ -43,6 +43,11 @@ pub const STFT_OVERLAP_FACTOR: f64 = 0.75; // Overlap between windows (e.g., 0.7
 pub const HEATMAP_MIN_PSD_DB: f64 = -80.0; // Minimum PSD value in dB for heatmap color scaling
 pub const HEATMAP_MAX_PSD_DB: f64 = -10.0; // Maximum PSD value in dB for heatmap color scaling (adjust based on typical values)
 
+// Constants for Throttle-Frequency Heatmap
+pub const THROTTLE_Y_BINS_COUNT: usize = 50; // Number of bins for the throttle (Y) axis
+pub const THROTTLE_Y_MIN_VALUE: f64 = -100.0; // Minimum throttle value for plotting range
+pub const THROTTLE_Y_MAX_VALUE: f64 = 1100.0; // Maximum throttle value for plotting range
+
 // Constants for spectrum peak labeling
 pub const MAX_PEAKS_TO_LABEL: usize = 3; // Max number of peaks (including primary) to label on spectrum plots
 pub const MIN_SECONDARY_PEAK_RATIO: f64 = 0.05; // Secondary peak must be ≥ this linear ratio of the primary peak’s amplitude
@@ -81,5 +86,4 @@ pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
 // Stroke widths for lines
 pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
 pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
-
 // src/constants.rs

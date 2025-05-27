@@ -8,7 +8,7 @@ use plotters::chart::{ChartBuilder, SeriesLabelPosition};
 use plotters::element::PathElement;
 use plotters::series::LineSeries;
 use plotters::style::colors::{WHITE, BLACK, RED};
-use plotters::element::Rectangle; // Re-introduced for heatmap cells
+use plotters::element::Rectangle;
 
 use std::error::Error;
 use std::ops::Range;
@@ -17,8 +17,10 @@ use crate::constants::{
     PLOT_WIDTH, PLOT_HEIGHT,
     PEAK_LABEL_MIN_AMPLITUDE,
     LINE_WIDTH_LEGEND,
-    HEATMAP_MIN_PSD_DB, HEATMAP_MAX_PSD_DB, // Re-introduced for heatmap color mapping
+    HEATMAP_MIN_PSD_DB, HEATMAP_MAX_PSD_DB,
 };
+
+use colorous;
 
 /// Calculate plot range with padding.
 /// Adds 15% padding, or a fixed padding for very small ranges.
@@ -76,8 +78,6 @@ pub struct AxisSpectrum {
     pub filtered:   Option<PlotConfig>,
 }
 
-// --- Re-introduced Structs for Heatmap Plotting ---
-
 pub struct HeatmapData {
     pub x_bins: Vec<f64>,
     pub y_bins: Vec<f64>,
@@ -98,37 +98,12 @@ pub struct AxisHeatmapSpectrum {
     pub filtered:   Option<HeatmapPlotConfig>,
 }
 
-// --- Re-introduced Helper for Heatmap Color Mapping (Viridis-like) ---
-// This is a simplified Viridis approximation. For a true Viridis, a more complex
-// lookup table or algorithm would be needed.
 fn map_db_to_color(db_value: f64, min_db: f64, max_db: f64) -> RGBColor {
     let clamped_db = db_value.max(min_db).min(max_db);
-    let normalized_value = (clamped_db - min_db) / (max_db - min_db); // 0.0 to 1.0
+    let normalized_value = (clamped_db - min_db) / (max_db - min_db);
 
-    // Simplified Viridis-like interpolation (approximating key points)
-    let r;
-    let g;
-    let b;
-
-    if normalized_value < 0.25 { // Dark Blue to Blue-Green
-        r = 0;
-        g = (normalized_value * 4.0 * 255.0) as u8;
-        b = (255.0 - normalized_value * 4.0 * 255.0) as u8;
-    } else if normalized_value < 0.5 { // Blue-Green to Green
-        r = 0;
-        g = 255;
-        b = (255.0 - (normalized_value - 0.25) * 4.0 * 255.0) as u8;
-    } else if normalized_value < 0.75 { // Green to Yellow
-        r = ((normalized_value - 0.5) * 4.0 * 255.0) as u8;
-        g = 255;
-        b = 0;
-    } else { // Yellow to Bright Yellow/White
-        r = 255;
-        g = (255.0 - (normalized_value - 0.75) * 4.0 * 255.0) as u8;
-        b = 0;
-    }
-
-    RGBColor(r, g, b)
+    let color = colorous::VIRIDIS.eval_continuous(normalized_value);
+    RGBColor(color.r, color.g, color.b)
 }
 
 /// Draws a single chart using a PlotConfig struct, allowing dynamic peak labeling.
@@ -169,7 +144,7 @@ fn draw_single_axis_chart_with_config(
     let area_offset = area.get_base_pixel();
     let (area_x_range, area_y_range) = area.get_pixel_range();
     let area_width = (area_x_range.end - area_x_range.start) as i32;
-    let area_height = (area_y_range.end - area_y_range.start) as i32;
+    let area_height = (area_y_range.end - area_y_range.start) as i32; // Corrected: Re-added area_height
     const TEXT_WIDTH_ESTIMATE: i32 = 300;
     const TEXT_HEIGHT_ESTIMATE: i32 = 20;
 
@@ -309,7 +284,7 @@ where
             });
 
             if let Some(plot_config) = plot_config_option {
-                let has_data = plot_config.series.iter().any(|s| !s.data.is_empty());
+                let has_data = !plot_config.series.is_empty() && plot_config.series.iter().any(|s| !s.data.is_empty());
                 let valid_ranges = plot_config.x_range.end > plot_config.x_range.start && plot_config.y_range.end > plot_config.y_range.start;
 
                 if has_data && valid_ranges {
@@ -337,8 +312,6 @@ where
     }
     Ok(())
 }
-
-// --- Re-introduced Drawing Functions for Heatmaps ---
 
 /// Draws a single heatmap chart (spectrogram) for one axis within a stacked plot.
 fn draw_single_heatmap_chart(
