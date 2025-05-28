@@ -50,6 +50,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         gyro_header_found,
         _gyro_unfilt_header_found,
         _debug_header_found,
+        f_term_header_found,
     ) = parse_log_file(&input_path)?;
 
     if all_log_data.is_empty() {
