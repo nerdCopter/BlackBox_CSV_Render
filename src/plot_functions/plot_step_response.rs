@@ -19,6 +19,7 @@ pub fn plot_step_response(
     step_response_results: &[Option<(Array1<f64>, Array2<f32>, Array1<f32>)>; 3],
     root_name: &str,
     sample_rate: Option<f64>,
+    has_nonzero_f_term_data: &[bool; 3],
 ) -> Result<(), Box<dyn Error>> {
     let step_response_plot_duration_s = STEP_RESPONSE_PLOT_DURATION_S;
     let steady_state_start_s = STEADY_STATE_START_S;
@@ -150,7 +151,13 @@ pub fn plot_step_response(
             }
 
              plot_data_per_axis[axis_index] = Some((
-                format!("Axis {} Step Response", axis_index),
+                {
+                    let mut title = format!("Axis {} Step Response", axis_index);
+                    if has_nonzero_f_term_data[axis_index] {
+                        title.push_str(" - Invalid due Feed-Forward");
+                    }
+                    title
+                },
                 x_range,
                 y_range,
                 series,
