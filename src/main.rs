@@ -46,6 +46,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (
         all_log_data,
         sample_rate,
+        f_term_header_found,
         setpoint_header_found,
         gyro_header_found,
         _gyro_unfilt_header_found,
@@ -55,6 +56,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     if all_log_data.is_empty() {
         println!("No valid data rows read, cannot generate plots.");
         return Ok(());
+    }
+
+    let mut has_nonzero_f_term_data = [false; 3];
+    for axis in 0..3 {
+        if f_term_header_found[axis] {
+            if all_log_data.iter().any(|row| row.f_term[axis].map_or(false, |val| val.abs() > 1e-9)) {
+                has_nonzero_f_term_data[axis] = true;
+            }
+        }
     }
 
     // --- Calculate Step Response Data ---
@@ -152,7 +162,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     plot_pidsum_error_setpoint(&all_log_data, &root_name)?;
     plot_setpoint_vs_gyro(&all_log_data, &root_name)?;
     plot_gyro_vs_unfilt(&all_log_data, &root_name)?;
-    plot_step_response(&step_response_calculation_results, &root_name, sample_rate)?;
+    plot_step_response(&step_response_calculation_results, &root_name, sample_rate, &has_nonzero_f_term_data)?;
     plot_gyro_spectrums(&all_log_data, &root_name, sample_rate)?;
     plot_psd(&all_log_data, &root_name, sample_rate)?;
     plot_psd_db_heatmap(&all_log_data, &root_name, sample_rate)?;
