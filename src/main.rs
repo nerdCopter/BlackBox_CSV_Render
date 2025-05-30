@@ -8,7 +8,8 @@ mod plot_functions;
 
 use std::error::Error;
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf}; // Added PathBuf
+use std::collections::HashSet;  // Added HashSet
 
 use ndarray::{Array1, Array2};
 
@@ -43,16 +44,36 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
     std::process::exit(1);
 }
 
-fn process_file(input_file_str: &str, setpoint_threshold: f64, show_legend: bool) -> Result<(), Box<dyn Error>> {
+fn process_file(input_file_str: &str, setpoint_threshold: f64, show_legend: bool, use_dir_prefix: bool) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
     if !input_path.exists() {
         eprintln!("Error: Input file not found: {}", input_file_str);
         return Ok(()); // Continue to next file if this one is not found
     }
-    println!("
---- Processing file: {} ---", input_file_str);
-    let root_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
+    println!("\n--- Processing file: {} ---", input_file_str);
+
+    let file_stem_cow = input_path.file_stem().unwrap_or_else(|| std::ffi::OsStr::new("unknown_filestem")).to_string_lossy();
+    let root_name_string: String;
+
+    if use_dir_prefix {
+        let mut dir_prefix_to_add = String::new();
+        if let Some(parent_dir) = input_path.parent() {
+            if let Some(dir_os_str) = parent_dir.file_name() {
+                let dir_name_part = dir_os_str.to_string_lossy();
+                // Add prefix only if parent dir name is meaningful (not empty, not current dir indicator like ".")
+                if !dir_name_part.is_empty() && dir_name_part != "." {
+                    let sanitized_dir = dir_name_part.chars().map(|c|
+                        if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }
+                    ).collect::<String>();
+                    dir_prefix_to_add = format!("{}_", sanitized_dir);
+                }
+            }
+        }
+        root_name_string = format!("{}{}", dir_prefix_to_add, file_stem_cow);
+    } else {
+        root_name_string = file_stem_cow.into_owned();
+    }
 
     // --- Data Reading and Header Status ---
     let (
@@ -180,15 +201,15 @@ INFO ({}): Skipping Step Response input data filtering: {}.", input_file_str, re
     }
 
     // --- Generate Plots ---
-    println!("Generating plots for {}...", input_file_str);
-    plot_pidsum_error_setpoint(&all_log_data, &root_name)?;
-    plot_setpoint_vs_gyro(&all_log_data, &root_name)?;
-    plot_gyro_vs_unfilt(&all_log_data, &root_name)?;
-    plot_step_response(&step_response_calculation_results, &root_name, sample_rate, &has_nonzero_f_term_data, setpoint_threshold, show_legend)?;
-    plot_gyro_spectrums(&all_log_data, &root_name, sample_rate)?;
-    plot_psd(&all_log_data, &root_name, sample_rate)?;
-    plot_psd_db_heatmap(&all_log_data, &root_name, sample_rate)?;
-    plot_throttle_freq_heatmap(&all_log_data, &root_name, sample_rate)?;
+    println!("Generating plots for {} (root name: {})...", input_file_str, root_name_string);
+    plot_pidsum_error_setpoint(&all_log_data, &root_name_string)?;
+    plot_setpoint_vs_gyro(&all_log_data, &root_name_string)?;
+    plot_gyro_vs_unfilt(&all_log_data, &root_name_string)?;
+    plot_step_response(&step_response_calculation_results, &root_name_string, sample_rate, &has_nonzero_f_term_data, setpoint_threshold, show_legend)?;
+    plot_gyro_spectrums(&all_log_data, &root_name_string, sample_rate)?;
+    plot_psd(&all_log_data, &root_name_string, sample_rate)?;
+    plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+    plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
 
     println!("--- Finished processing file: {} ---", input_file_str);
     Ok(())
@@ -204,11 +225,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         print_usage_and_exit(program_name);
     }
 
-    let mut input_files: Vec<String> = Vec::new(); // DECLARED AS VEC<STRING>
+    let mut input_files: Vec<String> = Vec::new();
     let mut setpoint_threshold_override: Option<f64> = None;
     let mut dps_flag_present = false;
 
-    let mut i = 1; 
+    let mut i = 1;
     while i < args.len() {
         let arg = &args[i];
         if arg == "--dps" {
@@ -258,11 +279,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         show_legend = false;
     }
 
+    let mut use_dir_prefix_for_root_name = false;
+    if input_files.len() > 1 {
+        let parent_dirs_set: HashSet<PathBuf> = input_files.iter().filter_map(|f_str| {
+            Path::new(f_str).parent().map(|p| p.to_path_buf())
+        }).collect();
+        if parent_dirs_set.len() > 1 {
+            use_dir_prefix_for_root_name = true;
+        }
+    }
+
     let mut overall_success = true;
     for input_file_str in &input_files {
-        if let Err(e) = process_file(input_file_str, setpoint_threshold, show_legend) {
+        if let Err(e) = process_file(input_file_str, setpoint_threshold, show_legend, use_dir_prefix_for_root_name) {
             eprintln!("An error occurred while processing {}: {}", input_file_str, e);
-            overall_success = false; 
+            overall_success = false;
         }
     }
 
