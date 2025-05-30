@@ -31,97 +31,28 @@ use crate::data_input::log_parser::parse_log_file;
 use crate::data_analysis::calc_step_response;
 
 fn print_usage_and_exit(program_name: &str) {
-    eprintln!("\\nUsage: {} <input_file.csv> [--dps [<value>]]", program_name);
-    eprintln!("  <input_file.csv>: Path to the input CSV log file (required).");
+    eprintln!("
+Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]]", program_name);
+    eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
     eprintln!("  --dps [<value>]: Optional. Enables detailed step response plots and legend.");
     eprintln!("                   If <value> (deg/s threshold) is provided, it's used.");
     eprintln!("                   If <value> is omitted, defaults to {}.", DEFAULT_SETPOINT_THRESHOLD);
     eprintln!("                   If --dps is omitted, a simplified combined plot is shown with a basic legend entry.");
-    eprintln!("\\nArguments can be in any order.");
+    eprintln!("
+Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.");
     std::process::exit(1);
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // --- Argument Parsing ---
-    let args: Vec<String> = env::args().collect();
-    let program_name = &args[0];
-
-    if args.len() < 2 { // Basic check for at least one argument (input file)
-        print_usage_and_exit(program_name);
-    }
-
-    let mut input_file_arg: Option<String> = None;
-    let mut setpoint_threshold_override: Option<f64> = None;
-    let mut dps_flag_present = false;
-
-    let mut i = 1; // Start iterating from the first argument
-    while i < args.len() {
-        let arg = &args[i];
-        if arg == "--dps" {
-            if dps_flag_present {
-                eprintln!("Error: --dps argument specified more than once.");
-                print_usage_and_exit(program_name);
-            }
-            dps_flag_present = true;
-            // Check if next argument is a value for --dps
-            if i + 1 < args.len() && !args[i + 1].starts_with("--") {
-                match args[i + 1].parse::<f64>() {
-                    Ok(val) => {
-                        if val < 0.0 {
-                            eprintln!("Error: --dps threshold cannot be negative: {}", val);
-                            print_usage_and_exit(program_name);
-                        }
-                        setpoint_threshold_override = Some(val);
-                        i += 1; // Consume the value argument
-                    }
-                    Err(_) => {
-                        eprintln!("Error: Invalid numeric value for --dps: {}", args[i + 1]);
-                        print_usage_and_exit(program_name);
-                    }
-                }
-            }
-        } else if arg.starts_with("--") {
-            eprintln!("Error: Unknown option '{}'", arg);
-            print_usage_and_exit(program_name);
-        } else {
-            // Argument is not an option, assume it's the input file
-            if input_file_arg.is_some() {
-                eprintln!("Error: Multiple input files specified ('{}' and '{}').", input_file_arg.as_ref().unwrap(), arg);
-                print_usage_and_exit(program_name);
-            }
-            input_file_arg = Some(arg.clone());
-        }
-        i += 1;
-    }
-
-    // Validate input file
-    if input_file_arg.is_none() {
-        eprintln!("Error: Input file is required.");
-        print_usage_and_exit(program_name);
-    }
-    let input_file_str = input_file_arg.unwrap(); // Safe due to the check above
-
-    // Determine setpoint_threshold and show_legend based on parsed args
-    let setpoint_threshold: f64;
-    let show_legend: bool;
-
-    if dps_flag_present {
-        setpoint_threshold = setpoint_threshold_override.unwrap_or(DEFAULT_SETPOINT_THRESHOLD);
-        show_legend = true;
-    } else {
-        setpoint_threshold = DEFAULT_SETPOINT_THRESHOLD;
-        show_legend = false;
-    }
-
+fn process_file(input_file_str: &str, setpoint_threshold: f64, show_legend: bool) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
-    let input_path = Path::new(&input_file_str);
-    if !input_path.exists() { // Check if file exists after confirming one was provided
+    let input_path = Path::new(input_file_str);
+    if !input_path.exists() {
         eprintln!("Error: Input file not found: {}", input_file_str);
-        std::process::exit(1); // Exit directly as this is a fatal error post-parsing
+        return Ok(()); // Continue to next file if this one is not found
     }
-    println!("Reading {}", input_file_str);
+    println!("
+--- Processing file: {} ---", input_file_str);
     let root_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
-
 
     // --- Data Reading and Header Status ---
     let (
@@ -132,10 +63,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         gyro_header_found,
         _gyro_unfilt_header_found,
         _debug_header_found,
-    ) = parse_log_file(&input_path)?;
+    ) = match parse_log_file(&input_path) {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("Error parsing log file {}: {}", input_file_str, e);
+            return Ok(()); // Continue to next file
+        }
+    };
 
     if all_log_data.is_empty() {
-        println!("No valid data rows read, cannot generate plots.");
+        println!("No valid data rows read from {}, cannot generate plots.", input_file_str);
         return Ok(());
     }
 
@@ -166,7 +103,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    if let (Some(first_time_val), Some(last_time_val), Some(_sr)) = (first_time, last_time, sample_rate) {
+    if let (Some(first_time_val), Some(last_time_val), Some(_sr_val_check)) = (first_time, last_time, sample_rate) { // Renamed _sr to _sr_val_check to avoid conflict
          if required_headers_for_sr_input {
              for row in &all_log_data {
                  if let (Some(time), Some(setpoint_roll), Some(gyro_roll),
@@ -184,7 +121,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                  }
              }
          } else {
-              println!("\nINFO: Skipping Step Response data collection: Setpoint or Gyro headers missing.");
+              println!("
+INFO ({}): Skipping Step Response data collection: Setpoint or Gyro headers missing.", input_file_str);
          }
     } else {
          let reason = if first_time.is_none() || last_time.is_none() {
@@ -192,10 +130,12 @@ fn main() -> Result<(), Box<dyn Error>> {
          } else {
              "Sample Rate unknown"
          };
-         println!("\nINFO: Skipping Step Response input data filtering: {}.", reason);
+         println!("
+INFO ({}): Skipping Step Response input data filtering: {}.", input_file_str, reason);
     }
 
-    println!("\n--- Calculating Step Response ---");
+    println!("
+--- Calculating Step Response for {} ---", input_file_str);
     let mut step_response_calculation_results: [Option<(Array1<f64>, Array2<f32>, Array1<f32>)>; 3] = [None, None, None];
 
      if let Some(sr) = sample_rate {
@@ -236,10 +176,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     } else {
-         println!("  Skipping Step Response Calculation: Sample rate could not be determined.");
+         println!("  Skipping Step Response Calculation for {}: Sample rate could not be determined.", input_file_str);
     }
 
     // --- Generate Plots ---
+    println!("Generating plots for {}...", input_file_str);
     plot_pidsum_error_setpoint(&all_log_data, &root_name)?;
     plot_setpoint_vs_gyro(&all_log_data, &root_name)?;
     plot_gyro_vs_unfilt(&all_log_data, &root_name)?;
@@ -249,8 +190,95 @@ fn main() -> Result<(), Box<dyn Error>> {
     plot_psd_db_heatmap(&all_log_data, &root_name, sample_rate)?;
     plot_throttle_freq_heatmap(&all_log_data, &root_name, sample_rate)?;
 
-    println!("\nProcessing complete.");
+    println!("--- Finished processing file: {} ---", input_file_str);
     Ok(())
+}
+
+
+fn main() -> Result<(), Box<dyn Error>> {
+    // --- Argument Parsing ---
+    let args: Vec<String> = env::args().collect();
+    let program_name = &args[0];
+
+    if args.len() < 2 { 
+        print_usage_and_exit(program_name);
+    }
+
+    let mut input_files: Vec<String> = Vec::new(); // DECLARED AS VEC<STRING>
+    let mut setpoint_threshold_override: Option<f64> = None;
+    let mut dps_flag_present = false;
+
+    let mut i = 1; 
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--dps" {
+            if dps_flag_present {
+                eprintln!("Error: --dps argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            dps_flag_present = true;
+            if i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                match args[i + 1].parse::<f64>() {
+                    Ok(val) => {
+                        if val < 0.0 {
+                            eprintln!("Error: --dps threshold cannot be negative: {}", val);
+                            print_usage_and_exit(program_name);
+                        }
+                        setpoint_threshold_override = Some(val);
+                        i += 1; 
+                    }
+                    Err(_) => {
+                        eprintln!("Error: Invalid numeric value for --dps: {}", args[i + 1]);
+                        print_usage_and_exit(program_name);
+                    }
+                }
+            }
+        } else if arg.starts_with("--") {
+            eprintln!("Error: Unknown option '{}'", arg);
+            print_usage_and_exit(program_name);
+        } else {
+            input_files.push(arg.clone()); // THIS IS THE CORRECT LOGIC FOR VEC
+        }
+        i += 1;
+    }
+
+    if input_files.is_empty() {
+        eprintln!("Error: At least one input file is required.");
+        print_usage_and_exit(program_name);
+    }
+
+    let setpoint_threshold: f64;
+    let show_legend: bool;
+
+    if dps_flag_present {
+        setpoint_threshold = setpoint_threshold_override.unwrap_or(DEFAULT_SETPOINT_THRESHOLD);
+        show_legend = true;
+    } else {
+        setpoint_threshold = DEFAULT_SETPOINT_THRESHOLD;
+        show_legend = false;
+    }
+
+    let mut overall_success = true;
+    for input_file_str in &input_files {
+        if let Err(e) = process_file(input_file_str, setpoint_threshold, show_legend) {
+            eprintln!("An error occurred while processing {}: {}", input_file_str, e);
+            overall_success = false; 
+        }
+    }
+
+    if overall_success {
+        println!("
+All files processed successfully.");
+        Ok(())
+    } else {
+        eprintln!("
+Some files could not be processed successfully.");
+        // Still return Ok(()) here as we've handled errors per file.
+        // Or, could return a generic error if preferred for the whole batch.
+        // For now, exiting with 0 if any file succeeded, or if all failed but were handled.
+        // To signal overall failure to scripts, one might `std::process::exit(1)` here.
+        Ok(()) 
+    }
 }
 
 // src/main.rs
