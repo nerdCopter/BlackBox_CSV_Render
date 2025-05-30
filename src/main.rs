@@ -35,10 +35,10 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("
 Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]]", program_name);
     eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
-    eprintln!("  --dps [<value>]: Optional. Enables detailed step response plots and legend.");
+    eprintln!("  --dps [<value>]: Optional. Enables detailed step response plots.");
     eprintln!("                   If <value> (deg/s threshold) is provided, it's used.");
     eprintln!("                   If <value> is omitted, defaults to {}.", DEFAULT_SETPOINT_THRESHOLD);
-    eprintln!("                   If --dps is omitted, a simplified combined plot is shown with a basic legend entry.");
+    eprintln!("                   If --dps is omitted, a general step-response is shown.");
     eprintln!("
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.");
     std::process::exit(1);
