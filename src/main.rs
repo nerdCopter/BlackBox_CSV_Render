@@ -8,11 +8,12 @@ mod plot_functions;
 
 use std::error::Error;
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf}; // Added PathBuf
+use std::collections::HashSet;  // Added HashSet
 
 use ndarray::{Array1, Array2};
 
-use crate::constants::*;
+use crate::constants::{DEFAULT_SETPOINT_THRESHOLD, EXCLUDE_START_S, EXCLUDE_END_S, FRAME_LENGTH_S};
 
 // Specific plot function imports
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
@@ -30,17 +31,49 @@ use crate::data_input::log_parser::parse_log_file;
 // Data analysis imports
 use crate::data_analysis::calc_step_response;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // --- Argument Parsing ---
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <input_file.csv>", args[0]);
-        std::process::exit(1);
+fn print_usage_and_exit(program_name: &str) {
+    eprintln!("
+Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]]", program_name);
+    eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
+    eprintln!("  --dps [<value>]: Optional. Enables detailed step response plots.");
+    eprintln!("                   If <value> (deg/s threshold) is provided, it's used.");
+    eprintln!("                   If <value> is omitted, defaults to {}.", DEFAULT_SETPOINT_THRESHOLD);
+    eprintln!("                   If --dps is omitted, a general step-response is shown.");
+    eprintln!("
+Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.");
+    std::process::exit(1);
+}
+
+fn process_file(input_file_str: &str, setpoint_threshold: f64, show_legend: bool, use_dir_prefix: bool) -> Result<(), Box<dyn Error>> {
+    // --- Setup paths and names ---
+    let input_path = Path::new(input_file_str);
+    if !input_path.exists() {
+        eprintln!("Error: Input file not found: {}", input_file_str);
+        return Ok(()); // Continue to next file if this one is not found
     }
-    let input_file = &args[1];
-    let input_path = Path::new(input_file);
-    println!("Reading {}", input_file);
-    let root_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
+    println!("\n--- Processing file: {} ---", input_file_str);
+
+    let file_stem_cow = input_path.file_stem().unwrap_or_else(|| std::ffi::OsStr::new("unknown_filestem")).to_string_lossy();
+    let root_name_string: String;
+
+    if use_dir_prefix {
+        let mut dir_prefix_to_add = String::new();
+        if let Some(parent_dir) = input_path.parent() {
+            if let Some(dir_os_str) = parent_dir.file_name() {
+                let dir_name_part = dir_os_str.to_string_lossy();
+                // Add prefix only if parent dir name is meaningful (not empty, not current dir indicator like ".")
+                if !dir_name_part.is_empty() && dir_name_part != "." {
+                    let sanitized_dir = dir_name_part.chars().map(|c|
+                        if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }
+                    ).collect::<String>();
+                    dir_prefix_to_add = format!("{}_", sanitized_dir);
+                }
+            }
+        }
+        root_name_string = format!("{}{}", dir_prefix_to_add, file_stem_cow);
+    } else {
+        root_name_string = file_stem_cow.into_owned();
+    }
 
     // --- Data Reading and Header Status ---
     let (
@@ -51,10 +84,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         gyro_header_found,
         _gyro_unfilt_header_found,
         _debug_header_found,
-    ) = parse_log_file(&input_path)?;
+    ) = match parse_log_file(&input_path) {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("Error parsing log file {}: {}", input_file_str, e);
+            return Ok(()); // Continue to next file
+        }
+    };
 
     if all_log_data.is_empty() {
-        println!("No valid data rows read, cannot generate plots.");
+        println!("No valid data rows read from {}, cannot generate plots.", input_file_str);
         return Ok(());
     }
 
@@ -85,7 +124,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    if let (Some(first_time_val), Some(last_time_val), Some(_sr)) = (first_time, last_time, sample_rate) {
+    if let (Some(first_time_val), Some(last_time_val), Some(_sr_val_check)) = (first_time, last_time, sample_rate) { // Renamed _sr to _sr_val_check to avoid conflict
          if required_headers_for_sr_input {
              for row in &all_log_data {
                  if let (Some(time), Some(setpoint_roll), Some(gyro_roll),
@@ -103,7 +142,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                  }
              }
          } else {
-              println!("\nINFO: Skipping Step Response data collection: Setpoint or Gyro headers missing.");
+              println!("
+INFO ({}): Skipping Step Response data collection: Setpoint or Gyro headers missing.", input_file_str);
          }
     } else {
          let reason = if first_time.is_none() || last_time.is_none() {
@@ -111,10 +151,12 @@ fn main() -> Result<(), Box<dyn Error>> {
          } else {
              "Sample Rate unknown"
          };
-         println!("\nINFO: Skipping Step Response input data filtering: {}.", reason);
+         println!("
+INFO ({}): Skipping Step Response input data filtering: {}.", input_file_str, reason);
     }
 
-    println!("\n--- Calculating Step Response ---");
+    println!("
+--- Calculating Step Response for {} ---", input_file_str);
     let mut step_response_calculation_results: [Option<(Array1<f64>, Array2<f32>, Array1<f32>)>; 3] = [None, None, None];
 
      if let Some(sr) = sample_rate {
@@ -155,21 +197,119 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     } else {
-         println!("  Skipping Step Response Calculation: Sample rate could not be determined.");
+         println!("  Skipping Step Response Calculation for {}: Sample rate could not be determined.", input_file_str);
     }
 
     // --- Generate Plots ---
-    plot_pidsum_error_setpoint(&all_log_data, &root_name)?;
-    plot_setpoint_vs_gyro(&all_log_data, &root_name)?;
-    plot_gyro_vs_unfilt(&all_log_data, &root_name)?;
-    plot_step_response(&step_response_calculation_results, &root_name, sample_rate, &has_nonzero_f_term_data)?;
-    plot_gyro_spectrums(&all_log_data, &root_name, sample_rate)?;
-    plot_psd(&all_log_data, &root_name, sample_rate)?;
-    plot_psd_db_heatmap(&all_log_data, &root_name, sample_rate)?;
-    plot_throttle_freq_heatmap(&all_log_data, &root_name, sample_rate)?;
+    println!("Generating plots for {} (root name: {})...", input_file_str, root_name_string);
+    plot_pidsum_error_setpoint(&all_log_data, &root_name_string)?;
+    plot_setpoint_vs_gyro(&all_log_data, &root_name_string)?;
+    plot_gyro_vs_unfilt(&all_log_data, &root_name_string)?;
+    plot_step_response(&step_response_calculation_results, &root_name_string, sample_rate, &has_nonzero_f_term_data, setpoint_threshold, show_legend)?;
+    plot_gyro_spectrums(&all_log_data, &root_name_string, sample_rate)?;
+    plot_psd(&all_log_data, &root_name_string, sample_rate)?;
+    plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+    plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
 
-    println!("\nProcessing complete.");
+    println!("--- Finished processing file: {} ---", input_file_str);
     Ok(())
+}
+
+
+fn main() -> Result<(), Box<dyn Error>> {
+    // --- Argument Parsing ---
+    let args: Vec<String> = env::args().collect();
+    let program_name = &args[0];
+
+    if args.len() < 2 { 
+        print_usage_and_exit(program_name);
+    }
+
+    let mut input_files: Vec<String> = Vec::new();
+    let mut setpoint_threshold_override: Option<f64> = None;
+    let mut dps_flag_present = false;
+
+    let mut i = 1;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--dps" {
+            if dps_flag_present {
+                eprintln!("Error: --dps argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            dps_flag_present = true;
+            if i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                match args[i + 1].parse::<f64>() {
+                    Ok(val) => {
+                        if val < 0.0 {
+                            eprintln!("Error: --dps threshold cannot be negative: {}", val);
+                            print_usage_and_exit(program_name);
+                        }
+                        setpoint_threshold_override = Some(val);
+                        i += 1; 
+                    }
+                    Err(_) => {
+                        eprintln!("Error: Invalid numeric value for --dps: {}", args[i + 1]);
+                        print_usage_and_exit(program_name);
+                    }
+                }
+            }
+        } else if arg.starts_with("--") {
+            eprintln!("Error: Unknown option '{}'", arg);
+            print_usage_and_exit(program_name);
+        } else {
+            input_files.push(arg.clone()); // THIS IS THE CORRECT LOGIC FOR VEC
+        }
+        i += 1;
+    }
+
+    if input_files.is_empty() {
+        eprintln!("Error: At least one input file is required.");
+        print_usage_and_exit(program_name);
+    }
+
+    let setpoint_threshold: f64;
+    let show_legend: bool;
+
+    if dps_flag_present {
+        setpoint_threshold = setpoint_threshold_override.unwrap_or(DEFAULT_SETPOINT_THRESHOLD);
+        show_legend = true;
+    } else {
+        setpoint_threshold = DEFAULT_SETPOINT_THRESHOLD;
+        show_legend = false;
+    }
+
+    let mut use_dir_prefix_for_root_name = false;
+    if input_files.len() > 1 {
+        let parent_dirs_set: HashSet<PathBuf> = input_files.iter().filter_map(|f_str| {
+            Path::new(f_str).parent().map(|p| p.to_path_buf())
+        }).collect();
+        if parent_dirs_set.len() > 1 {
+            use_dir_prefix_for_root_name = true;
+        }
+    }
+
+    let mut overall_success = true;
+    for input_file_str in &input_files {
+        if let Err(e) = process_file(input_file_str, setpoint_threshold, show_legend, use_dir_prefix_for_root_name) {
+            eprintln!("An error occurred while processing {}: {}", input_file_str, e);
+            overall_success = false;
+        }
+    }
+
+    if overall_success {
+        println!("
+All files processed successfully.");
+        Ok(())
+    } else {
+        eprintln!("
+Some files could not be processed successfully.");
+        // Still return Ok(()) here as we've handled errors per file.
+        // Or, could return a generic error if preferred for the whole batch.
+        // For now, exiting with 0 if any file succeeded, or if all failed but were handled.
+        // To signal overall failure to scripts, one might `std::process::exit(1)` here.
+        Ok(()) 
+    }
 }
 
 // src/main.rs
