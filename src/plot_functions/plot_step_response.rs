@@ -3,14 +3,13 @@
 use std::error::Error;
 use plotters::style::RGBColor;
 use ndarray::{Array1, Array2, s};
-use ndarray_stats::QuantileExt;
 
 use crate::plot_framework::{draw_stacked_plot, PlotSeries, calculate_range};
 use crate::constants::{
-    STEP_RESPONSE_PLOT_DURATION_S, SETPOINT_THRESHOLD,
+    STEP_RESPONSE_PLOT_DURATION_S,
     POST_AVERAGING_SMOOTHING_WINDOW, STEADY_STATE_START_S, STEADY_STATE_END_S,
     COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
-    LINE_WIDTH_PLOT,
+    LINE_WIDTH_PLOT, // Added MOVEMENT_THRESHOLD_DEG_S
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
 
@@ -20,11 +19,12 @@ pub fn plot_step_response(
     root_name: &str,
     sample_rate: Option<f64>,
     has_nonzero_f_term_data: &[bool; 3],
+    setpoint_threshold: f64,
+    show_legend: bool,
 ) -> Result<(), Box<dyn Error>> {
     let step_response_plot_duration_s = STEP_RESPONSE_PLOT_DURATION_S;
     let steady_state_start_s = STEADY_STATE_START_S;
     let steady_state_end_s = STEADY_STATE_END_S;
-    let setpoint_threshold = SETPOINT_THRESHOLD;
     let post_averaging_smoothing_window = POST_AVERAGING_SMOOTHING_WINDOW;
     let color_high_sp: RGBColor = *COLOR_STEP_RESPONSE_HIGH_SP;
     let color_combined: RGBColor = *COLOR_STEP_RESPONSE_COMBINED;
@@ -94,63 +94,61 @@ pub fn plot_step_response(
                     })
             };
 
-            let final_low_response = process_response(&low_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
-            let final_high_response = process_response(&high_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
-            let final_combined_response = process_response(&combined_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
-
-            let final_low_response_cloned = final_low_response.clone();
-            let final_high_response_cloned = final_high_response.clone();
-            let final_combined_response_cloned = final_combined_response.clone();
-
-            let is_low_response_valid = final_low_response_cloned.is_some();
-            let is_high_response_valid = final_high_response_cloned.is_some();
-            let is_combined_response_valid = final_combined_response_cloned.is_some();
-
-            if !(is_low_response_valid || is_high_response_valid) {
-                continue;
+            let mut series = Vec::new();
+            if show_legend {
+                let final_low_response = process_response(&low_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
+                let final_high_response = process_response(&high_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
+                let final_combined_response = process_response(&combined_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
+                if let Some(resp) = final_low_response {
+                    series.push(PlotSeries {
+                        data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
+                        label: format!("< {} deg/s", setpoint_threshold),
+                        color: color_low_sp,
+                        stroke_width: line_stroke_plot,
+                    });
+                }
+                if let Some(resp) = final_high_response {
+                    series.push(PlotSeries {
+                        data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
+                        label: format!("\u{2265} {} deg/s", setpoint_threshold),
+                        color: color_high_sp,
+                        stroke_width: line_stroke_plot,
+                    });
+                }
+                if let Some(resp) = final_combined_response {
+                    series.push(PlotSeries {
+                        data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
+                        label: "Combined".to_string(),
+                        color: color_combined,
+                        stroke_width: line_stroke_plot,
+                    });
+                }
+            } else {
+                let final_combined_response = process_response(&combined_mask, valid_stacked_responses, response_length_samples, current_ss_start_sample, current_ss_end_sample, post_averaging_smoothing_window);
+                if let Some(resp) = final_combined_response {
+                    series.push(PlotSeries {
+                        data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
+                        label: format!("step-response"),
+                        color: color_combined,
+                        stroke_width: line_stroke_plot,
+                    });
+                }
             }
 
+            // Calculate y-range
             let mut resp_min = f64::INFINITY;
             let mut resp_max = f64::NEG_INFINITY;
-            if let Some(resp) = &final_low_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
-            if let Some(resp) = &final_high_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
-            if is_combined_response_valid {
-                 if let Some(resp) = &final_combined_response_cloned { if let Ok(min_val) = resp.min() { resp_min = resp_min.min(*min_val); } if let Ok(max_val) = resp.max() { resp_max = resp_max.max(*max_val); } }
+            for s in &series {
+                for &(_, v) in &s.data {
+                    resp_min = resp_min.min(v);
+                    resp_max = resp_max.max(v);
+                }
             }
-
             let (final_resp_min, final_resp_max) = calculate_range(resp_min, resp_max);
             let x_range = 0f64..step_response_plot_duration_s * 1.05;
             let y_range = final_resp_min..final_resp_max;
 
-            let mut series = Vec::new();
-            if let Some(resp) = final_low_response {
-                 series.push(PlotSeries {
-                     data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
-                     label: format!("< {} deg/s", setpoint_threshold),
-                     color: color_low_sp,
-                     stroke_width: line_stroke_plot,
-                 });
-            }
-            if let Some(resp) = final_high_response {
-                 series.push(PlotSeries {
-                     data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
-                     label: format!("\u{2265} {} deg/s", setpoint_threshold),
-                     color: color_high_sp,
-                     stroke_width: line_stroke_plot,
-                 });
-             }
-            if is_combined_response_valid {
-                 if let Some(resp) = final_combined_response {
-                     series.push(PlotSeries {
-                         data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
-                         label: "Combined".to_string(),
-                         color: color_combined,
-                         stroke_width: line_stroke_plot,
-                     });
-                 }
-            }
-
-             plot_data_per_axis[axis_index] = Some((
+            plot_data_per_axis[axis_index] = Some((
                 {
                     let mut title = format!("Axis {} Step Response", axis_index);
                     if has_nonzero_f_term_data[axis_index] {
@@ -163,7 +161,7 @@ pub fn plot_step_response(
                 series,
                 "Time (s)".to_string(),
                 "Normalized Response".to_string(),
-             ));
+            ));
         }
     }
 

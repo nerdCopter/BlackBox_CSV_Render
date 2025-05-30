@@ -16,10 +16,12 @@ pub const FRAME_LENGTH_S: f64 = 1.0; // Length of each window in seconds
 pub const RESPONSE_LENGTH_S: f64 = 0.5; // Length of the step response to keep from each window
 pub const SUPERPOSITION_FACTOR: usize = 16; // Number of overlapping windows within a frame length
 pub const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning window)
-pub const SETPOINT_THRESHOLD: f64 = 500.0; // Threshold for low/high setpoint masking
+
+// Default setpoint threshold, can be overridden at runtime
+pub const DEFAULT_SETPOINT_THRESHOLD: f64 = 500.0;
 
 // Constants for filtering data based on movement and flight phase.
-pub const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0; // Minimum setpoint/gyro magnitude for a window to be considered for analysis (from PTstepcalc.m minInput)
+pub const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0; // Minimum setpoint/gyro magnitude for a window to be considered for analysis (from both PlasmaTree and PIDtoolbox)
 pub const EXCLUDE_START_S: f64 = 3.0; // Exclude this many seconds from the start of the log
 pub const EXCLUDE_END_S: f64 = 3.0; // Exclude this many seconds from the end of the log
 
@@ -86,4 +88,5 @@ pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
 // Stroke widths for lines
 pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
 pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
+
 // src/constants.rs

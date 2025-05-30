@@ -12,7 +12,7 @@ use std::path::Path;
 
 use ndarray::{Array1, Array2};
 
-use crate::constants::*;
+use crate::constants::{DEFAULT_SETPOINT_THRESHOLD, EXCLUDE_START_S, EXCLUDE_END_S, FRAME_LENGTH_S};
 
 // Specific plot function imports
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
@@ -34,13 +34,60 @@ fn main() -> Result<(), Box<dyn Error>> {
     // --- Argument Parsing ---
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <input_file.csv>", args[0]);
+        eprintln!("Usage: {} <input_file.csv> [--dps [<deg/s threshold>]]", args[0]);
         std::process::exit(1);
     }
     let input_file = &args[1];
     let input_path = Path::new(input_file);
     println!("Reading {}", input_file);
     let root_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
+
+    // --- Parse optional arguments ---
+    let mut setpoint_threshold = DEFAULT_SETPOINT_THRESHOLD;
+    let mut show_legend = false; // Default: no --dps means no legend
+
+    let mut arg_idx = 2; // Index for optional arguments
+    let mut dps_option_encountered = false;
+
+    while arg_idx < args.len() {
+        let current_arg = &args[arg_idx];
+        match current_arg.as_str() {
+            "--dps" => {
+                if dps_option_encountered {
+                    eprintln!("Error: --dps argument specified more than once.");
+                    eprintln!("Usage: {} <input_file.csv> [--dps [<deg/s threshold>]]", args[0]);
+                    std::process::exit(1);
+                }
+                dps_option_encountered = true;
+                show_legend = true; // If --dps is present, legend is shown.
+
+                // Check for an optional value for --dps
+                if arg_idx + 1 < args.len() && !args[arg_idx + 1].starts_with("--") {
+                    // Value is present, attempt to parse
+                    match args[arg_idx + 1].parse::<f64>() {
+                        Ok(val) => {
+                            setpoint_threshold = val;
+                            arg_idx += 1; // Consume the value argument
+                        }
+                        Err(_) => {
+                            eprintln!("Error: Invalid numeric value for --dps: {}", args[arg_idx + 1]);
+                            eprintln!("Usage: {} <input_file.csv> [--dps [<deg/s threshold>]]", args[0]);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                // If no value (next arg is another option or end of args),
+                // setpoint_threshold remains DEFAULT_SETPOINT_THRESHOLD (already set by default).
+            }
+            _ => {
+                // Handle unknown arguments
+                eprintln!("Error: Unknown argument '{}'", current_arg);
+                eprintln!("Usage: {} <input_file.csv> [--dps [<deg/s threshold>]]", args[0]);
+                std::process::exit(1);
+            }
+        }
+        arg_idx += 1;
+    }
 
     // --- Data Reading and Header Status ---
     let (
@@ -162,7 +209,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     plot_pidsum_error_setpoint(&all_log_data, &root_name)?;
     plot_setpoint_vs_gyro(&all_log_data, &root_name)?;
     plot_gyro_vs_unfilt(&all_log_data, &root_name)?;
-    plot_step_response(&step_response_calculation_results, &root_name, sample_rate, &has_nonzero_f_term_data)?;
+    plot_step_response(&step_response_calculation_results, &root_name, sample_rate, &has_nonzero_f_term_data, setpoint_threshold, show_legend)?;
     plot_gyro_spectrums(&all_log_data, &root_name, sample_rate)?;
     plot_psd(&all_log_data, &root_name, sample_rate)?;
     plot_psd_db_heatmap(&all_log_data, &root_name, sample_rate)?;
