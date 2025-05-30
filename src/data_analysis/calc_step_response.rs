@@ -6,22 +6,24 @@ use std::error::Error;
 
 use crate::constants::{
     FRAME_LENGTH_S, RESPONSE_LENGTH_S, SUPERPOSITION_FACTOR, TUKEY_ALPHA,
-    INITIAL_GYRO_SMOOTHING_WINDOW, // New
-    APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION, // New
-    Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS, // New
-    NORMALIZED_STEADY_STATE_MIN_VAL, // New or re-purposed
-    NORMALIZED_STEADY_STATE_MAX_VAL, // New or re-purposed
-    ENABLE_NORMALIZED_STEADY_STATE_MEAN_CHECK, //New
-    NORMALIZED_STEADY_STATE_MEAN_MIN, // New
-    NORMALIZED_STEADY_STATE_MEAN_MAX, // New
+    INITIAL_GYRO_SMOOTHING_WINDOW,
+    APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION,
+    Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS,
+    NORMALIZED_STEADY_STATE_MIN_VAL,
+    NORMALIZED_STEADY_STATE_MAX_VAL,
+    ENABLE_NORMALIZED_STEADY_STATE_MEAN_CHECK,
+    NORMALIZED_STEADY_STATE_MEAN_MIN,
+    NORMALIZED_STEADY_STATE_MEAN_MAX,
     STEADY_STATE_START_S, STEADY_STATE_END_S,
     MOVEMENT_THRESHOLD_DEG_S,
 };
 
 use crate::data_analysis::fft_utils;
 
-// tukeywin, winstacker_contiguous, wiener_deconvolution_window, cumulative_sum are assumed to be the same as before.
-// moving_average_smooth_f32 will be a new helper for initial gyro smoothing.
+// tukeywin, winstacker_contiguous, wiener_deconvolution_window, cumulative_sum,
+// moving_average_smooth_f32, moving_average_smooth_f64, average_responses
+// are assumed to be the same as in the previous full file output provided.
+// For brevity, only calculate_step_response is shown with changes.
 
 /// Makes a Tukey window for enveloping. (Same as before)
 pub fn tukeywin(num: usize, alpha: f64) -> Array1<f32> {
@@ -62,9 +64,9 @@ fn winstacker_contiguous( input_data: &Array1<f32>, output_data: &Array1<f32>, f
 fn wiener_deconvolution_window( input_window: &Array1<f32>, output_window: &Array1<f32>, _sample_rate: f64) -> Array1<f32> {
     let n = input_window.len(); if n == 0 { return Array1::zeros(n); }
     let padded_n = n.next_power_of_two();
-    let mut input_padded_vec = vec![0.0f32; padded_n]; input_padded_vec[0..n].copy_from_slice(input_window.as_slice().unwrap());
+    let mut input_padded_vec = vec![0.0f32; padded_n]; if n > 0 {input_padded_vec[0..n].copy_from_slice(input_window.as_slice().unwrap_or_default());}
     let input_padded = Array1::from(input_padded_vec);
-    let mut output_padded_vec = vec![0.0f32; padded_n]; output_padded_vec[0..n].copy_from_slice(output_window.as_slice().unwrap());
+    let mut output_padded_vec = vec![0.0f32; padded_n]; if n > 0 {output_padded_vec[0..n].copy_from_slice(output_window.as_slice().unwrap_or_default());}
     let output_padded = Array1::from(output_padded_vec);
     let h_spec = fft_utils::fft_forward(&input_padded); let g_spec = fft_utils::fft_forward(&output_padded);
     if h_spec.is_empty() || g_spec.is_empty() || h_spec.len() != g_spec.len() { eprintln!("Warning: FFT output empty/mismatch in Wiener deconvolution."); return Array1::zeros(n); }
@@ -77,7 +79,7 @@ fn wiener_deconvolution_window( input_window: &Array1<f32>, output_window: &Arra
         else { deconvolved_spec[i] = num_complex::Complex32::new(0.0, 0.0); }
     }
     let deconvolved_impulse = fft_utils::fft_inverse(&deconvolved_spec, padded_n);
-    deconvolved_impulse.slice(s![0..n]).to_owned()
+    if n > 0 { deconvolved_impulse.slice(s![0..n]).to_owned() } else { Array1::zeros(0) }
 }
 
 /// Cumulative sum. (Same as before)
@@ -90,7 +92,7 @@ fn cumulative_sum(data: &Array1<f32>) -> Array1<f32> {
     cumulative
 }
 
-/// Applies a moving average filter to smooth a 1D array of f32. (New helper, or use existing if it matches)
+/// Applies a moving average filter to smooth a 1D array of f32. (Same as before)
 pub fn moving_average_smooth_f32(data: &Array1<f32>, window_size: usize) -> Array1<f32> {
     if window_size <= 1 || data.is_empty() {
         return data.to_owned();
@@ -107,8 +109,22 @@ pub fn moving_average_smooth_f32(data: &Array1<f32>, window_size: usize) -> Arra
     smoothed_data
 }
 
+/// Applies a moving average filter to smooth a 1D array of f64. (Same as before)
+pub fn moving_average_smooth_f64(data: &Array1<f64>, window_size: usize) -> Array1<f64> {
+    if window_size <= 1 || data.is_empty() { return data.to_owned(); }
+    let mut smoothed_data = Array1::<f64>::zeros(data.len());
+    let mut current_sum: f64 = 0.0;
+    let mut history: VecDeque<f64> = VecDeque::with_capacity(window_size);
+    for i in 0..data.len() {
+        let val = data[i]; history.push_back(val); current_sum += val;
+        if history.len() > window_size { if let Some(old_val) = history.pop_front() { current_sum -= old_val; }}
+        let current_window_len = history.len() as f64;
+        if current_window_len > 0.0 { smoothed_data[i] = current_sum / current_window_len; } else { smoothed_data[i] = 0.0; }
+    }
+    smoothed_data
+}
 
-/// Calculates the mean of the step responses (used by plotting, can remain f64 if preferred there)
+/// Calculates the mean of the step responses (used by plotting). (Same as before)
 pub fn average_responses( stacked_responses: &Array2<f32>, weights: &Array1<f32>, response_len: usize) -> Result<Array1<f64>, Box<dyn Error>> {
     let num_windows = stacked_responses.shape()[0];
     if num_windows == 0 || response_len == 0 || weights.len() != num_windows || stacked_responses.shape()[1] != response_len {
@@ -127,21 +143,21 @@ pub fn average_responses( stacked_responses: &Array2<f32>, weights: &Array1<f32>
     Ok(averaged_response)
 }
 
+
 pub fn calculate_step_response(
     _time: &Array1<f64>,
     setpoint: &Array1<f32>,
-    gyro_filtered_input: &Array1<f32>, // Renamed to avoid confusion
+    gyro_filtered_input: &Array1<f32>,
     sample_rate: f64,
 ) -> Result<(Array1<f64>, Array2<f32>, Array1<f32>), Box<dyn Error>> {
     if setpoint.is_empty() || gyro_filtered_input.is_empty() || setpoint.len() != gyro_filtered_input.len() || sample_rate <= 0.0 {
         return Err("Invalid input to calculate_step_response".into());
     }
 
-    // Step 1: Optional Initial Gyro Smoothing
     let gyro_processed = if INITIAL_GYRO_SMOOTHING_WINDOW > 1 {
         moving_average_smooth_f32(gyro_filtered_input, INITIAL_GYRO_SMOOTHING_WINDOW)
     } else {
-        gyro_filtered_input.to_owned() // Or just pass by reference if no copy needed
+        gyro_filtered_input.to_owned()
     };
 
     let frame_length_samples = (FRAME_LENGTH_S * sample_rate).ceil() as usize;
@@ -153,19 +169,14 @@ pub fn calculate_step_response(
 
     let ss_start_sample = (STEADY_STATE_START_S * sample_rate).floor() as usize;
     let ss_end_sample = (STEADY_STATE_END_S * sample_rate).ceil() as usize;
-    let effective_ss_start_sample = ss_start_sample.min(response_length_samples.saturating_sub(1)); // ensure it's a valid index
-    let effective_ss_end_sample = ss_end_sample.min(response_length_samples).max(effective_ss_start_sample + 1); // ensure end > start and within bounds
-
+    let effective_ss_start_sample = ss_start_sample.min(response_length_samples.saturating_sub(1));
+    let effective_ss_end_sample = ss_end_sample.min(response_length_samples).max(effective_ss_start_sample + 1);
 
     let mut stacked_step_responses_qc: Vec<Array1<f32>> = Vec::new();
     let mut window_max_setpoints_qc: Vec<f32> = Vec::new();
 
     let (stacked_input_raw, stacked_output_raw) = winstacker_contiguous(
-        setpoint,
-        &gyro_processed, // Use the (potentially) smoothed gyro data
-        frame_length_samples,
-        SUPERPOSITION_FACTOR,
-    );
+        setpoint, &gyro_processed, frame_length_samples, SUPERPOSITION_FACTOR);
 
     let num_windows = stacked_input_raw.shape()[0];
     if num_windows == 0 { return Err("No complete windows generated.".into()); }
@@ -177,7 +188,7 @@ pub fn calculate_step_response(
         let output_window_raw = stacked_output_raw.row(i).to_owned();
 
         let max_setpoint_in_window = input_window_raw.iter().fold(0.0f32, |max_val, &v| max_val.max(v.abs()));
-        if max_setpoint_in_window < MOVEMENT_THRESHOLD_DEG_S as f32 { // Simplified check, PTB also checks gyro
+        if max_setpoint_in_window < MOVEMENT_THRESHOLD_DEG_S as f32 {
              continue;
         }
 
@@ -185,69 +196,77 @@ pub fn calculate_step_response(
         let output_window_windowed = &output_window_raw * &window_func;
 
         let impulse_response = wiener_deconvolution_window(&input_window_windowed, &output_window_windowed, sample_rate);
-        let impulse_response_truncated = impulse_response.slice(s![0..frame_length_samples]).to_owned();
+        let impulse_response_truncated = if impulse_response.len() >= frame_length_samples {
+            impulse_response.slice(s![0..frame_length_samples]).to_owned()
+        } else {
+            // eprintln!("Warning: Impulse response too short ({} vs {}) for window {}. Skipping.", impulse_response.len(), frame_length_samples, i);
+            continue;
+        };
         if impulse_response_truncated.is_empty() { continue; }
 
         let unnormalized_step_response = cumulative_sum(&impulse_response_truncated);
         if unnormalized_step_response.len() < response_length_samples { continue; }
         let truncated_unnormalized_response = unnormalized_step_response.slice(s![0..response_length_samples]).to_owned();
 
-        let mut response_for_qc = truncated_unnormalized_response.clone(); // Start with unnormalized
-        let mut y_correction_applied_successfully = false;
+        let mut response_for_qc = truncated_unnormalized_response.clone();
+        let mut y_correction_attempted_and_valid_for_qc = false;
 
         if APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION {
             if effective_ss_start_sample < effective_ss_end_sample && truncated_unnormalized_response.len() >= effective_ss_end_sample {
                 let unnorm_ss_segment = truncated_unnormalized_response.slice(s![effective_ss_start_sample..effective_ss_end_sample]);
                 if let Some(unnorm_ss_mean) = unnorm_ss_segment.mean() {
                     if unnorm_ss_mean.is_finite() && unnorm_ss_mean.abs() > Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS {
-                        // PTB's specific scaling: val * (2 - mean)
-                        let scaling_factor = 2.0 - unnorm_ss_mean;
-                        response_for_qc = truncated_unnormalized_response.mapv(|v| v * scaling_factor);
-                        y_correction_applied_successfully = true;
+                        // ** MODIFIED: Standard Normalization for Y-Correction **
+                        response_for_qc = truncated_unnormalized_response.mapv(|v| v / unnorm_ss_mean);
+                        y_correction_attempted_and_valid_for_qc = true;
                     } else {
-                        // eprintln!("Debug: Window {} Y-correction skipped: unnormalized mean {:.2} too small or not finite.", i, unnorm_ss_mean);
+                        // Unnormalized mean is too small or not finite, Y-correction cannot be reliably applied.
+                        // Window will proceed to QC with its unnormalized response if APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION is false,
+                        // or be effectively skipped for Y-corrected QC if APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION is true
+                        // (as y_correction_attempted_and_valid_for_qc remains false).
+                    }
+                }
+            }
+        } else {
+            // If Y-correction is not applied, QC will run on the unnormalized response.
+            // The NORMALIZED_STEADY_STATE constants might not be appropriate in this case.
+            // This path assumes QC constants are set considering unnormalized data if Y-correction is off.
+            y_correction_attempted_and_valid_for_qc = true; // Allow QC to proceed on unnormalized data
+        }
+
+        // --- Quality Control ---
+        // If Y-correction is enabled, QC should only run if Y-correction was successfully applied.
+        // If Y-correction is disabled, QC runs on the unnormalized data.
+        let mut current_window_passes_qc = false;
+        if (APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION && y_correction_attempted_and_valid_for_qc) || !APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION {
+            if effective_ss_start_sample < effective_ss_end_sample && response_for_qc.len() >= effective_ss_end_sample {
+                let qc_ss_segment = response_for_qc.slice(s![effective_ss_start_sample..effective_ss_end_sample]);
+                if !qc_ss_segment.is_empty() {
+                    let min_val_ss = qc_ss_segment.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+                    let max_val_ss = qc_ss_segment.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                    let mean_val_ss_opt = qc_ss_segment.mean();
+
+                    if min_val_ss.is_finite() && max_val_ss.is_finite() &&
+                       min_val_ss > NORMALIZED_STEADY_STATE_MIN_VAL && max_val_ss < NORMALIZED_STEADY_STATE_MAX_VAL {
+                        if ENABLE_NORMALIZED_STEADY_STATE_MEAN_CHECK {
+                            if let Some(mean_val_ss) = mean_val_ss_opt {
+                                if mean_val_ss.is_finite() &&
+                                   mean_val_ss > NORMALIZED_STEADY_STATE_MEAN_MIN &&
+                                   mean_val_ss < NORMALIZED_STEADY_STATE_MEAN_MAX {
+                                    current_window_passes_qc = true;
+                                }
+                            }
+                        } else {
+                            current_window_passes_qc = true;
+                        }
                     }
                 }
             }
         }
 
-        // --- Quality Control ---
-        let mut current_window_passes_qc = false;
-        if effective_ss_start_sample < effective_ss_end_sample && response_for_qc.len() >= effective_ss_end_sample {
-            let qc_ss_segment = response_for_qc.slice(s![effective_ss_start_sample..effective_ss_end_sample]);
-            if qc_ss_segment.is_empty() { // Should not happen if indices are correct
-                 eprintln!("Warning: QC steady-state segment empty for window {}. Skipping QC.", i);
-            } else {
-                let min_val_ss = qc_ss_segment.iter().fold(f32::INFINITY, |a, &b| a.min(b));
-                let max_val_ss = qc_ss_segment.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-                let mean_val_ss_opt = qc_ss_segment.mean();
-
-                if min_val_ss.is_finite() && max_val_ss.is_finite() &&
-                   min_val_ss > NORMALIZED_STEADY_STATE_MIN_VAL && max_val_ss < NORMALIZED_STEADY_STATE_MAX_VAL {
-                    if ENABLE_NORMALIZED_STEADY_STATE_MEAN_CHECK {
-                        if let Some(mean_val_ss) = mean_val_ss_opt {
-                            if mean_val_ss.is_finite() &&
-                               mean_val_ss > NORMALIZED_STEADY_STATE_MEAN_MIN &&
-                               mean_val_ss < NORMALIZED_STEADY_STATE_MEAN_MAX {
-                                current_window_passes_qc = true;
-                            } else {
-                                // eprintln!("Debug: Window {} failed QC: Y-corrected mean {:.2} out of bounds ({:.2} - {:.2}).",
-                                //    i, mean_val_ss.unwrap_or(f32::NAN), NORMALIZED_STEADY_STATE_MEAN_MIN, NORMALIZED_STEADY_STATE_MEAN_MAX);
-                            }
-                        } else { /* Mean calculation failed */ }
-                    } else {
-                        current_window_passes_qc = true; // Passed min/max, and mean check is disabled
-                    }
-                } else {
-                     // eprintln!("Debug: Window {} failed QC: Y-corrected min/max ({:.2}/{:.2}) out of bounds ({:.2} - {:.2}). Applied Y-corr: {}",
-                     //    i, min_val_ss, max_val_ss, NORMALIZED_STEADY_STATE_MIN_VAL, NORMALIZED_STEADY_STATE_MAX_VAL, y_correction_applied_successfully);
-                }
-            }
-        } else { /* effective_ss window invalid or response too short */ }
-
 
         if current_window_passes_qc {
-             stacked_step_responses_qc.push(response_for_qc); // This is the (potentially) Y-corrected response
+             stacked_step_responses_qc.push(response_for_qc);
              window_max_setpoints_qc.push(max_setpoint_in_window);
         }
     }
@@ -263,24 +282,6 @@ pub fn calculate_step_response(
     let response_time = Array1::linspace(0.0, RESPONSE_LENGTH_S, response_length_samples);
 
     Ok((response_time.mapv(|t| t as f64), valid_stacked_responses, valid_window_max_setpoints))
-}
-
-
-// moving_average_smooth_f64 (for plotting) would remain the same if it's in this file,
-// or be used from where it's defined if `plot_step_response.rs` calls it.
-// For brevity, not re-listing it if it's unchanged and used elsewhere.
-pub fn moving_average_smooth_f64(data: &Array1<f64>, window_size: usize) -> Array1<f64> {
-    if window_size <= 1 || data.is_empty() { return data.to_owned(); }
-    let mut smoothed_data = Array1::<f64>::zeros(data.len());
-    let mut current_sum: f64 = 0.0;
-    let mut history: VecDeque<f64> = VecDeque::with_capacity(window_size);
-    for i in 0..data.len() {
-        let val = data[i]; history.push_back(val); current_sum += val;
-        if history.len() > window_size { if let Some(old_val) = history.pop_front() { current_sum -= old_val; }}
-        let current_window_len = history.len() as f64;
-        if current_window_len > 0.0 { smoothed_data[i] = current_sum / current_window_len; } else { smoothed_data[i] = 0.0; }
-    }
-    smoothed_data
 }
 
 // src/data_analysis/calc_step_response.rs
