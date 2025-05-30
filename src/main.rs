@@ -30,64 +30,98 @@ use crate::data_input::log_parser::parse_log_file;
 // Data analysis imports
 use crate::data_analysis::calc_step_response;
 
+fn print_usage_and_exit(program_name: &str) {
+    eprintln!("\\nUsage: {} <input_file.csv> [--dps [<value>]]", program_name);
+    eprintln!("  <input_file.csv>: Path to the input CSV log file (required).");
+    eprintln!("  --dps [<value>]: Optional. Enables detailed step response plots and legend.");
+    eprintln!("                   If <value> (deg/s threshold) is provided, it's used.");
+    eprintln!("                   If <value> is omitted, defaults to {}.", DEFAULT_SETPOINT_THRESHOLD);
+    eprintln!("                   If --dps is omitted, a simplified combined plot is shown with a basic legend entry.");
+    eprintln!("\\nArguments can be in any order.");
+    std::process::exit(1);
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     // --- Argument Parsing ---
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <input_file.csv> [--dps [<deg/s threshold>]]", args[0]);
-        std::process::exit(1);
+    let program_name = &args[0];
+
+    if args.len() < 2 { // Basic check for at least one argument (input file)
+        print_usage_and_exit(program_name);
     }
-    let input_file = &args[1];
-    let input_path = Path::new(input_file);
-    println!("Reading {}", input_file);
-    let root_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
 
-    // --- Parse optional arguments ---
-    let mut setpoint_threshold = DEFAULT_SETPOINT_THRESHOLD;
-    let mut show_legend = false; // Default: no --dps means no legend
+    let mut input_file_arg: Option<String> = None;
+    let mut setpoint_threshold_override: Option<f64> = None;
+    let mut dps_flag_present = false;
 
-    let mut arg_idx = 2; // Index for optional arguments
-    let mut dps_option_encountered = false;
-
-    while arg_idx < args.len() {
-        let current_arg = &args[arg_idx];
-        match current_arg.as_str() {
-            "--dps" => {
-                if dps_option_encountered {
-                    eprintln!("Error: --dps argument specified more than once.");
-                    eprintln!("Usage: {} <input_file.csv> [--dps [<deg/s threshold>]]", args[0]);
-                    std::process::exit(1);
-                }
-                dps_option_encountered = true;
-                show_legend = true; // If --dps is present, legend is shown.
-
-                // Check for an optional value for --dps
-                if arg_idx + 1 < args.len() && !args[arg_idx + 1].starts_with("--") {
-                    // Value is present, attempt to parse
-                    match args[arg_idx + 1].parse::<f64>() {
-                        Ok(val) => {
-                            setpoint_threshold = val;
-                            arg_idx += 1; // Consume the value argument
+    let mut i = 1; // Start iterating from the first argument
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--dps" {
+            if dps_flag_present {
+                eprintln!("Error: --dps argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            dps_flag_present = true;
+            // Check if next argument is a value for --dps
+            if i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                match args[i + 1].parse::<f64>() {
+                    Ok(val) => {
+                        if val < 0.0 {
+                            eprintln!("Error: --dps threshold cannot be negative: {}", val);
+                            print_usage_and_exit(program_name);
                         }
-                        Err(_) => {
-                            eprintln!("Error: Invalid numeric value for --dps: {}", args[arg_idx + 1]);
-                            eprintln!("Usage: {} <input_file.csv> [--dps [<deg/s threshold>]]", args[0]);
-                            std::process::exit(1);
-                        }
+                        setpoint_threshold_override = Some(val);
+                        i += 1; // Consume the value argument
+                    }
+                    Err(_) => {
+                        eprintln!("Error: Invalid numeric value for --dps: {}", args[i + 1]);
+                        print_usage_and_exit(program_name);
                     }
                 }
-                // If no value (next arg is another option or end of args),
-                // setpoint_threshold remains DEFAULT_SETPOINT_THRESHOLD (already set by default).
             }
-            _ => {
-                // Handle unknown arguments
-                eprintln!("Error: Unknown argument '{}'", current_arg);
-                eprintln!("Usage: {} <input_file.csv> [--dps [<deg/s threshold>]]", args[0]);
-                std::process::exit(1);
+        } else if arg.starts_with("--") {
+            eprintln!("Error: Unknown option '{}'", arg);
+            print_usage_and_exit(program_name);
+        } else {
+            // Argument is not an option, assume it's the input file
+            if input_file_arg.is_some() {
+                eprintln!("Error: Multiple input files specified ('{}' and '{}').", input_file_arg.as_ref().unwrap(), arg);
+                print_usage_and_exit(program_name);
             }
+            input_file_arg = Some(arg.clone());
         }
-        arg_idx += 1;
+        i += 1;
     }
+
+    // Validate input file
+    if input_file_arg.is_none() {
+        eprintln!("Error: Input file is required.");
+        print_usage_and_exit(program_name);
+    }
+    let input_file_str = input_file_arg.unwrap(); // Safe due to the check above
+
+    // Determine setpoint_threshold and show_legend based on parsed args
+    let setpoint_threshold: f64;
+    let show_legend: bool;
+
+    if dps_flag_present {
+        setpoint_threshold = setpoint_threshold_override.unwrap_or(DEFAULT_SETPOINT_THRESHOLD);
+        show_legend = true;
+    } else {
+        setpoint_threshold = DEFAULT_SETPOINT_THRESHOLD;
+        show_legend = false;
+    }
+
+    // --- Setup paths and names ---
+    let input_path = Path::new(&input_file_str);
+    if !input_path.exists() { // Check if file exists after confirming one was provided
+        eprintln!("Error: Input file not found: {}", input_file_str);
+        std::process::exit(1); // Exit directly as this is a fatal error post-parsing
+    }
+    println!("Reading {}", input_file_str);
+    let root_name = input_path.file_stem().unwrap_or_default().to_string_lossy();
+
 
     // --- Data Reading and Header Status ---
     let (
