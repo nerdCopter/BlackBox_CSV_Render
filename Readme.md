@@ -5,13 +5,28 @@
 1. https://www.rust-lang.org/tools/install
 2. [blackbox_decode](https://github.com/betaflight/blackbox-tools) your BBL to CSV (`--save-headers`, `--index <num>`, and `--limits` parameters may be useful)
 
-### Build and execute
+### Build
 
 ```shell
 cargo build --release
-./target/release/RUST_BlackBox_CSV_Render path/to/BTFL_Log.csv
-ls *.png
 ```
+
+### Example execution commands
+```shell
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv
+```
+```shell
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv [--dps [<value>]]
+```
+```shell
+./target/release/BlackBox_CSV_Render path/to/*.csv --dps
+```
+```shell
+./target/release/BlackBox_CSV_Render path1/to/BTFL_Log.csv path2/to/*.csv --dps 360
+```
+
+### Output
+- PNG files are generated in the current directory.
 
 ### Licensing still under consideration.
 - Some resources used for the AI prompting included the following, but only for inspiration.
