@@ -10,7 +10,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: binary-linux
+            binary_path: target/release/BlackBox_CSV_Render
+          - os: windows-latest
+            artifact_name: binary-windows
+            binary_path: target/release/BlackBox_CSV_Render.exe
+          - os: macos-latest
+            artifact_name: binary-macos
+            binary_path: target/release/BlackBox_CSV_Render
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -25,3 +34,11 @@ jobs:
       - name: Set CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG
         run: echo "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG=true" >> $GITHUB_ENV
       - run: cargo build --release
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.binary_path }}
+          overwrite: true
+          if-no-files-found: error
+
