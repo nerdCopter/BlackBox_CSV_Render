@@ -25,16 +25,18 @@ use crate::data_analysis::fft_utils;
 // are assumed to be the same as in the previous full file output provided.
 // For brevity, only calculate_step_response is shown with changes.
 
-/// Makes a Tukey window for enveloping. (Same as before)
+/// Creates a Tukey window for signal tapering with configurable alpha parameter.
 pub fn tukeywin(num: usize, alpha: f64) -> Array1<f32> {
     if alpha <= 0.0 { return Array1::ones(num); }
     else if alpha >= 1.0 {
+        // Full Hanning window when alpha = 1.0
         let mut window = Array1::<f32>::zeros(num);
         for i in 0..num { window[i] = 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / (num as f64 - 1.0)).cos()) as f32; }
         return window;
     }
     let mut window = Array1::<f32>::ones(num);
     let alpha_half = alpha / 2.0; let n_alpha = (alpha_half * (num as f64 - 1.0)).floor() as usize;
+    // Apply cosine tapering to both ends
     for i in 0..n_alpha {
         window[i] = 0.5 * (1.0 + (std::f64::consts::PI * i as f64 / (n_alpha as f64)).cos()) as f32;
         window[num - 1 - i] = window[i];
@@ -42,7 +44,7 @@ pub fn tukeywin(num: usize, alpha: f64) -> Array1<f32> {
     window
 }
 
-/// Generates overlapping windows. (Same as before)
+/// Generates overlapping windowed segments from input/output data for parallel analysis.
 fn winstacker_contiguous( input_data: &Array1<f32>, output_data: &Array1<f32>, frame_length_samples: usize, superposition_factor: usize) -> (Array2<f32>, Array2<f32>) {
     let total_len = input_data.len();
     if total_len == 0 || frame_length_samples == 0 || superposition_factor == 0 { return (Array2::zeros((0, 0)), Array2::zeros((0, 0))); }
@@ -60,7 +62,7 @@ fn winstacker_contiguous( input_data: &Array1<f32>, output_data: &Array1<f32>, f
     (stacked_input, stacked_output)
 }
 
-/// Wiener deconvolution. (Same as before)
+/// Performs Wiener deconvolution to extract system impulse response from input/output signals.
 fn wiener_deconvolution_window( input_window: &Array1<f32>, output_window: &Array1<f32>, _sample_rate: f64) -> Array1<f32> {
     let n = input_window.len(); if n == 0 { return Array1::zeros(n); }
     let padded_n = n.next_power_of_two();
@@ -70,6 +72,7 @@ fn wiener_deconvolution_window( input_window: &Array1<f32>, output_window: &Arra
     let output_padded = Array1::from(output_padded_vec);
     let h_spec = fft_utils::fft_forward(&input_padded); let g_spec = fft_utils::fft_forward(&output_padded);
     if h_spec.is_empty() || g_spec.is_empty() || h_spec.len() != g_spec.len() { eprintln!("Warning: FFT output empty/mismatch in Wiener deconvolution."); return Array1::zeros(n); }
+    // Apply regularization to prevent division by near-zero values
     let regularization_term = 0.0001; let epsilon = 1e-9;
     let mut deconvolved_spec = Array1::<num_complex::Complex32>::zeros(h_spec.len());
     for i in 0..h_spec.len() {
@@ -82,7 +85,7 @@ fn wiener_deconvolution_window( input_window: &Array1<f32>, output_window: &Arra
     if n > 0 { deconvolved_impulse.slice(s![0..n]).to_owned() } else { Array1::zeros(0) }
 }
 
-/// Cumulative sum. (Same as before)
+/// Converts impulse response to step response via cumulative integration.
 fn cumulative_sum(data: &Array1<f32>) -> Array1<f32> {
     let mut cumulative = Array1::<f32>::zeros(data.len()); let mut current_sum = 0.0;
     for (i, &val) in data.iter().enumerate() {
@@ -124,7 +127,7 @@ pub fn moving_average_smooth_f64(data: &Array1<f64>, window_size: usize) -> Arra
     smoothed_data
 }
 
-/// Calculates the mean of the step responses (used by plotting). (Same as before)
+/// Computes weighted average of multiple step responses for final result.
 pub fn average_responses( stacked_responses: &Array2<f32>, weights: &Array1<f32>, response_len: usize) -> Result<Array1<f64>, Box<dyn Error>> {
     let num_windows = stacked_responses.shape()[0];
     if num_windows == 0 || response_len == 0 || weights.len() != num_windows || stacked_responses.shape()[1] != response_len {
@@ -144,6 +147,8 @@ pub fn average_responses( stacked_responses: &Array2<f32>, weights: &Array1<f32>
 }
 
 
+/// Main function to calculate step response from setpoint and gyro data using windowed Wiener deconvolution.
+/// Returns time array, stacked responses matrix, and max setpoints for each valid window.
 pub fn calculate_step_response(
     _time: &Array1<f64>,
     setpoint: &Array1<f32>,
@@ -154,6 +159,7 @@ pub fn calculate_step_response(
         return Err("Invalid input to calculate_step_response".into());
     }
 
+    // Apply initial smoothing to gyro data if configured
     let gyro_processed = if INITIAL_GYRO_SMOOTHING_WINDOW > 1 {
         moving_average_smooth_f32(gyro_filtered_input, INITIAL_GYRO_SMOOTHING_WINDOW)
     } else {
@@ -167,6 +173,7 @@ pub fn calculate_step_response(
          return Err("Calculated window length is zero.".into());
     }
 
+    // Define steady-state region for quality control checks
     let ss_start_sample = (STEADY_STATE_START_S * sample_rate).floor() as usize;
     let ss_end_sample = (STEADY_STATE_END_S * sample_rate).ceil() as usize;
     let effective_ss_start_sample = ss_start_sample.min(response_length_samples.saturating_sub(1));
@@ -175,6 +182,7 @@ pub fn calculate_step_response(
     let mut stacked_step_responses_qc: Vec<Array1<f32>> = Vec::new();
     let mut window_max_setpoints_qc: Vec<f32> = Vec::new();
 
+    // Generate overlapping windows for parallel processing
     let (stacked_input_raw, stacked_output_raw) = winstacker_contiguous(
         setpoint, &gyro_processed, frame_length_samples, SUPERPOSITION_FACTOR);
 
@@ -183,18 +191,22 @@ pub fn calculate_step_response(
 
     let window_func = tukeywin(frame_length_samples, TUKEY_ALPHA);
 
+    // Process each window through deconvolution and quality control
     for i in 0..num_windows {
         let input_window_raw = stacked_input_raw.row(i).to_owned();
         let output_window_raw = stacked_output_raw.row(i).to_owned();
 
+        // Filter out low-activity windows based on setpoint magnitude
         let max_setpoint_in_window = input_window_raw.iter().fold(0.0f32, |max_val, &v| max_val.max(v.abs()));
         if max_setpoint_in_window < MOVEMENT_THRESHOLD_DEG_S as f32 {
              continue;
         }
 
+        // Apply windowing function to reduce spectral leakage
         let input_window_windowed = &input_window_raw * &window_func;
         let output_window_windowed = &output_window_raw * &window_func;
 
+        // Extract impulse response via Wiener deconvolution
         let impulse_response = wiener_deconvolution_window(&input_window_windowed, &output_window_windowed, sample_rate);
         let impulse_response_truncated = if impulse_response.len() >= frame_length_samples {
             impulse_response.slice(s![0..frame_length_samples]).to_owned()
@@ -204,6 +216,7 @@ pub fn calculate_step_response(
         };
         if impulse_response_truncated.is_empty() { continue; }
 
+        // Convert impulse to step response and truncate to desired length
         let unnormalized_step_response = cumulative_sum(&impulse_response_truncated);
         if unnormalized_step_response.len() < response_length_samples { continue; }
         let truncated_unnormalized_response = unnormalized_step_response.slice(s![0..response_length_samples]).to_owned();
@@ -211,12 +224,14 @@ pub fn calculate_step_response(
         let mut response_for_qc = truncated_unnormalized_response.clone();
         let mut y_correction_attempted_and_valid_for_qc = false;
 
+        // Apply Y-correction (normalization) if enabled and conditions are met
         if APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION {
             if effective_ss_start_sample < effective_ss_end_sample && truncated_unnormalized_response.len() >= effective_ss_end_sample {
                 let unnorm_ss_segment = truncated_unnormalized_response.slice(s![effective_ss_start_sample..effective_ss_end_sample]);
                 if let Some(unnorm_ss_mean) = unnorm_ss_segment.mean() {
                     if unnorm_ss_mean.is_finite() && unnorm_ss_mean.abs() > Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS {
                         // ** MODIFIED: Standard Normalization for Y-Correction **
+                        // Normalize response to target steady-state of 1.0
                         response_for_qc = truncated_unnormalized_response.mapv(|v| v / unnorm_ss_mean);
                         y_correction_attempted_and_valid_for_qc = true;
                     } else {
@@ -237,6 +252,7 @@ pub fn calculate_step_response(
         // --- Quality Control ---
         // If Y-correction is enabled, QC should only run if Y-correction was successfully applied.
         // If Y-correction is disabled, QC runs on the unnormalized data.
+        // Quality control: check steady-state values against thresholds
         let mut current_window_passes_qc = false;
         if (APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION && y_correction_attempted_and_valid_for_qc) || !APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION {
             if effective_ss_start_sample < effective_ss_end_sample && response_for_qc.len() >= effective_ss_end_sample {
@@ -246,8 +262,10 @@ pub fn calculate_step_response(
                     let max_val_ss = qc_ss_segment.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
                     let mean_val_ss_opt = qc_ss_segment.mean();
 
+                    // Check min/max bounds for steady-state region
                     if min_val_ss.is_finite() && max_val_ss.is_finite() &&
                        min_val_ss > NORMALIZED_STEADY_STATE_MIN_VAL && max_val_ss < NORMALIZED_STEADY_STATE_MAX_VAL {
+                        // Optional additional check on steady-state mean
                         if ENABLE_NORMALIZED_STEADY_STATE_MEAN_CHECK {
                             if let Some(mean_val_ss) = mean_val_ss_opt {
                                 if mean_val_ss.is_finite() &&
@@ -265,6 +283,7 @@ pub fn calculate_step_response(
         }
 
 
+        // Collect windows that pass quality control
         if current_window_passes_qc {
              stacked_step_responses_qc.push(response_for_qc);
              window_max_setpoints_qc.push(max_setpoint_in_window);
@@ -280,6 +299,7 @@ pub fn calculate_step_response(
     // If not, this needs to be the maximum length or handled differently.
     let cols = response_length_samples; 
 
+    // Convert validated responses to Array2 format for output
     let valid_stacked_responses = Array2::from_shape_fn((rows, cols), |(r, c)| {
         stacked_step_responses_qc.get(r)
             .and_then(|row| row.get(c))
