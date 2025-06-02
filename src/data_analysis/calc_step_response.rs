@@ -275,8 +275,23 @@ pub fn calculate_step_response(
         return Err("No windows passed quality control.".into());
     }
 
-    let valid_stacked_responses = Array2::from_shape_fn((stacked_step_responses_qc.len(), response_length_samples), |(r, c)| {
-        stacked_step_responses_qc[r][c]
+    let rows = stacked_step_responses_qc.len();
+    // Assuming all inner vectors should have response_length_samples.
+    // If not, this needs to be the maximum length or handled differently.
+    let cols = response_length_samples; 
+
+    let valid_stacked_responses = Array2::from_shape_fn((rows, cols), |(r, c)| {
+        stacked_step_responses_qc.get(r)
+            .and_then(|row| row.get(c))
+            .copied()
+            .unwrap_or_else(|| {
+                // This block will execute if either `r` or `c` is out of bounds.
+                // eprintln!(
+                //     "Warning: Accessing out of bounds in stacked_step_responses_qc at ({}, {}). Max dims ({}, {}). Using 0.0.",
+                //     r, c, rows, cols 
+                // );
+                0.0 // Default value if out of bounds
+            })
     });
     let valid_window_max_setpoints = Array1::from(window_max_setpoints_qc);
     let response_time = Array1::linspace(0.0, RESPONSE_LENGTH_S, response_length_samples);
