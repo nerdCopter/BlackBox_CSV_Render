@@ -9,10 +9,7 @@ use crate::constants::{
     STEP_RESPONSE_PLOT_DURATION_S,
     POST_AVERAGING_SMOOTHING_WINDOW, STEADY_STATE_START_S, STEADY_STATE_END_S,
     COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
-    LINE_WIDTH_PLOT, MOVEMENT_THRESHOLD_DEG_S,
-    // Assume you add this to constants.rs or use an existing suitable one:
-    // pub const FINAL_NORMALIZED_STEADY_STATE_TOLERANCE: f64 = 0.15;
-    // For now, I'll use a local const as an example if it's not in your constants.rs yet.
+    LINE_WIDTH_PLOT, MOVEMENT_THRESHOLD_DEG_S, FINAL_NORMALIZED_STEADY_STATE_TOLERANCE
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
 
@@ -35,10 +32,6 @@ pub fn plot_step_response(
     let color_combined: RGBColor = *COLOR_STEP_RESPONSE_COMBINED;
     let color_low_sp: RGBColor = *COLOR_STEP_RESPONSE_LOW_SP;
     let line_stroke_plot = LINE_WIDTH_PLOT;
-
-    // Example for the final tolerance, ideally this comes from constants.rs
-    const FINAL_NORMALIZED_STEADY_STATE_TOLERANCE: f64 = 0.15;
-
 
     let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, step_response_plot_duration_s);
     let plot_type_name = "Step Response";

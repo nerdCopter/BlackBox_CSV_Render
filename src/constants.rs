@@ -43,12 +43,8 @@ pub const STEADY_STATE_END_S: f64 = 0.5;   // End time for steady-state check (e
 // Constant for post-averaging smoothing of the final step response curves.
 pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 15; // Kept at 15 as per user's last setting
 
-/*
-// Constants for previous unnormalized step-response Quality-Control (Now superseded by Y-correction approach)
-pub const UNNORMALIZED_MEAN_THRESHOLD_FOR_RELATIVE_STD_CHECK: f32 = 1.0;
-pub const UNNORMALIZED_RELATIVE_STD_DEV_MAX: f32 = 0.35;
-pub const UNNORMALIZED_ABSOLUTE_STD_DEV_MAX_FOR_SMALL_MEAN: f32 = 0.55;
-*/
+// Final tolerance for normalized steady-state mean in step response plot
+pub const FINAL_NORMALIZED_STEADY_STATE_TOLERANCE: f64 = 0.15;
 
 // Default setpoint threshold, can be overridden at runtime for categorizing responses
 pub const DEFAULT_SETPOINT_THRESHOLD: f64 = 500.0;
