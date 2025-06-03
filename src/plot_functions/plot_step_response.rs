@@ -144,25 +144,31 @@ pub fn plot_step_response(
                 let final_combined_response = process_response(&combined_mask, valid_stacked_responses, response_length_samples, current_ss_start_idx, current_ss_end_idx, post_averaging_smoothing_window);
 
                 if let Some(resp) = final_low_response {
+                    let peak_val_opt = calc_step_response::find_peak_value(&resp);
+                    let peak_str = peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{:.2}", p));
                     series.push(PlotSeries {
                         data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
-                        label: format!("< {} deg/s", setpoint_threshold),
+                        label: format!("< {} deg/s (Peak: {})", setpoint_threshold, peak_str),
                         color: color_low_sp,
                         stroke_width: line_stroke_plot,
                     });
                 }
                 if let Some(resp) = final_high_response {
+                    let peak_val_opt = calc_step_response::find_peak_value(&resp);
+                    let peak_str = peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{:.2}", p));
                     series.push(PlotSeries {
                         data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
-                        label: format!("\u{2265} {} deg/s", setpoint_threshold),
+                        label: format!("\u{2265} {} deg/s (Peak: {})", setpoint_threshold, peak_str),
                         color: color_high_sp,
                         stroke_width: line_stroke_plot,
                     });
                 }
                 if let Some(resp) = final_combined_response {
+                    let peak_val_opt = calc_step_response::find_peak_value(&resp);
+                    let peak_str = peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{:.2}", p));
                      series.push(PlotSeries {
                         data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
-                        label: "Combined".to_string(), // This is the average of all Y-corrected & QC'd responses
+                        label: format!("Combined (Peak: {})", peak_str), // This is the average of all Y-corrected & QC'd responses
                         color: color_combined,
                         stroke_width: line_stroke_plot,
                     });

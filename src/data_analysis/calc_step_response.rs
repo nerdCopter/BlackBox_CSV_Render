@@ -319,4 +319,23 @@ pub fn calculate_step_response(
     Ok((response_time.mapv(|t| t as f64), valid_stacked_responses, valid_window_max_setpoints))
 }
 
+/// Finds the peak (maximum) value in a 1D response data array.
+/// Returns None if the array is empty or contains no finite values.
+pub fn find_peak_value(response_data: &Array1<f64>) -> Option<f64> {
+    if response_data.is_empty() {
+        return None;
+    }
+    let mut peak_val = f64::NEG_INFINITY;
+    let mut found_finite = false;
+    for &val in response_data.iter() {
+        if val.is_finite() {
+            if !found_finite || val > peak_val {
+                peak_val = val;
+            }
+            found_finite = true;
+        }
+    }
+    if found_finite { Some(peak_val) } else { None }
+}
+
 // src/data_analysis/calc_step_response.rs
