@@ -319,6 +319,84 @@ pub fn calculate_step_response(
     Ok((response_time.mapv(|t| t as f64), valid_stacked_responses, valid_window_max_setpoints))
 }
 
+/// Calculates Delay Time (Td) - the time for the step response to reach 50% of its final value.
+/// Uses linear interpolation for a precise determination of the 50% threshold crossing.
+/// A fixed offset of -1ms is applied to the calculated time (in milliseconds) before converting to seconds.
+///
+/// # Arguments
+/// * `normalized_response` - A 1D array of the normalized step response (expected to go from ~0 to ~1).
+/// * `sample_rate` - The sample rate of the response data in Hz.
+///
+/// # Returns
+/// `Some(f64)` containing the delay time in seconds, or `None` if the response is empty,
+/// sample rate is invalid, or the 50% threshold is not crossed.
+pub fn calculate_delay_time(normalized_response: &Array1<f64>, sample_rate: f64) -> Option<f64> {
+    if normalized_response.is_empty() || sample_rate <= 0.0 {
+        return None;
+    }
+
+    // Validate that this looks like a normalized step response
+    let final_value = normalized_response[normalized_response.len() - 1];
+    if final_value < 0.1 || final_value > 2.0 {
+        // Response doesn't appear to be a normalized step response
+        return None;
+    }
+
+    let threshold = 0.5;
+    let mut interpolated_idx_0_based: Option<f64> = None;
+
+    // Check if the first point is at or above the threshold
+    if normalized_response[0] >= threshold {
+        interpolated_idx_0_based = Some(0.0);
+    } else {
+        for idx in 1..normalized_response.len() {
+            let y0 = normalized_response[idx - 1];
+            let y1 = normalized_response[idx];
+
+            if y0 < threshold && y1 >= threshold {
+                // Found a crossing
+                let x0 = (idx - 1) as f64; // 0-based index of point before crossing
+                let x1 = idx as f64;       // 0-based index of point at or after crossing
+
+                if (y1 - y0).abs() < 1e-9 { // Avoid division by zero if y1 is very close to y0
+                                            // This implies the segment is flat and at/crossing the threshold.
+                                            // Take the first point of this segment that is >= threshold.
+                    interpolated_idx_0_based = Some(x1);
+                } else {
+                    // Linear interpolation: x = x0 + (threshold - y0) * (x1 - x0) / (y1 - y0)
+                    let t = (threshold - y0) / (y1 - y0);
+                    interpolated_idx_0_based = Some(x0 + t * (x1 - x0));
+                }
+                break; // Found the first crossing
+            }
+        }
+    }
+
+    if let Some(idx_val) = interpolated_idx_0_based {
+        // Calculation of delay time in seconds:
+        // 1. Convert the 0-based (potentially fractional) interpolated index to a 1-based sample count.
+        //    This represents the number of samples (or fractional samples) into the response where the threshold is crossed.
+        let time_samples_1_based = idx_val + 1.0;
+        
+        // 2. Determine sample rate in samples per millisecond for time conversion.
+        let sample_rate_per_ms = sample_rate / 1000.0;
+        if sample_rate_per_ms <= 1e-9 { // Avoid division by zero or issues with very low sample rates
+            return None;
+        }
+        
+        // 3. Calculate the time to threshold in milliseconds.
+        let time_ms = time_samples_1_based / sample_rate_per_ms;
+        
+        // 4. Apply a 1ms subtraction offset to the time in milliseconds.
+        let delay_ms = time_ms - 1.0;
+        
+        // 5. Convert to seconds and ensure the result is non-negative.
+        Some((delay_ms / 1000.0).max(0.0))
+    } else {
+        None // Threshold not crossed
+    }
+}
+
 /// Finds the peak (maximum) value in a 1D response data array.
 /// Returns None if the array is empty or contains no finite values.
 pub fn find_peak_value(response_data: &Array1<f64>) -> Option<f64> {
