@@ -335,6 +335,13 @@ pub fn calculate_delay_time(normalized_response: &Array1<f64>, sample_rate: f64)
         return None;
     }
 
+    // Validate that this looks like a normalized step response
+    let final_value = normalized_response[normalized_response.len() - 1];
+    if final_value < 0.1 || final_value > 2.0 {
+        // Response doesn't appear to be a normalized step response
+        return None;
+    }
+
     let threshold = 0.5;
     let mut interpolated_idx_0_based: Option<f64> = None;
 
