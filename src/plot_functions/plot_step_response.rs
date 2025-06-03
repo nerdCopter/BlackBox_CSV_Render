@@ -9,7 +9,7 @@ use crate::constants::{
     STEP_RESPONSE_PLOT_DURATION_S,
     POST_AVERAGING_SMOOTHING_WINDOW, STEADY_STATE_START_S, STEADY_STATE_END_S,
     COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
-    LINE_WIDTH_PLOT, MOVEMENT_THRESHOLD_DEG_S, FINAL_NORMALIZED_STEADY_STATE_TOLERANCE
+    LINE_WIDTH_PLOT, FINAL_NORMALIZED_STEADY_STATE_TOLERANCE
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
 
@@ -175,11 +175,13 @@ pub fn plot_step_response(
             } else { // If not showing legend, only plot the "Combined" (average of all QC'd responses)
                 let final_combined_response = process_response(&combined_mask, valid_stacked_responses, response_length_samples, current_ss_start_idx, current_ss_end_idx, post_averaging_smoothing_window);
                 if let Some(resp) = final_combined_response {
+                    let peak_val_opt = calc_step_response::find_peak_value(&resp);
                     let latency_opt = calc_step_response::calculate_delay_time(&resp, sr);
+                    let peak_str = peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{:.2}", p));
                     let latency_str = latency_opt.map_or_else(|| "N/A".to_string(), |l_s| format!("{:.0} ms", l_s * 1000.0));
                     series.push(PlotSeries {
                         data: response_time.iter().zip(resp.iter()).map(|(&t, &v)| (t, v)).collect(),
-                        label: format!("step-response \u{2265} {} deg/s (Td: {})", MOVEMENT_THRESHOLD_DEG_S, latency_str), // Label reflects initial movement filter
+                        label: format!("step-response (Peak: {}, Td: {})", peak_str, latency_str), // This is the average of all Y-corrected & QC'd responses
                         color: color_combined,
                         stroke_width: line_stroke_plot,
                     });
