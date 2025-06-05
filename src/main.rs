@@ -33,18 +33,21 @@ use crate::data_analysis::calc_step_response;
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("
-Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]]", program_name);
+Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]] [--out-dir <directory>]", program_name);
     eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
     eprintln!("  --dps [<value>]: Optional. Enables detailed step response plots.");
     eprintln!("                   If <value> (deg/s threshold) is provided, it's used.");
     eprintln!("                   If <value> is omitted, defaults to {}.", DEFAULT_SETPOINT_THRESHOLD);
     eprintln!("                   If --dps is omitted, a general step-response is shown.");
+    eprintln!("  --out-dir [<directory>]: Optional. Specifies the output directory for generated plots.");
+    eprintln!("                           If omitted, plots are saved in the current directory.");
+    eprintln!("                           If specified without a directory, plots are saved in the input file's directory.");
     eprintln!("
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.");
     std::process::exit(1);
 }
 
-fn process_file(input_file_str: &str, setpoint_threshold: f64, show_legend: bool, use_dir_prefix: bool) -> Result<(), Box<dyn Error>> {
+fn process_file(input_file_str: &str, setpoint_threshold: f64, show_legend: bool, use_dir_prefix: bool, output_dir: Option<&str>) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
     if !input_path.exists() {
@@ -202,14 +205,24 @@ INFO ({}): Skipping Step Response input data filtering: {}.", input_file_str, re
 
     // --- Generate Plots ---
     println!("Generating plots for {} (root name: {})...", input_file_str, root_name_string);
-    plot_pidsum_error_setpoint(&all_log_data, &root_name_string)?;
-    plot_setpoint_vs_gyro(&all_log_data, &root_name_string)?;
-    plot_gyro_vs_unfilt(&all_log_data, &root_name_string)?;
-    plot_step_response(&step_response_calculation_results, &root_name_string, sample_rate, &has_nonzero_f_term_data, setpoint_threshold, show_legend)?;
-    plot_gyro_spectrums(&all_log_data, &root_name_string, sample_rate)?;
-    plot_psd(&all_log_data, &root_name_string, sample_rate)?;
-    plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
-    plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+    
+    // Create the final root name with output directory path if provided
+    let output_path = output_dir.map(PathBuf::from).unwrap_or_else(|| PathBuf::new()).join(&root_name_string);
+    let full_output_root = output_path.to_string_lossy().to_string();
+    
+    if let Some(output_dir) = output_dir {
+        // Ensure output directory exists
+        std::fs::create_dir_all(output_dir)?;
+    }
+    
+    plot_pidsum_error_setpoint(&all_log_data, &full_output_root)?;
+    plot_setpoint_vs_gyro(&all_log_data, &full_output_root)?;
+    plot_gyro_vs_unfilt(&all_log_data, &full_output_root)?;
+    plot_step_response(&step_response_calculation_results, &full_output_root, sample_rate, &has_nonzero_f_term_data, setpoint_threshold, show_legend)?;
+    plot_gyro_spectrums(&all_log_data, &full_output_root, sample_rate)?;
+    plot_psd(&all_log_data, &full_output_root, sample_rate)?;
+    plot_psd_db_heatmap(&all_log_data, &full_output_root, sample_rate)?;
+    plot_throttle_freq_heatmap(&all_log_data, &full_output_root, sample_rate)?;
 
     println!("--- Finished processing file: {} ---", input_file_str);
     Ok(())
@@ -228,6 +241,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_files: Vec<String> = Vec::new();
     let mut setpoint_threshold_override: Option<f64> = None;
     let mut dps_flag_present = false;
+    let mut output_dir: Option<Option<String>> = None; // None = not specified, Some(None) = --out-dir without value, Some(Some(dir)) = --out-dir with value
 
     let mut i = 1;
     while i < args.len() {
@@ -254,6 +268,19 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
+        } else if arg == "--out-dir" {
+            if output_dir.is_some() {
+                eprintln!("Error: --out-dir argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() || args[i + 1].starts_with("--") {
+                // --out-dir without value, use input file directory
+                output_dir = Some(None);
+            } else {
+                // --out-dir with directory value
+                output_dir = Some(Some(args[i + 1].clone()));
+                i += 1; 
+            } 
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{}'", arg);
             print_usage_and_exit(program_name);
@@ -291,7 +318,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut overall_success = true;
     for input_file_str in &input_files {
-        if let Err(e) = process_file(input_file_str, setpoint_threshold, show_legend, use_dir_prefix_for_root_name) {
+        // Determine the actual output directory for this file
+        let actual_output_dir = match &output_dir {
+            None => None, // No --out-dir specified, use current directory
+            Some(None) => {
+                // --out-dir specified without value, use input file's directory
+                Path::new(input_file_str).parent().and_then(|p| p.to_str())
+            },
+            Some(Some(dir)) => Some(dir.as_str()), // --out-dir with specific directory
+        };
+        
+        if let Err(e) = process_file(input_file_str, setpoint_threshold, show_legend, use_dir_prefix_for_root_name, actual_output_dir) {
             eprintln!("An error occurred while processing {}: {}", input_file_str, e);
             overall_success = false;
         }
