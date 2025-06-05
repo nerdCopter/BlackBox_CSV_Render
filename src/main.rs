@@ -39,8 +39,9 @@ Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]] [--out-dir
     eprintln!("                   If <value> (deg/s threshold) is provided, it's used.");
     eprintln!("                   If <value> is omitted, defaults to {}.", DEFAULT_SETPOINT_THRESHOLD);
     eprintln!("                   If --dps is omitted, a general step-response is shown.");
-    eprintln!("  --out-dir <directory>: Optional. Specifies the output directory for generated plots.");
-    eprintln!("                         If omitted, plots are saved in the current directory.");
+    eprintln!("  --out-dir [<directory>]: Optional. Specifies the output directory for generated plots.");
+    eprintln!("                           If omitted, plots are saved in the current directory.");
+    eprintln!("                           If specified without a directory, plots are saved in the input file's directory.");
     eprintln!("
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.");
     std::process::exit(1);
@@ -240,7 +241,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_files: Vec<String> = Vec::new();
     let mut setpoint_threshold_override: Option<f64> = None;
     let mut dps_flag_present = false;
-    let mut output_dir: Option<String> = None;
+    let mut output_dir: Option<Option<String>> = None; // None = not specified, Some(None) = --out-dir without value, Some(Some(dir)) = --out-dir with value
 
     let mut i = 1;
     while i < args.len() {
@@ -273,11 +274,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 print_usage_and_exit(program_name);
             }
             if i + 1 >= args.len() || args[i + 1].starts_with("--") {
-                eprintln!("Error: --out-dir requires a directory path argument.");
-                print_usage_and_exit(program_name);
-            }
-            output_dir = Some(args[i + 1].clone());
-            i += 1; 
+                // --out-dir without value, use input file directory
+                output_dir = Some(None);
+            } else {
+                // --out-dir with directory value
+                output_dir = Some(Some(args[i + 1].clone()));
+                i += 1; 
+            } 
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{}'", arg);
             print_usage_and_exit(program_name);
@@ -315,7 +318,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut overall_success = true;
     for input_file_str in &input_files {
-        if let Err(e) = process_file(input_file_str, setpoint_threshold, show_legend, use_dir_prefix_for_root_name, output_dir.as_deref()) {
+        // Determine the actual output directory for this file
+        let actual_output_dir = match &output_dir {
+            None => None, // No --out-dir specified, use current directory
+            Some(None) => {
+                // --out-dir specified without value, use input file's directory
+                Path::new(input_file_str).parent().and_then(|p| p.to_str())
+            },
+            Some(Some(dir)) => Some(dir.as_str()), // --out-dir with specific directory
+        };
+        
+        if let Err(e) = process_file(input_file_str, setpoint_threshold, show_legend, use_dir_prefix_for_root_name, actual_output_dir) {
             eprintln!("An error occurred while processing {}: {}", input_file_str, e);
             overall_success = false;
         }
