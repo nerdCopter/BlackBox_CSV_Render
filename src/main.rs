@@ -207,13 +207,13 @@ INFO ({}): Skipping Step Response input data filtering: {}.", input_file_str, re
     println!("Generating plots for {} (root name: {})...", input_file_str, root_name_string);
     
     // Create the final root name with output directory path if provided
-    let full_output_root = if let Some(output_dir) = output_dir {
+    let output_path = output_dir.map(PathBuf::from).unwrap_or_else(|| PathBuf::new()).join(&root_name_string);
+    let full_output_root = output_path.to_string_lossy().to_string();
+    
+    if let Some(output_dir) = output_dir {
         // Ensure output directory exists
         std::fs::create_dir_all(output_dir)?;
-        format!("{}/{}", output_dir, root_name_string)
-    } else {
-        root_name_string.clone()
-    };
+    }
     
     plot_pidsum_error_setpoint(&all_log_data, &full_output_root)?;
     plot_setpoint_vs_gyro(&all_log_data, &full_output_root)?;
