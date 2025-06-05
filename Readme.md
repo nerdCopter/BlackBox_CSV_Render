@@ -13,9 +13,7 @@ cargo build --release
 
 ### Usage
 ```shell
-./target/release/BlackBox_CSV_Render
-
-Usage: ./target/release/BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]] [--out-dir <directory>]
+Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]] [--out-dir <directory>]
   <input_fileX.csv>: Path to one or more input CSV log files (required).
   --dps [<value>]: Optional. Enables detailed step response plots.
                    If <value> (deg/s threshold) is provided, it's used.
@@ -26,9 +24,8 @@ Usage: ./target/release/BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv>
                            If specified without a directory, plots are saved in the input file's directory.
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.
-
-### Example execution commands
 ```
+### Example execution commands
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv
 ```
