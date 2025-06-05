@@ -11,22 +11,36 @@
 cargo build --release
 ```
 
+### Usage
+```shell
+./target/release/BlackBox_CSV_Render
+
+Usage: ./target/release/BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]] [--out-dir <directory>]
+  <input_fileX.csv>: Path to one or more input CSV log files (required).
+  --dps [<value>]: Optional. Enables detailed step response plots.
+                   If <value> (deg/s threshold) is provided, it's used.
+                   If <value> is omitted, defaults to 500.
+                   If --dps is omitted, a general step-response is shown.
+  --out-dir [<directory>]: Optional. Specifies the output directory for generated plots.
+                           If omitted, plots are saved in the current directory.
+                           If specified without a directory, plots are saved in the input file's directory.
+
+Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.
+
 ### Example execution commands
+```
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv [--dps [<value>]]
+./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path/to/*.csv --dps
-```
-```shell
-./target/release/BlackBox_CSV_Render path1/to/BTFL_Log.csv path2/to/*.csv --dps 360
+./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --dps 360 --out-dir ./plots
 ```
 
 ### Output
-- PNG files are generated in the current directory.
+- PNG files are generated in the current directory, unless specified by the `--out-dir` parameter.
 
 ### Licensing still under consideration.
 - Some resources used for the AI prompting included the following, but only for inspiration.
