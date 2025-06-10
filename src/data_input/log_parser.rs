@@ -4,7 +4,7 @@ use csv::ReaderBuilder;
 use std::error::Error;
 use std::path::Path;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
 use crate::data_input::log_data::LogRowData;
 
@@ -18,9 +18,10 @@ use crate::data_input::log_data::LogRowData;
 /// 5. `[bool; 3]`: Flags indicating if gyroADC[0-2] headers were found.
 /// 6. `[bool; 3]`: Flags indicating if gyroUnfilt[0-2] headers were found.
 /// 7. `[bool; 4]`: Flags indicating if debug[0-3] headers were found.
+/// 8. `Vec<(String, String)>`: Metadata key-value pairs found before CSV headers.
 pub fn parse_log_file(
     input_file_path: &Path,
-) -> Result<(Vec<LogRowData>, Option<f64>, [bool; 3], [bool; 4], [bool; 3], [bool; 3], [bool; 4]), Box<dyn Error>> {
+) -> Result<(Vec<LogRowData>, Option<f64>, [bool; 3], [bool; 4], [bool; 3], [bool; 3], [bool; 4], Vec<(String, String)>), Box<dyn Error>> {
     // --- Header Definition and Index Mapping ---
     let target_headers = [
         "time (us)",            // 0
@@ -34,6 +35,66 @@ pub fn parse_log_file(
         "debug[0]", "debug[1]", "debug[2]", "debug[3]", // 23, 24, 25, 26
     ];
 
+    // --- Metadata Extraction and CSV Position Tracking ---
+    let mut metadata: Vec<(String, String)> = Vec::new();
+    let csv_start_position: u64;
+    
+    // Single-pass file reading: extract metadata and find CSV start position
+    {
+        let mut file = File::open(input_file_path)?;
+        let mut reader = BufReader::new(&mut file);
+        let mut line_buffer = String::new();
+        let mut current_position = 0u64;
+        
+        loop {
+            line_buffer.clear();
+            let bytes_read = reader.read_line(&mut line_buffer)?;
+            if bytes_read == 0 {
+                return Err("Reached end of file without finding CSV headers".into());
+            }
+            
+            let trimmed_line = line_buffer.trim();
+            
+            // Skip empty lines
+            if trimmed_line.is_empty() {
+                current_position += bytes_read as u64;
+                continue;
+            }
+            
+            // Check if this line contains the CSV headers
+            if trimmed_line.contains("time") && (trimmed_line.contains("axisP") || trimmed_line.contains("gyroADC")) {
+                csv_start_position = current_position;
+                println!("Found CSV headers at file position {}", csv_start_position);
+                break;
+            }
+            
+            // Parse metadata line directly without CSV reader (more efficient)
+            if trimmed_line.contains(',') {
+                let parts: Vec<&str> = trimmed_line.splitn(2, ',').collect();
+                if parts.len() == 2 {
+                    let key = parts[0].trim().trim_matches('"').to_string();
+                    let value = parts[1].trim().trim_matches('"').to_string();
+                    if !key.is_empty() {
+                        metadata.push((key, value));
+                    }
+                }
+            }
+            
+            current_position += bytes_read as u64;
+        }
+    }
+    
+    println!("Extracted {} metadata entries", metadata.len());
+    if !metadata.is_empty() {
+        println!("Sample metadata:");
+        for (i, (key, value)) in metadata.iter().take(5).enumerate() {
+            println!("  {}: '{}' = '{}'", i + 1, key, value);
+        }
+        if metadata.len() > 5 {
+            println!("  ... and {} more", metadata.len() - 5);
+        }
+    }
+
     let mut setpoint_header_found = [false; 4];
     let mut gyro_header_found = [false; 3];
     let mut gyro_unfilt_header_found = [false; 3];
@@ -44,13 +105,22 @@ pub fn parse_log_file(
 
     // Read CSV header and map target headers to indices.
     {
-        let file = File::open(input_file_path)?;
+        let mut file = File::open(input_file_path)?;
+        file.seek(SeekFrom::Start(csv_start_position))?;
         let mut reader = ReaderBuilder::new().has_headers(true).trim(csv::Trim::All).from_reader(BufReader::new(file));
         let header_record = reader.headers()?.clone();
         println!("Headers found in CSV: {:?}", header_record);
 
-        header_indices = target_headers.iter().map(|&target_header| {
-            header_record.iter().position(|h| h.trim() == target_header)
+        header_indices = target_headers.iter().enumerate().map(|(i, &target_header)| {
+            if i == 0 {
+                // Special case for time header: check for both "time (us)" and "time"
+                header_record.iter().position(|h| {
+                    let trimmed = h.trim();
+                    trimmed == "time (us)" || trimmed == "time"
+                })
+            } else {
+                header_record.iter().position(|h| h.trim() == target_header)
+            }
         }).collect();
 
         println!("Header mapping status:");
@@ -115,7 +185,8 @@ pub fn parse_log_file(
     let mut all_log_data: Vec<LogRowData> = Vec::new();
     println!("\nReading data rows...");
     {
-        let file = File::open(input_file_path)?;
+        let mut file = File::open(input_file_path)?;
+        file.seek(SeekFrom::Start(csv_start_position))?;
         let mut reader = ReaderBuilder::new().has_headers(true).trim(csv::Trim::All).from_reader(BufReader::new(file));
 
         for (row_index, result) in reader.records().enumerate() {
@@ -233,7 +304,7 @@ pub fn parse_log_file(
          println!("Warning: Could not determine sample rate (need >= 2 data points with distinct timestamps). Step response calculation might be affected.");
     }
 
-    Ok((all_log_data, sample_rate, f_term_header_found, setpoint_header_found, gyro_header_found, gyro_unfilt_header_found, debug_header_found))
+    Ok((all_log_data, sample_rate, f_term_header_found, setpoint_header_found, gyro_header_found, gyro_unfilt_header_found, debug_header_found, metadata))
 }
 
 // src/data_input/log_parser.rs

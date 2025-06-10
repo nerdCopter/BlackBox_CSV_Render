@@ -87,6 +87,7 @@ fn process_file(input_file_str: &str, setpoint_threshold: f64, show_legend: bool
         gyro_header_found,
         _gyro_unfilt_header_found,
         _debug_header_found,
+        _metadata,
     ) = match parse_log_file(&input_path) {
         Ok(data) => data,
         Err(e) => {
