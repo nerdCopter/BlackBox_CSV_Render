@@ -1,0 +1,72 @@
+## Code Overview and Step Response Calculation
+
+The Rust program processes Betaflight Blackbox CSV logs to generate various plots. Here's a concise overview:
+
+**Core Functionality:**
+
+1.  **Argument Parsing (`src/main.rs`):**
+    *   Parses command-line arguments: input CSV file(s), an optional `--dps` flag (for detailed step response plots with an optional threshold determining low/high split), and an optional `--out-dir` for specifying the output directory.
+    *   Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
+
+2.  **File Processing (`src/main.rs:process_file`):**
+    *   For each input CSV:
+        *   **Path Setup:** Determines input and output paths.
+        *   **Data Parsing (`src/data_input/log_parser.rs:parse_log_file`):** Reads the CSV, extracts log data (time, gyro, setpoint, F-term, etc.), sample rate, and checks for the presence of essential data headers.
+        *   **Step Response Data Preparation:**
+            *   Filters log data, excluding the start and end seconds (constants `EXCLUDE_START_S`, `EXCLUDE_END_S` from `src/constants.rs`) to create contiguous segments of time, setpoint, and gyro data for each axis. This data is stored in `contiguous_sr_input_data`.
+        *   **Step Response Calculation (`src/data_analysis/calc_step_response.rs:calculate_step_response`):**
+            *   This is the core of the step response analysis. For each axis (Roll, Pitch, Yaw):
+                *   It takes the prepared time, setpoint, and (optionally smoothed via `INITIAL_GYRO_SMOOTHING_WINDOW`) gyro data arrays and the sample rate.
+                *   **Windowing:** The input signals (setpoint and gyro) are segmented into overlapping windows (`winstacker_contiguous`) of `FRAME_LENGTH_S` duration. A Tukey window (`tukeywin` with `TUKEY_ALPHA`) is applied to each segment to reduce spectral leakage.
+                *   **Movement Threshold:** Windows are discarded if the maximum absolute setpoint value within them is below `MOVEMENT_THRESHOLD_DEG_S`.
+                *   **Deconvolution:** For each valid window, Wiener deconvolution (`wiener_deconvolution_window`) is performed between the windowed setpoint (input) and gyro (output) signals in the frequency domain. This estimates the impulse response of the system. A regularization term (`0.0001`) helps stabilize the deconvolution.
+                *   **Impulse to Step Response:** The resulting impulse response is converted to a step response by cumulative summation (`cumulative_sum`). This step response is then truncated to `RESPONSE_LENGTH_S`.
+                *   **Y-Correction (Normalization):**
+                    *   If `APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION` is true, each individual step response window is normalized. The mean of its steady-state portion (defined by `STEADY_STATE_START_S` and `STEADY_STATE_END_S`) is calculated. If this mean is significant (abs > `Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS`), the entire response window is divided by this mean, aiming to make its steady-state value approach 1.0.
+                *   **Quality Control (QC):**
+                    *   Each (potentially Y-corrected) step response window undergoes QC. The minimum and maximum values of its steady-state portion are checked against `NORMALIZED_STEADY_STATE_MIN_VAL` and `NORMALIZED_STEADY_STATE_MAX_VAL`.
+                    *   Optionally (`ENABLE_NORMALIZED_STEADY_STATE_MEAN_CHECK`), the mean of the steady-state portion is also checked against `NORMALIZED_STEADY_STATE_MEAN_MIN` and `NORMALIZED_STEADY_STATE_MEAN_MAX`.
+                    *   Only windows passing QC are kept.
+                *   The function returns:
+                    1.  A time vector for the step response plot (`response_time`).
+                    2.  A 2D array (`valid_stacked_responses`) containing all step response windows that passed QC.
+                    3.  A 1D array (`valid_window_max_setpoints`) of the maximum setpoint values for each corresponding valid window.
+        *   **Plot Generation (various functions in `src/plot_functions/`):**
+            *   `plot_step_response` (in `src/plot_functions/plot_step_response.rs`): Takes the results from `calculate_step_response`.
+                *   Separates the QC'd responses into "low" and "high" setpoint groups based on the `setpoint_threshold` if the `--dps` flag (and thus `show_legend`) is active.
+                *   **Averaging & Final Normalization (`plot_functions::plot_step_response::process_response`):**
+                    *   The QC'd responses (either low, high, or combined) are averaged using `calc_step_response::average_responses`.
+                    *   The averaged response is smoothed using a moving average (`calc_step_response::moving_average_smooth_f64`) with `POST_AVERAGING_SMOOTHING_WINDOW`.
+                    *   The smoothed response is shifted to start at 0.0.
+                    *   A **final normalization** step is performed: the mean of the steady-state portion of this *averaged, smoothed, and shifted* response is calculated. The entire response is then divided by this mean to ensure the plotted average response aims for a steady-state of 1.0.
+                    *   The final response is only plotted if its steady-state mean (after this final normalization) is within `FINAL_NORMALIZED_STEADY_STATE_TOLERANCE` of 1.0.
+                *   Calculates peak value and delay time (Td) for each plotted average response using `calc_step_response::find_peak_value` and `calc_step_response::calculate_delay_time`.
+                *   Generates and saves the step response plot.
+            *   Other plots are generated for PID sum/error, setpoint vs. gyro, gyro spectrums, PSD, etc.
+
+**Step Response Differences from Other Tools:**
+
+*   **Compared to `PTstepcalc.m` (PIDtoolbox/Matlab):**
+    *   **Deconvolution Method:** Both use Wiener deconvolution with a regularization term.
+    *   **Windowing:** Rust uses Tukey (`TUKEY_ALPHA`) on input/output before FFT; Matlab uses Hann.
+    *   **Smoothing:** Rust has optional initial gyro smoothing (`INITIAL_GYRO_SMOOTHING_WINDOW`) and mandatory post-average smoothing (`POST_AVERAGING_SMOOTHING_WINDOW`). Matlab smooths raw gyro input upfront.
+    *   **Normalization/Y-Correction:**
+        *   Rust: Optional individual response Y-correction (normalize by own steady-state mean, `APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION`, `Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS`) *then* a final normalization of the *averaged* response to target 1.0 (within `FINAL_NORMALIZED_STEADY_STATE_TOLERANCE`).
+        *   Matlab: Optional Y-correction on individual responses by calculating an offset to make the mean 1.0.
+    *   **Quality Control (QC):** Both apply QC to individual responses based on steady-state characteristics. Rust uses `NORMALIZED_STEADY_STATE_MIN_VAL`, `NORMALIZED_STEADY_STATE_MAX_VAL`, and optionally `NORMALIZED_STEADY_STATE_MEAN_MIN`, `NORMALIZED_STEADY_STATE_MEAN_MAX`. Matlab uses `min(steadyStateResp) > 0.5 && max(steadyStateResp) < 3`.
+    *   **Output:** Rust can plot low/high/combined responses based on `setpoint_threshold` if `--dps` is used. Matlab stacks all valid responses.
+
+*   **Compared to `PID-Analyzer.py` (PlasmaTree/Python):**
+    *   **Deconvolution Method:** PlasmaTree also uses Wiener deconvolution (`Trace.wiener_deconvolution`). It includes a signal-to-noise ratio (`sn`) term in the denominator, which is derived from a `cutfreq` parameter and smoothed, effectively acting as a frequency-dependent regularization. The Rust version uses a simpler constant regularization term (`0.0001`).
+    *   **Windowing:** PlasmaTree uses a Hanning window (`np.hanning`) by default (or Tukey via `Trace.tukeywin` with `Trace.tuk_alpha`) applied to input and output segments before deconvolution. Rust uses a Tukey window.
+    *   **Input for Deconvolution:** PlasmaTree calculates an `input` signal by `pid_in(data['p_err'], data['gyro'], data['P'])` which attempts to reconstruct the setpoint as seen by the PID loop. The Rust version directly uses the logged setpoint values.
+    *   **Smoothing:** PlasmaTree does not explicitly mention an initial gyro smoothing step like Rust's `INITIAL_GYRO_SMOOTHING_WINDOW`. For the final averaged response, PlasmaTree's `weighted_mode_avr` uses a 2D histogram and Gaussian smoothing (`gaussian_filter1d`) on this histogram to find the "mode" response, which is different from Rust's direct moving average on the time-domain averaged response.
+    *   **Normalization/Y-Correction:**
+        *   PlasmaTree's `stack_response` calculates `delta_resp` (step responses) by cumulative sum of deconvolved impulse responses. There isn't an explicit "Y-correction" step for individual responses in the same way Rust or PIDtoolbox does (i.e., normalizing each to its own steady-state mean of 1). The `weighted_mode_avr` function, which produces `resp_low` and `resp_high`, aims to find the most common trace shape from a collection of responses, which inherently handles variations. The resulting averaged traces are plotted as they are, typically ranging from 0 to some peak value.
+    *   **Quality Control (QC):** PlasmaTree has a `resp_quality` metric calculated based on the deviation of individual responses from an initial average. It also uses a `toolow_mask` (based on input magnitude `max_in < 20`) to discard responses from very low inputs. These are used as weights or masks in `thr_response` and `weighted_mode_avr`. This is different from Rust's direct steady-state value checks.
+    *   **Averaging:**
+        *   Rust: `average_responses` performs a weighted average of QC'd responses.
+        *   PlasmaTree: `weighted_mode_avr` uses a 2D histogram of all response traces over time vs. amplitude, smooths this histogram, and then calculates a weighted average based on the smoothed histogram's "mode" to determine the final average step response. This is a more complex way to find a representative trace.
+    *   **Output:** Both can plot low and high input responses based on a threshold (`Trace.threshold` in PlasmaTree, `setpoint_threshold` in Rust).
+
+In summary, this Rust implementation offers a detailed and configurable (`constants.rs`) step response analysis pipeline, emphasizing robust normalization and quality control at multiple stages of the calculation. It draws conceptual parallels with existing tools but provides its own specific algorithms and parameterization for analyzing flight controller performance. PlasmaTree's approach is also sophisticated, particularly in its use of histogram-based averaging for the final step response.

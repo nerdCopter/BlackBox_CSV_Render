@@ -39,6 +39,10 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 ### Output
 - PNG files are generated in the current directory, unless specified by the `--out-dir` parameter.
 
+### Code Overview
+
+For a detailed explanation of the program's functionality, especially the step-response calculation and comparison with other tools like PIDtoolbox (Matlab) and PlasmaTree PID-Analyzer (Python), please see [Overview.md](Overview.md).
+
 ### Licensing still under consideration.
 - Some resources used for the AI prompting included the following, but only for inspiration.
 - No code was reused as reported by AI interrogation, and therefore do not require their associated licensing.
