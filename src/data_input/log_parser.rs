@@ -49,8 +49,16 @@ pub fn parse_log_file(
         let header_record = reader.headers()?.clone();
         println!("Headers found in CSV: {:?}", header_record);
 
-        header_indices = target_headers.iter().map(|&target_header| {
-            header_record.iter().position(|h| h.trim() == target_header)
+        header_indices = target_headers.iter().enumerate().map(|(i, &target_header)| {
+            if i == 0 {
+                // Special case for time header: check for both "time (us)" and "time"
+                header_record.iter().position(|h| {
+                    let trimmed = h.trim();
+                    trimmed == "time (us)" || trimmed == "time"
+                })
+            } else {
+                header_record.iter().position(|h| h.trim() == target_header)
+            }
         }).collect();
 
         println!("Header mapping status:");
