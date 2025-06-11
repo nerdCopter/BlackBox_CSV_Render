@@ -42,9 +42,16 @@ Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]] [--out-dir
     eprintln!("  --out-dir [<directory>]: Optional. Specifies the output directory for generated plots.");
     eprintln!("                           If omitted, plots are saved in the current directory.");
     eprintln!("                           If specified without a directory, plots are saved in the input file's directory.");
+    eprintln!("  --help: Show this help message and exit.");
+    eprintln!("  --version: Show version information and exit.");
     eprintln!("
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.");
     std::process::exit(1);
+}
+
+fn print_version_and_exit() {
+    println!("{} version {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    std::process::exit(0);
 }
 
 fn process_file(input_file_str: &str, setpoint_threshold: f64, show_legend: bool, use_dir_prefix: bool, output_dir: Option<&str>) -> Result<(), Box<dyn Error>> {
@@ -247,7 +254,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut i = 1;
     while i < args.len() {
         let arg = &args[i];
-        if arg == "--dps" {
+        if arg == "--help" {
+            print_usage_and_exit(program_name);
+        } else if arg == "--version" {
+            print_version_and_exit();
+        } else if arg == "--dps" {
             if dps_flag_present {
                 eprintln!("Error: --dps argument specified more than once.");
                 print_usage_and_exit(program_name);
