@@ -33,7 +33,11 @@ pub fn plot_step_response(
     let color_low_sp: RGBColor = *COLOR_STEP_RESPONSE_LOW_SP;
     let line_stroke_plot = LINE_WIDTH_PLOT;
 
-    let output_file_step = format!("{}_step_response_stacked_plot_{}s.png", root_name, step_response_plot_duration_s);
+    let output_file_step = if show_legend {
+        format!("{}_Step_Response_stacked_plot_{}s_{}dps.png", root_name, step_response_plot_duration_s, setpoint_threshold)
+    } else {
+        format!("{}_Step_Response_stacked_plot_{}s.png", root_name, step_response_plot_duration_s)
+    };
     let plot_type_name = "Step Response";
     let sr = sample_rate.unwrap_or(1000.0); // Default sample rate if not provided
 
