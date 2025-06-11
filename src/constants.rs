@@ -8,12 +8,9 @@ use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED
 pub const PLOT_WIDTH: u32 = 1920;
 pub const PLOT_HEIGHT: u32 = 1080;
 
-// Step response plot duration in seconds.
-pub const STEP_RESPONSE_PLOT_DURATION_S: f64 = 0.5;
-
 // Constants for the step response calculation method (mimicking PlasmaTree and PTB PTstepcalc.m)
 pub const FRAME_LENGTH_S: f64 = 2.0; // Length of each window in seconds (PTB uses 2s)
-pub const RESPONSE_LENGTH_S: f64 = 0.5; // Length of the step response to keep (500ms)
+pub const RESPONSE_LENGTH_S: f64 = 0.5; // Length of the step response to keep (500ms typical)
 pub const SUPERPOSITION_FACTOR: usize = 16; // Number of overlapping windows (can be tuned)
 pub const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning window)
 
@@ -35,9 +32,9 @@ pub const ENABLE_NORMALIZED_STEADY_STATE_MEAN_CHECK: bool = true;
 pub const NORMALIZED_STEADY_STATE_MEAN_MIN: f32 = 0.75; // e.g., mean should be > 0.75 after Y-correction
 pub const NORMALIZED_STEADY_STATE_MEAN_MAX: f32 = 1.25; // e.g., mean should be < 1.25 after Y-correction
 
-// Steady-state definition for Y-correction and QC (matches PTB PTstepcalc.m: 200ms to 500ms of the 500ms response)
-pub const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check (200ms into the 500ms response)
-pub const STEADY_STATE_END_S: f64 = 0.5;   // End time for steady-state check (effectively to the end of RESPONSE_LENGTH_S)
+// Steady-state definition for Y-correction and QC (matches PTB PTstepcalc.m: 200ms to end of response)
+pub const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check (200ms into the response)
+pub const STEADY_STATE_END_S: f64 = RESPONSE_LENGTH_S;   // End time for steady-state check (to the end of RESPONSE_LENGTH_S); can be decoupled if desired, but do NOT exceed RESPONSE_LENGTH_S
 
 pub const FINAL_NORMALIZED_STEADY_STATE_TOLERANCE: f64 = 0.15; // Final tolerance for normalized steady-state mean in step response plot
 pub const DEFAULT_SETPOINT_THRESHOLD: f64 = 500.0; // Default setpoint threshold, can be overridden at runtime for categorizing responses
