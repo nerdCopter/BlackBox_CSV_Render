@@ -2,6 +2,9 @@
 
 The Rust program processes Betaflight Blackbox CSV logs to generate various plots. Here's a concise overview:
 
+**Configuration:**
+All analysis parameters, thresholds, plot dimensions, and algorithmic constants are centrally defined in `src/constants.rs`, making the implementation highly configurable for different analysis needs and flight controller characteristics.
+
 **Core Functionality:**
 
 1.  **Argument Parsing (`src/main.rs`):**
@@ -41,8 +44,16 @@ The Rust program processes Betaflight Blackbox CSV logs to generate various plot
                     *   A **final normalization** step is performed: the mean of the steady-state portion of this *averaged, smoothed, and shifted* response is calculated. The entire response is then divided by this mean to ensure the plotted average response aims for a steady-state of 1.0.
                     *   The final response is only plotted if its steady-state mean (after this final normalization) is within `FINAL_NORMALIZED_STEADY_STATE_TOLERANCE` of 1.0.
                 *   Calculates peak value and delay time (Td) for each plotted average response using `calc_step_response::find_peak_value` and `calc_step_response::calculate_delay_time`.
+                    *   **Delay Time (Td) Calculation:** The delay time is calculated as the time for the step response to reach 50% of its final value. Linear interpolation is used for precise determination of the 50% threshold crossing. A fixed offset of -1ms is applied to the calculated time (in milliseconds) before converting to seconds, and the result is constrained to be non-negative.
                 *   Generates and saves the step response plot.
-            *   Other plots are generated for PID sum/error, setpoint vs. gyro, gyro spectrums, PSD, etc.
+            *   **Other plots generated (`src/plot_functions/`):**
+                *   `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.
+                *   `plot_setpoint_vs_gyro`: Setpoint and filtered gyro time-domain comparison for each axis.
+                *   `plot_gyro_vs_unfilt`: Filtered vs. unfiltered gyro time-domain comparison for each axis.
+                *   `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with peak detection and labeling with configurable thresholds.
+                *   `plot_psd`: Power Spectral Density plots in dB scale with peak labeling.
+                *   `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap.
+                *   `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
 
 **Step Response Differences from Other Tools:**
 
@@ -69,4 +80,4 @@ The Rust program processes Betaflight Blackbox CSV logs to generate various plot
         *   PlasmaTree: `weighted_mode_avr` uses a 2D histogram of all response traces over time vs. amplitude, smooths this histogram, and then calculates a weighted average based on the smoothed histogram's "mode" to determine the final average step response. This is a more complex way to find a representative trace.
     *   **Output:** Both can plot low and high input responses based on a threshold (`Trace.threshold` in PlasmaTree, `setpoint_threshold` in Rust).
 
-In summary, this Rust implementation offers a detailed and configurable (`constants.rs`) step response analysis pipeline, emphasizing robust normalization and quality control at multiple stages of the calculation. It draws conceptual parallels with existing tools but provides its own specific algorithms and parameterization for analyzing flight controller performance. PlasmaTree's approach is also sophisticated, particularly in its use of histogram-based averaging for the final step response.
+In summary, this Rust implementation offers a detailed and configurable analysis pipeline for flight controller performance evaluation. It draws conceptual parallels with existing tools but provides its own specific algorithms and parameterization. The modular design and centralized configuration system make it adaptable for various analysis requirements. PlasmaTree's approach is also sophisticated, particularly in its use of histogram-based averaging for the final step response.
