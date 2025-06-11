@@ -6,7 +6,7 @@ use ndarray::{Array1, Array2, s};
 
 use crate::plot_framework::{draw_stacked_plot, PlotSeries, calculate_range};
 use crate::constants::{
-    STEP_RESPONSE_PLOT_DURATION_S,
+    RESPONSE_LENGTH_S,
     POST_AVERAGING_SMOOTHING_WINDOW, STEADY_STATE_START_S, STEADY_STATE_END_S,
     COLOR_STEP_RESPONSE_LOW_SP, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_COMBINED,
     LINE_WIDTH_PLOT, FINAL_NORMALIZED_STEADY_STATE_TOLERANCE
@@ -24,7 +24,7 @@ pub fn plot_step_response(
     // Add axis_index_for_debug if you uncomment debug prints in process_response
     // axis_index_for_debug: usize, // Uncomment if using debug prints
 ) -> Result<(), Box<dyn Error>> {
-    let step_response_plot_duration_s = STEP_RESPONSE_PLOT_DURATION_S;
+    let step_response_plot_duration_s = RESPONSE_LENGTH_S;
     let steady_state_start_s_const = STEADY_STATE_START_S; // from constants
     let steady_state_end_s_const = STEADY_STATE_END_S;     // from constants
     let post_averaging_smoothing_window = POST_AVERAGING_SMOOTHING_WINDOW; // from constants
