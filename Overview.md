@@ -59,7 +59,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 **Step Response Differences from Other Tools:**
 
 **System Identification Approach:**
-The approach used by all three implementations (Rust, PIDtoolbox/Matlab, PlasmaTree/Python) is described in detail in the "Step Response Differences from Other Tools" section. In summary, they employ **non-parametric system identification** via Wiener deconvolution to extract the system's impulse response, which is then converted to step response via integration.
+The approach used by all three implementations (Rust, PIDtoolbox/Matlab, PlasmaTree/Python) is described in detail in the "Step Response Calculation" section. In summary, they employ **non-parametric system identification** via Wiener deconvolution to extract the system's impulse response, which is then converted to step response via integration.
 
 *   **Compared to `PTstepcalc.m` (PIDtoolbox/Matlab):**
     *   **Deconvolution Method:** Both use Wiener deconvolution with a regularization term.
