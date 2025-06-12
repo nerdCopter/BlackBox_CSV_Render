@@ -18,7 +18,8 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
         *   **Step Response Data Preparation:**
             *   Filters log data, excluding the start and end seconds (constants `EXCLUDE_START_S`, `EXCLUDE_END_S` from `src/constants.rs`) to create contiguous segments of time, setpoint, and gyro data for each axis. This data is stored in `contiguous_sr_input_data`.
         *   **Step Response Calculation (`src/data_analysis/calc_step_response.rs:calculate_step_response`):**
-            *   This is the core of the step response analysis. For each axis (Roll, Pitch, Yaw):
+            *   This is the core of the step response analysis. It implements **non-parametric system identification** using Wiener deconvolution rather than traditional first-order or second-order curve fitting. This approach directly extracts the system's actual step response without assuming a specific mathematical model, allowing it to capture complex, higher-order dynamics and non-linearities.
+            *   For each axis (Roll, Pitch, Yaw):
                 *   It takes the prepared time, setpoint, and (optionally smoothed via `INITIAL_GYRO_SMOOTHING_WINDOW`) gyro data arrays and the sample rate.
                 *   **Windowing:** The input signals (setpoint and gyro) are segmented into overlapping windows (`winstacker_contiguous`) of `FRAME_LENGTH_S` duration. A Tukey window (`tukeywin` with `TUKEY_ALPHA`) is applied to each segment to reduce spectral leakage.
                 *   **Movement Threshold:** Windows are discarded if the maximum absolute setpoint value within them is below `MOVEMENT_THRESHOLD_DEG_S`.
@@ -56,6 +57,9 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                 *   `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
 
 **Step Response Differences from Other Tools:**
+
+**System Identification Approach:**
+The approach used by all three implementations (Rust, PIDtoolbox/Matlab, PlasmaTree/Python) is described in detail in the "Step Response Calculation" section. In summary, they employ **non-parametric system identification** via Wiener deconvolution to extract the system's impulse response, which is then converted to step response via integration.
 
 *   **Compared to `PTstepcalc.m` (PIDtoolbox/Matlab):**
     *   **Deconvolution Method:** Both use Wiener deconvolution with a regularization term.
