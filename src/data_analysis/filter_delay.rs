@@ -210,38 +210,31 @@ pub fn calculate_average_filtering_delay_comparison(
     }
     
     if !all_results.is_empty() {
-        // Create method summaries WITHOUT averaging between methods
+        // Create method summaries for Enhanced Cross-Correlation only
         let mut method_summaries = Vec::new();
-        let method_names = ["Cross-Correlation", "Transfer Function"];
         
-        for method_name in &method_names {
-            let method_results: Vec<&DelayResult> = all_results.iter()
-                .filter(|r| r.method == *method_name)
-                .collect();
-                
-            if !method_results.is_empty() {
-                // Average results WITHIN each method (across axes), but keep methods separate
-                let avg_delay = method_results.iter()
-                    .map(|r| r.delay_ms)
-                    .sum::<f32>() / method_results.len() as f32;
-                let avg_confidence = method_results.iter()
-                    .map(|r| r.confidence)
-                    .sum::<f32>() / method_results.len() as f32;
-                let avg_freq = method_results.iter()
-                    .filter_map(|r| r.frequency_hz)
-                    .sum::<f32>() / method_results.iter()
-                    .filter_map(|r| r.frequency_hz).count().max(1) as f32;
-                
-                println!("Summary for {}: {:.2} ms (avg confidence: {:.2})", 
-                    method_name, avg_delay, avg_confidence);
-                
-                method_summaries.push(DelayResult {
-                    method: method_name.to_string(),
-                    delay_ms: avg_delay,
-                    confidence: avg_confidence,
-                    frequency_hz: if avg_freq > 0.0 { Some(avg_freq) } else { None },
-                });
-            }
+        let enhanced_results: Vec<&DelayResult> = all_results.iter()
+            .filter(|r| r.method == "Enhanced Cross-Correlation")
+            .collect();
+            
+        if !enhanced_results.is_empty() {
+            // Average results across axes for Enhanced Cross-Correlation
+            let avg_delay = enhanced_results.iter()
+                .map(|r| r.delay_ms)
+                .sum::<f32>() / enhanced_results.len() as f32;
+            let avg_confidence = enhanced_results.iter()
+                .map(|r| r.confidence)
+                .sum::<f32>() / enhanced_results.len() as f32;
+            
+            println!("Summary for Enhanced Cross-Correlation: {:.2} ms (avg confidence: {:.2})", 
+                avg_delay, avg_confidence);
+            
+            method_summaries.push(DelayResult {
+                method: "Enhanced Cross-Correlation".to_string(),
+                delay_ms: avg_delay,
+                confidence: avg_confidence,
+                frequency_hz: None,
+            });
         }
         
         // Return 0.0 for deprecated average_delay, and the separate method results for comparison
@@ -257,10 +250,10 @@ pub struct DelayResult {
     pub method: String,
     pub delay_ms: f32,
     pub confidence: f32,
-    pub frequency_hz: Option<f32>, // For frequency-domain methods
+    pub frequency_hz: Option<f32>, // Preserved for compatibility, typically None for cross-correlation
 }
 
-/// Calculate filtering delay comparison using enhanced cross-correlation and transfer function methods
+/// Calculate filtering delay using enhanced cross-correlation method only
 fn calculate_filtering_delay_comparison(
     filtered: &Array1<f32>, 
     unfiltered: &Array1<f32>, 
@@ -268,40 +261,11 @@ fn calculate_filtering_delay_comparison(
 ) -> Vec<DelayResult> {
     let mut results = Vec::new();
     
-    // Enhanced Cross-correlation method with sub-sample precision
+    // Enhanced Cross-correlation method with sub-sample precision (only method used)
     if let Some(enhanced_result) = calculate_filtering_delay_enhanced_xcorr(filtered, unfiltered, sample_rate) {
         results.push(enhanced_result);
     } else {
-        // Fallback to basic cross-correlation
-        if let Some(xcorr_delay) = calculate_filtering_delay(filtered, unfiltered, sample_rate) {
-            results.push(DelayResult {
-                method: "Cross-Correlation".to_string(),
-                delay_ms: xcorr_delay,
-                confidence: 0.7, // Lower confidence for basic method
-                frequency_hz: None,
-            });
-        } else {
-            println!("  Cross-correlation method failed for {} samples", filtered.len());
-        }
-    }
-    
-    // Transfer function method - simplified for now to avoid complex FFT issues
-    // In real implementation, this would use FFT analysis
-    if filtered.len() >= 128 {
-        // For demonstration, use cross-correlation with slight variation to simulate transfer function
-        if let Some(base_delay) = calculate_filtering_delay(filtered, unfiltered, sample_rate) {
-            let tf_delay = base_delay * 0.95; // Simulate slight difference
-            results.push(DelayResult {
-                method: "Transfer Function".to_string(),
-                delay_ms: tf_delay,
-                confidence: 0.75,
-                frequency_hz: Some(25.0), // Simulated analysis frequency
-            });
-        } else {
-            println!("  Transfer function method failed for {} samples (cross-correlation base failed)", filtered.len());
-        }
-    } else {
-        println!("  Transfer function method failed for {} samples (min required: 128)", filtered.len());
+        println!("  Enhanced Cross-correlation method failed for {} samples", filtered.len());
     }
     
     results
@@ -364,8 +328,8 @@ fn calculate_filtering_delay_enhanced_xcorr(
         }
     }
     
-    // Must have reasonable correlation strength
-    if best_correlation < 0.3 || best_delay == 0 {
+    // Must have reasonable correlation strength (lowered threshold for better coverage)
+    if best_correlation < 0.2 || best_delay == 0 {
         return None;
     }
     

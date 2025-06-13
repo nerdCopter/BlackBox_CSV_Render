@@ -277,8 +277,6 @@ pub fn plot_gyro_spectrums(
                                     method_strings.push(format!("{}: {:.1}ms@{:.0}Hz(c:{:.2})", 
                                         match result.method.as_str() {
                                             "Enhanced Cross-Correlation" => "XCorr+",
-                                            "Cross-Correlation" => "XCorr",
-                                            "Transfer Function" => "TFunc",
                                             _ => "Unknown"
                                         },
                                         result.delay_ms, freq, result.confidence));
@@ -286,8 +284,6 @@ pub fn plot_gyro_spectrums(
                                     method_strings.push(format!("{}: {:.1}ms(c:{:.2})", 
                                         match result.method.as_str() {
                                             "Enhanced Cross-Correlation" => "XCorr+",
-                                            "Cross-Correlation" => "XCorr",
-                                            "Transfer Function" => "TFunc",
                                             _ => "Unknown"
                                         },
                                         result.delay_ms, result.confidence));
