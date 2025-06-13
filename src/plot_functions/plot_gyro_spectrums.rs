@@ -14,6 +14,7 @@ use crate::constants::{
 };
 use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_analysis::calc_step_response; // For tukeywin
+use crate::data_analysis::filter_delay;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro spectrums.
 pub fn plot_gyro_spectrums(
@@ -30,6 +31,9 @@ pub fn plot_gyro_spectrums(
         println!("\nINFO: Skipping Gyro Spectrum Plot: Sample rate could not be determined.");
         return Ok(());
     };
+
+    // Calculate filtering delay
+    let average_delay_ms = filter_delay::calculate_average_filtering_delay(log_data, sr_value);
 
     let mut all_fft_raw_data: [Option<(Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>)>; 3] = Default::default();
     let mut global_max_y_unfilt = 0.0f64;
@@ -260,7 +264,11 @@ pub fn plot_gyro_spectrums(
                 let filt_plot_series = vec![
                     PlotSeries {
                         data: filt_series_data,
-                        label: "Filtered Gyro".to_string(),
+                        label: if let Some(delay) = average_delay_ms {
+                            format!("Filtered Gyro - Delay: {:.1}ms", delay)
+                        } else {
+                            "Filtered Gyro".to_string()
+                        },
                         color: *COLOR_GYRO_VS_UNFILT_FILT,
                         stroke_width: LINE_WIDTH_PLOT,
                     }

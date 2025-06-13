@@ -9,14 +9,23 @@ use crate::constants::{
     COLOR_GYRO_VS_UNFILT_UNFILT, COLOR_GYRO_VS_UNFILT_FILT,
     LINE_WIDTH_PLOT,
 };
+use crate::data_analysis::filter_delay;
 
 /// Generates the Stacked Gyro vs Unfiltered Gyro Plot (Purple, Orange)
 pub fn plot_gyro_vs_unfilt(
     log_data: &[LogRowData],
     root_name: &str,
+    sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_gyro = format!("{}_GyroVsUnfilt_stacked.png", root_name);
     let plot_type_name = "Gyro/UnfiltGyro";
+
+    // Calculate filtering delay
+    let average_delay_ms = if let Some(sr) = sample_rate {
+        filter_delay::calculate_average_filtering_delay(log_data, sr)
+    } else {
+        None
+    };
 
     let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>)>; 3] = Default::default();
     for row in log_data {
@@ -83,9 +92,14 @@ pub fn plot_gyro_vs_unfilt(
                  });
             }
             if !filt_series_data.is_empty() {
+                let filtered_label = if let Some(delay) = average_delay_ms {
+                    format!("Filtered Gyro (gyroADC) - Delay: {:.1}ms", delay)
+                } else {
+                    "Filtered Gyro (gyroADC)".to_string()
+                };
                  series.push(PlotSeries {
                      data: filt_series_data,
-                     label: "Filtered Gyro (gyroADC)".to_string(),
+                     label: filtered_label,
                      color: color_gyro_filt,
                      stroke_width: line_stroke_plot,
                  });

@@ -9,14 +9,23 @@ use crate::constants::{
     COLOR_SETPOINT_VS_GYRO_SP, COLOR_SETPOINT_VS_GYRO_GYRO,
     LINE_WIDTH_PLOT,
 };
+use crate::data_analysis::filter_delay;
 
 /// Generates the Stacked Setpoint vs Gyro Plot (Orange, Blue)
 pub fn plot_setpoint_vs_gyro(
     log_data: &[LogRowData],
     root_name: &str,
+    sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_setpoint_gyro = format!("{}_SetpointVsGyro_stacked.png", root_name);
     let plot_type_name = "Setpoint/Gyro";
+
+    // Calculate filtering delay
+    let average_delay_ms = if let Some(sr) = sample_rate {
+        filter_delay::calculate_average_filtering_delay(log_data, sr)
+    } else {
+        None
+    };
 
     let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>)>; 3] = Default::default();
      for row in log_data {
@@ -75,9 +84,14 @@ pub fn plot_setpoint_vs_gyro(
 
             let mut series = Vec::new();
             if !gyro_series_data.is_empty() {
+                let gyro_label = if let Some(delay) = average_delay_ms {
+                    format!("Gyro (gyroADC) - Delay: {:.1}ms", delay)
+                } else {
+                    "Gyro (gyroADC)".to_string()
+                };
                  series.push(PlotSeries {
                      data: gyro_series_data,
-                     label: "Gyro (gyroADC)".to_string(),
+                     label: gyro_label,
                      color: color_gyro,
                      stroke_width: line_stroke_plot,
                  });

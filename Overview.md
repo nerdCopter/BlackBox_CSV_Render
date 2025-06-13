@@ -50,11 +50,23 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
             *   **Other plots generated (`src/plot_functions/`):**
                 *   `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.
                 *   `plot_setpoint_vs_gyro`: Setpoint and filtered gyro time-domain comparison for each axis.
-                *   `plot_gyro_vs_unfilt`: Filtered vs. unfiltered gyro time-domain comparison for each axis.
-                *   `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with peak detection and labeling with configurable thresholds.
-                *   `plot_psd`: Power Spectral Density plots in dB scale with peak labeling.
+                *   `plot_gyro_vs_unfilt`: Filtered vs. unfiltered gyro time-domain comparison for each axis. Includes filtering delay calculation.
+                *   `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with peak detection and labeling with configurable thresholds. Includes filtering delay calculation.
+                *   `plot_psd`: Power Spectral Density plots in dB scale with peak labeling. Includes filtering delay calculation.
                 *   `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap.
                 *   `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
+
+**Filtering Delay Calculation (`src/data_analysis/filter_delay.rs`):**
+
+The filtering delay calculation uses cross-correlation analysis to determine the phase lag introduced by the flight controller's gyro filtering system:
+
+*   **Cross-correlation Method:** For each axis (Roll, Pitch, Yaw), the system calculates the normalized cross-correlation between filtered (`gyroADC`) and unfiltered (`gyroUnfilt`) gyro signals at different time delays.
+*   **Delay Calculation:** The delay that produces the highest correlation coefficient is identified and converted from samples to milliseconds using the sample rate.
+*   **Quality Control:** Only delays with correlation coefficients > 0.5 are considered reliable.
+*   **Averaging:** Individual axis delays are averaged to provide an overall system delay measurement.
+*   **Display:** The calculated delay (in milliseconds) is displayed in the filtered gyro legend text for `_SetpointVsGyro_stacked.png`, `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
+
+This delay measurement helps identify the phase lag characteristics of the filtering system and can be useful for tuning filter parameters and understanding system response characteristics.
 
 **Step Response Differences from Other Tools:**
 
