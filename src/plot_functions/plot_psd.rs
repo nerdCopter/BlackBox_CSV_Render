@@ -14,6 +14,7 @@ use crate::constants::{
     TUKEY_ALPHA, // For the window function
 };
 use crate::data_analysis::fft_utils;
+use crate::data_analysis::filter_delay;
 use crate::data_analysis::calc_step_response;
 
 /// Detects and sorts peaks in PSD data (in dB scale)
@@ -150,6 +151,9 @@ pub fn plot_psd(
         return Ok(());
     };
 
+    // Calculate filtering delay
+    let average_delay_ms = filter_delay::calculate_average_filtering_delay(log_data, sr_value);
+
     let mut all_psd_raw_data: [Option<(Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>)>; 3] = Default::default();
     let mut global_max_y_unfilt_db = f64::NEG_INFINITY; // Initialize with negative infinity for max
     let mut global_max_y_filt_db = f64::NEG_INFINITY;
@@ -284,7 +288,11 @@ pub fn plot_psd(
                 let filt_plot_series = vec![
                     PlotSeries {
                         data: filt_psd_data,
-                        label: "Filtered Gyro PSD".to_string(),
+                        label: if let Some(delay) = average_delay_ms {
+                            format!("Filtered Gyro PSD - Delay: {:.1}ms", delay)
+                        } else {
+                            "Filtered Gyro PSD".to_string()
+                        },
                         color: *COLOR_GYRO_VS_UNFILT_FILT,
                         stroke_width: LINE_WIDTH_PLOT,
                     }
