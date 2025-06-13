@@ -32,8 +32,13 @@ pub fn plot_gyro_spectrums(
         return Ok(());
     };
 
-    // Calculate filtering delay
-    let average_delay_ms = filter_delay::calculate_average_filtering_delay(log_data, sr_value);
+    // Calculate filtering delay using both methods for comparison
+    let (_average_delay_ms, delay_comparison_results) = if let Some((avg_delay, results)) = filter_delay::calculate_average_filtering_delay_comparison(log_data, sr_value) {
+        (Some(avg_delay), Some(results))
+    } else {
+        // Fallback to original method
+        (filter_delay::calculate_average_filtering_delay(log_data, sr_value), None)
+    };
 
     let mut all_fft_raw_data: [Option<(Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>)>; 3] = Default::default();
     let mut global_max_y_unfilt = 0.0f64;
@@ -264,8 +269,35 @@ pub fn plot_gyro_spectrums(
                 let filt_plot_series = vec![
                     PlotSeries {
                         data: filt_series_data,
-                        label: if let Some(delay) = average_delay_ms {
-                            format!("Filtered Gyro - Delay: {:.1}ms", delay)
+                        label: if let Some(ref results) = delay_comparison_results {
+                            // Show comparison of both methods if available - NO AVERAGING
+                            let mut method_strings = Vec::new();
+                            for result in results.iter() {
+                                if let Some(freq) = result.frequency_hz {
+                                    method_strings.push(format!("{}: {:.1}ms@{:.0}Hz(c:{:.2})", 
+                                        match result.method.as_str() {
+                                            "Enhanced Cross-Correlation" => "XCorr+",
+                                            "Cross-Correlation" => "XCorr",
+                                            "Transfer Function" => "TFunc",
+                                            _ => "Unknown"
+                                        },
+                                        result.delay_ms, freq, result.confidence));
+                                } else {
+                                    method_strings.push(format!("{}: {:.1}ms(c:{:.2})", 
+                                        match result.method.as_str() {
+                                            "Enhanced Cross-Correlation" => "XCorr+",
+                                            "Cross-Correlation" => "XCorr",
+                                            "Transfer Function" => "TFunc",
+                                            _ => "Unknown"
+                                        },
+                                        result.delay_ms, result.confidence));
+                                }
+                            }
+                            if method_strings.is_empty() {
+                                "Filtered Gyro".to_string()
+                            } else {
+                                format!("Filtered Gyro - {}", method_strings.join(" vs "))
+                            }
                         } else {
                             "Filtered Gyro".to_string()
                         },

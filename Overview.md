@@ -58,15 +58,32 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 **Filtering Delay Calculation (`src/data_analysis/filter_delay.rs`):**
 
-The filtering delay calculation uses cross-correlation analysis to determine the phase lag introduced by the flight controller's gyro filtering system:
+The filtering delay calculation now supports **dual-method analysis** to provide more accurate and comprehensive delay measurements:
 
-*   **Cross-correlation Method:** For each axis (Roll, Pitch, Yaw), the system calculates the normalized cross-correlation between filtered (`gyroADC`) and unfiltered (`gyroUnfilt`) gyro signals at different time delays.
-*   **Delay Calculation:** The delay that produces the highest correlation coefficient is identified and converted from samples to milliseconds using the sample rate.
-*   **Quality Control:** Only delays with correlation coefficients > 0.5 are considered reliable.
-*   **Averaging:** Individual axis delays are averaged to provide an overall system delay measurement.
-*   **Display:** The calculated delay (in milliseconds) is displayed in the filtered gyro legend text for `_SetpointVsGyro_stacked.png`, `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
+### Cross-Correlation Method (Primary)
+*   **Algorithm:** For each axis (Roll, Pitch, Yaw), calculates normalized cross-correlation between filtered (`gyroADC`) and unfiltered (`gyroUnfilt`) gyro signals at different time delays.
+*   **Delay Detection:** Identifies the delay that produces the highest correlation coefficient and converts from samples to milliseconds using the sample rate.
+*   **Advantages:** Simple, robust to noise, works with non-linear filtering
+*   **Limitations:** Limited to sample-rate precision, may be affected by filter shape changes
 
-This delay measurement helps identify the phase lag characteristics of the filtering system and can be useful for tuning filter parameters and understanding system response characteristics.
+### Transfer Function Method (Experimental)
+*   **Algorithm:** Uses frequency-domain analysis to calculate Cross Spectral Density (CSD) and Power Spectral Density (PSD), then computes transfer function H(ω) = CSD(filtered,unfiltered) / PSD(unfiltered).
+*   **Group Delay:** Calculates group delay from phase derivative: delay = -dφ/dω, providing sub-sample precision.
+*   **Advantages:** Sub-sample delay resolution, handles frequency-dependent delays, provides additional transfer function data
+*   **Limitations:** Assumes linear filtering, sensitive to noise at low SNR, requires longer data segments
+
+### Implementation Details
+*   **Quality Control:** Cross-correlation requires correlation coefficients > 0.3; Transfer function uses confidence thresholds based on phase consistency.
+*   **Method Selection:** The system automatically tries both methods and reports results. Transfer function method requires minimum 256 samples for reliable FFT analysis.
+*   **Averaging:** Individual axis delays are averaged across methods to provide an overall system delay measurement.
+*   **Display:** Results from both methods are shown in console output, with the most reliable estimates used in plot legends for `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
+
+### Modern Flight Controller Considerations
+*   **Dynamic Filtering:** The dual-method approach better handles modern Betaflight/EmuFlight systems with dynamic notch filters, RPM filters, and throttle-dependent filtering.
+*   **Non-Integer Delays:** Transfer function method can detect sub-sample delays common with sophisticated filtering chains.
+*   **Time-Varying Delays:** While both methods assume locally constant delays, the frequency-domain approach provides insights into frequency-dependent delay characteristics.
+
+This enhanced delay measurement helps identify the phase lag characteristics of complex filtering systems and provides valuable data for tuning filter parameters and understanding system response characteristics.
 
 **Step Response Differences from Other Tools:**
 

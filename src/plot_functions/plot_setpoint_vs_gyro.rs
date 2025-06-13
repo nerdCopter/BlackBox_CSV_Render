@@ -20,11 +20,16 @@ pub fn plot_setpoint_vs_gyro(
     let output_file_setpoint_gyro = format!("{}_SetpointVsGyro_stacked.png", root_name);
     let plot_type_name = "Setpoint/Gyro";
 
-    // Calculate filtering delay
-    let average_delay_ms = if let Some(sr) = sample_rate {
-        filter_delay::calculate_average_filtering_delay(log_data, sr)
+    // Calculate filtering delay using both methods for comparison
+    let (_average_delay_ms, delay_comparison_results) = if let Some(sr) = sample_rate {
+        if let Some((avg_delay, results)) = filter_delay::calculate_average_filtering_delay_comparison(log_data, sr) {
+            (Some(avg_delay), Some(results))
+        } else {
+            // Fallback to original method
+            (filter_delay::calculate_average_filtering_delay(log_data, sr), None)
+        }
     } else {
-        None
+        (None, None)
     };
 
     let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>)>; 3] = Default::default();
@@ -84,8 +89,35 @@ pub fn plot_setpoint_vs_gyro(
 
             let mut series = Vec::new();
             if !gyro_series_data.is_empty() {
-                let gyro_label = if let Some(delay) = average_delay_ms {
-                    format!("Gyro (gyroADC) - Delay: {:.1}ms", delay)
+                let gyro_label = if let Some(ref results) = delay_comparison_results {
+                    // Show comparison of both methods if available - NO AVERAGING
+                    let mut method_strings = Vec::new();
+                    for result in results.iter() {
+                        if let Some(freq) = result.frequency_hz {
+                            method_strings.push(format!("{}: {:.1}ms@{:.0}Hz(c:{:.2})", 
+                                match result.method.as_str() {
+                                    "Enhanced Cross-Correlation" => "XCorr+",
+                                    "Cross-Correlation" => "XCorr",
+                                    "Transfer Function" => "TFunc",
+                                    _ => "Unknown"
+                                },
+                                result.delay_ms, freq, result.confidence));
+                        } else {
+                            method_strings.push(format!("{}: {:.1}ms(c:{:.2})", 
+                                match result.method.as_str() {
+                                    "Enhanced Cross-Correlation" => "XCorr+",
+                                    "Cross-Correlation" => "XCorr",
+                                    "Transfer Function" => "TFunc",
+                                    _ => "Unknown"
+                                },
+                                result.delay_ms, result.confidence));
+                        }
+                    }
+                    if method_strings.is_empty() {
+                        "Gyro (gyroADC)".to_string()
+                    } else {
+                        format!("Gyro (gyroADC) - {}", method_strings.join(" vs "))
+                    }
                 } else {
                     "Gyro (gyroADC)".to_string()
                 };
