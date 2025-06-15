@@ -100,17 +100,17 @@ pub fn calculate_filtering_delay(
     } else {
         // Fallback
         let mut fallback_delay = 0;
-        let mut fallback_correlation = 0.0f32;
+        let mut fallback_correlation = 0.0f64;
         for delay in 1..((n/20).min(50)) {
             if delay >= n { break; }
             let len = n - delay;
             if len < 50 { break; }
-            let mut correlation_sum = 0.0f32;
-            let mut filtered_norm = 0.0f32;
-            let mut unfiltered_norm = 0.0f32;
+            let mut correlation_sum = 0.0f64;
+            let mut filtered_norm = 0.0f64;
+            let mut unfiltered_norm = 0.0f64;
             for i in 0..len {
-                let f_val = filtered[i + delay];
-                let u_val = unfiltered[i];
+                let f_val = filtered[i + delay] as f64;
+                let u_val = unfiltered[i] as f64;
                 correlation_sum += f_val * u_val;
                 filtered_norm += f_val * f_val;
                 unfiltered_norm += u_val * u_val;
@@ -123,7 +123,7 @@ pub fn calculate_filtering_delay(
                 }
             }
         }
-        if fallback_correlation > FALLBACK_CORRELATION_THRESHOLD && fallback_delay > 0 {
+        if fallback_correlation > FALLBACK_CORRELATION_THRESHOLD as f64 && fallback_delay > 0 {
             Ok((fallback_delay as f32 / sample_rate as f32) * 1000.0)
         } else {
             Err(DelayCalculationError::LowCorrelation { correlation: best_correlation as f32, threshold: MIN_CORRELATION_THRESHOLD })
