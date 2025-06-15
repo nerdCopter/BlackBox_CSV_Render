@@ -58,32 +58,26 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 **Filtering Delay Calculation (`src/data_analysis/filter_delay.rs`):**
 
-The filtering delay calculation now supports **dual-method analysis** to provide more accurate and comprehensive delay measurements:
-
-### Cross-Correlation Method (Primary)
+### Enhanced Cross-Correlation Method
 *   **Algorithm:** For each axis (Roll, Pitch, Yaw), calculates normalized cross-correlation between filtered (`gyroADC`) and unfiltered (`gyroUnfilt`) gyro signals at different time delays.
 *   **Delay Detection:** Identifies the delay that produces the highest correlation coefficient and converts from samples to milliseconds using the sample rate.
-*   **Advantages:** Simple, robust to noise, works with non-linear filtering
-*   **Limitations:** Limited to sample-rate precision, may be affected by filter shape changes
-
-### Transfer Function Method (Experimental)
-*   **Algorithm:** Uses frequency-domain analysis to calculate Cross Spectral Density (CSD) and Power Spectral Density (PSD), then computes transfer function H(ω) = CSD(filtered,unfiltered) / PSD(unfiltered).
-*   **Group Delay:** Calculates group delay from phase derivative: delay = -dφ/dω, providing sub-sample precision.
-*   **Advantages:** Sub-sample delay resolution, handles frequency-dependent delays, provides additional transfer function data
-*   **Limitations:** Assumes linear filtering, sensitive to noise at low SNR, requires longer data segments
+*   **Sub-Sample Precision:** Uses parabolic interpolation around the peak correlation to achieve sub-sample delay accuracy, addressing precision limitations of basic sample-rate resolution.
+*   **Quality Control:** Requires correlation coefficients above configurable thresholds (`MIN_CORRELATION_THRESHOLD`, `FALLBACK_CORRELATION_THRESHOLD`) with fallback mechanisms for challenging signal conditions.
+*   **Error Handling:** Provides detailed error reporting (`DelayCalculationError`) for insufficient data, low correlation, and signal mismatches.
 
 ### Implementation Details
-*   **Quality Control:** Cross-correlation requires correlation coefficients > 0.3; Transfer function uses confidence thresholds based on phase consistency.
-*   **Method Selection:** The system automatically tries both methods and reports results. Transfer function method requires minimum 256 samples for reliable FFT analysis.
-*   **Averaging:** Individual axis delays are averaged across methods to provide an overall system delay measurement.
-*   **Display:** Results from both methods are shown in console output, with the most reliable estimates used in plot legends for `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
+*   **Data Validation:** Performs comprehensive data availability diagnostics across all axes before analysis.
+*   **Averaging:** Individual axis delays are averaged to provide an overall system delay measurement when sufficient correlation is achieved.
+*   **Bounds Checking:** Comprehensive bounds checking with `saturating_sub()` and explicit runtime verification prevents array access violations. Limits maximum delay search range (`MAX_DELAY_FRACTION`, `MAX_DELAY_SAMPLES`) to prevent unrealistic results and ensures robust parabolic interpolation.
+*   **Configurable Thresholds:** All correlation thresholds and delay search parameters are defined as named constants in `src/constants.rs` for maintainability and tuning.
+*   **Display:** Results are shown in console output with confidence metrics (as percentages), and estimates are integrated into plot legends as "Delay: X.Xms(c:XX%)" for `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
 
-### Modern Flight Controller Considerations
-*   **Dynamic Filtering:** The dual-method approach better handles modern Betaflight/EmuFlight systems with dynamic notch filters, RPM filters, and throttle-dependent filtering.
-*   **Non-Integer Delays:** Transfer function method can detect sub-sample delays common with sophisticated filtering chains.
-*   **Time-Varying Delays:** While both methods assume locally constant delays, the frequency-domain approach provides insights into frequency-dependent delay characteristics.
+### Function API Structure
+*   **`calculate_filtering_delay`:** Core single-axis delay calculation returning `Result<f32, DelayCalculationError>`
+*   **`calculate_average_filtering_delay`:** Multi-axis averaging returning `Option<f32>` with console output
+*   **`calculate_average_filtering_delay_comparison`:** Enhanced analysis returning `Option<(Option<f32>, Vec<DelayResult>)>` with detailed result structures and diagnostic information
 
-This enhanced delay measurement helps identify the phase lag characteristics of complex filtering systems and provides valuable data for tuning filter parameters and understanding system response characteristics.
+This delay measurement approach provides reliable identification of filtering phase lag characteristics in flight controller systems, with enhanced precision through interpolation techniques and robust error handling for various signal conditions. The implementation focuses on a single, well-tested cross-correlation method rather than experimental multi-method approaches.
 
 **Step Response Differences from Other Tools:**
 

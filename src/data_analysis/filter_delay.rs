@@ -1,35 +1,72 @@
 // src/data_analysis/filter_delay.rs
 
+use crate::constants::{
+    MIN_CORRELATION_THRESHOLD, FALLBACK_CORRELATION_THRESHOLD, MAX_DELAY_FRACTION, MAX_DELAY_SAMPLES
+};
 use ndarray::Array1;
+use std::fmt;
+
+/// Error type for delay calculation
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields are used in Display implementation
+pub enum DelayCalculationError {
+    InsufficientData { samples: usize, minimum: usize },
+    LowCorrelation { correlation: f32, threshold: f32 },
+    SignalMismatch,
+}
+
+impl fmt::Display for DelayCalculationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DelayCalculationError::InsufficientData { samples, minimum } => {
+                write!(f, "Insufficient data: {} samples available, minimum {} required", samples, minimum)
+            }
+            DelayCalculationError::LowCorrelation { correlation, threshold } => {
+                write!(f, "Low correlation: {:.3} below threshold {:.3}", correlation, threshold)
+            }
+            DelayCalculationError::SignalMismatch => {
+                write!(f, "Signal mismatch: filtered and unfiltered signals have different lengths")
+            }
+        }
+    }
+}
 
 /// Calculate filtering delay using cross-correlation between filtered and unfiltered signals
-/// Returns delay in milliseconds, or None if calculation fails or correlation is too weak
-pub fn calculate_filtering_delay(filtered: &Array1<f32>, unfiltered: &Array1<f32>, sample_rate: f64) -> Option<f32> {
-    if filtered.len() != unfiltered.len() || filtered.len() < 100 {
-        return None;
+/// Returns delay in milliseconds, or a detailed error
+pub fn calculate_filtering_delay(
+    filtered: &Array1<f32>,
+    unfiltered: &Array1<f32>,
+    sample_rate: f64
+) -> Result<f32, DelayCalculationError> {
+    if filtered.len() != unfiltered.len() {
+        return Err(DelayCalculationError::SignalMismatch);
     }
-    
+    if filtered.len() < 100 {
+        return Err(DelayCalculationError::InsufficientData { samples: filtered.len(), minimum: 100 });
+    }
     let n = filtered.len();
-    let max_delay_samples = (n / 10).min(200); // Increase search range and use more reasonable fraction
+    let max_delay_samples = (n / MAX_DELAY_FRACTION).min(MAX_DELAY_SAMPLES);
     let mut best_correlation = f32::NEG_INFINITY;
     let mut best_delay = 0;
-    
-    // Calculate cross-correlation for different delays
-    // Start from delay=1 since delay=0 means no filtering delay
     for delay in 1..max_delay_samples {
         if delay >= n { break; }
-        
         let len = n - delay;
-        if len < 100 { break; } // Need minimum samples for reliable correlation
+        if len < 100 { break; }
         
-        // Calculate normalized cross-correlation
+        // Additional bounds check for safety
+        let safe_len = len.min(filtered.len().saturating_sub(delay)).min(unfiltered.len());
+        if safe_len < 100 { break; }
+        
         let mut sum_xy = 0.0f32;
         let mut sum_x2 = 0.0f32;
         let mut sum_y2 = 0.0f32;
         let mut sum_x = 0.0f32;
         let mut sum_y = 0.0f32;
-        
-        for i in 0..len {
+        for i in 0..safe_len {
+            // Explicit bounds checking (should always pass due to safe_len calculation)
+            if i + delay >= filtered.len() || i >= unfiltered.len() {
+                break;
+            }
             let x = filtered[i + delay];
             let y = unfiltered[i];
             sum_xy += x * y;
@@ -38,40 +75,29 @@ pub fn calculate_filtering_delay(filtered: &Array1<f32>, unfiltered: &Array1<f32
             sum_x += x;
             sum_y += y;
         }
-        
-        let n_f = len as f32;
+        let n_f = safe_len as f32;
         let denominator = ((n_f * sum_x2 - sum_x * sum_x) * (n_f * sum_y2 - sum_y * sum_y)).sqrt();
-        
         if denominator > 1e-10 {
             let correlation = (n_f * sum_xy - sum_x * sum_y) / denominator;
-            
             if correlation > best_correlation {
                 best_correlation = correlation;
                 best_delay = delay;
             }
         }
     }
-    
-    // Convert delay from samples to milliseconds
-    // If no significant delay found (best_delay is still 0), try to find peak correlation above delay=1
-    if best_correlation > 0.3 && best_delay > 0 { // Lowered threshold and ensure delay > 0
-        Some((best_delay as f32 / sample_rate as f32) * 1000.0)
+    if best_correlation > MIN_CORRELATION_THRESHOLD && best_delay > 0 {
+        Ok((best_delay as f32 / sample_rate as f32) * 1000.0)
     } else {
-        // If correlation is too low or delay is 0, try alternative method
-        // Look for peak in cross-correlation that's not at delay=0
+        // Fallback
         let mut fallback_delay = 0;
         let mut fallback_correlation = 0.0f32;
-        
-        for delay in 1..((n/20).min(50)) { // Smaller range for fallback
+        for delay in 1..((n/20).min(50)) {
             if delay >= n { break; }
             let len = n - delay;
             if len < 50 { break; }
-            
-            // Simplified correlation calculation
             let mut correlation_sum = 0.0f32;
             let mut filtered_norm = 0.0f32;
             let mut unfiltered_norm = 0.0f32;
-            
             for i in 0..len {
                 let f_val = filtered[i + delay];
                 let u_val = unfiltered[i];
@@ -79,7 +105,6 @@ pub fn calculate_filtering_delay(filtered: &Array1<f32>, unfiltered: &Array1<f32
                 filtered_norm += f_val * f_val;
                 unfiltered_norm += u_val * u_val;
             }
-            
             if filtered_norm > 1e-10 && unfiltered_norm > 1e-10 {
                 let normalized_corr = correlation_sum / (filtered_norm.sqrt() * unfiltered_norm.sqrt());
                 if normalized_corr > fallback_correlation {
@@ -88,11 +113,10 @@ pub fn calculate_filtering_delay(filtered: &Array1<f32>, unfiltered: &Array1<f32
                 }
             }
         }
-        
-        if fallback_correlation > 0.2 && fallback_delay > 0 {
-            Some((fallback_delay as f32 / sample_rate as f32) * 1000.0)
+        if fallback_correlation > FALLBACK_CORRELATION_THRESHOLD && fallback_delay > 0 {
+            Ok((fallback_delay as f32 / sample_rate as f32) * 1000.0)
         } else {
-            None
+            Err(DelayCalculationError::LowCorrelation { correlation: best_correlation, threshold: MIN_CORRELATION_THRESHOLD })
         }
     }
 }
@@ -121,11 +145,14 @@ pub fn calculate_average_filtering_delay(
             let filtered_array = Array1::from(filtered_data);
             let unfiltered_array = Array1::from(unfiltered_data);
             
-            if let Some(delay_ms) = calculate_filtering_delay(&filtered_array, &unfiltered_array, sample_rate) {
-                println!("Gyro Filtering delay for {} axis: {:.2} ms", axis_names[axis], delay_ms);
-                delays.push(delay_ms);
-            } else {
-                println!("Gyro Filtering delay for {} axis: Unable to calculate (correlation too low)", axis_names[axis]);
+            match calculate_filtering_delay(&filtered_array, &unfiltered_array, sample_rate) {
+                Ok(delay_ms) => {
+                    println!("Gyro Filtering delay for {} axis: {:.2} ms", axis_names[axis], delay_ms);
+                    delays.push(delay_ms);
+                }
+                Err(err) => {
+                    println!("Gyro Filtering delay for {} axis: Unable to calculate - {}", axis_names[axis], err);
+                }
             }
         }
     }
@@ -143,9 +170,9 @@ pub fn calculate_average_filtering_delay(
 /// Calculate average filtering delay across multiple axes using dual-method comparison
 /// Returns None for average_delay (deprecated) and Vec<DelayResult> with separate method results
 pub fn calculate_average_filtering_delay_comparison(
-    log_data: &[crate::data_input::log_data::LogRowData], 
+    log_data: &[crate::data_input::log_data::LogRowData],
     sample_rate: f64
-) -> Option<(f32, Vec<DelayResult>)> {
+) -> Option<(Option<f32>, Vec<DelayResult>)> {
     let axis_names = ["Roll", "Pitch", "Yaw"];
     let mut all_results: Vec<DelayResult> = Vec::new();
     
@@ -197,11 +224,11 @@ pub fn calculate_average_filtering_delay_comparison(
             println!("Gyro Filtering delay analysis for {} axis:", axis_names[axis]);
             for result in &axis_results {
                 if let Some(freq) = result.frequency_hz {
-                    println!("  {}: {:.2} ms (confidence: {:.2}, freq: {:.1} Hz)", 
-                        result.method, result.delay_ms, result.confidence, freq);
+                    println!("  {}: {:.2} ms (confidence: {:.0}%, freq: {:.1} Hz)", 
+                        result.method, result.delay_ms, result.confidence * 100.0, freq);
                 } else {
-                    println!("  {}: {:.2} ms (confidence: {:.2})", 
-                        result.method, result.delay_ms, result.confidence);
+                    println!("  {}: {:.2} ms (confidence: {:.0}%)", 
+                        result.method, result.delay_ms, result.confidence * 100.0);
                 }
             }
             
@@ -210,37 +237,28 @@ pub fn calculate_average_filtering_delay_comparison(
     }
     
     if !all_results.is_empty() {
-        // Create method summaries for Enhanced Cross-Correlation only
         let mut method_summaries = Vec::new();
-        
         let enhanced_results: Vec<&DelayResult> = all_results.iter()
             .filter(|r| r.method == "Enhanced Cross-Correlation")
             .collect();
-            
         if !enhanced_results.is_empty() {
-            // Average results across axes for Enhanced Cross-Correlation
             let avg_delay = enhanced_results.iter()
                 .map(|r| r.delay_ms)
                 .sum::<f32>() / enhanced_results.len() as f32;
             let avg_confidence = enhanced_results.iter()
                 .map(|r| r.confidence)
                 .sum::<f32>() / enhanced_results.len() as f32;
-            
-            println!("Summary for Enhanced Cross-Correlation: {:.2} ms (avg confidence: {:.2})", 
-                avg_delay, avg_confidence);
-            
             method_summaries.push(DelayResult {
                 method: "Enhanced Cross-Correlation".to_string(),
                 delay_ms: avg_delay,
                 confidence: avg_confidence,
                 frequency_hz: None,
             });
+            Some((Some(avg_delay), method_summaries))
+        } else {
+            Some((None, method_summaries))
         }
-        
-        // Return 0.0 for deprecated average_delay, and the separate method results for comparison
-        Some((0.0, method_summaries))
     } else {
-        println!("Delay analysis: Unable to calculate for any axis");
         None
     }
 }
@@ -281,28 +299,30 @@ fn calculate_filtering_delay_enhanced_xcorr(
     if filtered.len() != unfiltered.len() || filtered.len() < 100 {
         return None;
     }
-    
     let n = filtered.len();
-    let max_delay_samples = (n / 10).min(200);
+    let max_delay_samples = (n / MAX_DELAY_FRACTION).min(MAX_DELAY_SAMPLES);
     let mut correlations = Vec::with_capacity(max_delay_samples);
     let mut best_correlation = f32::NEG_INFINITY;
     let mut best_delay = 0;
-    
-    // Calculate cross-correlation for different delays
     for delay in 1..max_delay_samples {
         if delay >= n { break; }
-        
         let len = n - delay;
         if len < 100 { break; }
         
-        // Calculate normalized cross-correlation
+        // Additional bounds check for safety
+        let safe_len = len.min(filtered.len().saturating_sub(delay)).min(unfiltered.len());
+        if safe_len < 100 { break; }
+        
         let mut sum_xy = 0.0f32;
         let mut sum_x2 = 0.0f32;
         let mut sum_y2 = 0.0f32;
         let mut sum_x = 0.0f32;
         let mut sum_y = 0.0f32;
-        
-        for i in 0..len {
+        for i in 0..safe_len {
+            // Explicit bounds checking (should always pass due to safe_len calculation)
+            if i + delay >= filtered.len() || i >= unfiltered.len() {
+                break;
+            }
             let x = filtered[i + delay];
             let y = unfiltered[i];
             sum_xy += x * y;
@@ -311,14 +331,11 @@ fn calculate_filtering_delay_enhanced_xcorr(
             sum_x += x;
             sum_y += y;
         }
-        
-        let n_f = len as f32;
+        let n_f = safe_len as f32;
         let denominator = ((n_f * sum_x2 - sum_x * sum_x) * (n_f * sum_y2 - sum_y * sum_y)).sqrt();
-        
         if denominator > 1e-10 {
             let correlation = (n_f * sum_xy - sum_x * sum_y) / denominator;
             correlations.push(correlation);
-            
             if correlation > best_correlation {
                 best_correlation = correlation;
                 best_delay = delay;
@@ -327,38 +344,28 @@ fn calculate_filtering_delay_enhanced_xcorr(
             correlations.push(0.0);
         }
     }
-    
-    // Must have reasonable correlation strength (lowered threshold for better coverage)
-    if best_correlation < 0.2 || best_delay == 0 {
+    if best_correlation < FALLBACK_CORRELATION_THRESHOLD || best_delay == 0 {
         return None;
     }
-    
-    // Apply parabolic interpolation for sub-sample precision
-    if best_delay > 0 && best_delay < (correlations.len() - 1) {
+    // Parabolic interpolation bounds check fix
+    if best_delay > 0 && best_delay < correlations.len() - 1 {
         let y1 = correlations[best_delay - 1];
-        let y2 = correlations[best_delay];     // Peak
+        let y2 = correlations[best_delay];
         let y3 = correlations[best_delay + 1];
-        
-        // Parabolic interpolation to find sub-sample peak
         let a = (y1 - 2.0 * y2 + y3) / 2.0;
         let b = (y3 - y1) / 2.0;
-        
-        if a.abs() > 1e-10 { // Avoid division by zero
+        if a.abs() > 1e-10 {
             let sub_sample_offset = -b / (2.0 * a);
-            // Clamp offset to reasonable range
             let clamped_offset = sub_sample_offset.clamp(-0.5, 0.5);
             let refined_delay = best_delay as f32 + clamped_offset;
-            
             return Some(DelayResult {
                 method: "Enhanced Cross-Correlation".to_string(),
                 delay_ms: (refined_delay / sample_rate as f32) * 1000.0,
-                confidence: (best_correlation + 1.0) / 2.0, // Convert [-1,1] to [0,1]
+                confidence: (best_correlation + 1.0) / 2.0,
                 frequency_hz: None,
             });
         }
     }
-    
-    // Fallback to integer sample delay
     Some(DelayResult {
         method: "Enhanced Cross-Correlation".to_string(),
         delay_ms: (best_delay as f32 / sample_rate as f32) * 1000.0,

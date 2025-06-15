@@ -15,6 +15,7 @@ use crate::constants::{
 };
 use crate::data_analysis::fft_utils;
 use crate::data_analysis::filter_delay;
+use crate::data_analysis::filter_delay::DelayResult;
 use crate::data_analysis::calc_step_response;
 
 /// Detects and sorts peaks in PSD data (in dB scale)
@@ -152,8 +153,8 @@ pub fn plot_psd(
     };
 
     // Calculate filtering delay using both methods for comparison
-    let (_average_delay_ms, delay_comparison_results) = if let Some((avg_delay, results)) = filter_delay::calculate_average_filtering_delay_comparison(log_data, sr_value) {
-        (Some(avg_delay), Some(results))
+    let (_average_delay_ms, delay_comparison_results): (Option<f32>, Option<Vec<DelayResult>>) = if let Some((avg_delay, results)) = filter_delay::calculate_average_filtering_delay_comparison(log_data, sr_value) {
+        (avg_delay, Some(results))
     } else {
         // Fallback to original method
         (filter_delay::calculate_average_filtering_delay(log_data, sr_value), None)
@@ -298,19 +299,19 @@ pub fn plot_psd(
                             let mut method_strings = Vec::new();
                             for result in results.iter() {
                                 if let Some(freq) = result.frequency_hz {
-                                    method_strings.push(format!("{}: {:.1}ms@{:.0}Hz(c:{:.2})", 
+                                    method_strings.push(format!("{}: {:.1}ms@{:.0}Hz(c:{:.0}%)", 
                                         match result.method.as_str() {
-                                            "Enhanced Cross-Correlation" => "XCorr+",
+                                            "Enhanced Cross-Correlation" => "Delay",
                                             _ => "Unknown"
                                         },
-                                        result.delay_ms, freq, result.confidence));
+                                        result.delay_ms, freq, result.confidence * 100.0));
                                 } else {
-                                    method_strings.push(format!("{}: {:.1}ms(c:{:.2})", 
+                                    method_strings.push(format!("{}: {:.1}ms(c:{:.0}%)", 
                                         match result.method.as_str() {
-                                            "Enhanced Cross-Correlation" => "XCorr+",
+                                            "Enhanced Cross-Correlation" => "Delay",
                                             _ => "Unknown"
                                         },
-                                        result.delay_ms, result.confidence));
+                                        result.delay_ms, result.confidence * 100.0));
                                 }
                             }
                             if method_strings.is_empty() {
