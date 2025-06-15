@@ -59,36 +59,7 @@ pub fn calculate_filtering_delay(
     let mut best_correlation = f64::NEG_INFINITY;
     let mut best_delay = 0;
     for delay in 1..max_delay_samples {
-        if delay >= n { break; }
-        let len = n - delay;
-        if len < MIN_SAMPLES_FOR_DELAY { continue; }
-        
-        // Additional bounds check for safety
-        let safe_len = len.min(filtered.len().saturating_sub(delay)).min(unfiltered.len());
-        if safe_len < MIN_SAMPLES_FOR_DELAY { continue; }
-        
-        let mut sum_xy = 0.0f64;
-        let mut sum_x2 = 0.0f64;
-        let mut sum_y2 = 0.0f64;
-        let mut sum_x = 0.0f64;
-        let mut sum_y = 0.0f64;
-        for i in 0..safe_len {
-            // Explicit bounds checking (should always pass due to safe_len calculation)
-            if i + delay >= filtered.len() || i >= unfiltered.len() {
-                break;
-            }
-            let x = filtered[i + delay] as f64;
-            let y = unfiltered[i] as f64;
-            sum_xy += x * y;
-            sum_x2 += x * x;
-            sum_y2 += y * y;
-            sum_x += x;
-            sum_y += y;
-        }
-        let n_f = safe_len as f64;
-        let denominator = ((n_f * sum_x2 - sum_x * sum_x) * (n_f * sum_y2 - sum_y * sum_y)).sqrt();
-        if denominator > 1e-10 {
-            let correlation = (n_f * sum_xy - sum_x * sum_y) / denominator;
+        if let Some(correlation) = compute_pearson_corr_at_delay(filtered, unfiltered, delay) {
             if correlation > best_correlation {
                 best_correlation = correlation;
                 best_delay = delay;
@@ -334,36 +305,10 @@ fn calculate_filtering_delay_enhanced_xcorr(
     let mut best_correlation = f64::NEG_INFINITY;
     let mut best_delay = 0;
     for delay in 1..max_delay_samples {
-        if delay >= n { break; }
-        let len = n - delay;
-        if len < MIN_SAMPLES_FOR_DELAY { continue; }
-        
-        // Additional bounds check for safety
-        let safe_len = len.min(filtered.len().saturating_sub(delay)).min(unfiltered.len());
-        if safe_len < MIN_SAMPLES_FOR_DELAY { continue; }
-        
-        let mut sum_xy = 0.0f64;
-        let mut sum_x2 = 0.0f64;
-        let mut sum_y2 = 0.0f64;
-        let mut sum_x = 0.0f64;
-        let mut sum_y = 0.0f64;
-        for i in 0..safe_len {
-            // Explicit bounds checking (should always pass due to safe_len calculation)
-            if i + delay >= filtered.len() || i >= unfiltered.len() {
-                break;
-            }
-            let x = filtered[i + delay] as f64;
-            let y = unfiltered[i] as f64;
-            sum_xy += x * y;
-            sum_x2 += x * x;
-            sum_y2 += y * y;
-            sum_x += x;
-            sum_y += y;
+        if delay >= n { 
+            break; 
         }
-        let n_f = safe_len as f64;
-        let denominator = ((n_f * sum_x2 - sum_x * sum_x) * (n_f * sum_y2 - sum_y * sum_y)).sqrt();
-        if denominator > 1e-10 {
-            let correlation = (n_f * sum_xy - sum_x * sum_y) / denominator;
+        if let Some(correlation) = compute_pearson_corr_at_delay(filtered, unfiltered, delay) {
             correlations.push(correlation);
             if correlation > best_correlation {
                 best_correlation = correlation;
@@ -402,4 +347,57 @@ fn calculate_filtering_delay_enhanced_xcorr(
         confidence: (((best_correlation + 1.0) / 2.0) as f32).clamp(0.0, 1.0),
         frequency_hz: None,
     })
+}
+
+/// Helper function to compute Pearson correlation coefficient at a specific delay
+/// Returns None if the correlation cannot be computed (e.g., zero variance)
+fn compute_pearson_corr_at_delay(
+    filtered: &Array1<f32>,
+    unfiltered: &Array1<f32>,
+    delay: usize
+) -> Option<f64> {
+    let n = filtered.len();
+    if delay >= n {
+        return None;
+    }
+    
+    let len = n - delay;
+    if len < MIN_SAMPLES_FOR_DELAY {
+        return None;
+    }
+    
+    // Additional bounds check for safety
+    let safe_len = len.min(filtered.len().saturating_sub(delay)).min(unfiltered.len());
+    if safe_len < MIN_SAMPLES_FOR_DELAY {
+        return None;
+    }
+    
+    let mut sum_xy = 0.0f64;
+    let mut sum_x2 = 0.0f64;
+    let mut sum_y2 = 0.0f64;
+    let mut sum_x = 0.0f64;
+    let mut sum_y = 0.0f64;
+    
+    for i in 0..safe_len {
+        // Explicit bounds checking (should always pass due to safe_len calculation)
+        if i + delay >= filtered.len() || i >= unfiltered.len() {
+            break;
+        }
+        let x = filtered[i + delay] as f64;
+        let y = unfiltered[i] as f64;
+        sum_xy += x * y;
+        sum_x2 += x * x;
+        sum_y2 += y * y;
+        sum_x += x;
+        sum_y += y;
+    }
+    
+    let n_f = safe_len as f64;
+    let denominator = ((n_f * sum_x2 - sum_x * sum_x) * (n_f * sum_y2 - sum_y * sum_y)).sqrt();
+    
+    if denominator > 1e-10 {
+        Some((n_f * sum_xy - sum_x * sum_y) / denominator)
+    } else {
+        None
+    }
 }
