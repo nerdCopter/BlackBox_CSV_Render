@@ -65,7 +65,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 *   **Subsample Precision:** Uses parabolic interpolation around the peak correlation to achieve subsample delay accuracy, addressing precision limitations of basic sample-rate resolution.
 *   **Quality Control:** Requires correlation coefficients above configurable thresholds (`MIN_CORRELATION_THRESHOLD`, `FALLBACK_CORRELATION_THRESHOLD`) with fallback mechanisms for challenging signal conditions.
 *   **Error Handling:** Provides detailed error reporting (`DelayCalculationError`) for insufficient data, low correlation, and signal mismatches.
-*   **Precision Consistency:** Recent improvements ensure all correlation calculations use f64 precision, eliminating precision loss in fallback correlation paths.
+*   **Precision Consistency:** All correlation calculations use f64 precision throughout for maximum accuracy.
 
 ### Implementation Details
 *   **Data Validation:** Performs comprehensive data availability diagnostics across all axes before analysis.
@@ -73,21 +73,6 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 *   **Bounds Checking:** Comprehensive bounds checking with `saturating_sub()` and explicit runtime verification prevents array access violations. Limits maximum delay search range (`MAX_DELAY_FRACTION`, `MAX_DELAY_SAMPLES`) to prevent unrealistic results and ensures robust parabolic interpolation.
 *   **Configurable Thresholds:** All correlation thresholds and delay search parameters are defined as named constants in `src/constants.rs` for maintainability and tuning.
 *   **Display:** Results are shown in console output with confidence metrics (as percentages), and estimates are integrated into plot legends as "Delay: X.Xms(c:XX%)" for `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
-*   **Method Labeling:** Enhanced cross-correlation results are clearly labeled in plot legends to distinguish from basic correlation methods.
-
-### Implementation Features
-
-**Precision Design:**
-*   **Double-Precision Consistency:** All correlation calculations use f64 precision throughout for maximum accuracy.
-*   **Robust Error Handling:** Comprehensive bounds checking with runtime verification prevents array access violations.
-
-**Method Clarity:**
-*   **Clear Method Labeling:** Enhanced cross-correlation results are labeled as "Delay" in plot legends with confidence metrics (c:XX%).
-*   **Focused Implementation:** Uses a single, well-tested enhanced cross-correlation method with reliable fallback mechanisms.
-
-**Code Quality:**
-*   **Centralized Configuration:** All analysis parameters consolidated in `src/constants.rs` for easier maintenance and tuning.
-*   **Comprehensive Documentation:** Detailed inline documentation and extensive validation testing ensure reliability.
 
 **Comparison with Other Analysis Tools:**
 
@@ -95,8 +80,8 @@ This implementation provides detailed and configurable analysis of flight contro
 
 *   **Compared to PIDtoolbox/Matlab (`PTstepcalc.m`):**
     *   **Deconvolution Method:** Both use Wiener deconvolution with a regularization term.
-    *   **Windowing:** Rust uses Tukey (`TUKEY_ALPHA`) on input/output before FFT; Matlab uses Hann.
-    *   **Smoothing:** Rust has optional initial gyro smoothing (`INITIAL_GYRO_SMOOTHING_WINDOW`) and mandatory post-average smoothing (`POST_AVERAGING_SMOOTHING_WINDOW`). Matlab smooths raw gyro input upfront.
+    *   **Windowing:** This implementation uses Tukey (`TUKEY_ALPHA`) on input/output before FFT; Matlab uses Hann.
+    *   **Smoothing:** This implementation has optional initial gyro smoothing (`INITIAL_GYRO_SMOOTHING_WINDOW`) and mandatory post-average smoothing (`POST_AVERAGING_SMOOTHING_WINDOW`). Matlab smooths raw gyro input upfront.
     *   **Normalization/Y-Correction:**
         *   This implementation: Optional individual response Y-correction (normalize by own steady-state mean, `APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION`, `Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS`) followed by final normalization of the averaged response to target 1.0 (within `FINAL_NORMALIZED_STEADY_STATE_TOLERANCE`).
         *   Matlab: Optional Y-correction on individual responses by calculating an offset to make the mean 1.0.
