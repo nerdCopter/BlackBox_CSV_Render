@@ -71,6 +71,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 *   **Data Validation:** Performs comprehensive data availability diagnostics across all axes before analysis.
 *   **Averaging:** Individual axis delays are averaged to provide an overall system delay measurement when sufficient correlation is achieved.
 *   **Bounds Checking:** Comprehensive bounds checking with `saturating_sub()` and explicit runtime verification prevents array access violations. Limits maximum delay search range (`MAX_DELAY_FRACTION`, `MAX_DELAY_SAMPLES`) to prevent unrealistic results and ensures robust parabolic interpolation.
+*   **Confidence Value Clamping:** Confidence values are clamped to the valid range [0, 1] to handle numerical noise in correlation calculations that could cause values to slightly exceed 1.0.
 *   **Configurable Thresholds:** All correlation thresholds and delay search parameters are defined as named constants in `src/constants.rs` for maintainability and tuning.
 *   **Display:** Results are shown in console output with confidence metrics (as percentages), and estimates are integrated into plot legends as "Delay: X.Xms(c:XX%)" for `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
 

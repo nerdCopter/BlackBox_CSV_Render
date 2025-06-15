@@ -388,7 +388,7 @@ fn calculate_filtering_delay_enhanced_xcorr(
             return Some(DelayResult {
                 method: "Enhanced Cross-Correlation".to_string(),
                 delay_ms: (refined_delay / sample_rate as f32) * 1000.0,
-                confidence: ((best_correlation + 1.0) / 2.0) as f32,
+                confidence: (((best_correlation + 1.0) / 2.0) as f32).clamp(0.0, 1.0),
                 frequency_hz: None,
             });
         }
@@ -396,7 +396,7 @@ fn calculate_filtering_delay_enhanced_xcorr(
     Some(DelayResult {
         method: "Enhanced Cross-Correlation".to_string(),
         delay_ms: (best_delay as f32 / sample_rate as f32) * 1000.0,
-        confidence: ((best_correlation + 1.0) / 2.0) as f32,
+        confidence: (((best_correlation + 1.0) / 2.0) as f32).clamp(0.0, 1.0),
         frequency_hz: None,
     })
 }
