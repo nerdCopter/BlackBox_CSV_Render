@@ -61,7 +61,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 ### Enhanced Cross-Correlation Method
 *   **Algorithm:** For each axis (Roll, Pitch, Yaw), calculates normalized cross-correlation between filtered (`gyroADC`) and unfiltered (`gyroUnfilt`) gyro signals at different time delays.
 *   **Delay Detection:** Identifies the delay that produces the highest correlation coefficient and converts from samples to milliseconds using the sample rate.
-*   **Sub-Sample Precision:** Uses parabolic interpolation around the peak correlation to achieve sub-sample delay accuracy, addressing precision limitations of basic sample-rate resolution.
+*   **Sub-sample Precision:** Uses parabolic interpolation around the peak correlation to achieve sub-sample delay accuracy, addressing precision limitations of basic sample-rate resolution.
 *   **Quality Control:** Requires correlation coefficients above configurable thresholds (`MIN_CORRELATION_THRESHOLD`, `FALLBACK_CORRELATION_THRESHOLD`) with fallback mechanisms for challenging signal conditions.
 *   **Error Handling:** Provides detailed error reporting (`DelayCalculationError`) for insufficient data, low correlation, and signal mismatches.
 

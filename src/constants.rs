@@ -103,5 +103,6 @@ pub const MIN_CORRELATION_THRESHOLD: f32 = 0.3; // Minimum correlation for relia
 pub const FALLBACK_CORRELATION_THRESHOLD: f32 = 0.2; // Lower threshold for fallback
 pub const MAX_DELAY_FRACTION: usize = 10; // Search up to 1/10 of signal length
 pub const MAX_DELAY_SAMPLES: usize = 200; // Maximum delay samples to search
+pub const MIN_SAMPLES_FOR_DELAY: usize = 100; // Minimum samples required for delay analysis
 
 // src/constants.rs
