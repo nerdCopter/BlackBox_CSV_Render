@@ -98,4 +98,12 @@ pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
 pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
 pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
 
+// Filtering delay analysis thresholds and parameters
+#[allow(dead_code)] // Used in enhanced cross-correlation analysis
+pub const MIN_CORRELATION_THRESHOLD: f32 = 0.3; // Minimum correlation for reliable delay
+pub const FALLBACK_CORRELATION_THRESHOLD: f32 = 0.2; // Lower threshold for fallback
+pub const MAX_DELAY_FRACTION: usize = 10; // Search up to 1/10 of signal length
+pub const MAX_DELAY_SAMPLES: usize = 200; // Maximum delay samples to search
+pub const MIN_SAMPLES_FOR_DELAY: usize = 100; // Minimum samples required for delay analysis
+
 // src/constants.rs

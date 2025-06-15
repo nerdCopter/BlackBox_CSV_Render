@@ -14,6 +14,7 @@ use crate::constants::{
 };
 use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_analysis::calc_step_response; // For tukeywin
+use crate::data_analysis::filter_delay;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro spectrums.
 pub fn plot_gyro_spectrums(
@@ -29,6 +30,14 @@ pub fn plot_gyro_spectrums(
     } else {
         println!("\nINFO: Skipping Gyro Spectrum Plot: Sample rate could not be determined.");
         return Ok(());
+    };
+
+    // Calculate filtering delay using enhanced cross-correlation
+    let delay_analysis = filter_delay::calculate_average_filtering_delay_comparison(log_data, sr_value);
+    let delay_comparison_results = if !delay_analysis.results.is_empty() {
+        Some(delay_analysis.results)
+    } else {
+        None
     };
 
     let mut all_fft_raw_data: [Option<(Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>)>; 3] = Default::default();
@@ -260,7 +269,34 @@ pub fn plot_gyro_spectrums(
                 let filt_plot_series = vec![
                     PlotSeries {
                         data: filt_series_data,
-                        label: "Filtered Gyro".to_string(),
+                        label: if let Some(ref results) = delay_comparison_results {
+                            // Show comparison of both methods if available - NO AVERAGING
+                            let mut method_strings = Vec::new();
+                            for result in results.iter() {
+                                if let Some(freq) = result.frequency_hz {
+                                    method_strings.push(format!("{}: {:.1}ms@{:.0}Hz(c:{:.0}%)", 
+                                        match result.method.as_str() {
+                                            "Enhanced Cross-Correlation" => "Delay",
+                                            _ => "Unknown"
+                                        },
+                                        result.delay_ms, freq, result.confidence * 100.0));
+                                } else {
+                                    method_strings.push(format!("{}: {:.1}ms(c:{:.0}%)", 
+                                        match result.method.as_str() {
+                                            "Enhanced Cross-Correlation" => "Delay",
+                                            _ => "Unknown"
+                                        },
+                                        result.delay_ms, result.confidence * 100.0));
+                                }
+                            }
+                            if method_strings.is_empty() {
+                                "Filtered Gyro".to_string()
+                            } else {
+                                format!("Filtered Gyro - {}", method_strings.join(" vs "))
+                            }
+                        } else {
+                            "Filtered Gyro".to_string()
+                        },
                         color: *COLOR_GYRO_VS_UNFILT_FILT,
                         stroke_width: LINE_WIDTH_PLOT,
                     }

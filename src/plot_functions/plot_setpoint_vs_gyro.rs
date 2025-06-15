@@ -9,14 +9,33 @@ use crate::constants::{
     COLOR_SETPOINT_VS_GYRO_SP, COLOR_SETPOINT_VS_GYRO_GYRO,
     LINE_WIDTH_PLOT,
 };
+use crate::data_analysis::filter_delay;
+use crate::data_analysis::filter_delay::DelayAnalysisResult;
 
 /// Generates the Stacked Setpoint vs Gyro Plot (Orange, Blue)
 pub fn plot_setpoint_vs_gyro(
     log_data: &[LogRowData],
     root_name: &str,
+    sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_setpoint_gyro = format!("{}_SetpointVsGyro_stacked.png", root_name);
     let plot_type_name = "Setpoint/Gyro";
+
+    // Calculate filtering delay using enhanced cross-correlation
+    let delay_analysis = if let Some(sr) = sample_rate {
+        filter_delay::calculate_average_filtering_delay_comparison(log_data, sr)
+    } else {
+        DelayAnalysisResult {
+            average_delay: None,
+            results: Vec::new(),
+        }
+    };
+    
+    let delay_comparison_results = if !delay_analysis.results.is_empty() {
+        Some(delay_analysis.results)
+    } else {
+        None
+    };
 
     let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>)>; 3] = Default::default();
      for row in log_data {
@@ -75,9 +94,37 @@ pub fn plot_setpoint_vs_gyro(
 
             let mut series = Vec::new();
             if !gyro_series_data.is_empty() {
+                let gyro_label = if let Some(ref results) = delay_comparison_results {
+                    // Show comparison of both methods if available - NO AVERAGING
+                    let mut method_strings = Vec::new();
+                    for result in results.iter() {
+                        if let Some(freq) = result.frequency_hz {
+                            method_strings.push(format!("{}: {:.1}ms@{:.0}Hz(c:{:.0}%)", 
+                                match result.method.as_str() {
+                                    "Enhanced Cross-Correlation" => "Delay",
+                                    _ => "Unknown"
+                                },
+                                result.delay_ms, freq, result.confidence * 100.0));
+                        } else {
+                            method_strings.push(format!("{}: {:.1}ms(c:{:.0}%)", 
+                                match result.method.as_str() {
+                                    "Enhanced Cross-Correlation" => "Delay",
+                                    _ => "Unknown"
+                                },
+                                result.delay_ms, result.confidence * 100.0));
+                        }
+                    }
+                    if method_strings.is_empty() {
+                        "Gyro (gyroADC)".to_string()
+                    } else {
+                        format!("Gyro (gyroADC) - {}", method_strings.join(" vs "))
+                    }
+                } else {
+                    "Gyro (gyroADC)".to_string()
+                };
                  series.push(PlotSeries {
                      data: gyro_series_data,
-                     label: "Gyro (gyroADC)".to_string(),
+                     label: gyro_label,
                      color: color_gyro,
                      stroke_width: line_stroke_plot,
                  });
