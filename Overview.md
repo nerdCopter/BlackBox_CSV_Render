@@ -61,7 +61,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 ### Enhanced Cross-Correlation Method
 *   **Algorithm:** For each axis (Roll, Pitch, Yaw), calculates normalized cross-correlation between filtered (`gyroADC`) and unfiltered (`gyroUnfilt`) gyro signals at different time delays.
 *   **Delay Detection:** Identifies the delay that produces the highest correlation coefficient and converts from samples to milliseconds using the sample rate.
-*   **Sub-sample Precision:** Uses parabolic interpolation around the peak correlation to achieve sub-sample delay accuracy, addressing precision limitations of basic sample-rate resolution.
+*   **Subsample Precision:** Uses parabolic interpolation around the peak correlation to achieve subsample delay accuracy, addressing precision limitations of basic sample-rate resolution.
 *   **Quality Control:** Requires correlation coefficients above configurable thresholds (`MIN_CORRELATION_THRESHOLD`, `FALLBACK_CORRELATION_THRESHOLD`) with fallback mechanisms for challenging signal conditions.
 *   **Error Handling:** Provides detailed error reporting (`DelayCalculationError`) for insufficient data, low correlation, and signal mismatches.
 
@@ -75,7 +75,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 ### Function API Structure
 *   **`calculate_filtering_delay`:** Core single-axis delay calculation returning `Result<f32, DelayCalculationError>`
 *   **`calculate_average_filtering_delay`:** Multi-axis averaging returning `Option<f32>` with console output
-*   **`calculate_average_filtering_delay_comparison`:** Enhanced analysis returning `Option<(Option<f32>, Vec<DelayResult>)>` with detailed result structures and diagnostic information
+*   **`calculate_average_filtering_delay_comparison`:** Enhanced analysis returning `DelayAnalysisResult`.
 
 This delay measurement approach provides reliable identification of filtering phase lag characteristics in flight controller systems, with enhanced precision through interpolation techniques and robust error handling for various signal conditions. The implementation focuses on a single, well-tested cross-correlation method rather than experimental multi-method approaches.
 

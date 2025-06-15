@@ -10,7 +10,7 @@ use crate::constants::{
     LINE_WIDTH_PLOT,
 };
 use crate::data_analysis::filter_delay;
-use crate::data_analysis::filter_delay::DelayResult;
+use crate::data_analysis::filter_delay::DelayAnalysisResult;
 
 /// Generates the Stacked Gyro vs Unfiltered Gyro Plot (Purple, Orange)
 pub fn plot_gyro_vs_unfilt(
@@ -21,16 +21,21 @@ pub fn plot_gyro_vs_unfilt(
     let output_file_gyro = format!("{}_GyroVsUnfilt_stacked.png", root_name);
     let plot_type_name = "Gyro/UnfiltGyro";
 
-    // Calculate filtering delay using both methods for comparison
-    let (average_delay_ms, delay_comparison_results): (Option<f32>, Option<Vec<DelayResult>>) = if let Some(sr) = sample_rate {
-        if let Some((avg_delay, results)) = filter_delay::calculate_average_filtering_delay_comparison(log_data, sr) {
-            (avg_delay, Some(results))
-        } else {
-            // Fallback to original method
-            (filter_delay::calculate_average_filtering_delay(log_data, sr), None)
-        }
+    // Calculate filtering delay using enhanced cross-correlation
+    let delay_analysis = if let Some(sr) = sample_rate {
+        filter_delay::calculate_average_filtering_delay_comparison(log_data, sr)
     } else {
-        (None, None)
+        DelayAnalysisResult {
+            average_delay: None,
+            results: Vec::new(),
+        }
+    };
+    
+    let average_delay_ms = delay_analysis.average_delay;
+    let delay_comparison_results = if !delay_analysis.results.is_empty() {
+        Some(delay_analysis.results)
+    } else {
+        None
     };
 
     let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>)>; 3] = Default::default();

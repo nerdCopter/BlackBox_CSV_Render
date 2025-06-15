@@ -11,6 +11,7 @@ use std::fmt;
 #[allow(dead_code)] // Fields are used in Display implementation
 pub enum DelayCalculationError {
     InsufficientData { samples: usize, minimum: usize },
+    InvalidSampleRate { sample_rate: f64 },
     LowCorrelation { correlation: f32, threshold: f32 },
     SignalMismatch,
 }
@@ -20,6 +21,9 @@ impl fmt::Display for DelayCalculationError {
         match self {
             DelayCalculationError::InsufficientData { samples, minimum } => {
                 write!(f, "Insufficient data: {} samples available, minimum {} required", samples, minimum)
+            }
+            DelayCalculationError::InvalidSampleRate { sample_rate } => {
+                write!(f, "Invalid sample rate: {} (must be > 0.0)", sample_rate)
             }
             DelayCalculationError::LowCorrelation { correlation, threshold } => {
                 write!(f, "Low correlation: {:.3} below threshold {:.3}", correlation, threshold)
@@ -33,15 +37,15 @@ impl fmt::Display for DelayCalculationError {
 
 /// Calculate filtering delay using cross-correlation between filtered and unfiltered signals
 /// Returns delay in milliseconds, or a detailed error
+#[allow(dead_code)] // Kept for API compatibility but not currently used
 pub fn calculate_filtering_delay(
     filtered: &Array1<f32>,
     unfiltered: &Array1<f32>,
     sample_rate: f64
 ) -> Result<f32, DelayCalculationError> {
     if sample_rate <= 0.0 {
-        return Err(DelayCalculationError::InsufficientData {
-            samples: 0,
-            minimum: 1, // sentinel for invalid sample rate
+        return Err(DelayCalculationError::InvalidSampleRate {
+            sample_rate,
         });
     }
     if filtered.len() != unfiltered.len() {
@@ -57,11 +61,11 @@ pub fn calculate_filtering_delay(
     for delay in 1..max_delay_samples {
         if delay >= n { break; }
         let len = n - delay;
-        if len < MIN_SAMPLES_FOR_DELAY { break; }
+        if len < MIN_SAMPLES_FOR_DELAY { continue; }
         
         // Additional bounds check for safety
         let safe_len = len.min(filtered.len().saturating_sub(delay)).min(unfiltered.len());
-        if safe_len < MIN_SAMPLES_FOR_DELAY { break; }
+        if safe_len < MIN_SAMPLES_FOR_DELAY { continue; }
         
         let mut sum_xy = 0.0f64;
         let mut sum_x2 = 0.0f64;
@@ -128,6 +132,7 @@ pub fn calculate_filtering_delay(
 }
 
 /// Calculate average filtering delay across multiple axes
+#[allow(dead_code)] // Kept for API compatibility but not currently used
 pub fn calculate_average_filtering_delay(
     log_data: &[crate::data_input::log_data::LogRowData], 
     sample_rate: f64
@@ -173,12 +178,12 @@ pub fn calculate_average_filtering_delay(
     }
 }
 
-/// Calculate average filtering delay across multiple axes using dual-method comparison
-/// Returns None for average_delay (deprecated) and Vec<DelayResult> with separate method results
+/// Calculate average filtering delay across multiple axes using enhanced cross-correlation
+/// Returns DelayAnalysisResult with both average delay and detailed results
 pub fn calculate_average_filtering_delay_comparison(
     log_data: &[crate::data_input::log_data::LogRowData],
     sample_rate: f64
-) -> Option<(Option<f32>, Vec<DelayResult>)> {
+) -> DelayAnalysisResult {
     let axis_names = ["Roll", "Pitch", "Yaw"];
     let mut all_results: Vec<DelayResult> = Vec::new();
     
@@ -260,12 +265,21 @@ pub fn calculate_average_filtering_delay_comparison(
                 confidence: avg_confidence,
                 frequency_hz: None,
             });
-            Some((Some(avg_delay), method_summaries))
+            DelayAnalysisResult {
+                average_delay: Some(avg_delay),
+                results: method_summaries,
+            }
         } else {
-            Some((None, method_summaries))
+            DelayAnalysisResult {
+                average_delay: None,
+                results: method_summaries,
+            }
         }
     } else {
-        None
+        DelayAnalysisResult {
+            average_delay: None,
+            results: Vec::new(),
+        }
     }
 }
 
@@ -275,6 +289,12 @@ pub struct DelayResult {
     pub delay_ms: f32,
     pub confidence: f32,
     pub frequency_hz: Option<f32>, // Preserved for compatibility, typically None for cross-correlation
+}
+
+#[derive(Debug, Clone)]
+pub struct DelayAnalysisResult {
+    pub average_delay: Option<f32>,
+    pub results: Vec<DelayResult>,
 }
 
 /// Calculate filtering delay using enhanced cross-correlation method only
@@ -313,11 +333,11 @@ fn calculate_filtering_delay_enhanced_xcorr(
     for delay in 1..max_delay_samples {
         if delay >= n { break; }
         let len = n - delay;
-        if len < MIN_SAMPLES_FOR_DELAY { break; }
+        if len < MIN_SAMPLES_FOR_DELAY { continue; }
         
         // Additional bounds check for safety
         let safe_len = len.min(filtered.len().saturating_sub(delay)).min(unfiltered.len());
-        if safe_len < MIN_SAMPLES_FOR_DELAY { break; }
+        if safe_len < MIN_SAMPLES_FOR_DELAY { continue; }
         
         let mut sum_xy = 0.0f64;
         let mut sum_x2 = 0.0f64;

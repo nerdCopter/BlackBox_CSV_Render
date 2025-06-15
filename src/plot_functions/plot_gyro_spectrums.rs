@@ -15,7 +15,6 @@ use crate::constants::{
 use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::filter_delay;
-use crate::data_analysis::filter_delay::DelayResult;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro spectrums.
 pub fn plot_gyro_spectrums(
@@ -33,12 +32,12 @@ pub fn plot_gyro_spectrums(
         return Ok(());
     };
 
-    // Calculate filtering delay using both methods for comparison
-    let (_average_delay_ms, delay_comparison_results): (Option<f32>, Option<Vec<DelayResult>>) = if let Some((avg_delay, results)) = filter_delay::calculate_average_filtering_delay_comparison(log_data, sr_value) {
-        (avg_delay, Some(results))
+    // Calculate filtering delay using enhanced cross-correlation
+    let delay_analysis = filter_delay::calculate_average_filtering_delay_comparison(log_data, sr_value);
+    let delay_comparison_results = if !delay_analysis.results.is_empty() {
+        Some(delay_analysis.results)
     } else {
-        // Fallback to original method
-        (filter_delay::calculate_average_filtering_delay(log_data, sr_value), None)
+        None
     };
 
     let mut all_fft_raw_data: [Option<(Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>, Vec<(f64, f64)>)>; 3] = Default::default();
