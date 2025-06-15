@@ -104,7 +104,7 @@ pub fn calculate_filtering_delay(
         for delay in 1..((n/20).min(50)) {
             if delay >= n { break; }
             let len = n - delay;
-            if len < 50 { break; }
+            if len < 50 { continue; }
             let mut correlation_sum = 0.0f64;
             let mut filtered_norm = 0.0f64;
             let mut unfiltered_norm = 0.0f64;
