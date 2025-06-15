@@ -100,7 +100,7 @@ pub fn calculate_filtering_delay(
     } else {
         // Fallback
         let mut fallback_delay = 0;
-        let mut fallback_correlation = 0.0f64;
+        let mut fallback_correlation = f64::NEG_INFINITY;
         for delay in 1..((n/20).min(50)) {
             if delay >= n { break; }
             let len = n - delay;
@@ -327,7 +327,7 @@ fn calculate_filtering_delay_enhanced_xcorr(
     }
     let n = filtered.len();
     let max_delay_samples = (n / MAX_DELAY_FRACTION).min(MAX_DELAY_SAMPLES);
-    let mut correlations = Vec::with_capacity(max_delay_samples);
+    let mut correlations: Vec<f64> = Vec::with_capacity(max_delay_samples);
     let mut best_correlation = f64::NEG_INFINITY;
     let mut best_delay = 0;
     for delay in 1..max_delay_samples {
@@ -361,7 +361,7 @@ fn calculate_filtering_delay_enhanced_xcorr(
         let denominator = ((n_f * sum_x2 - sum_x * sum_x) * (n_f * sum_y2 - sum_y * sum_y)).sqrt();
         if denominator > 1e-10 {
             let correlation = (n_f * sum_xy - sum_x * sum_y) / denominator;
-            correlations.push(correlation as f32);
+            correlations.push(correlation);
             if correlation > best_correlation {
                 best_correlation = correlation;
                 best_delay = delay;
@@ -376,9 +376,9 @@ fn calculate_filtering_delay_enhanced_xcorr(
     // Parabolic interpolation bounds check fix
     let idx = best_delay - 1; // map delay→index (delay 1 → index 0)
     if idx > 0 && idx < correlations.len() - 1 {
-        let y1 = correlations[idx - 1];
-        let y2 = correlations[idx];
-        let y3 = correlations[idx + 1];
+        let y1 = correlations[idx - 1] as f32;
+        let y2 = correlations[idx] as f32;
+        let y3 = correlations[idx + 1] as f32;
         let a = (y1 - 2.0 * y2 + y3) / 2.0;
         let b = (y3 - y1) / 2.0;
         if a.abs() > 1e-10 {
