@@ -72,10 +72,10 @@ pub fn calculate_filtering_delay(
         // Fallback
         let mut fallback_delay = 0;
         let mut fallback_correlation = f64::NEG_INFINITY;
-        for delay in 1..((n/20).min(50)) {
+        for delay in 1..((n/MAX_DELAY_FRACTION).min(MIN_SAMPLES_FOR_DELAY)) {
             if delay >= n { break; }
             let len = n - delay;
-            if len < 50 { continue; }
+            if len < MIN_SAMPLES_FOR_DELAY { continue; }
             let mut correlation_sum = 0.0f64;
             let mut filtered_norm = 0.0f64;
             let mut unfiltered_norm = 0.0f64;
