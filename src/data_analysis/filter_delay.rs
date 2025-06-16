@@ -67,7 +67,7 @@ pub fn calculate_filtering_delay(
         }
     }
     if best_correlation > MIN_CORRELATION_THRESHOLD as f64 && best_delay > 0 {
-        Ok((best_delay as f32 / sample_rate as f32) * 1000.0)
+        Ok(((best_delay as f64 / sample_rate) * 1000.0) as f32)
     } else {
         // Fallback
         let mut fallback_delay = 0;
@@ -95,15 +95,15 @@ pub fn calculate_filtering_delay(
             }
         }
         if fallback_correlation > FALLBACK_CORRELATION_THRESHOLD as f64 && fallback_delay > 0 {
-            Ok((fallback_delay as f32 / sample_rate as f32) * 1000.0)
+            Ok(((fallback_delay as f64 / sample_rate) * 1000.0) as f32)
         } else {
-            // Check if best_correlation is NEG_INFINITY and replace with a meaningful default
-            let reported_correlation = if best_correlation == f64::NEG_INFINITY {
-                0.0 // Use 0.0 as default when no correlation could be calculated
-            } else {
-                best_correlation
-            };
-            Err(DelayCalculationError::LowCorrelation { correlation: reported_correlation as f32, threshold: MIN_CORRELATION_THRESHOLD })
+            let reported = fallback_correlation
+                .max(best_correlation)   // take the highest finite value
+                .clamp(-1.0, 1.0);       // keep it in a sane range
+            Err(DelayCalculationError::LowCorrelation {
+                correlation: reported as f32,
+                threshold: MIN_CORRELATION_THRESHOLD,
+            })
         }
     }
 }
@@ -341,7 +341,7 @@ fn calculate_filtering_delay_enhanced_xcorr(
             let refined_delay = best_delay as f32 + clamped_offset;
             return Some(DelayResult {
                 method: "Enhanced Cross-Correlation".to_string(),
-                delay_ms: (refined_delay / sample_rate as f32) * 1000.0,
+                delay_ms: ((refined_delay as f64 / sample_rate) * 1000.0) as f32,
                 confidence: (((best_correlation + 1.0) / 2.0) as f32).clamp(0.0, 1.0),
                 frequency_hz: None,
             });
@@ -349,7 +349,7 @@ fn calculate_filtering_delay_enhanced_xcorr(
     }
     Some(DelayResult {
         method: "Enhanced Cross-Correlation".to_string(),
-        delay_ms: (best_delay as f32 / sample_rate as f32) * 1000.0,
+        delay_ms: ((best_delay as f64 / sample_rate) * 1000.0) as f32,
         confidence: (((best_correlation + 1.0) / 2.0) as f32).clamp(0.0, 1.0),
         frequency_hz: None,
     })
@@ -385,10 +385,6 @@ fn compute_pearson_corr_at_delay(
     let mut sum_y = 0.0f64;
     
     for i in 0..safe_len {
-        // Explicit bounds checking (should always pass due to safe_len calculation)
-        if i + delay >= filtered.len() || i >= unfiltered.len() {
-            break;
-        }
         let x = filtered[i + delay] as f64;
         let y = unfiltered[i] as f64;
         sum_xy += x * y;
