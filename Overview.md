@@ -75,7 +75,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 *   **Configurable Thresholds:** All correlation thresholds and delay search parameters are defined as named constants in `src/constants.rs` for maintainability and tuning.
 *   **Display:** Results are shown in console output with confidence metrics (as percentages), and estimates are integrated into plot legends as "Delay: X.Xms(c:XX%)" for `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
 
-**Comparison with Other Analysis Tools:**
+**Step-Response Comparison with Other Analysis Tools:**
 
 This implementation provides detailed and configurable analysis of flight controller performance. The modular design and centralized configuration system make it adaptable for various analysis requirements.
 
