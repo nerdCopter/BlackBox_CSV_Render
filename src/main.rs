@@ -224,8 +224,8 @@ INFO ({}): Skipping Step Response input data filtering: {}.", input_file_str, re
     }
     
     plot_pidsum_error_setpoint(&all_log_data, &full_output_root)?;
-    plot_setpoint_vs_gyro(&all_log_data, &full_output_root)?;
-    plot_gyro_vs_unfilt(&all_log_data, &full_output_root)?;
+    plot_setpoint_vs_gyro(&all_log_data, &full_output_root, sample_rate)?;
+    plot_gyro_vs_unfilt(&all_log_data, &full_output_root, sample_rate)?;
     plot_step_response(&step_response_calculation_results, &full_output_root, sample_rate, &has_nonzero_f_term_data, setpoint_threshold, show_legend)?;
     plot_gyro_spectrums(&all_log_data, &full_output_root, sample_rate)?;
     plot_psd(&all_log_data, &full_output_root, sample_rate)?;

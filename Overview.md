@@ -9,6 +9,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 1.  **Argument Parsing (`src/main.rs`):**
     *   Parses command-line arguments: input CSV file(s), an optional `--dps` flag (for detailed step response plots with an optional threshold determining low/high split), and an optional `--out-dir` for specifying the output directory.
+    *   Additional options include `--help` and `--version` for user assistance.
     *   Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
 
 2.  **File Processing (`src/main.rs:process_file`):**
@@ -50,38 +51,56 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
             *   **Other plots generated (`src/plot_functions/`):**
                 *   `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.
                 *   `plot_setpoint_vs_gyro`: Setpoint and filtered gyro time-domain comparison for each axis.
-                *   `plot_gyro_vs_unfilt`: Filtered vs. unfiltered gyro time-domain comparison for each axis.
-                *   `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with peak detection and labeling with configurable thresholds.
-                *   `plot_psd`: Power Spectral Density plots in dB scale with peak labeling.
+                *   `plot_gyro_vs_unfilt`: Filtered vs. unfiltered gyro time-domain comparison for each axis. Includes enhanced cross-correlation filtering delay calculation.
+                *   `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with peak detection and labeling with configurable thresholds. Includes enhanced cross-correlation filtering delay calculation.
+                *   `plot_psd`: Power Spectral Density plots in dB scale with peak labeling. Includes enhanced cross-correlation filtering delay calculation.
                 *   `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap.
                 *   `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
 
-**Step Response Differences from Other Tools:**
+**Filtering Delay Calculation (`src/data_analysis/filter_delay.rs`):**
 
-**System Identification Approach:**
-The approach used by all three implementations (Rust, PIDtoolbox/Matlab, PlasmaTree/Python) is described in detail in the "Step Response Calculation" section. In summary, they employ **non-parametric system identification** via Wiener deconvolution to extract the system's impulse response, which is then converted to step response via integration.
+### Enhanced Cross-Correlation Method (Primary Implementation)
+*   **Algorithm:** For each axis (Roll, Pitch, Yaw), calculates normalized cross-correlation between filtered (`gyroADC`) and unfiltered (`gyroUnfilt`) gyro signals at different time delays using double-precision (f64) arithmetic throughout.
+*   **Delay Detection:** Identifies the delay that produces the highest correlation coefficient and converts from samples to milliseconds using the sample rate.
+*   **Subsample Precision:** Uses parabolic interpolation around the peak correlation to achieve subsample delay accuracy, addressing precision limitations of basic sample-rate resolution.
+*   **Quality Control:** Requires correlation coefficients above configurable thresholds (`MIN_CORRELATION_THRESHOLD`, `FALLBACK_CORRELATION_THRESHOLD`) with fallback mechanisms for challenging signal conditions.
+*   **Error Handling:** Provides detailed error reporting (`DelayCalculationError`) for insufficient data, low correlation, and signal mismatches.
+*   **Precision Consistency:** All correlation calculations use f64 precision throughout for maximum accuracy.
 
-*   **Compared to `PTstepcalc.m` (PIDtoolbox/Matlab):**
+### Implementation Details
+*   **Data Validation:** Performs comprehensive data availability diagnostics across all axes before analysis.
+*   **Averaging:** Individual axis delays are averaged to provide an overall system delay measurement when sufficient correlation is achieved.
+*   **Bounds Checking:** Comprehensive bounds checking with `saturating_sub()` and explicit runtime verification prevents array access violations. Limits maximum delay search range (`MAX_DELAY_FRACTION`, `MAX_DELAY_SAMPLES`) to prevent unrealistic results and ensures robust parabolic interpolation.
+*   **Confidence Value Clamping:** Confidence values are clamped to the valid range [0, 1] to handle numerical noise in correlation calculations that could cause values to slightly exceed 1.0.
+*   **Configurable Thresholds:** All correlation thresholds and delay search parameters are defined as named constants in `src/constants.rs` for maintainability and tuning.
+*   **Display:** Results are shown in console output with confidence metrics (as percentages), and estimates are integrated into plot legends as "Delay: X.Xms(c:XX%)" for `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
+
+**Step-Response Comparison with Other Analysis Tools:**
+
+This implementation provides detailed and configurable analysis of flight controller performance. The modular design and centralized configuration system make it adaptable for various analysis requirements.
+
+*   **Compared to PIDtoolbox/Matlab (`PTstepcalc.m`):**
     *   **Deconvolution Method:** Both use Wiener deconvolution with a regularization term.
-    *   **Windowing:** Rust uses Tukey (`TUKEY_ALPHA`) on input/output before FFT; Matlab uses Hann.
-    *   **Smoothing:** Rust has optional initial gyro smoothing (`INITIAL_GYRO_SMOOTHING_WINDOW`) and mandatory post-average smoothing (`POST_AVERAGING_SMOOTHING_WINDOW`). Matlab smooths raw gyro input upfront.
+    *   **Windowing:** This implementation uses Tukey (`TUKEY_ALPHA`) on input/output before FFT; Matlab uses Hann.
+    *   **Smoothing:** This implementation has optional initial gyro smoothing (`INITIAL_GYRO_SMOOTHING_WINDOW`) and mandatory post-average smoothing (`POST_AVERAGING_SMOOTHING_WINDOW`). Matlab smooths raw gyro input upfront.
     *   **Normalization/Y-Correction:**
-        *   Rust: Optional individual response Y-correction (normalize by own steady-state mean, `APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION`, `Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS`) *then* a final normalization of the *averaged* response to target 1.0 (within `FINAL_NORMALIZED_STEADY_STATE_TOLERANCE`).
+        *   This implementation: Optional individual response Y-correction (normalize by own steady-state mean, `APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION`, `Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS`) followed by final normalization of the averaged response to target 1.0 (within `FINAL_NORMALIZED_STEADY_STATE_TOLERANCE`).
         *   Matlab: Optional Y-correction on individual responses by calculating an offset to make the mean 1.0.
-    *   **Quality Control (QC):** Both apply QC to individual responses based on steady-state characteristics. Rust uses `NORMALIZED_STEADY_STATE_MIN_VAL`, `NORMALIZED_STEADY_STATE_MAX_VAL`, and optionally `NORMALIZED_STEADY_STATE_MEAN_MIN`, `NORMALIZED_STEADY_STATE_MEAN_MAX`. Matlab uses `min(steadyStateResp) > 0.5 && max(steadyStateResp) < 3`.
-    *   **Output:** Rust can plot low/high/combined responses based on `setpoint_threshold` if `--dps` is used. Matlab stacks all valid responses.
+    *   **Quality Control (QC):** Both apply QC to individual responses based on steady-state characteristics. This implementation uses `NORMALIZED_STEADY_STATE_MIN_VAL`, `NORMALIZED_STEADY_STATE_MAX_VAL`, and optionally `NORMALIZED_STEADY_STATE_MEAN_MIN`, `NORMALIZED_STEADY_STATE_MEAN_MAX`. Matlab uses `min(steadyStateResp) > 0.5 && max(steadyStateResp) < 3`.
+    *   **Output:** This implementation can plot low/high/combined responses based on `setpoint_threshold` if `--dps` is used. Matlab stacks all valid responses.
 
-*   **Compared to `PID-Analyzer.py` (PlasmaTree/Python):**
-    *   **Deconvolution Method:** PlasmaTree also uses Wiener deconvolution (`Trace.wiener_deconvolution`). It includes a signal-to-noise ratio (`sn`) term in the denominator, which is derived from a `cutfreq` parameter and smoothed, effectively acting as a frequency-dependent regularization. The Rust version uses a simpler constant regularization term (`0.0001`).
-    *   **Windowing:** PlasmaTree uses a Hanning window (`np.hanning`) by default (or Tukey via `Trace.tukeywin` with `Trace.tuk_alpha`) applied to input and output segments before deconvolution. Rust uses a Tukey window.
-    *   **Input for Deconvolution:** PlasmaTree calculates an `input` signal by `pid_in(data['p_err'], data['gyro'], data['P'])` which attempts to reconstruct the setpoint as seen by the PID loop. The Rust version directly uses the logged setpoint values.
-    *   **Smoothing:** PlasmaTree does not explicitly mention an initial gyro smoothing step like Rust's `INITIAL_GYRO_SMOOTHING_WINDOW`. For the final averaged response, PlasmaTree's `weighted_mode_avr` uses a 2D histogram and Gaussian smoothing (`gaussian_filter1d`) on this histogram to find the "mode" response, which is different from Rust's direct moving average on the time-domain averaged response.
+*   **Compared to PlasmaTree/Python (`PID-Analyzer.py`):**
+    *   **Deconvolution Method:** PlasmaTree also uses Wiener deconvolution with a signal-to-noise ratio (`sn`) term in the denominator, derived from a `cutfreq` parameter and smoothed, effectively acting as frequency-dependent regularization. This implementation uses a simpler constant regularization term (`0.0001`).
+    *   **Windowing:** PlasmaTree uses a Hanning window by default (or Tukey) applied to input and output segments before deconvolution. This implementation uses a Tukey window.
+    *   **Input for Deconvolution:** PlasmaTree calculates an `input` signal by reconstructing the setpoint as seen by the PID loop. This implementation directly uses the logged setpoint values.
+    *   **Smoothing:** PlasmaTree does not include initial gyro smoothing like this implementation's `INITIAL_GYRO_SMOOTHING_WINDOW`. For the final averaged response, PlasmaTree uses a 2D histogram and Gaussian smoothing to find the "mode" response, different from this implementation's direct moving average on the time-domain averaged response.
     *   **Normalization/Y-Correction:**
-        *   PlasmaTree's `stack_response` calculates `delta_resp` (step responses) by cumulative sum of deconvolved impulse responses. There isn't an explicit "Y-correction" step for individual responses in the same way Rust or PIDtoolbox does (i.e., normalizing each to its own steady-state mean of 1). The `weighted_mode_avr` function, which produces `resp_low` and `resp_high`, aims to find the most common trace shape from a collection of responses, which inherently handles variations. The resulting averaged traces are plotted as they are, typically ranging from 0 to some peak value.
-    *   **Quality Control (QC):** PlasmaTree has a `resp_quality` metric calculated based on the deviation of individual responses from an initial average. It also uses a `toolow_mask` (based on input magnitude `max_in < 20`) to discard responses from very low inputs. These are used as weights or masks in `thr_response` and `weighted_mode_avr`. This is different from Rust's direct steady-state value checks.
+        *   This implementation: Individual responses can be normalized to their steady-state mean, followed by final normalization of the averaged response.
+        *   PlasmaTree: Uses `weighted_mode_avr` to find the most common trace shape from response collections, which inherently handles variations without explicit Y-correction.
+    *   **Quality Control (QC):** PlasmaTree has a `resp_quality` metric based on deviation from initial average and uses a `toolow_mask` for low input responses. This implementation uses direct steady-state value checks.
     *   **Averaging:**
-        *   Rust: `average_responses` performs a weighted average of QC'd responses.
-        *   PlasmaTree: `weighted_mode_avr` uses a 2D histogram of all response traces over time vs. amplitude, smooths this histogram, and then calculates a weighted average based on the smoothed histogram's "mode" to determine the final average step response. This is a more complex way to find a representative trace.
-    *   **Output:** Both can plot low and high input responses based on a threshold (`Trace.threshold` in PlasmaTree, `setpoint_threshold` in Rust).
+        *   This implementation: `average_responses` performs weighted average of QC'd responses.
+        *   PlasmaTree: `weighted_mode_avr` uses 2D histogram analysis to determine representative traces.
+    *   **Output:** Both can plot low and high input responses based on configurable thresholds.
 
-In summary, this Rust implementation offers a detailed and configurable analysis pipeline for flight controller performance evaluation. It draws conceptual parallels with existing tools but provides its own specific algorithms and parameterization. The modular design and centralized configuration system make it adaptable for various analysis requirements. PlasmaTree's approach is also sophisticated, particularly in its use of histogram-based averaging for the final step response.
+This Rust implementation offers a comprehensive and configurable analysis pipeline for flight controller performance evaluation with sophisticated signal processing techniques and detailed visualization capabilities.
