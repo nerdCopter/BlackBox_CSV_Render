@@ -43,7 +43,7 @@ pub fn calculate_filtering_delay(
     unfiltered: &Array1<f32>,
     sample_rate: f64
 ) -> Result<f32, DelayCalculationError> {
-    if sample_rate <= 0.0 {
+    if !sample_rate.is_finite() || sample_rate <= 0.0 {
         return Err(DelayCalculationError::InvalidSampleRate {
             sample_rate,
         });
@@ -58,7 +58,7 @@ pub fn calculate_filtering_delay(
     let max_delay_samples = (n / MAX_DELAY_FRACTION).min(MAX_DELAY_SAMPLES);
     let mut best_correlation = f64::NEG_INFINITY;
     let mut best_delay = 0;
-    for delay in 1..max_delay_samples {
+    for delay in 1..=max_delay_samples {
         if let Some(correlation) = compute_pearson_corr_at_delay(filtered, unfiltered, delay) {
             if correlation > best_correlation {
                 best_correlation = correlation;
@@ -336,12 +336,11 @@ fn calculate_filtering_delay_enhanced_xcorr(
         let a = (y1 - 2.0 * y2 + y3) / 2.0;
         let b = (y3 - y1) / 2.0;
         if a.abs() > 1e-10 {
-            let sub_sample_offset = -b / (2.0 * a);
-            let clamped_offset = sub_sample_offset.clamp(-0.5, 0.5);
-            let refined_delay = best_delay as f32 + clamped_offset;
+            let sub_sample_offset = -(b as f64) / (2.0 * a as f64);
+            let refined_delay = best_delay as f64 + sub_sample_offset.clamp(-0.5, 0.5);
             return Some(DelayResult {
                 method: "Enhanced Cross-Correlation".to_string(),
-                delay_ms: ((refined_delay as f64 / sample_rate) * 1000.0) as f32,
+                delay_ms: ((refined_delay / sample_rate) * 1000.0) as f32,
                 confidence: (((best_correlation + 1.0) / 2.0) as f32).clamp(0.0, 1.0),
                 frequency_hz: None,
             });
