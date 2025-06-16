@@ -97,7 +97,13 @@ pub fn calculate_filtering_delay(
         if fallback_correlation > FALLBACK_CORRELATION_THRESHOLD as f64 && fallback_delay > 0 {
             Ok((fallback_delay as f32 / sample_rate as f32) * 1000.0)
         } else {
-            Err(DelayCalculationError::LowCorrelation { correlation: best_correlation as f32, threshold: MIN_CORRELATION_THRESHOLD })
+            // Check if best_correlation is NEG_INFINITY and replace with a meaningful default
+            let reported_correlation = if best_correlation == f64::NEG_INFINITY {
+                0.0 // Use 0.0 as default when no correlation could be calculated
+            } else {
+                best_correlation
+            };
+            Err(DelayCalculationError::LowCorrelation { correlation: reported_correlation as f32, threshold: MIN_CORRELATION_THRESHOLD })
         }
     }
 }
