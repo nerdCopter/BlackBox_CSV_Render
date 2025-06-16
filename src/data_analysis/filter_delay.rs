@@ -394,10 +394,15 @@ fn compute_pearson_corr_at_delay(
     }
     
     let n_f = safe_len as f64;
-    let denominator = ((n_f * sum_x2 - sum_x * sum_x) * (n_f * sum_y2 - sum_y * sum_y)).sqrt();
+    let radicand = (n_f * sum_x2 - sum_x * sum_x) * (n_f * sum_y2 - sum_y * sum_y);
     
-    if denominator > 1e-10 {
-        Some((n_f * sum_xy - sum_x * sum_y) / denominator)
+    if radicand > 0.0 {
+        let denominator = radicand.sqrt();
+        if denominator > 1e-10 {
+            Some((n_f * sum_xy - sum_x * sum_y) / denominator)
+        } else {
+            None
+        }
     } else {
         None
     }
