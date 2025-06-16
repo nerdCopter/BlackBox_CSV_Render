@@ -299,7 +299,7 @@ fn calculate_filtering_delay_enhanced_xcorr(
     unfiltered: &Array1<f32>, 
     sample_rate: f64
 ) -> Option<DelayResult> {
-    if sample_rate <= 0.0 {
+    if !sample_rate.is_finite() || sample_rate <= 0.0 {
         return None;
     }
     if filtered.len() != unfiltered.len() || filtered.len() < MIN_SAMPLES_FOR_DELAY {
