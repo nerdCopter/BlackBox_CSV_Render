@@ -214,23 +214,27 @@ INFO ({}): Skipping Step Response input data filtering: {}.", input_file_str, re
     // --- Generate Plots ---
     println!("Generating plots for {} (root name: {})...", input_file_str, root_name_string);
     
-    // Create the final root name with output directory path if provided
-    let output_path = output_dir.map(PathBuf::from).unwrap_or_else(|| PathBuf::new()).join(&root_name_string);
-    let full_output_root = output_path.to_string_lossy().to_string();
-    
+    // Set the current working directory to the output directory if specified
+    let original_dir = std::env::current_dir()?;
     if let Some(output_dir) = output_dir {
         // Ensure output directory exists
         std::fs::create_dir_all(output_dir)?;
+        // Change to output directory for plot generation
+        std::env::set_current_dir(output_dir)?;
     }
     
-    plot_pidsum_error_setpoint(&all_log_data, &full_output_root)?;
-    plot_setpoint_vs_gyro(&all_log_data, &full_output_root, sample_rate)?;
-    plot_gyro_vs_unfilt(&all_log_data, &full_output_root, sample_rate)?;
-    plot_step_response(&step_response_calculation_results, &full_output_root, sample_rate, &has_nonzero_f_term_data, setpoint_threshold, show_legend)?;
-    plot_gyro_spectrums(&all_log_data, &full_output_root, sample_rate)?;
-    plot_psd(&all_log_data, &full_output_root, sample_rate)?;
-    plot_psd_db_heatmap(&all_log_data, &full_output_root, sample_rate)?;
-    plot_throttle_freq_heatmap(&all_log_data, &full_output_root, sample_rate)?;
+    // Use only the root filename (without path) for PNG output
+    plot_pidsum_error_setpoint(&all_log_data, &root_name_string)?;
+    plot_setpoint_vs_gyro(&all_log_data, &root_name_string, sample_rate)?;
+    plot_gyro_vs_unfilt(&all_log_data, &root_name_string, sample_rate)?;
+    plot_step_response(&step_response_calculation_results, &root_name_string, sample_rate, &has_nonzero_f_term_data, setpoint_threshold, show_legend)?;
+    plot_gyro_spectrums(&all_log_data, &root_name_string, sample_rate)?;
+    plot_psd(&all_log_data, &root_name_string, sample_rate)?;
+    plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+    plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+
+    // Restore original working directory
+    std::env::set_current_dir(&original_dir)?;
 
     println!("--- Finished processing file: {} ---", input_file_str);
     Ok(())
