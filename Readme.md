@@ -19,9 +19,8 @@ Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps [<
                    If <value> (deg/s threshold) is provided, it's used.
                    If <value> is omitted, defaults to 500.
                    If --dps is omitted, a general step-response is shown.
-  --out-dir [<directory>]: Optional. Specifies the output directory for generated plots.
-                           If omitted, plots are saved in the current directory.
-                           If specified without a directory, plots are saved in the input file's directory.
+  --out-dir <directory>: Optional. Specifies the output directory for generated plots.
+                         If omitted, plots are saved in the source folder (input file's directory).
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.
 ```
@@ -37,7 +36,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 ```
 
 ### Output
-- PNG files are generated in the current directory, unless specified by the `--out-dir` parameter.
+- PNG files are generated in the source folder (input file's directory), unless specified by the `--out-dir` parameter.
 
 ### Code Overview
 
