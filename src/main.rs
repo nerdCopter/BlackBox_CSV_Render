@@ -33,12 +33,11 @@ use crate::data_analysis::calc_step_response;
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("
-Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]] [--out-dir <directory>]", program_name);
+Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--out-dir <directory>]", program_name);
     eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
-    eprintln!("  --dps [<value>]: Optional. Enables detailed step response plots.");
-    eprintln!("                   If <value> (deg/s threshold) is provided, it's used.");
-    eprintln!("                   If <value> is omitted, defaults to {}.", DEFAULT_SETPOINT_THRESHOLD);
-    eprintln!("                   If --dps is omitted, a general step-response is shown.");
+    eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
+    eprintln!("                 deg/s threshold value. Must be a positive number.");
+    eprintln!("                 If --dps is omitted, a general step-response is shown.");
     eprintln!("  --out-dir <directory>: Optional. Specifies the output directory for generated plots.");
     eprintln!("                         If omitted, plots are saved in the source folder (input file's directory).");
     eprintln!("  --help: Show this help message and exit.");
@@ -266,21 +265,23 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("Error: --dps argument specified more than once.");
                 print_usage_and_exit(program_name);
             }
+            if i + 1 >= args.len() || args[i + 1].starts_with("--") {
+                eprintln!("Error: --dps requires a numeric value (deg/s threshold).");
+                print_usage_and_exit(program_name);
+            }
             dps_flag_present = true;
-            if i + 1 < args.len() && !args[i + 1].starts_with("--") {
-                match args[i + 1].parse::<f64>() {
-                    Ok(val) => {
-                        if val < 0.0 {
-                            eprintln!("Error: --dps threshold cannot be negative: {}", val);
-                            print_usage_and_exit(program_name);
-                        }
-                        setpoint_threshold_override = Some(val);
-                        i += 1; 
-                    }
-                    Err(_) => {
-                        eprintln!("Error: Invalid numeric value for --dps: {}", args[i + 1]);
+            match args[i + 1].parse::<f64>() {
+                Ok(val) => {
+                    if val < 0.0 {
+                        eprintln!("Error: --dps threshold cannot be negative: {}", val);
                         print_usage_and_exit(program_name);
                     }
+                    setpoint_threshold_override = Some(val);
+                    i += 1; 
+                }
+                Err(_) => {
+                    eprintln!("Error: Invalid numeric value for --dps: {}", args[i + 1]);
+                    print_usage_and_exit(program_name);
                 }
             }
         } else if arg == "--out-dir" {
