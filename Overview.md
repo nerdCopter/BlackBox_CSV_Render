@@ -8,7 +8,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 **Core Functionality:**
 
 1.  **Argument Parsing (`src/main.rs`):**
-    *   Parses command-line arguments: input CSV file(s), an optional `--dps` flag (for detailed step response plots with an optional threshold determining low/high split), and an optional `--out-dir` for specifying the output directory.
+    *   Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), and an optional `--out-dir` for specifying the output directory.
     *   Additional options include `--help` and `--version` for user assistance.
     *   The `--out-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     *   Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
@@ -39,7 +39,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     3.  A 1D array (`valid_window_max_setpoints`) of the maximum setpoint values for each corresponding valid window.
         *   **Plot Generation (various functions in `src/plot_functions/`):**
             *   `plot_step_response` (in `src/plot_functions/plot_step_response.rs`): Takes the results from `calculate_step_response`.
-                *   Separates the QC'd responses into "low" and "high" setpoint groups based on the `setpoint_threshold` if the `--dps` flag (and thus `show_legend`) is active.
+                *   Separates the QC'd responses into "low" and "high" setpoint groups based on the `setpoint_threshold` if the `--dps` parameter (and thus `show_legend`) is provided.
                 *   **Averaging & Final Normalization (`plot_functions::plot_step_response::process_response`):**
                     *   The QC'd responses (either low, high, or combined) are averaged using `calc_step_response::average_responses`.
                     *   The averaged response is smoothed using a moving average (`calc_step_response::moving_average_smooth_f64`) with `POST_AVERAGING_SMOOTHING_WINDOW`.
@@ -88,7 +88,7 @@ This implementation provides detailed and configurable analysis of flight contro
         *   This implementation: Optional individual response Y-correction (normalize by own steady-state mean, `APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION`, `Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS`) followed by final normalization of the averaged response to target 1.0 (within `FINAL_NORMALIZED_STEADY_STATE_TOLERANCE`).
         *   Matlab: Optional Y-correction on individual responses by calculating an offset to make the mean 1.0.
     *   **Quality Control (QC):** Both apply QC to individual responses based on steady-state characteristics. This implementation uses `NORMALIZED_STEADY_STATE_MIN_VAL`, `NORMALIZED_STEADY_STATE_MAX_VAL`, and optionally `NORMALIZED_STEADY_STATE_MEAN_MIN`, `NORMALIZED_STEADY_STATE_MEAN_MAX`. Matlab uses `min(steadyStateResp) > 0.5 && max(steadyStateResp) < 3`.
-    *   **Output:** This implementation can plot low/high/combined responses based on `setpoint_threshold` if `--dps` is used. Matlab stacks all valid responses.
+    *   **Output:** This implementation can plot low/high/combined responses based on `setpoint_threshold` if `--dps` is provided with a value. Matlab stacks all valid responses.
 
 *   **Compared to PlasmaTree/Python (`PID-Analyzer.py`):**
     *   **Deconvolution Method:** PlasmaTree also uses Wiener deconvolution with a signal-to-noise ratio (`sn`) term in the denominator, derived from a `cutfreq` parameter and smoothed, effectively acting as frequency-dependent regularization. This implementation uses a simpler constant regularization term (`0.0001`).
