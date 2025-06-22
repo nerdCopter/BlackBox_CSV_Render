@@ -13,12 +13,11 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps [<value>]] [--out-dir <directory>]
+Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--out-dir <directory>]
   <input_fileX.csv>: Path to one or more input CSV log files (required).
-  --dps [<value>]: Optional. Enables detailed step response plots.
-                   If <value> (deg/s threshold) is provided, it's used.
-                   If <value> is omitted, defaults to 500.
-                   If --dps is omitted, a general step-response is shown.
+  --dps <value>: Optional. Enables detailed step response plots with the specified
+                 deg/s threshold value. Must be a positive number.
+                 If --dps is omitted, a general step-response is shown.
   --out-dir <directory>: Optional. Specifies the output directory for generated plots.
                          If omitted, plots are saved in the source folder (input file's directory).
 
@@ -29,7 +28,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps
+./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500
 ```
 ```shell
 ./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --dps 360 --out-dir ./plots
