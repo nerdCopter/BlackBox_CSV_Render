@@ -8,9 +8,9 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 **Core Functionality:**
 
 1.  **Argument Parsing (`src/main.rs`):**
-    *   Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), and an optional `--out-dir` for specifying the output directory.
+    *   Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), and an optional `--output-dir` for specifying the output directory.
     *   Additional options include `--help` and `--version` for user assistance.
-    *   The `--out-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
+    *   The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     *   Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
 
 2.  **File Processing (`src/main.rs:process_file`):**
