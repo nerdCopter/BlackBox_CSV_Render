@@ -33,12 +33,12 @@ use crate::data_analysis::calc_step_response;
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("
-Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--out-dir <directory>]", program_name);
+Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>]", program_name);
     eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
     eprintln!("                 deg/s threshold value. Must be a positive number.");
     eprintln!("                 If --dps is omitted, a general step-response is shown.");
-    eprintln!("  --out-dir <directory>: Optional. Specifies the output directory for generated plots.");
+    eprintln!("  --output-dir <directory>: Optional. Specifies the output directory for generated plots.");
     eprintln!("                         If omitted, plots are saved in the source folder (input file's directory).");
     eprintln!("  --help: Show this help message and exit.");
     eprintln!("  --version: Show version information and exit.");
@@ -251,7 +251,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_files: Vec<String> = Vec::new();
     let mut setpoint_threshold_override: Option<f64> = None;
     let mut dps_flag_present = false;
-    let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --out-dir with value
+    let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
 
     let mut i = 1;
     while i < args.len() {
@@ -284,16 +284,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                     print_usage_and_exit(program_name);
                 }
             }
-        } else if arg == "--out-dir" {
+        } else if arg == "--output-dir" {
             if output_dir.is_some() {
-                eprintln!("Error: --out-dir argument specified more than once.");
+                eprintln!("Error: --output-dir argument specified more than once.");
                 print_usage_and_exit(program_name);
             }
             if i + 1 >= args.len() || args[i + 1].starts_with("--") {
-                eprintln!("Error: --out-dir requires a directory path.");
+                eprintln!("Error: --output-dir requires a directory path.");
                 print_usage_and_exit(program_name);
             } else {
-                // --out-dir with directory value
+                // --output-dir with directory value
                 output_dir = Some(args[i + 1].clone());
                 i += 1; 
             } 
@@ -337,10 +337,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Determine the actual output directory for this file
         let actual_output_dir = match &output_dir {
             None => {
-                // No --out-dir specified, use input file's directory (source folder)
+                // No --output-dir specified, use input file's directory (source folder)
                 Path::new(input_file_str).parent().and_then(|p| p.to_str())
             },
-            Some(dir) => Some(dir.as_str()), // --out-dir with specific directory
+            Some(dir) => Some(dir.as_str()), // --output-dir with specific directory
         };
         
         if let Err(e) = process_file(input_file_str, setpoint_threshold, show_legend, use_dir_prefix_for_root_name, actual_output_dir) {

@@ -13,12 +13,12 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--out-dir <directory>]
+Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>]
   <input_fileX.csv>: Path to one or more input CSV log files (required).
   --dps <value>: Optional. Enables detailed step response plots with the specified
                  deg/s threshold value. Must be a positive number.
                  If --dps is omitted, a general step-response is shown.
-  --out-dir <directory>: Optional. Specifies the output directory for generated plots.
+  --output-dir <directory>: Optional. Specifies the output directory for generated plots.
                          If omitted, plots are saved in the source folder (input file's directory).
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.
@@ -31,11 +31,11 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --dps 360 --out-dir ./plots
+./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --dps 360 --output-dir ./plots
 ```
 
 ### Output
-- PNG files are generated in the source folder (input file's directory), unless specified by the `--out-dir` parameter.
+- PNG files are generated in the source folder (input file's directory), unless specified by the `--output-dir` parameter.
 
 ### Code Overview
 
