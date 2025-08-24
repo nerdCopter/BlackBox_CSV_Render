@@ -29,6 +29,7 @@ use crate::plot_functions::plot_throttle_freq_heatmap::plot_throttle_freq_heatma
 
 // Data input import
 use crate::data_input::log_parser::parse_log_file;
+use crate::data_input::pid_metadata::parse_pid_metadata;
 
 // Data analysis imports
 use crate::data_analysis::calc_step_response;
@@ -120,7 +121,7 @@ fn process_file(
         gyro_header_found,
         _gyro_unfilt_header_found,
         _debug_header_found,
-        _header_metadata,
+        header_metadata,
     ) = match parse_log_file(&input_path, debug_mode) {
         Ok(data) => data,
         Err(e) => {
@@ -137,6 +138,9 @@ fn process_file(
         return Ok(());
     }
 
+    // Parse PID metadata from headers
+    let pid_metadata = parse_pid_metadata(&header_metadata);
+    
     let mut has_nonzero_f_term_data = [false; 3];
     for axis in 0..3 {
         if f_term_header_found[axis] {
@@ -316,6 +320,7 @@ INFO ({}): Skipping Step Response input data filtering: {}.",
         &has_nonzero_f_term_data,
         setpoint_threshold,
         show_legend,
+        &pid_metadata,
     )?;
     plot_gyro_spectrums(&all_log_data, &root_name_string, sample_rate)?;
     plot_psd(&all_log_data, &root_name_string, sample_rate)?;
