@@ -255,7 +255,7 @@ pub fn parse_pid_metadata(header_metadata: &[(String, String)]) -> PidMetadata {
     // Convert header metadata to a lookup map for easier access (build once, use everywhere)
     let header_map: std::collections::HashMap<String, String> = header_metadata
         .iter()
-        .map(|(k, v)| (k.to_lowercase(), v.clone()))
+        .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_string()))
         .collect();
     
     // Detect firmware type using the same map
@@ -694,5 +694,24 @@ mod tests {
         let metadata_field = vec![("df_yaw".to_string(), "15".to_string())];
         let pid_data_field = parse_pid_metadata(&metadata_field);
         assert_eq!(pid_data_field.firmware_type, FirmwareType::EmuFlight);
+    }
+
+    #[test]
+    fn test_whitespace_trimming() {
+        // Test that whitespace in keys and values is properly trimmed
+        let metadata = vec![
+            ("  rollPID  ".to_string(), "  31,56,21  ".to_string()),
+            (" firmware revision ".to_string(), " Betaflight 4.6.0 ".to_string()),
+            ("ff_weight".to_string(), " 84,87,84 ".to_string()),
+        ];
+        
+        let pid_data = parse_pid_metadata(&metadata);
+        
+        // Should correctly parse despite whitespace
+        assert_eq!(pid_data.firmware_type, FirmwareType::Betaflight);
+        assert_eq!(pid_data.roll.p, Some(31));
+        assert_eq!(pid_data.roll.i, Some(56));
+        assert_eq!(pid_data.roll.d, Some(21));
+        assert_eq!(pid_data.roll.ff, Some(84));
     }
 }
