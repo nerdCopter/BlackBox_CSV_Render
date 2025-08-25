@@ -1,5 +1,10 @@
 // src/data_input/pid_metadata.rs
 
+// Axis indices for array access consistency
+const ROLL_AXIS: usize = 0;
+const PITCH_AXIS: usize = 1;
+const YAW_AXIS: usize = 2;
+
 /// Firmware type detection for appropriate terminology
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum FirmwareType {
@@ -90,13 +95,13 @@ pub struct PidMetadata {
 }
 
 impl PidMetadata {
-    /// Get PID data for a specific axis (0=roll, 1=pitch, 2=yaw)
-    /// Returns None if axis_index is invalid (not 0, 1, or 2)
+    /// Get PID data for a specific axis (ROLL_AXIS=0, PITCH_AXIS=1, YAW_AXIS=2)
+    /// Returns None if axis_index is invalid
     pub fn get_axis(&self, axis_index: usize) -> Option<&AxisPid> {
         match axis_index {
-            0 => Some(&self.roll),
-            1 => Some(&self.pitch),
-            2 => Some(&self.yaw),
+            ROLL_AXIS => Some(&self.roll),
+            PITCH_AXIS => Some(&self.pitch),
+            YAW_AXIS => Some(&self.yaw),
             _ => None,
         }
     }
@@ -161,9 +166,9 @@ fn parse_d_values(
     if let Some(value_str) = header_map.get(comma_separated_key) {
         let parsed_values = parse_comma_separated_values(value_str);
         if parsed_values.len() >= 3 {
-            values[0] = Some(parsed_values[0]);
-            values[1] = Some(parsed_values[1]);
-            values[2] = Some(parsed_values[2]);
+            values[ROLL_AXIS] = Some(parsed_values[ROLL_AXIS]);
+            values[PITCH_AXIS] = Some(parsed_values[PITCH_AXIS]);
+            values[YAW_AXIS] = Some(parsed_values[YAW_AXIS]);
             return values;
         }
     }
@@ -186,7 +191,7 @@ fn parse_d_values(
 /// Helper function to parse FF values for all axes
 fn parse_ff_values(
     header_map: &std::collections::HashMap<String, String>,
-    existing_pids: &(AxisPid, AxisPid, AxisPid),
+    existing_pids: &(&AxisPid, &AxisPid, &AxisPid),
 ) -> [Option<u32>; 3] {
     let mut ff_values = [
         existing_pids.0.ff, // Roll FF from PID string
@@ -210,7 +215,7 @@ fn parse_ff_values(
     if let Some(df_yaw_str) = header_map.get("df_yaw") {
         if let Ok(df_yaw_val) = df_yaw_str.parse::<u32>() {
             if df_yaw_val > 0 {
-                ff_values[2] = Some(df_yaw_val); // Yaw is index 2
+                ff_values[YAW_AXIS] = Some(df_yaw_val); // Yaw DF value
             }
         }
     }
@@ -268,10 +273,10 @@ pub fn parse_pid_metadata(header_metadata: &[(String, String)]) -> PidMetadata {
     pid_data.yaw = yaw;
     
     // Handle FF values based on flight controller type
-    let ff_values = parse_ff_values(&header_map, &(pid_data.roll.clone(), pid_data.pitch.clone(), pid_data.yaw.clone()));
-    pid_data.roll.ff = ff_values[0];
-    pid_data.pitch.ff = ff_values[1];
-    pid_data.yaw.ff = ff_values[2];
+    let ff_values = parse_ff_values(&header_map, &(&pid_data.roll, &pid_data.pitch, &pid_data.yaw));
+    pid_data.roll.ff = ff_values[ROLL_AXIS];
+    pid_data.pitch.ff = ff_values[PITCH_AXIS];
+    pid_data.yaw.ff = ff_values[YAW_AXIS];
     
     // Look for separate D-Min fields in header metadata (Betaflight separate headers)
     // Only override PID string D-Min values if separate fields exist
@@ -280,15 +285,10 @@ pub fn parse_pid_metadata(header_metadata: &[(String, String)]) -> PidMetadata {
         "d_min",
         ["rolldmin", "roll_d_min", "pitchdmin", "pitch_d_min", "yawdmin", "yaw_d_min"],
     );
-    if d_min_values[0].is_some() {
-        pid_data.roll.d_min = d_min_values[0];
-    }
-    if d_min_values[1].is_some() {
-        pid_data.pitch.d_min = d_min_values[1];
-    }
-    if d_min_values[2].is_some() {
-        pid_data.yaw.d_min = d_min_values[2];
-    }
+    // Apply D-Min values if available
+    if let Some(value) = d_min_values[ROLL_AXIS] { pid_data.roll.d_min = Some(value); }
+    if let Some(value) = d_min_values[PITCH_AXIS] { pid_data.pitch.d_min = Some(value); }
+    if let Some(value) = d_min_values[YAW_AXIS] { pid_data.yaw.d_min = Some(value); }
     
     // Look for separate D-Max fields in header metadata (newer Betaflight separate headers)
     // Only override PID string D-Max values if separate fields exist
@@ -297,15 +297,10 @@ pub fn parse_pid_metadata(header_metadata: &[(String, String)]) -> PidMetadata {
         "d_max",
         ["rolldmax", "roll_d_max", "pitchdmax", "pitch_d_max", "yawdmax", "yaw_d_max"],
     );
-    if d_max_values[0].is_some() {
-        pid_data.roll.d_max = d_max_values[0];
-    }
-    if d_max_values[1].is_some() {
-        pid_data.pitch.d_max = d_max_values[1];
-    }
-    if d_max_values[2].is_some() {
-        pid_data.yaw.d_max = d_max_values[2];
-    }
+    // Apply D-Max values if available
+    if let Some(value) = d_max_values[ROLL_AXIS] { pid_data.roll.d_max = Some(value); }
+    if let Some(value) = d_max_values[PITCH_AXIS] { pid_data.pitch.d_max = Some(value); }
+    if let Some(value) = d_max_values[YAW_AXIS] { pid_data.yaw.d_max = Some(value); }
     
     pid_data
 }
