@@ -105,38 +105,39 @@ impl PidMetadata {
 
 /// Detect firmware type from header metadata map
 fn detect_firmware_type(header_map: &std::collections::HashMap<String, String>) -> FirmwareType {
-    // Check for firmware revision field
+    // Check for firmware revision field (primary detection method)
     if let Some(firmware_rev) = header_map.get("firmware revision") {
-        if firmware_rev.contains("emuflight") {
+        let normalized_rev = firmware_rev.to_lowercase().trim().to_string();
+        if normalized_rev.contains("emuflight") {
             return FirmwareType::EmuFlight;
         }
-        if firmware_rev.contains("betaflight") {
+        if normalized_rev.contains("betaflight") {
             return FirmwareType::Betaflight;
         }
-        if firmware_rev.contains("inav") {
+        if normalized_rev.contains("inav") {
             return FirmwareType::Inav;
         }
     }
     
-    // Check for firmware type field
+    // Fallback: Check for firmware type field (secondary, if revision missing)
     if let Some(firmware_type) = header_map.get("firmware type") {
-        if firmware_type.contains("emuflight") {
+        let normalized_type = firmware_type.to_lowercase().trim().to_string();
+        if normalized_type.contains("emuflight") {
             return FirmwareType::EmuFlight;
         }
-        if firmware_type.contains("betaflight") {
+        if normalized_type.contains("betaflight") {
             return FirmwareType::Betaflight;
         }
-        if firmware_type.contains("inav") {
+        if normalized_type.contains("inav") {
             return FirmwareType::Inav;
         }
     }
     
-    // Check for EmuFlight-specific fields
+    // Fallback: Check for firmware-specific fields
     if header_map.contains_key("df_yaw") {
         return FirmwareType::EmuFlight;
     }
     
-    // Check for Betaflight-specific fields  
     if header_map.contains_key("ff_weight") {
         return FirmwareType::Betaflight;
     }
@@ -506,5 +507,51 @@ mod tests {
         
         // Title should be empty
         assert_eq!(pid_data.roll.format_for_title(&FirmwareType::Unknown), "");
+    }
+
+    #[test]
+    fn test_firmware_detection_case_insensitive() {
+        // Test case-insensitive firmware detection with various whitespace and case combinations
+        
+        // Betaflight variations
+        let metadata_bf1 = vec![("firmware revision".to_string(), "BETAFLIGHT 4.6.0".to_string())];
+        let pid_data_bf1 = parse_pid_metadata(&metadata_bf1);
+        assert_eq!(pid_data_bf1.firmware_type, FirmwareType::Betaflight);
+        
+        let metadata_bf2 = vec![("firmware revision".to_string(), "  betaflight 4.5.1  ".to_string())];
+        let pid_data_bf2 = parse_pid_metadata(&metadata_bf2);
+        assert_eq!(pid_data_bf2.firmware_type, FirmwareType::Betaflight);
+        
+        let metadata_bf3 = vec![("firmware revision".to_string(), "BetaFlight Custom Build".to_string())];
+        let pid_data_bf3 = parse_pid_metadata(&metadata_bf3);
+        assert_eq!(pid_data_bf3.firmware_type, FirmwareType::Betaflight);
+        
+        // EmuFlight variations
+        let metadata_ef1 = vec![("firmware revision".to_string(), "EMUFLIGHT 0.4.2".to_string())];
+        let pid_data_ef1 = parse_pid_metadata(&metadata_ef1);
+        assert_eq!(pid_data_ef1.firmware_type, FirmwareType::EmuFlight);
+        
+        let metadata_ef2 = vec![("firmware revision".to_string(), "  EmuFlight Beta  ".to_string())];
+        let pid_data_ef2 = parse_pid_metadata(&metadata_ef2);
+        assert_eq!(pid_data_ef2.firmware_type, FirmwareType::EmuFlight);
+        
+        // INAV variations
+        let metadata_inav1 = vec![("firmware revision".to_string(), "INAV 8.0.0".to_string())];
+        let pid_data_inav1 = parse_pid_metadata(&metadata_inav1);
+        assert_eq!(pid_data_inav1.firmware_type, FirmwareType::Inav);
+        
+        let metadata_inav2 = vec![("firmware revision".to_string(), "  iNav Latest  ".to_string())];
+        let pid_data_inav2 = parse_pid_metadata(&metadata_inav2);
+        assert_eq!(pid_data_inav2.firmware_type, FirmwareType::Inav);
+        
+        // Fallback to firmware type field
+        let metadata_type = vec![("firmware type".to_string(), "  BETAFLIGHT  ".to_string())];
+        let pid_data_type = parse_pid_metadata(&metadata_type);
+        assert_eq!(pid_data_type.firmware_type, FirmwareType::Betaflight);
+        
+        // Field-based detection (when text-based fails)
+        let metadata_field = vec![("df_yaw".to_string(), "15".to_string())];
+        let pid_data_field = parse_pid_metadata(&metadata_field);
+        assert_eq!(pid_data_field.firmware_type, FirmwareType::EmuFlight);
     }
 }
