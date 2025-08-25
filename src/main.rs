@@ -6,13 +6,16 @@ mod data_input;
 mod pid_context;
 mod plot_framework;
 mod plot_functions;
+mod types;
 
 use std::collections::HashSet;
 use std::env;
 use std::error::Error;
-use std::path::{Path, PathBuf}; // Added PathBuf // Added HashSet
+use std::path::{Path, PathBuf};
 
-use ndarray::{Array1, Array2};
+use ndarray::Array1;
+
+use crate::types::StepResponseResults;
 
 use crate::constants::{
     DEFAULT_SETPOINT_THRESHOLD, EXCLUDE_END_S, EXCLUDE_START_S, FRAME_LENGTH_S,
@@ -126,7 +129,7 @@ fn process_file(
         _gyro_unfilt_header_found,
         _debug_header_found,
         header_metadata,
-    ) = match parse_log_file(&input_path, debug_mode) {
+    ) = match parse_log_file(input_path, debug_mode) {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Error parsing log file {}: {}", input_file_str, e);
@@ -144,16 +147,15 @@ fn process_file(
 
     // Parse PID metadata from headers
     let pid_metadata = parse_pid_metadata(&header_metadata);
-    
+
     let mut has_nonzero_f_term_data = [false; 3];
     for axis in 0..3 {
-        if f_term_header_found[axis] {
-            if all_log_data
+        if f_term_header_found[axis]
+            && all_log_data
                 .iter()
-                .any(|row| row.f_term[axis].map_or(false, |val| val.abs() > 1e-9))
-            {
-                has_nonzero_f_term_data[axis] = true;
-            }
+                .any(|row| row.f_term[axis].is_some_and(|val| val.abs() > 1e-9))
+        {
+            has_nonzero_f_term_data[axis] = true;
         }
     }
 
@@ -238,8 +240,7 @@ INFO ({}): Skipping Step Response input data filtering: {}.",
 --- Calculating Step Response for {} ---",
         input_file_str
     );
-    let mut step_response_calculation_results: [Option<(Array1<f64>, Array2<f32>, Array1<f32>)>;
-        3] = [None, None, None];
+    let mut step_response_calculation_results: StepResponseResults = [None, None, None];
 
     if let Some(sr) = sample_rate {
         for axis_index in 0..3 {
@@ -314,10 +315,10 @@ INFO ({}): Skipping Step Response input data filtering: {}.",
     }
 
     // Use only the root filename (without path) for PNG output
-    
+
     // Create PID context for centralized PID metadata and related parameters
     let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
-    
+
     plot_pidsum_error_setpoint(&all_log_data, &root_name_string)?;
     plot_setpoint_vs_gyro(&all_log_data, &root_name_string, sample_rate)?;
     plot_gyro_vs_unfilt(&all_log_data, &root_name_string, sample_rate)?;

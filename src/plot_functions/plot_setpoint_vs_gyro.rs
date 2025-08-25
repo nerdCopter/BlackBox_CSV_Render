@@ -1,16 +1,15 @@
 // src/plot_functions/plot_setpoint_vs_gyro.rs
 
-use std::error::Error;
 use plotters::style::RGBColor;
+use std::error::Error;
 
-use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{draw_stacked_plot, PlotSeries, calculate_range};
-use crate::constants::{
-    COLOR_SETPOINT_VS_GYRO_SP, COLOR_SETPOINT_VS_GYRO_GYRO,
-    LINE_WIDTH_PLOT,
-};
+use crate::types::AllAxisPlotData2;
+
+use crate::constants::{COLOR_SETPOINT_VS_GYRO_GYRO, COLOR_SETPOINT_VS_GYRO_SP, LINE_WIDTH_PLOT};
 use crate::data_analysis::filter_delay;
 use crate::data_analysis::filter_delay::DelayAnalysisResult;
+use crate::data_input::log_data::LogRowData;
+use crate::plot_framework::{calculate_range, draw_stacked_plot, PlotSeries};
 
 /// Generates the Stacked Setpoint vs Gyro Plot (Orange, Blue)
 pub fn plot_setpoint_vs_gyro(
@@ -30,21 +29,26 @@ pub fn plot_setpoint_vs_gyro(
             results: Vec::new(),
         }
     };
-    
+
     let delay_comparison_results = if !delay_analysis.results.is_empty() {
         Some(delay_analysis.results)
     } else {
         None
     };
 
-    let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>)>; 3] = Default::default();
-     for row in log_data {
-         if let Some(time) = row.time_sec {
-             for axis_index in 0..3 {
-                 axis_plot_data[axis_index].push((time, row.setpoint[axis_index], row.gyro[axis_index]));
-             }
-         }
-     }
+    let mut axis_plot_data: AllAxisPlotData2 = Default::default();
+    for row in log_data {
+        if let Some(time) = row.time_sec {
+            #[allow(clippy::needless_range_loop)]
+            for axis_index in 0..3 {
+                axis_plot_data[axis_index].push((
+                    time,
+                    row.setpoint[axis_index],
+                    row.gyro[axis_index],
+                ));
+            }
+        }
+    }
 
     let color_sp: RGBColor = *COLOR_SETPOINT_VS_GYRO_SP;
     let color_gyro: RGBColor = *COLOR_SETPOINT_VS_GYRO_GYRO;
@@ -55,37 +59,37 @@ pub fn plot_setpoint_vs_gyro(
         root_name,
         plot_type_name,
         move |axis_index| {
-             let data = &axis_plot_data[axis_index];
-             if data.is_empty() {
-                 return None;
-             }
+            let data = &axis_plot_data[axis_index];
+            if data.is_empty() {
+                return None;
+            }
 
-             let mut setpoint_series_data: Vec<(f64, f64)> = Vec::new();
-             let mut gyro_series_data: Vec<(f64, f64)> = Vec::new();
+            let mut setpoint_series_data: Vec<(f64, f64)> = Vec::new();
+            let mut gyro_series_data: Vec<(f64, f64)> = Vec::new();
 
-             let mut time_min = f64::INFINITY;
-             let mut time_max = f64::NEG_INFINITY;
-             let mut val_min = f64::INFINITY;
-             let mut val_max = f64::NEG_INFINITY;
+            let mut time_min = f64::INFINITY;
+            let mut time_max = f64::NEG_INFINITY;
+            let mut val_min = f64::INFINITY;
+            let mut val_max = f64::NEG_INFINITY;
 
-             for (time, setpoint, gyro_filt) in data {
-                 time_min = time_min.min(*time);
-                 time_max = time_max.max(*time);
+            for (time, setpoint, gyro_filt) in data {
+                time_min = time_min.min(*time);
+                time_max = time_max.max(*time);
 
-                 if let Some(s) = setpoint {
-                     setpoint_series_data.push((*time, *s));
-                     val_min = val_min.min(*s);
-                     val_max = val_max.max(*s);
-                 }
-                 if let Some(g) = gyro_filt {
-                     gyro_series_data.push((*time, *g));
-                     val_min = val_min.min(*g);
-                     val_max = val_max.max(*g);
-                 }
-             }
+                if let Some(s) = setpoint {
+                    setpoint_series_data.push((*time, *s));
+                    val_min = val_min.min(*s);
+                    val_max = val_max.max(*s);
+                }
+                if let Some(g) = gyro_filt {
+                    gyro_series_data.push((*time, *g));
+                    val_min = val_min.min(*g);
+                    val_max = val_max.max(*g);
+                }
+            }
 
             if setpoint_series_data.is_empty() && gyro_series_data.is_empty() {
-                 return None;
+                return None;
             }
 
             let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
@@ -99,19 +103,26 @@ pub fn plot_setpoint_vs_gyro(
                     let mut method_strings = Vec::new();
                     for result in results.iter() {
                         if let Some(freq) = result.frequency_hz {
-                            method_strings.push(format!("{}: {:.1}ms@{:.0}Hz(c:{:.0}%)", 
+                            method_strings.push(format!(
+                                "{}: {:.1}ms@{:.0}Hz(c:{:.0}%)",
                                 match result.method.as_str() {
                                     "Enhanced Cross-Correlation" => "Delay",
-                                    _ => "Unknown"
+                                    _ => "Unknown",
                                 },
-                                result.delay_ms, freq, result.confidence * 100.0));
+                                result.delay_ms,
+                                freq,
+                                result.confidence * 100.0
+                            ));
                         } else {
-                            method_strings.push(format!("{}: {:.1}ms(c:{:.0}%)", 
+                            method_strings.push(format!(
+                                "{}: {:.1}ms(c:{:.0}%)",
                                 match result.method.as_str() {
                                     "Enhanced Cross-Correlation" => "Delay",
-                                    _ => "Unknown"
+                                    _ => "Unknown",
                                 },
-                                result.delay_ms, result.confidence * 100.0));
+                                result.delay_ms,
+                                result.confidence * 100.0
+                            ));
                         }
                     }
                     if method_strings.is_empty() {
@@ -122,21 +133,21 @@ pub fn plot_setpoint_vs_gyro(
                 } else {
                     "Gyro (gyroADC)".to_string()
                 };
-                 series.push(PlotSeries {
-                     data: gyro_series_data,
-                     label: gyro_label,
-                     color: color_gyro,
-                     stroke_width: line_stroke_plot,
-                 });
+                series.push(PlotSeries {
+                    data: gyro_series_data,
+                    label: gyro_label,
+                    color: color_gyro,
+                    stroke_width: line_stroke_plot,
+                });
             }
             if !setpoint_series_data.is_empty() {
-                 series.push(PlotSeries {
-                     data: setpoint_series_data,
-                     label: "Setpoint".to_string(),
-                     color: color_sp,
-                     stroke_width: line_stroke_plot,
-                 });
-             }
+                series.push(PlotSeries {
+                    data: setpoint_series_data,
+                    label: "Setpoint".to_string(),
+                    color: color_sp,
+                    stroke_width: line_stroke_plot,
+                });
+            }
 
             Some((
                 format!("Axis {} Setpoint vs Gyro", axis_index),

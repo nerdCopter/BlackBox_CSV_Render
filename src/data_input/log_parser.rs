@@ -7,6 +7,7 @@ use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
 use crate::data_input::log_data::LogRowData;
+use crate::types::LogParseResult;
 
 /// Reads a separate .headers.csv file and extracts header metadata key-value pairs
 fn read_headers_csv(headers_file_path: &Path) -> Result<Vec<(String, String)>, Box<dyn Error>> {
@@ -59,22 +60,7 @@ fn read_headers_csv(headers_file_path: &Path) -> Result<Vec<(String, String)>, B
 /// 6. `[bool; 3]`: Flags indicating if gyroUnfilt[0-2] headers were found.
 /// 7. `[bool; 4]`: Flags indicating if debug[0-3] headers were found.
 /// 8. `Vec<(String, String)>`: Header metadata key-value pairs found before CSV headers.
-pub fn parse_log_file(
-    input_file_path: &Path,
-    debug_mode: bool,
-) -> Result<
-    (
-        Vec<LogRowData>,
-        Option<f64>,
-        [bool; 3],
-        [bool; 4],
-        [bool; 3],
-        [bool; 3],
-        [bool; 4],
-        Vec<(String, String)>,
-    ),
-    Box<dyn Error>,
-> {
+pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResult {
     // --- Header Definition and Index Mapping ---
     let target_headers = [
         "time (us)", // 0
@@ -409,6 +395,7 @@ pub fn parse_log_file(
                     }
 
                     // Parse P, I, D, F, Gyro (for axes 0-2)
+                    #[allow(clippy::needless_range_loop)]
                     for axis in 0..3 {
                         current_row_data.p_term[axis] = parse_f64_by_target_idx(1 + axis); // Indices 1,2,3
                         current_row_data.i_term[axis] = parse_f64_by_target_idx(4 + axis); // Indices 4,5,6
@@ -460,10 +447,7 @@ pub fn parse_log_file(
                     for axis in 0..3 {
                         current_row_data.gyro_unfilt[axis] = match parsed_gyro_unfilt[axis] {
                             Some(val) => Some(val),
-                            None => match parsed_debug[axis] {
-                                Some(val) => Some(val),
-                                None => None,
-                            },
+                            None => parsed_debug[axis],
                         };
                     }
 

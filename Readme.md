@@ -41,6 +41,52 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 
 For a detailed explanation of the program's functionality, especially the step-response calculation and comparison with other tools like PIDtoolbox (Matlab) and PlasmaTree PID-Analyzer (Python), please see [Overview.md](Overview.md).
 
+## Development
+
+### Setting Up Development Environment
+
+To set up your development environment with proper formatting and pre-commit hooks:
+
+```bash
+# Clone and setup
+git clone <repository-url>
+cd BlackBox_CSV_Render
+
+# Run setup script (optional but recommended)
+chmod +x .github/setup-dev.sh
+./.github/setup-dev.sh
+```
+
+### Required Commands Before Committing
+
+**⚠️ IMPORTANT**: Always run these commands before committing to avoid CI failures:
+
+```bash
+# 1. Format code (REQUIRED)
+cargo fmt --all
+
+# 2. Check formatting compliance
+cargo fmt --all -- --check
+
+# 3. Check for clippy warnings (treated as errors)
+cargo clippy --all-targets --all-features -- -D warnings
+
+# 4. Run all tests
+cargo test --verbose
+
+# 5. Build release
+cargo build --release
+```
+
+**The development setup includes an automated pre-commit hook that will:**
+- Automatically format your code with `cargo fmt`
+- Run clippy checks to catch code issues
+- Prevent commits with formatting issues
+
+### CI Requirements
+
+The project enforces strict formatting and code quality standards.
+
 ### Licensing still under consideration.
 - Some resources used for the AI prompting included the following, but only for inspiration.
 - No code was reused as reported by AI interrogation, and therefore do not require their associated licensing.

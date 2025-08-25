@@ -12,6 +12,7 @@ dependencies = [
  "ndarray-stats",
  "num-complex",
  "plotters",
+ "rand",
  "realfft",
 ]
 

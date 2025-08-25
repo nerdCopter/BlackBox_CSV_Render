@@ -1,8 +1,8 @@
 // src/constants.rs
 
 // Import specific colors needed
+use plotters::style::colors::full_palette::{AMBER, GREEN, LIGHTBLUE, ORANGE, PURPLE, RED};
 use plotters::style::RGBColor;
-use plotters::style::colors::full_palette::{GREEN, AMBER, ORANGE, LIGHTBLUE, RED, PURPLE};
 
 // Plot dimensions.
 pub const PLOT_WIDTH: u32 = 1920;
@@ -18,8 +18,8 @@ pub const INITIAL_GYRO_SMOOTHING_WINDOW: usize = 15; // // Initial Gyro Smoothin
 pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 15; // Constant for post-averaging smoothing of the final step response curves.
 
 pub const APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION: bool = true; // Individual Response "Y-Correction" (Normalization before averaging)
-// If Y-correction is applied, this is the minimum absolute mean of the unnormalized steady-state
-// required to attempt the correction. Prevents extreme scaling/division by near-zero.
+                                                               // If Y-correction is applied, this is the minimum absolute mean of the unnormalized steady-state
+                                                               // required to attempt the correction. Prevents extreme scaling/division by near-zero.
 pub const Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS: f32 = 0.1; // Tune this threshold if needed (0.1 is a common starting point)
 
 // Quality Control for *individually Y-corrected* (or uncorrected if Y_CORRECTION flag is false) responses
@@ -34,7 +34,7 @@ pub const NORMALIZED_STEADY_STATE_MEAN_MAX: f32 = 1.25; // e.g., mean should be 
 
 // Steady-state definition for Y-correction and QC (matches PTB PTstepcalc.m: 200ms to end of response)
 pub const STEADY_STATE_START_S: f64 = 0.2; // Start time for steady-state check (200ms into the response)
-pub const STEADY_STATE_END_S: f64 = RESPONSE_LENGTH_S;   // End time for steady-state check (to the end of RESPONSE_LENGTH_S); can be decoupled if desired, but do NOT exceed RESPONSE_LENGTH_S
+pub const STEADY_STATE_END_S: f64 = RESPONSE_LENGTH_S; // End time for steady-state check (to the end of RESPONSE_LENGTH_S); can be decoupled if desired, but do NOT exceed RESPONSE_LENGTH_S
 
 pub const FINAL_NORMALIZED_STEADY_STATE_TOLERANCE: f64 = 0.15; // Final tolerance for normalized steady-state mean in step response plot
 pub const DEFAULT_SETPOINT_THRESHOLD: f64 = 500.0; // Default setpoint threshold, can be overridden at runtime for categorizing responses
@@ -74,7 +74,7 @@ pub const MIN_PEAK_SEPARATION_HZ: f64 = 70.0; // Minimum frequency separation be
 // Constants for advanced peak detection
 pub const ENABLE_WINDOW_PEAK_DETECTION: bool = true; // Set to true to use window-based peak detection
                                                      // Set to false to use the previous 3-point (amp > prev && amp >= next) logic.
-pub const PEAK_DETECTION_WINDOW_RADIUS: usize = 3;   // Radius W for peak detection window (total 2*W+1 points).
+pub const PEAK_DETECTION_WINDOW_RADIUS: usize = 3; // Radius W for peak detection window (total 2*W+1 points).
 
 // PIDsum vs PID Error vs Setpoint Plot
 pub const COLOR_PIDSUM_MAIN: &RGBColor = &GREEN;

@@ -1,14 +1,15 @@
 // src/plot_functions/plot_pidsum_error_setpoint.rs
 
-use std::error::Error;
 use plotters::style::RGBColor;
+use std::error::Error;
 
-use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{draw_stacked_plot, PlotSeries, calculate_range};
+use crate::types::AllAxisPlotData3;
+
 use crate::constants::{
-    COLOR_PIDSUM_MAIN, COLOR_PIDERROR_MAIN, COLOR_SETPOINT_MAIN,
-    LINE_WIDTH_PLOT,
+    COLOR_PIDERROR_MAIN, COLOR_PIDSUM_MAIN, COLOR_SETPOINT_MAIN, LINE_WIDTH_PLOT,
 };
+use crate::data_input::log_data::LogRowData;
+use crate::plot_framework::{calculate_range, draw_stacked_plot, PlotSeries};
 
 /// Generates the Stacked PIDsum vs PID Error vs Setpoint Plot (Green, Blue, Yellow)
 pub fn plot_pidsum_error_setpoint(
@@ -18,16 +19,20 @@ pub fn plot_pidsum_error_setpoint(
     let output_file_pidsum_error = format!("{}_PIDsum_PIDerror_Setpoint_stacked.png", root_name);
     let plot_type_name = "PIDsum/PIDerror/Setpoint";
 
-    let mut axis_plot_data: [Vec<(f64, Option<f64>, Option<f64>, Option<f64>)>; 3] = Default::default();
+    let mut axis_plot_data: AllAxisPlotData3 = Default::default();
     for row in log_data {
         if let Some(time) = row.time_sec {
+            #[allow(clippy::needless_range_loop)]
             for axis_index in 0..3 {
-                 let pidsum = row.p_term[axis_index].and_then(|p| {
-                    row.i_term[axis_index].and_then(|i| {
-                        row.d_term[axis_index].map(|d| p + i + d)
-                    })
+                let pidsum = row.p_term[axis_index].and_then(|p| {
+                    row.i_term[axis_index].and_then(|i| row.d_term[axis_index].map(|d| p + i + d))
                 });
-                axis_plot_data[axis_index].push((time, row.setpoint[axis_index], row.gyro[axis_index], pidsum));
+                axis_plot_data[axis_index].push((
+                    time,
+                    row.setpoint[axis_index],
+                    row.gyro[axis_index],
+                    pidsum,
+                ));
             }
         }
     }
@@ -44,7 +49,7 @@ pub fn plot_pidsum_error_setpoint(
         move |axis_index| {
             let data = &axis_plot_data[axis_index];
             if data.is_empty() {
-                 return None;
+                return None;
             }
 
             let mut pidsum_series_data: Vec<(f64, f64)> = Vec::new();
@@ -78,8 +83,11 @@ pub fn plot_pidsum_error_setpoint(
                 }
             }
 
-            if pidsum_series_data.is_empty() && setpoint_series_data.is_empty() && pid_error_series_data.is_empty() {
-                 return None;
+            if pidsum_series_data.is_empty()
+                && setpoint_series_data.is_empty()
+                && pid_error_series_data.is_empty()
+            {
+                return None;
             }
 
             let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
