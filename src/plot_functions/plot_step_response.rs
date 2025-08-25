@@ -12,6 +12,7 @@ use crate::constants::{
     LINE_WIDTH_PLOT, FINAL_NORMALIZED_STEADY_STATE_TOLERANCE
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
+use crate::data_input::pid_metadata::PidMetadata;
 
 /// Generates the Stacked Step Response Plot (Blue, Orange, Red)
 pub fn plot_step_response(
@@ -21,6 +22,7 @@ pub fn plot_step_response(
     has_nonzero_f_term_data: &[bool; 3],
     setpoint_threshold: f64,
     show_legend: bool,
+    pid_metadata: &PidMetadata,
     // Add axis_index_for_debug if you uncomment debug prints in process_response
     // axis_index_for_debug: usize, // Uncomment if using debug prints
 ) -> Result<(), Box<dyn Error>> {
@@ -223,6 +225,17 @@ pub fn plot_step_response(
             plot_data_per_axis[axis_index] = Some((
                 {
                     let mut title = format!("Axis {} Step Response", axis_index);
+                    
+                    // Add PID information to the title using firmware-specific terminology
+                    if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
+                        let firmware_type = pid_metadata.get_firmware_type();
+                        let pid_info = axis_pid.format_for_title(firmware_type);
+                        if !pid_info.is_empty() {
+                            title.push_str(&pid_info);
+                        }
+                    }
+                    
+                    // Keep original invalidity logic from master - same for all firmware types
                     if has_nonzero_f_term_data[axis_index] {
                         title.push_str(" - Invalid due Feed-Forward");
                     }
