@@ -21,6 +21,8 @@ pub struct AxisPid {
     pub p: Option<u32>,
     pub i: Option<u32>,
     pub d: Option<u32>,
+    pub d_min: Option<u32>,  // D-Min for Betaflight
+    pub d_max: Option<u32>,  // D-Max for newer Betaflight
     pub ff: Option<u32>,
 }
 
@@ -35,9 +37,28 @@ impl AxisPid {
         if let Some(i) = self.i {
             parts.push(format!("I:{}", i));
         }
-        if let Some(d) = self.d {
-            parts.push(format!("D:{}", d));
+        
+        // Handle D, D-Min, and D-Max formatting
+        match (self.d, self.d_min, self.d_max) {
+            (_, Some(d_min), Some(d_max)) if d_min != d_max => {
+                // Show D:min/max format when D-Min and D-Max are different
+                parts.push(format!("D:{}/{}", d_min, d_max));
+            }
+            (Some(d), Some(_d_min), Some(_d_max)) => {
+                // Show D:XX format when D-Min and D-Max are the same (use actual D value)
+                parts.push(format!("D:{}", d));
+            }
+            (Some(d), None, Some(d_max)) if d != d_max => {
+                // Show D:XX/XX format when only D-Max is available and different from D
+                parts.push(format!("D:{}/{}", d, d_max));
+            }
+            (Some(d), _, _) => {
+                // Show simple D:XX when no D-Min/D-Max or they're the same as D
+                parts.push(format!("D:{}", d));
+            }
+            _ => {}
         }
+        
         if let Some(ff) = self.ff {
             if ff > 0 {
                 let ff_label = match firmware_type {
@@ -72,7 +93,7 @@ impl PidMetadata {
             0 => &self.roll,
             1 => &self.pitch,
             2 => &self.yaw,
-            _ => &self.roll, // Default to roll for invalid indices
+            _ => panic!("Invalid axis index: {}. Expected 0 (roll), 1 (pitch), or 2 (yaw)", axis_index),
         }
     }
     
@@ -82,13 +103,8 @@ impl PidMetadata {
     }
 }
 
-/// Detect firmware type from header metadata
-fn detect_firmware_type(header_metadata: &[(String, String)]) -> FirmwareType {
-    let header_map: std::collections::HashMap<String, String> = header_metadata
-        .iter()
-        .map(|(k, v)| (k.to_lowercase(), v.to_lowercase()))
-        .collect();
-    
+/// Detect firmware type from header metadata map
+fn detect_firmware_type(header_map: &std::collections::HashMap<String, String>) -> FirmwareType {
     // Check for firmware revision field
     if let Some(firmware_rev) = header_map.get("firmware revision") {
         if firmware_rev.contains("emuflight") {
@@ -134,19 +150,19 @@ fn detect_firmware_type(header_metadata: &[(String, String)]) -> FirmwareType {
 pub fn parse_pid_metadata(header_metadata: &[(String, String)]) -> PidMetadata {
     let mut pid_data = PidMetadata::default();
     
-    // Detect firmware type first
-    pid_data.firmware_type = detect_firmware_type(header_metadata);
-    
     // If no metadata available, return default (empty) values
     if header_metadata.is_empty() {
         return pid_data;
     }
     
-    // Convert header metadata to a lookup map for easier access
+    // Convert header metadata to a lookup map for easier access (build once, use everywhere)
     let header_map: std::collections::HashMap<String, String> = header_metadata
         .iter()
         .map(|(k, v)| (k.to_lowercase(), v.clone()))
         .collect();
+    
+    // Detect firmware type using the same map
+    pid_data.firmware_type = detect_firmware_type(&header_map);
     
     // Parse roll PID
     if let Some(roll_pid_str) = header_map.get("rollpid") {
@@ -190,10 +206,65 @@ pub fn parse_pid_metadata(header_metadata: &[(String, String)]) -> PidMetadata {
         }
     }
     
+    // Look for separate D-Min fields in header metadata (Betaflight separate headers)
+    // Handle both comma-separated format "39,44,0" and individual fields
+    if let Some(d_min_str) = header_map.get("d_min") {
+        let d_min_values = parse_comma_separated_values(d_min_str);
+        if d_min_values.len() >= 3 {
+            pid_data.roll.d_min = Some(d_min_values[0]);
+            pid_data.pitch.d_min = Some(d_min_values[1]);
+            pid_data.yaw.d_min = Some(d_min_values[2]);
+        }
+    }
+    
+    // Look for individual D-Min fields as fallback
+    if let Some(roll_d_min_str) = header_map.get("rolldmin").or_else(|| header_map.get("roll_d_min")) {
+        if let Ok(d_min_val) = roll_d_min_str.parse::<u32>() {
+            pid_data.roll.d_min = Some(d_min_val);
+        }
+    }
+    if let Some(pitch_d_min_str) = header_map.get("pitchdmin").or_else(|| header_map.get("pitch_d_min")) {
+        if let Ok(d_min_val) = pitch_d_min_str.parse::<u32>() {
+            pid_data.pitch.d_min = Some(d_min_val);
+        }
+    }
+    if let Some(yaw_d_min_str) = header_map.get("yawdmin").or_else(|| header_map.get("yaw_d_min")) {
+        if let Ok(d_min_val) = yaw_d_min_str.parse::<u32>() {
+            pid_data.yaw.d_min = Some(d_min_val);
+        }
+    }
+    
+    // Look for separate D-Max fields in header metadata (newer Betaflight separate headers)
+    // Handle both comma-separated format and individual fields
+    if let Some(d_max_str) = header_map.get("d_max") {
+        let d_max_values = parse_comma_separated_values(d_max_str);
+        if d_max_values.len() >= 3 {
+            pid_data.roll.d_max = Some(d_max_values[0]);
+            pid_data.pitch.d_max = Some(d_max_values[1]);
+            pid_data.yaw.d_max = Some(d_max_values[2]);
+        }
+    }
+    if let Some(roll_d_max_str) = header_map.get("rolldmax").or_else(|| header_map.get("roll_d_max")) {
+        if let Ok(d_max_val) = roll_d_max_str.parse::<u32>() {
+            pid_data.roll.d_max = Some(d_max_val);
+        }
+    }
+    if let Some(pitch_d_max_str) = header_map.get("pitchdmax").or_else(|| header_map.get("pitch_d_max")) {
+        if let Ok(d_max_val) = pitch_d_max_str.parse::<u32>() {
+            pid_data.pitch.d_max = Some(d_max_val);
+        }
+    }
+    if let Some(yaw_d_max_str) = header_map.get("yawdmax").or_else(|| header_map.get("yaw_d_max")) {
+        if let Ok(d_max_val) = yaw_d_max_str.parse::<u32>() {
+            pid_data.yaw.d_max = Some(d_max_val);
+        }
+    }
+    
     pid_data
 }
 
-/// Parse PID values from a string like "31,56,21" or "45,80,40,120" (INAV with FF)
+/// Parse PID values from a string like "31,56,21" (basic) or "45,80,40,120" (INAV with FF) 
+/// or "57,66,58,58,206" (Betaflight 4.6+ with P,I,D,D-Max,FF)
 fn parse_axis_pid(pid_str: &str) -> AxisPid {
     let values = parse_comma_separated_values(pid_str);
     
@@ -208,9 +279,25 @@ fn parse_axis_pid(pid_str: &str) -> AxisPid {
     if values.len() > 2 {
         axis_pid.d = Some(values[2]);
     }
-    if values.len() > 3 && values[3] > 0 {
-        // INAV style with FF as 4th value
-        axis_pid.ff = Some(values[3]);
+    
+    // Handle different formats based on value count
+    match values.len() {
+        4 => {
+            // INAV style: P,I,D,FF
+            if values[3] > 0 {
+                axis_pid.ff = Some(values[3]);
+            }
+        }
+        5 => {
+            // Betaflight 4.6+ style: P,I,D,D-Max,FF
+            axis_pid.d_max = Some(values[3]);
+            if values[4] > 0 {
+                axis_pid.ff = Some(values[4]);
+            }
+        }
+        _ => {
+            // 3 or fewer values: basic P,I,D format (no FF or D-Max)
+        }
     }
     
     axis_pid
@@ -309,6 +396,64 @@ mod tests {
     }
 
     #[test]
+    fn test_betaflight_5_value_parsing() {
+        // Test Betaflight 4.6+ format: P,I,D,D-Max,FF
+        let metadata = vec![
+            ("rollPID".to_string(), "57,66,58,58,206".to_string()),
+            ("pitchPID".to_string(), "59,69,72,72,215".to_string()),
+            ("yawPID".to_string(), "57,66,0,0,206".to_string()),
+        ];
+        
+        let pid_data = parse_pid_metadata(&metadata);
+        
+        assert_eq!(pid_data.roll.p, Some(57));
+        assert_eq!(pid_data.roll.i, Some(66));
+        assert_eq!(pid_data.roll.d, Some(58));
+        assert_eq!(pid_data.roll.d_max, Some(58));
+        assert_eq!(pid_data.roll.ff, Some(206));
+        
+        assert_eq!(pid_data.pitch.p, Some(59));
+        assert_eq!(pid_data.pitch.i, Some(69));
+        assert_eq!(pid_data.pitch.d, Some(72));
+        assert_eq!(pid_data.pitch.d_max, Some(72));
+        assert_eq!(pid_data.pitch.ff, Some(215));
+        
+        assert_eq!(pid_data.yaw.p, Some(57));
+        assert_eq!(pid_data.yaw.i, Some(66));
+        assert_eq!(pid_data.yaw.d, Some(0));
+        assert_eq!(pid_data.yaw.d_max, Some(0));
+        assert_eq!(pid_data.yaw.ff, Some(206));
+    }
+
+    #[test]
+    fn test_betaflight_d_min_d_max_parsing() {
+        // Test Betaflight 4.5 format with separate d_min and d_max fields
+        let metadata = vec![
+            ("rollPID".to_string(), "57,66,58".to_string()),
+            ("pitchPID".to_string(), "59,69,72".to_string()),
+            ("yawPID".to_string(), "57,66,0".to_string()),
+            ("d_min".to_string(), "39,44,0".to_string()),
+            ("d_max".to_string(), "80,90,0".to_string()),
+            ("ff_weight".to_string(), "206,215,206".to_string()),
+        ];
+        
+        let pid_data = parse_pid_metadata(&metadata);
+        
+        assert_eq!(pid_data.roll.p, Some(57));
+        assert_eq!(pid_data.roll.i, Some(66));
+        assert_eq!(pid_data.roll.d, Some(58));
+        assert_eq!(pid_data.roll.d_min, Some(39));
+        assert_eq!(pid_data.roll.d_max, Some(80));
+        assert_eq!(pid_data.roll.ff, Some(206));
+        
+        assert_eq!(pid_data.pitch.d_min, Some(44));
+        assert_eq!(pid_data.pitch.d_max, Some(90));
+        
+        assert_eq!(pid_data.yaw.d_min, Some(0));
+        assert_eq!(pid_data.yaw.d_max, Some(0));
+    }
+
+    #[test]
     fn test_format_for_title() {
         let mut axis_pid = AxisPid::default();
         axis_pid.p = Some(31);
@@ -329,6 +474,23 @@ mod tests {
         // Test with no FF
         axis_pid.ff = None;
         assert_eq!(axis_pid.format_for_title(&FirmwareType::Betaflight), " - P:31 I:56 D:21");
+        
+        // Test D:XX/XX format when D and D-Max are different
+        axis_pid.d_max = Some(35);
+        assert_eq!(axis_pid.format_for_title(&FirmwareType::Betaflight), " - P:31 I:56 D:21/35");
+        
+        // Test D:XX format when D and D-Max are the same
+        axis_pid.d_max = Some(21);
+        assert_eq!(axis_pid.format_for_title(&FirmwareType::Betaflight), " - P:31 I:56 D:21");
+        
+        // Test D:min/max format when D-Min and D-Max are different
+        axis_pid.d_min = Some(15);
+        axis_pid.d_max = Some(35);
+        assert_eq!(axis_pid.format_for_title(&FirmwareType::Betaflight), " - P:31 I:56 D:15/35");
+        
+        // Test D:min/max format with FF
+        axis_pid.ff = Some(84);
+        assert_eq!(axis_pid.format_for_title(&FirmwareType::Betaflight), " - P:31 I:56 D:15/35 FF:84");
     }
 
     #[test]

@@ -3,6 +3,7 @@
 mod constants;
 mod data_analysis;
 mod data_input;
+mod pid_context;
 mod plot_framework;
 mod plot_functions;
 
@@ -30,6 +31,9 @@ use crate::plot_functions::plot_throttle_freq_heatmap::plot_throttle_freq_heatma
 // Data input import
 use crate::data_input::log_parser::parse_log_file;
 use crate::data_input::pid_metadata::parse_pid_metadata;
+
+// PID context import
+use crate::pid_context::PidContext;
 
 // Data analysis imports
 use crate::data_analysis::calc_step_response;
@@ -310,6 +314,10 @@ INFO ({}): Skipping Step Response input data filtering: {}.",
     }
 
     // Use only the root filename (without path) for PNG output
+    
+    // Create PID context for centralized PID metadata and related parameters
+    let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
+    
     plot_pidsum_error_setpoint(&all_log_data, &root_name_string)?;
     plot_setpoint_vs_gyro(&all_log_data, &root_name_string, sample_rate)?;
     plot_gyro_vs_unfilt(&all_log_data, &root_name_string, sample_rate)?;
@@ -320,7 +328,7 @@ INFO ({}): Skipping Step Response input data filtering: {}.",
         &has_nonzero_f_term_data,
         setpoint_threshold,
         show_legend,
-        &pid_metadata,
+        &pid_context.pid_metadata,
     )?;
     plot_gyro_spectrums(&all_log_data, &root_name_string, sample_rate)?;
     plot_psd(&all_log_data, &root_name_string, sample_rate)?;
