@@ -227,11 +227,12 @@ pub fn plot_step_response(
                     let mut title = format!("Axis {} Step Response", axis_index);
                     
                     // Add PID information to the title using firmware-specific terminology
-                    let axis_pid = pid_metadata.get_axis(axis_index);
-                    let firmware_type = pid_metadata.get_firmware_type();
-                    let pid_info = axis_pid.format_for_title(firmware_type);
-                    if !pid_info.is_empty() {
-                        title.push_str(&pid_info);
+                    if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
+                        let firmware_type = pid_metadata.get_firmware_type();
+                        let pid_info = axis_pid.format_for_title(firmware_type);
+                        if !pid_info.is_empty() {
+                            title.push_str(&pid_info);
+                        }
                     }
                     
                     // Keep original invalidity logic from master - same for all firmware types

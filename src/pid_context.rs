@@ -48,14 +48,18 @@ impl PidContext {
     #[allow(dead_code)] // Future use in plot functions
     pub fn get_axis_title_with_pids(&self, axis_index: usize) -> String {
         let axis_name = self.get_axis_name(axis_index);
-        let axis_pid = self.pid_metadata.get_axis(axis_index);
-        let firmware_type = self.pid_metadata.get_firmware_type();
-        let pid_info = axis_pid.format_for_title(firmware_type);
         
-        if pid_info.is_empty() {
-            axis_name.to_string()
+        if let Some(axis_pid) = self.pid_metadata.get_axis(axis_index) {
+            let firmware_type = self.pid_metadata.get_firmware_type();
+            let pid_info = axis_pid.format_for_title(firmware_type);
+            
+            if pid_info.is_empty() {
+                axis_name.to_string()
+            } else {
+                format!("{}{}", axis_name, pid_info)
+            }
         } else {
-            format!("{} ({})", axis_name, pid_info)
+            axis_name.to_string()
         }
     }
 }
