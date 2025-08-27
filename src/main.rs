@@ -331,7 +331,12 @@ INFO ({}): Skipping Step Response input data filtering: {}.",
         show_legend,
         &pid_context.pid_metadata,
     )?;
-    plot_gyro_spectrums(&all_log_data, &root_name_string, sample_rate)?;
+    plot_gyro_spectrums(
+        &all_log_data,
+        &root_name_string,
+        sample_rate,
+        Some(&header_metadata),
+    )?;
     plot_psd(&all_log_data, &root_name_string, sample_rate)?;
     plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
     plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;

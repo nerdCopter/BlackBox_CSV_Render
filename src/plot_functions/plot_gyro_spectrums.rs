@@ -12,15 +12,19 @@ use crate::constants::{
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_analysis::filter_delay;
+use crate::data_analysis::filter_response;
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries};
 use crate::types::AllFFTData;
+use plotters::style::RGBColor;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro spectrums.
+/// Now includes filter response curve overlays based on header metadata.
 pub fn plot_gyro_spectrums(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
+    header_metadata: Option<&[(String, String)]>,
 ) -> Result<(), Box<dyn Error>> {
     let output_file = format!("{}_Gyro_Spectrums_comparative.png", root_name);
     let plot_type_name = "Gyro Spectrums";
@@ -40,6 +44,8 @@ pub fn plot_gyro_spectrums(
     } else {
         None
     };
+
+    let filter_config = header_metadata.map(filter_response::parse_filter_config);
 
     let mut all_fft_raw_data: AllFFTData = Default::default();
     let mut global_max_y_unfilt = 0.0f64;
@@ -320,12 +326,63 @@ pub fn plot_gyro_spectrums(
             let x_range = 0.0..max_freq_val * 1.05;
             let y_range_for_all_clone = 0.0..overall_max_y_amplitude;
 
-            let unfilt_plot_series = vec![PlotSeries {
+            let mut unfilt_plot_series = vec![PlotSeries {
                 data: unfilt_series_data,
                 label: "Unfiltered Gyro".to_string(),
                 color: *COLOR_GYRO_VS_UNFILT_UNFILT,
                 stroke_width: LINE_WIDTH_PLOT,
             }];
+
+            // Add filter response curves to unfiltered plot if available
+            if let Some(ref config) = filter_config {
+                let max_freq = sr_value / 2.0; // Nyquist frequency
+                let num_points = 500; // Number of points in filter curve
+
+                // Generate individual filter response curves for this axis
+                let filter_curves = filter_response::generate_individual_filter_curves(
+                    &config.gyro[axis_index],
+                    max_freq,
+                    num_points,
+                );
+
+                // Add each filter curve as a separate series
+                let filter_colors = [
+                    RGBColor(220, 20, 60), // Crimson for first filter
+                    RGBColor(178, 34, 34), // Fire brick for second filter
+                    RGBColor(255, 69, 0),  // Red-orange for third filter
+                ];
+
+                for (curve_idx, (label, curve_data, _cutoff_hz)) in filter_curves.iter().enumerate()
+                {
+                    if !curve_data.is_empty() {
+                        // Show filter response as a normalized curve overlaid on the spectrum
+                        // Use a fixed amplitude scale that makes the cutoff frequency visible
+                        let filter_curve_amplitude = overall_max_y_amplitude * 0.3; // 30% of max spectrum height
+                        let filter_curve_offset = overall_max_y_amplitude * 0.05; // Offset from bottom
+
+                        let scaled_response: Vec<(f64, f64)> = curve_data
+                            .iter()
+                            .map(|(freq, response)| {
+                                // Scale response from [0,1] to [offset, offset + amplitude]
+                                let scaled_amplitude =
+                                    filter_curve_offset + (response * filter_curve_amplitude);
+                                (*freq, scaled_amplitude)
+                            })
+                            .collect();
+
+                        // Create filter response series
+                        unfilt_plot_series.push(PlotSeries {
+                            data: scaled_response,
+                            label: label.clone(),
+                            color: filter_colors[curve_idx % filter_colors.len()],
+                            stroke_width: 2,
+                        });
+
+                        // Note: Vertical cutoff markers removed to avoid empty legend entries
+                        // The filter curves themselves clearly indicate where cutoff begins
+                    }
+                }
+            }
             let filt_plot_series = vec![PlotSeries {
                 data: filt_series_data,
                 label: if let Some(ref results) = delay_comparison_results {
