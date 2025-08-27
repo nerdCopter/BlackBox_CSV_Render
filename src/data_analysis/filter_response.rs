@@ -181,10 +181,12 @@ fn generate_single_filter_curve(
 ) -> Vec<(f64, f64)> {
     let mut curve_points = Vec::with_capacity(num_points);
 
-    // Show the S-shaped filter response curve including the transition region
-    // Start at a lower frequency to capture the characteristic S-curve shape
-    // but focus the curve around the cutoff frequency region
-    let start_freq = filter.cutoff_hz * 0.1; // Start at 10% of cutoff to show the S-shape
+    // Show the mathematically correct complete filter response curve
+    // Start from a low frequency to show the full characteristic including:
+    // 1. Flat passband region (near 1.0 magnitude)
+    // 2. Natural S-shaped transition around cutoff frequency
+    // 3. Roll-off region with characteristic slope
+    let start_freq = 10.0; // Start from 10Hz to show complete mathematical response
     let freq_range = max_frequency_hz - start_freq;
 
     if freq_range <= 0.0 {
@@ -193,7 +195,7 @@ fn generate_single_filter_curve(
 
     let freq_step = freq_range / num_points as f64;
 
-    // Generate the complete S-shaped PT1 response curve
+    // Generate the complete mathematically correct filter response curve
     for i in 0..num_points {
         let frequency = start_freq + (i as f64 * freq_step);
         let magnitude = match filter.filter_type {
