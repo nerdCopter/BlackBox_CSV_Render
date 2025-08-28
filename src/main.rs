@@ -287,6 +287,20 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             }
                         }
                         Err(e) => {
+                            println!("    ... Calculation failed for Axis {axis_index}: {e}");
+                        }
+                    }
+                } else {
+                    println!("    ... Insufficient data for Axis {axis_index}. Skipping.");
+                }
+            } else {
+                println!("    ... Required headers not found for Axis {axis_index}. Skipping.");
+            }
+        }
+    } else {
+        println!("    ... No sample rate available. Skipping step response calculations.");
+    }
+
     // Set the current working directory to the output directory if specified
     let _cwd_guard = if let Some(output_dir) = output_dir {
         // Ensure output directory exists
@@ -327,29 +341,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
 
     // CWD restoration happens automatically when _cwd_guard goes out of scope
-    plot_gyro_vs_unfilt(&all_log_data, &root_name_string, sample_rate)?;
-    plot_step_response(
-        &step_response_calculation_results,
-        &root_name_string,
-        sample_rate,
-        &has_nonzero_f_term_data,
-        setpoint_threshold,
-        show_legend,
-        &pid_context.pid_metadata,
-    )?;
-    plot_gyro_spectrums(
-        &all_log_data,
-        &root_name_string,
-        sample_rate,
-        Some(&header_metadata),
-    )?;
-    plot_psd(&all_log_data, &root_name_string, sample_rate)?;
-    plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
-    plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
-
-    // Restore original working directory
-    std::env::set_current_dir(&original_dir)?;
-
     println!("--- Finished processing file: {input_file_str} ---");
     Ok(())
 }
@@ -494,4 +485,4 @@ Some files could not be processed successfully."
     }
 }
 
-// src/main.rs
+// main.rs
