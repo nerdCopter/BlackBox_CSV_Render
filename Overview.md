@@ -81,11 +81,12 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 *   **Flight Firmware Integration:** Automatically detects and parses filter configurations from Betaflight, EmuFlight, and INAV blackbox headers including filter types (PT1, PT2, PT3, PT4, BIQUAD), cutoff frequencies, and dynamic filter ranges.
 *   **Gyro Rate Detection:** Comprehensive parsing of gyro sampling rates from various header formats (`gyroSampleRateHz`, `looptime`, `gyro_sync_denom`) with case-insensitive matching and proper division-based denominator calculation.
 *   **Mathematical Implementation:** 
-    *   **PT1 (1st order)**: `H(s) = 1/(1 + s/ωc)` - Standard single-pole lowpass
-    *   **PT2 (2nd order)**: `H(s) = 1/(1 + √2·s/ωc + (s/ωc)²)` - Butterworth response yielding -3dB at cutoff
-    *   **PT3 (3rd order)**: `H(s) = 1/(1 + s + s² + s³)` - 3rd order Butterworth lowpass  
-    *   **PT4 (4th order)**: `H(s) = 1/(1 + √2·s + s² + √2·s³ + s⁴)` - 4th order Butterworth lowpass
-    *   **BIQUAD**: Enhanced 2nd order implementation
+  * **PT1 (1st order)**: `H(s) = 1/(1 + s/ωc)` - Standard single-pole lowpass
+  * **PT2 (2nd order)**: `H(s) = 1/(1 + √2·s/ωc + (s/ωc)²)` - Butterworth response yielding -3dB at cutoff  
+  * **PT3 (3rd order)**: `|H(jω)| = 1/sqrt(1 + (ω/ωc)⁶)` - Simplified 3rd order approximation maintaining -3dB at cutoff
+  * **PT4 (4th order)**: `|H(jω)| = 1/sqrt(1 + (ω/ωc)⁸)` - Simplified 4th order approximation maintaining -3dB at cutoff
+  * **BIQUAD (2nd order)**: Currently implemented as PT2 Butterworth response (Q=0.707). Ready for Q-factor enhancement with `H(s) = ω₀²/(s² + (ω₀/Q)·s + ω₀²)` where ω₀ = 2π·fc
+  * Note: ωc represents angular cutoff frequency (ωc = 2π·fc where fc is cutoff in Hz)
 *   **Curve Generation:** Logarithmic frequency spacing from 10% of cutoff frequency to gyro Nyquist frequency (gyro_rate/2) with 1000 points for smooth visualization. Includes division-by-zero protection and edge case handling.
 *   **Visualization Integration:** Filter response curves are overlaid on spectrum plots (`plot_gyro_spectrums`) as red curves with clear legends showing filter type and cutoff frequency, enhancing spectrum analysis with theoretical filter characteristics.
 *   **Quality Assurance:** Comprehensive unit tests verify -3dB magnitude response at cutoff frequencies for all filter types and validate gyro rate extraction accuracy.
