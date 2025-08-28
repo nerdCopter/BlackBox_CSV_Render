@@ -338,7 +338,7 @@ pub fn plot_step_response(
 
                     // Keep original invalidity logic from master - same for all firmware types
                     if has_nonzero_f_term_data[axis_index] {
-                        title.push_str(" - Invalid due Feed-Forward");
+                        title.push_str(" - Invalid due to Feed-Forward");
                     }
                     title
                 },

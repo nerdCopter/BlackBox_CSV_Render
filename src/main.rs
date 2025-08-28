@@ -31,6 +31,28 @@ use crate::plot_functions::plot_setpoint_vs_gyro::plot_setpoint_vs_gyro;
 use crate::plot_functions::plot_step_response::plot_step_response;
 use crate::plot_functions::plot_throttle_freq_heatmap::plot_throttle_freq_heatmap;
 
+/// RAII guard to ensure current working directory is restored
+struct CwdGuard {
+    original_dir: PathBuf,
+}
+
+impl CwdGuard {
+    /// Create a new CWD guard, saving the current directory
+    fn new() -> Result<Self, std::io::Error> {
+        let original_dir = env::current_dir()?;
+        Ok(CwdGuard { original_dir })
+    }
+}
+
+impl Drop for CwdGuard {
+    /// Automatically restore the original directory when the guard goes out of scope
+    fn drop(&mut self) {
+        if let Err(e) = env::set_current_dir(&self.original_dir) {
+            eprintln!("Warning: Failed to restore original directory: {}", e);
+        }
+    }
+}
+
 // Data input import
 use crate::data_input::log_parser::parse_log_file;
 use crate::data_input::pid_metadata::parse_pid_metadata;
@@ -265,36 +287,17 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             }
                         }
                         Err(e) => {
-                            eprintln!("    ... Calculation failed for Axis {axis_index}: {e}");
-                        }
-                    }
-                } else {
-                    println!("    ... Skipping Axis {}: Not enough movement data points ({}) for windowing (need at least {}).", axis_index, time_arr.len(), min_required_samples);
-                }
-            } else {
-                let reason = if !required_headers_found {
-                    "Setpoint or Gyro headers missing"
-                } else {
-                    "No movement-filtered input data available"
-                };
-                println!("  Skipping Step Response calculation for Axis {axis_index}: {reason}");
-            }
-        }
-    } else {
-        println!("  Skipping Step Response Calculation for {input_file_str}: Sample rate could not be determined.");
-    }
-
-    // --- Generate Plots ---
-    println!("Generating plots for {input_file_str} (root name: {root_name_string})...");
-
     // Set the current working directory to the output directory if specified
-    let original_dir = std::env::current_dir()?;
-    if let Some(output_dir) = output_dir {
+    let _cwd_guard = if let Some(output_dir) = output_dir {
         // Ensure output directory exists
         std::fs::create_dir_all(output_dir)?;
-        // Change to output directory for plot generation
-        std::env::set_current_dir(output_dir)?;
-    }
+        // Change to output directory for plot generation and create RAII guard
+        env::set_current_dir(output_dir)?;
+        Some(CwdGuard::new()?)
+    } else {
+        None
+    };
+    // CWD will be automatically restored when _cwd_guard goes out of scope
 
     // Use only the root filename (without path) for PNG output
 
@@ -303,6 +306,27 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
     plot_pidsum_error_setpoint(&all_log_data, &root_name_string)?;
     plot_setpoint_vs_gyro(&all_log_data, &root_name_string, sample_rate)?;
+    plot_gyro_vs_unfilt(&all_log_data, &root_name_string, sample_rate)?;
+    plot_step_response(
+        &step_response_calculation_results,
+        &root_name_string,
+        sample_rate,
+        &has_nonzero_f_term_data,
+        setpoint_threshold,
+        show_legend,
+        &pid_context.pid_metadata,
+    )?;
+    plot_gyro_spectrums(
+        &all_log_data,
+        &root_name_string,
+        sample_rate,
+        Some(&header_metadata),
+    )?;
+    plot_psd(&all_log_data, &root_name_string, sample_rate)?;
+    plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+    plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+
+    // CWD restoration happens automatically when _cwd_guard goes out of scope
     plot_gyro_vs_unfilt(&all_log_data, &root_name_string, sample_rate)?;
     plot_step_response(
         &step_response_calculation_results,
