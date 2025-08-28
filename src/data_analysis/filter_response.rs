@@ -92,8 +92,8 @@ pub fn pt2_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
     let omega = 2.0 * std::f64::consts::PI * frequency_hz;
     let omega_c = 2.0 * std::f64::consts::PI * cutoff_hz;
     let s_norm = omega / omega_c;
-    // Butterworth 2nd order: 1 / (1 + √2·s + s²)
-    1.0 / (1.0 + 2.0 * s_norm.powi(2) + s_norm.powi(4)).sqrt()
+    // Butterworth 2nd order magnitude: 1 / sqrt(1 + (ω/ωc)^4)
+    1.0 / (1.0 + s_norm.powi(4)).sqrt()
 }
 
 /// Calculate frequency response magnitude for PT3 filter (3rd order Butterworth)  
@@ -197,6 +197,10 @@ fn generate_single_filter_curve(
 ) -> Vec<(f64, f64)> {
     let mut curve_points = Vec::with_capacity(num_points);
 
+    if num_points < 2 {
+        return curve_points;
+    }
+
     // Standard practice: start at 10% of cutoff frequency to show complete response
     // This captures the flat passband, S-shaped transition, and roll-off regions
     let start_freq = filter.cutoff_hz * 0.1; // 10% of cutoff is standard
@@ -232,10 +236,12 @@ pub fn extract_gyro_rate(header_metadata: Option<&[(String, String)]>) -> Option
     if let Some(metadata) = header_metadata {
         // Look for explicit gyro rate in various possible header formats
         for (key, value) in metadata {
-            if key.contains("gyroSampleRateHz")
-                || key.contains("gyro_sample_hz")
-                || key.contains("gyro_rate")
-                || key.contains("gyroRate")
+            let key_l = key.to_ascii_lowercase();
+            if key_l.contains("gyrosampleratehz")
+                || key_l.contains("gyro_sample_hz")
+                || key_l.contains("gyro_rate_hz")
+                || key_l.contains("gyro_rate")
+                || key_l.contains("gyrorate")
             {
                 // Try to parse the gyro rate
                 if let Ok(rate) = value.parse::<f64>() {
@@ -252,7 +258,8 @@ pub fn extract_gyro_rate(header_metadata: Option<&[(String, String)]>) -> Option
         let mut sync_denom = 1.0;
 
         for (key, value) in metadata {
-            if key.contains("gyro_sync_denom") || key.contains("gyroSyncDenom") {
+            let key_l = key.to_ascii_lowercase();
+            if key_l.contains("gyro_sync_denom") || key_l.contains("gyrosyncdenom") {
                 if let Ok(denom) = value.parse::<f64>() {
                     if denom > 0.0 && denom <= 32.0 {
                         sync_denom = denom;
@@ -260,7 +267,7 @@ pub fn extract_gyro_rate(header_metadata: Option<&[(String, String)]>) -> Option
                 }
             }
             // Some logs have explicit PID loop rate
-            if key.contains("looptime") || key.contains("pid_process_denom") {
+            if key_l.contains("looptime") || key_l.contains("pid_process_denom") {
                 if let Ok(val) = value.parse::<f64>() {
                     if val > 0.0 && val < 1000.0 {
                         // looptime in microseconds
@@ -273,14 +280,15 @@ pub fn extract_gyro_rate(header_metadata: Option<&[(String, String)]>) -> Option
             }
         }
 
-        let calculated_rate = base_rate * sync_denom;
+        let calculated_rate = base_rate / sync_denom;
         if calculated_rate > 1000.0 && calculated_rate <= 32000.0 {
             return Some(calculated_rate);
         }
 
         // Fallback: assume 8kHz for modern firmware
         for (key, value) in metadata {
-            if (key.contains("firmwareType") || key.contains("firmware"))
+            let key_l = key.to_ascii_lowercase();
+            if (key_l.contains("firmwaretype") || key_l.contains("firmware"))
                 && (value.contains("Betaflight")
                     || value.contains("EmuFlight")
                     || value.contains("INAV"))
@@ -622,6 +630,33 @@ mod tests {
         // At 10x cutoff frequency, should be much lower
         let response_10x = pt1_response(1000.0, 100.0);
         assert!(response_10x < 0.1);
+    }
+
+    #[test]
+    fn test_pt2_response() {
+        // At cutoff, should be ~ -3 dB
+        let r_fc = pt2_response(200.0, 200.0);
+        assert!((r_fc - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.001);
+        // Far above cutoff, very small
+        let r_10x = pt2_response(2000.0, 200.0);
+        assert!(r_10x < 0.02);
+    }
+
+    #[test]
+    fn test_pt4_response() {
+        // At cutoff, should be ~ -3 dB
+        let r_fc = pt4_response(150.0, 150.0);
+        assert!((r_fc - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_extract_gyro_rate_with_sync_denom() {
+        let headers = vec![
+            ("looptime".to_string(), "125".to_string()), // 1e6 / 125 = 8000 Hz
+            ("gyro_sync_denom".to_string(), "2".to_string()), // -> 4000 Hz
+        ];
+        let rate = extract_gyro_rate(Some(&headers));
+        assert_eq!(rate, Some(4000.0));
     }
 
     #[test]
