@@ -364,7 +364,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             dps_flag_present = true;
             match args[i + 1].parse::<f64>() {
                 Ok(val) => {
-                    if val < 0.0 {
+                    if val <= 0.0 {
                         eprintln!("Error: --dps threshold must be > 0: {val}");
                         print_usage_and_exit(program_name);
                     }
