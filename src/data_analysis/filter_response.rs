@@ -9,6 +9,7 @@ pub enum FilterType {
     Biquad = 1,
     PT2 = 2,
     PT3 = 3,
+    PT4 = 4, // EmuFlight specific, rarely used but supported
 }
 
 impl FilterType {
@@ -19,6 +20,7 @@ impl FilterType {
             1 => Some(FilterType::Biquad),
             2 => Some(FilterType::PT2),
             3 => Some(FilterType::PT3),
+            4 => Some(FilterType::PT4),
             _ => None,
         }
     }
@@ -30,6 +32,7 @@ impl FilterType {
             FilterType::Biquad => "BIQUAD",
             FilterType::PT2 => "PT2",
             FilterType::PT3 => "PT3",
+            FilterType::PT4 => "PT4",
         }
     }
 }
@@ -104,6 +107,19 @@ pub fn pt3_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
     let s_norm = omega / omega_c;
     // 3rd order Butterworth approximation
     1.0 / (1.0 + s_norm.powi(6)).sqrt()
+}
+
+/// Calculate frequency response magnitude for PT4 filter (4th order Butterworth)
+/// EmuFlight specific, rarely used but supported for completeness
+pub fn pt4_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
+    if cutoff_hz <= 0.0 {
+        return 1.0; // No filtering
+    }
+    let omega = 2.0 * std::f64::consts::PI * frequency_hz;
+    let omega_c = 2.0 * std::f64::consts::PI * cutoff_hz;
+    let s_norm = omega / omega_c;
+    // 4th order Butterworth approximation
+    1.0 / (1.0 + s_norm.powi(8)).sqrt()
 }
 
 /// Calculate frequency response magnitude for BIQUAD filter
@@ -202,6 +218,7 @@ fn generate_single_filter_curve(
             FilterType::PT1 => pt1_response(frequency, filter.cutoff_hz),
             FilterType::PT2 => pt2_response(frequency, filter.cutoff_hz),
             FilterType::PT3 => pt3_response(frequency, filter.cutoff_hz),
+            FilterType::PT4 => pt4_response(frequency, filter.cutoff_hz),
             FilterType::Biquad => biquad_response(frequency, filter.cutoff_hz),
         };
         curve_points.push((frequency, magnitude));
@@ -263,8 +280,11 @@ pub fn extract_gyro_rate(header_metadata: Option<&[(String, String)]>) -> Option
 
         // Fallback: assume 8kHz for modern firmware
         for (key, value) in metadata {
-            if (key.contains("firmwareType") || key.contains("firmware")) 
-                && (value.contains("Betaflight") || value.contains("EmuFlight") || value.contains("INAV")) {
+            if (key.contains("firmwareType") || key.contains("firmware"))
+                && (value.contains("Betaflight")
+                    || value.contains("EmuFlight")
+                    || value.contains("INAV"))
+            {
                 return Some(8000.0); // 8kHz default for modern firmware
             }
         }
