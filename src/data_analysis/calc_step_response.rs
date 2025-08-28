@@ -143,10 +143,7 @@ fn cumulative_sum(data: &Array1<f32>) -> Array1<f32> {
         if val.is_finite() {
             current_sum += val;
         } else {
-            eprintln!(
-                "Warning: Non-finite impulse value ({}) at index {}.",
-                val, i
-            );
+            eprintln!("Warning: Non-finite impulse value ({val}) at index {i}.");
         }
         cumulative[i] = current_sum;
     }

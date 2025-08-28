@@ -17,7 +17,7 @@ pub fn plot_setpoint_vs_gyro(
     root_name: &str,
     sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
-    let output_file_setpoint_gyro = format!("{}_SetpointVsGyro_stacked.png", root_name);
+    let output_file_setpoint_gyro = format!("{root_name}_SetpointVsGyro_stacked.png");
     let plot_type_name = "Setpoint/Gyro";
 
     // Calculate filtering delay using enhanced cross-correlation
@@ -150,7 +150,7 @@ pub fn plot_setpoint_vs_gyro(
             }
 
             Some((
-                format!("Axis {} Setpoint vs Gyro", axis_index),
+                format!("Axis {axis_index} Setpoint vs Gyro"),
                 x_range,
                 y_range,
                 series,

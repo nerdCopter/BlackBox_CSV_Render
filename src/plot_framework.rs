@@ -45,10 +45,7 @@ pub fn draw_unavailable_message(
     );
     let text_style = ("sans-serif", 20).into_font().color(&RED);
     area.draw(&Text::new(
-        format!(
-            "Axis {} {} Data Unavailable:\n{}",
-            axis_index, plot_type, reason
-        ),
+        format!("Axis {axis_index} {plot_type} Data Unavailable:\n{reason}"),
         (width as i32 / 2 - 100, height as i32 / 2 - 20),
         text_style,
     ))?;
@@ -183,18 +180,15 @@ fn draw_single_axis_chart_with_config(
             let mut text_y = peak_pixel_coords_relative_to_plotting_area.1 - area_offset.1;
 
             let formatted_peak_amp = if peak_label_format_string_ref == "{:.2} dB" {
-                format!("{:.2} dB", peak_amp)
+                format!("{peak_amp:.2} dB")
             } else {
-                format!("{:.0}", peak_amp)
+                format!("{peak_amp:.0}")
             };
 
             let label_text = if idx == 0 {
-                format!(
-                    "Primary Peak: {} at {:.0} Hz",
-                    formatted_peak_amp, peak_freq
-                )
+                format!("Primary Peak: {formatted_peak_amp} at {peak_freq:.0} Hz")
             } else {
-                format!("Peak: {} at {:.0} Hz", formatted_peak_amp, peak_freq)
+                format!("Peak: {formatted_peak_amp} at {peak_freq:.0} Hz")
             };
 
             text_x = text_x.max(0).min(area_width - TEXT_WIDTH_ESTIMATE);
@@ -283,10 +277,10 @@ where
 
     if any_axis_plotted {
         root_area.present()?;
-        println!("  Stacked plot saved as '{}'.", output_filename);
+        println!("  Stacked plot saved as '{output_filename}'.");
     } else {
         root_area.present()?;
-        println!("  Skipping '{}' plot saving: No data available for any axis to plot, only placeholder messages shown.", output_filename);
+        println!("  Skipping '{output_filename}' plot saving: No data available for any axis to plot, only placeholder messages shown.");
     }
     Ok(())
 }
@@ -352,10 +346,10 @@ where
 
     if any_plot_drawn {
         root_area.present()?;
-        println!("  Stacked plot saved as '{}'.", output_filename);
+        println!("  Stacked plot saved as '{output_filename}'.");
     } else {
         root_area.present()?;
-        println!("  Skipping '{}' plot saving: No data available for any axis to plot, only placeholder messages shown.", output_filename);
+        println!("  Skipping '{output_filename}' plot saving: No data available for any axis to plot, only placeholder messages shown.");
     }
     Ok(())
 }
@@ -492,10 +486,10 @@ where
 
     if any_plot_drawn {
         root_area.present()?;
-        println!("  Stacked heatmap plot saved as '{}'.", output_filename);
+        println!("  Stacked heatmap plot saved as '{output_filename}'.");
     } else {
         root_area.present()?;
-        println!("  Skipping '{}' heatmap plot saving: No data available for any axis to plot, only placeholder messages shown.", output_filename);
+        println!("  Skipping '{output_filename}' heatmap plot saving: No data available for any axis to plot, only placeholder messages shown.");
     }
     Ok(())
 }

@@ -26,7 +26,7 @@ pub fn plot_gyro_spectrums(
     sample_rate: Option<f64>,
     header_metadata: Option<&[(String, String)]>,
 ) -> Result<(), Box<dyn Error>> {
-    let output_file = format!("{}_Gyro_Spectrums_comparative.png", root_name);
+    let output_file = format!("{root_name}_Gyro_Spectrums_comparative.png");
     let plot_type_name = "Gyro Spectrums";
 
     let sr_value = if let Some(sr) = sample_rate {
@@ -172,8 +172,7 @@ pub fn plot_gyro_spectrums(
         if !peaks_to_plot.is_empty() {
             let (main_freq, main_amp) = peaks_to_plot[0];
             println!(
-                "  {} {} Gyro Spectrum: Primary Peak amplitude {:.0} at {:.0} Hz",
-                axis_name_str, spectrum_type_str, main_amp, main_freq
+                "  {axis_name_str} {spectrum_type_str} Gyro Spectrum: Primary Peak amplitude {main_amp:.0} at {main_freq:.0} Hz"
             );
             for (idx, (freq, amp)) in peaks_to_plot.iter().skip(1).enumerate() {
                 println!(
@@ -185,8 +184,7 @@ pub fn plot_gyro_spectrums(
             }
         } else {
             println!(
-                "  {} {} Gyro Spectrum: No significant peaks found.",
-                axis_name_str, spectrum_type_str
+                "  {axis_name_str} {spectrum_type_str} Gyro Spectrum: No significant peaks found."
             );
         }
         peaks_to_plot
@@ -207,16 +205,13 @@ pub fn plot_gyro_spectrums(
         }
 
         if unfilt_samples.is_empty() || filt_samples.is_empty() {
-            println!("  No unfiltered or filtered gyro data for {} axis. Skipping spectrum peak analysis.", axis_name);
+            println!("  No unfiltered or filtered gyro data for {axis_name} axis. Skipping spectrum peak analysis.");
             continue;
         }
 
         let min_len = unfilt_samples.len().min(filt_samples.len());
         if min_len == 0 {
-            println!(
-                "  Not enough common gyro data for {} axis. Skipping spectrum peak analysis.",
-                axis_name
-            );
+            println!("  Not enough common gyro data for {axis_name} axis. Skipping spectrum peak analysis.");
             continue;
         }
 
@@ -238,7 +233,7 @@ pub fn plot_gyro_spectrums(
         let filt_spec = fft_utils::fft_forward(&padded_filt);
 
         if unfilt_spec.is_empty() || filt_spec.is_empty() {
-            println!("  FFT computation failed or resulted in empty spectrums for {} axis. Skipping spectrum peak analysis.", axis_name);
+            println!("  FFT computation failed or resulted in empty spectrums for {axis_name} axis. Skipping spectrum peak analysis.");
             continue;
         }
 

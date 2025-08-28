@@ -16,7 +16,7 @@ pub fn plot_pidsum_error_setpoint(
     log_data: &[LogRowData],
     root_name: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let output_file_pidsum_error = format!("{}_PIDsum_PIDerror_Setpoint_stacked.png", root_name);
+    let output_file_pidsum_error = format!("{root_name}_PIDsum_PIDerror_Setpoint_stacked.png");
     let plot_type_name = "PIDsum/PIDerror/Setpoint";
 
     let mut axis_plot_data: AllAxisPlotData3 = Default::default();
@@ -121,7 +121,7 @@ pub fn plot_pidsum_error_setpoint(
             }
 
             Some((
-                format!("Axis {} PIDsum vs PID Error vs Setpoint", axis_index),
+                format!("Axis {axis_index} PIDsum vs PID Error vs Setpoint"),
                 x_range,
                 y_range,
                 series,

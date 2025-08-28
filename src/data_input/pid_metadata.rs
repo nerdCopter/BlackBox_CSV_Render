@@ -32,37 +32,37 @@ impl AxisPid {
         let mut parts = Vec::new();
 
         if let Some(p) = self.p {
-            parts.push(format!("P:{}", p));
+            parts.push(format!("P:{p}"));
         }
         if let Some(i) = self.i {
-            parts.push(format!("I:{}", i));
+            parts.push(format!("I:{i}"));
         }
 
         // Handle D, D-Min, and D-Max formatting
         match (self.d, self.d_min, self.d_max) {
             (_, Some(d_min), Some(d_max)) if d_min != d_max && d_min > 0 && d_max > 0 => {
                 // Show D:min/max format when D-Min and D-Max are different and both non-zero
-                parts.push(format!("D:{}/{}", d_min, d_max));
+                parts.push(format!("D:{d_min}/{d_max}"));
             }
             (_, Some(d_min), Some(d_max)) if d_min != d_max && d_min > 0 && d_max == 0 => {
                 // Show D:min format when D-Max is zero (don't show /0)
-                parts.push(format!("D:{}", d_min));
+                parts.push(format!("D:{d_min}"));
             }
             (_, Some(d_min), Some(d_max)) if d_min != d_max && d_min == 0 && d_max > 0 => {
                 // Show D:max format when D-Min is zero (don't show 0/)
-                parts.push(format!("D:{}", d_max));
+                parts.push(format!("D:{d_max}"));
             }
             (Some(d), Some(_d_min), Some(_d_max)) => {
                 // Show D:XX format when D-Min and D-Max are the same (use actual D value)
-                parts.push(format!("D:{}", d));
+                parts.push(format!("D:{d}"));
             }
             (Some(d), None, Some(d_max)) if d != d_max && d_max > 0 => {
                 // Show D:XX/XX format when only D-Max is available, different from D, and non-zero
-                parts.push(format!("D:{}/{}", d, d_max));
+                parts.push(format!("D:{d}/{d_max}"));
             }
             (Some(d), _, _) => {
                 // Show simple D:XX when no D-Min/D-Max, they're the same as D, or involve zeros
-                parts.push(format!("D:{}", d));
+                parts.push(format!("D:{d}"));
             }
             _ => {}
         }
@@ -73,7 +73,7 @@ impl AxisPid {
                     FirmwareType::EmuFlight => "DF",
                     _ => "FF",
                 };
-                parts.push(format!("{}:{}", ff_label, ff));
+                parts.push(format!("{ff_label}:{ff}"));
             }
         }
 
@@ -97,6 +97,7 @@ pub struct PidMetadata {
 impl PidMetadata {
     /// Get PID data for a specific axis (ROLL_AXIS=0, PITCH_AXIS=1, YAW_AXIS=2)
     /// Returns None if axis_index is invalid
+    #[allow(dead_code)]
     pub fn get_axis(&self, axis_index: usize) -> Option<&AxisPid> {
         match axis_index {
             ROLL_AXIS => Some(&self.roll),
@@ -107,6 +108,7 @@ impl PidMetadata {
     }
 
     /// Get firmware type
+    #[allow(dead_code)]
     pub fn get_firmware_type(&self) -> &FirmwareType {
         &self.firmware_type
     }

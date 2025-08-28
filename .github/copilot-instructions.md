@@ -13,9 +13,14 @@
 
 ## Git Workflow  
 - **NEVER** use `git add -A` or `git add .`
+- **NEVER** automatically commit changes without explicit user request
 - Only stage modified files and specified files when commanded
 - Update `.gitignore` when required
-- No commits unless explicitly commanded
+- **ONLY** commit when explicitly commanded with phrases like:
+  - "git commit"
+  - "commit changes" 
+  - "git add and commit"
+  - "stage and commit"
 - Generate concise commit messages from `git diff HEAD`
 
 ## Development Setup
