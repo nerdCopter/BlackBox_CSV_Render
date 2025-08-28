@@ -307,7 +307,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         let guard = CwdGuard::new()?;
         // Ensure output directory exists
         std::fs::create_dir_all(output_dir)?;
-        // Change to output directory for plot generation  
+        // Change to output directory for plot generation
         env::set_current_dir(output_dir)?;
         Some(guard)
     } else {
@@ -466,12 +466,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if overall_success {
-        println!("
-All files processed successfully.");
+        println!(
+            "
+All files processed successfully."
+        );
         Ok(())
     } else {
-        eprintln!("
-Some files could not be processed successfully.");
+        eprintln!(
+            "
+Some files could not be processed successfully."
+        );
         Ok(())
     }
 }
