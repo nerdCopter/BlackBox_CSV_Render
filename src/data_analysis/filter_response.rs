@@ -97,7 +97,7 @@ pub fn pt2_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
 }
 
 /// Calculate frequency response magnitude for PT3 filter (3rd order Butterworth)  
-/// More complex 3rd order response
+/// H(s) = 1 / (1 + s + s² + s³) where s = jω/ωc
 pub fn pt3_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
     if cutoff_hz <= 0.0 {
         return 1.0; // No filtering
@@ -105,11 +105,13 @@ pub fn pt3_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
     let omega = 2.0 * std::f64::consts::PI * frequency_hz;
     let omega_c = 2.0 * std::f64::consts::PI * cutoff_hz;
     let s_norm = omega / omega_c;
-    // 3rd order Butterworth approximation
+    // 3rd order Butterworth: 1 / sqrt((1 + s²)² + s²)
+    // Approximated as: 1 / sqrt(1 + s⁶) for simplicity while maintaining -3dB at cutoff
     1.0 / (1.0 + s_norm.powi(6)).sqrt()
 }
 
 /// Calculate frequency response magnitude for PT4 filter (4th order Butterworth)
+/// H(s) = 1 / (1 + √2·s + s² + √2·s³ + s⁴)
 /// EmuFlight specific, rarely used but supported for completeness
 pub fn pt4_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
     if cutoff_hz <= 0.0 {
@@ -118,7 +120,7 @@ pub fn pt4_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
     let omega = 2.0 * std::f64::consts::PI * frequency_hz;
     let omega_c = 2.0 * std::f64::consts::PI * cutoff_hz;
     let s_norm = omega / omega_c;
-    // 4th order Butterworth approximation
+    // 4th order Butterworth: 1 / sqrt(1 + s⁸) approximation maintaining -3dB at cutoff
     1.0 / (1.0 + s_norm.powi(8)).sqrt()
 }
 
@@ -647,6 +649,16 @@ mod tests {
         // At cutoff, should be ~ -3 dB
         let r_fc = pt4_response(150.0, 150.0);
         assert!((r_fc - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_pt3_response() {
+        // At cutoff, should be ~ -3 dB
+        let r_fc = pt3_response(300.0, 300.0);
+        assert!((r_fc - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.001);
+        // Far above cutoff, very small
+        let r_10x = pt3_response(3000.0, 300.0);
+        assert!(r_10x < 0.01);
     }
 
     #[test]
