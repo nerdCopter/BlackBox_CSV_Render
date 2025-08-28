@@ -181,23 +181,23 @@ fn generate_single_filter_curve(
 ) -> Vec<(f64, f64)> {
     let mut curve_points = Vec::with_capacity(num_points);
 
-    // Show the mathematically correct complete filter response curve
-    // Start from a low frequency to show the full characteristic including:
-    // 1. Flat passband region (near 1.0 magnitude)
-    // 2. Natural S-shaped transition around cutoff frequency
-    // 3. Roll-off region with characteristic slope
-    let start_freq = 10.0; // Start from 10Hz to show complete mathematical response
-    let freq_range = max_frequency_hz - start_freq;
+    // Standard practice: start at 10% of cutoff frequency to show complete response
+    // This captures the flat passband, S-shaped transition, and roll-off regions
+    let start_freq = filter.cutoff_hz * 0.1; // 10% of cutoff is standard
 
-    if freq_range <= 0.0 {
+    if start_freq >= max_frequency_hz {
         return curve_points; // Invalid range
     }
 
-    let freq_step = freq_range / num_points as f64;
+    // Use logarithmic spacing for smooth curves over wide frequency ranges
+    let log_start = start_freq.ln();
+    let log_end = max_frequency_hz.ln();
+    let log_step = (log_end - log_start) / (num_points - 1) as f64;
 
     // Generate the complete mathematically correct filter response curve
     for i in 0..num_points {
-        let frequency = start_freq + (i as f64 * freq_step);
+        let log_frequency = log_start + (i as f64 * log_step);
+        let frequency = log_frequency.exp();
         let magnitude = match filter.filter_type {
             FilterType::PT1 => pt1_response(frequency, filter.cutoff_hz),
             FilterType::PT2 => pt2_response(frequency, filter.cutoff_hz),
@@ -209,8 +209,71 @@ fn generate_single_filter_curve(
 
     curve_points
 }
+/// Extract gyro rate from header metadata for proper Nyquist calculation
+/// Filters operate at gyro rate, not logging rate
+pub fn extract_gyro_rate(header_metadata: Option<&[(String, String)]>) -> Option<f64> {
+    if let Some(metadata) = header_metadata {
+        // Look for explicit gyro rate in various possible header formats
+        for (key, value) in metadata {
+            if key.contains("gyroSampleRateHz")
+                || key.contains("gyro_sample_hz")
+                || key.contains("gyro_rate")
+                || key.contains("gyroRate")
+            {
+                // Try to parse the gyro rate
+                if let Ok(rate) = value.parse::<f64>() {
+                    if rate > 1000.0 && rate <= 32000.0 {
+                        // Reasonable gyro rate range
+                        return Some(rate);
+                    }
+                }
+            }
+        }
 
-/// Parse EmuFlight per-axis filter configuration from headers
+        // Look for gyro sync denominator to calculate rate
+        let mut base_rate = 8000.0; // Default PID loop rate
+        let mut sync_denom = 1.0;
+
+        for (key, value) in metadata {
+            if key.contains("gyro_sync_denom") || key.contains("gyroSyncDenom") {
+                if let Ok(denom) = value.parse::<f64>() {
+                    if denom > 0.0 && denom <= 32.0 {
+                        sync_denom = denom;
+                    }
+                }
+            }
+            // Some logs have explicit PID loop rate
+            if key.contains("looptime") || key.contains("pid_process_denom") {
+                if let Ok(val) = value.parse::<f64>() {
+                    if val > 0.0 && val < 1000.0 {
+                        // looptime in microseconds
+                        base_rate = 1000000.0 / val;
+                    } else if val > 1000.0 && val <= 32000.0 {
+                        // direct frequency
+                        base_rate = val;
+                    }
+                }
+            }
+        }
+
+        let calculated_rate = base_rate * sync_denom;
+        if calculated_rate > 1000.0 && calculated_rate <= 32000.0 {
+            return Some(calculated_rate);
+        }
+
+        // Fallback: assume 8kHz for modern firmware
+        for (key, value) in metadata {
+            if (key.contains("firmwareType") || key.contains("firmware")) 
+                && (value.contains("Betaflight") || value.contains("EmuFlight") || value.contains("INAV")) {
+                return Some(8000.0); // 8kHz default for modern firmware
+            }
+        }
+    }
+
+    None // Will use default in calling code
+}
+
+/// Parse filter configurations from header metadata
 pub fn parse_emuflight_filters(headers: &[(String, String)]) -> AllFilterConfigs {
     let header_map: HashMap<String, String> = headers
         .iter()

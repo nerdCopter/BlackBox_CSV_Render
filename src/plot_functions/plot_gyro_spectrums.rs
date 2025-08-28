@@ -47,6 +47,9 @@ pub fn plot_gyro_spectrums(
 
     let filter_config = header_metadata.map(filter_response::parse_filter_config);
 
+    // Extract gyro rate once for proper Nyquist calculation
+    let gyro_rate_hz = filter_response::extract_gyro_rate(header_metadata).unwrap_or(8000.0); // Default 8kHz
+
     let mut all_fft_raw_data: AllFFTData = Default::default();
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
@@ -335,8 +338,9 @@ pub fn plot_gyro_spectrums(
 
             // Add filter response curves to unfiltered plot if available
             if let Some(ref config) = filter_config {
-                let max_freq = sr_value / 2.0; // Nyquist frequency
-                let num_points = 500; // Number of points in filter curve
+                // Use gyro rate for Nyquist, not logging rate - filters operate at gyro frequency
+                let max_freq = gyro_rate_hz / 2.0; // Proper gyro Nyquist frequency
+                let num_points = 1000; // More points for smooth curves
 
                 // Generate individual filter response curves for this axis
                 let filter_curves = filter_response::generate_individual_filter_curves(
