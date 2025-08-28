@@ -365,7 +365,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             match args[i + 1].parse::<f64>() {
                 Ok(val) => {
                     if val < 0.0 {
-                        eprintln!("Error: --dps threshold cannot be negative: {val}");
+                        eprintln!("Error: --dps threshold must be > 0: {val}");
                         print_usage_and_exit(program_name);
                     }
                     setpoint_threshold_override = Some(val);
