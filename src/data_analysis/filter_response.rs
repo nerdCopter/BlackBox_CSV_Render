@@ -1,0 +1,689 @@
+// src/data_analysis/filter_response.rs
+
+use std::collections::HashMap;
+
+/// Filter types supported by flight controllers
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FilterType {
+    PT1 = 0,
+    Biquad = 1,
+    PT2 = 2,
+    PT3 = 3,
+    PT4 = 4, // EmuFlight specific, rarely used but supported
+}
+
+impl FilterType {
+    /// Convert numeric filter type to enum
+    pub fn from_u32(value: u32) -> Option<Self> {
+        match value {
+            0 => Some(FilterType::PT1),
+            1 => Some(FilterType::Biquad),
+            2 => Some(FilterType::PT2),
+            3 => Some(FilterType::PT3),
+            4 => Some(FilterType::PT4),
+            _ => None,
+        }
+    }
+
+    /// Get filter type name for display
+    pub fn name(&self) -> &'static str {
+        match self {
+            FilterType::PT1 => "PT1",
+            FilterType::Biquad => "BIQUAD",
+            FilterType::PT2 => "PT2",
+            FilterType::PT3 => "PT3",
+            FilterType::PT4 => "PT4",
+        }
+    }
+}
+
+/// Filter configuration for a single filter stage
+#[derive(Debug, Clone)]
+pub struct FilterConfig {
+    pub filter_type: FilterType,
+    pub cutoff_hz: f64,
+    pub enabled: bool,
+}
+
+/// Filter configuration for dynamic filters (Betaflight)
+#[derive(Debug, Clone)]
+pub struct DynamicFilterConfig {
+    pub filter_type: FilterType,
+    pub min_cutoff_hz: f64,
+    pub max_cutoff_hz: f64,
+    pub expo: u32,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AxisFilterConfig {
+    pub lpf1: Option<FilterConfig>,
+    pub lpf2: Option<FilterConfig>,
+    pub dynamic_lpf1: Option<DynamicFilterConfig>,
+}
+
+/// Filter configuration for all gyro and dterm filters
+#[derive(Debug, Clone, Default)]
+pub struct AllFilterConfigs {
+    pub gyro: [AxisFilterConfig; 3],  // Roll, Pitch, Yaw
+    pub dterm: [AxisFilterConfig; 3], // Roll, Pitch, Yaw
+}
+
+/// Type alias for filter curve data: (label, curve_points, cutoff_hz)
+pub type FilterCurveData = (String, Vec<(f64, f64)>, f64);
+
+/// Calculate frequency response magnitude for PT1 filter
+/// H(s) = 1 / (1 + s/ωc) where ωc = 2π * cutoff_hz
+pub fn pt1_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
+    if cutoff_hz <= 0.0 {
+        return 1.0; // No filtering
+    }
+    let omega = 2.0 * std::f64::consts::PI * frequency_hz;
+    let omega_c = 2.0 * std::f64::consts::PI * cutoff_hz;
+    1.0 / (1.0 + (omega / omega_c).powi(2)).sqrt()
+}
+
+/// Calculate frequency response magnitude for PT2 filter (2nd order Butterworth)
+/// H(s) = 1 / (1 + √2·s/ωc + (s/ωc)²)
+pub fn pt2_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
+    if cutoff_hz <= 0.0 {
+        return 1.0; // No filtering
+    }
+    let omega = 2.0 * std::f64::consts::PI * frequency_hz;
+    let omega_c = 2.0 * std::f64::consts::PI * cutoff_hz;
+    let s_norm = omega / omega_c;
+    // Butterworth 2nd order magnitude: 1 / sqrt(1 + (ω/ωc)^4)
+    1.0 / (1.0 + s_norm.powi(4)).sqrt()
+}
+
+/// Calculate frequency response magnitude for PT3 filter (3rd order Butterworth)  
+/// H(s) = 1 / (1 + s + s² + s³) where s = jω/ωc
+pub fn pt3_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
+    if cutoff_hz <= 0.0 {
+        return 1.0; // No filtering
+    }
+    let omega = 2.0 * std::f64::consts::PI * frequency_hz;
+    let omega_c = 2.0 * std::f64::consts::PI * cutoff_hz;
+    let s_norm = omega / omega_c;
+    // 3rd order Butterworth: 1 / sqrt((1 + s²)² + s²)
+    // Approximated as: 1 / sqrt(1 + s⁶) for simplicity while maintaining -3dB at cutoff
+    1.0 / (1.0 + s_norm.powi(6)).sqrt()
+}
+
+/// Calculate frequency response magnitude for PT4 filter (4th order Butterworth)
+/// H(s) = 1 / (1 + √2·s + s² + √2·s³ + s⁴)
+/// EmuFlight specific, rarely used but supported for completeness
+pub fn pt4_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
+    if cutoff_hz <= 0.0 {
+        return 1.0; // No filtering
+    }
+    let omega = 2.0 * std::f64::consts::PI * frequency_hz;
+    let omega_c = 2.0 * std::f64::consts::PI * cutoff_hz;
+    let s_norm = omega / omega_c;
+    // 4th order Butterworth: 1 / sqrt(1 + s⁸) approximation maintaining -3dB at cutoff
+    1.0 / (1.0 + s_norm.powi(8)).sqrt()
+}
+
+/// Calculate frequency response magnitude for BIQUAD filter
+/// Simplified as 2nd order lowpass for now (can be enhanced with Q factor later)
+pub fn biquad_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
+    if cutoff_hz <= 0.0 {
+        return 1.0; // No filtering
+    }
+    // For now, treat as 2nd order lowpass similar to PT2
+    // This can be enhanced later with proper Q factor and filter type (LP/HP/BP/Notch)
+    pt2_response(frequency_hz, cutoff_hz)
+}
+
+/// Generate individual filter response curves (separate curve for each filter)
+/// Returns Vec<FilterCurveData> for multiple curves with cutoff markers
+pub fn generate_individual_filter_curves(
+    axis_config: &AxisFilterConfig,
+    max_frequency_hz: f64,
+    num_points: usize,
+) -> Vec<FilterCurveData> {
+    let mut filter_curves = Vec::new();
+
+    // Generate curve for LPF1 if enabled
+    if let Some(ref lpf1) = axis_config.lpf1 {
+        if lpf1.enabled && lpf1.cutoff_hz > 0.0 {
+            let curve = generate_single_filter_curve(lpf1, max_frequency_hz, num_points);
+            let label = format!(
+                "LPF1 ({} @ {:.0}Hz)",
+                lpf1.filter_type.name(),
+                lpf1.cutoff_hz
+            );
+            filter_curves.push((label, curve, lpf1.cutoff_hz));
+        }
+    }
+
+    // Generate curve for LPF2 if enabled
+    if let Some(ref lpf2) = axis_config.lpf2 {
+        if lpf2.enabled && lpf2.cutoff_hz > 0.0 {
+            let curve = generate_single_filter_curve(lpf2, max_frequency_hz, num_points);
+            let label = format!(
+                "LPF2 ({} @ {:.0}Hz)",
+                lpf2.filter_type.name(),
+                lpf2.cutoff_hz
+            );
+            filter_curves.push((label, curve, lpf2.cutoff_hz));
+        }
+    }
+
+    // Generate curve for Dynamic LPF1 if enabled
+    if let Some(ref dyn_lpf1) = axis_config.dynamic_lpf1 {
+        if dyn_lpf1.enabled && dyn_lpf1.min_cutoff_hz > 0.0 {
+            let static_filter = FilterConfig {
+                filter_type: dyn_lpf1.filter_type,
+                cutoff_hz: dyn_lpf1.min_cutoff_hz, // Use minimum cutoff
+                enabled: true,
+            };
+            let curve = generate_single_filter_curve(&static_filter, max_frequency_hz, num_points);
+            let label = format!(
+                "Dynamic LPF1 ({} @ {:.0}Hz)",
+                dyn_lpf1.filter_type.name(),
+                dyn_lpf1.min_cutoff_hz
+            );
+            filter_curves.push((label, curve, dyn_lpf1.min_cutoff_hz));
+        }
+    }
+
+    filter_curves
+}
+
+/// Generate response curve for a single filter with full frequency range
+fn generate_single_filter_curve(
+    filter: &FilterConfig,
+    max_frequency_hz: f64,
+    num_points: usize,
+) -> Vec<(f64, f64)> {
+    let mut curve_points = Vec::with_capacity(num_points);
+
+    if num_points < 2 {
+        return curve_points;
+    }
+
+    // Standard practice: start at 10% of cutoff frequency to show complete response
+    // This captures the flat passband, S-shaped transition, and roll-off regions
+    let start_freq = filter.cutoff_hz * 0.1; // 10% of cutoff is standard
+
+    if start_freq >= max_frequency_hz {
+        return curve_points; // Invalid range
+    }
+
+    // Use logarithmic spacing for smooth curves over wide frequency ranges
+    let log_start = start_freq.ln();
+    let log_end = max_frequency_hz.ln();
+    let log_step = (log_end - log_start) / (num_points - 1) as f64;
+
+    // Generate the complete mathematically correct filter response curve
+    for i in 0..num_points {
+        let log_frequency = log_start + (i as f64 * log_step);
+        let frequency = log_frequency.exp();
+        let magnitude = match filter.filter_type {
+            FilterType::PT1 => pt1_response(frequency, filter.cutoff_hz),
+            FilterType::PT2 => pt2_response(frequency, filter.cutoff_hz),
+            FilterType::PT3 => pt3_response(frequency, filter.cutoff_hz),
+            FilterType::PT4 => pt4_response(frequency, filter.cutoff_hz),
+            FilterType::Biquad => biquad_response(frequency, filter.cutoff_hz),
+        };
+        curve_points.push((frequency, magnitude));
+    }
+
+    curve_points
+}
+/// Extract gyro rate from header metadata for proper Nyquist calculation
+/// Filters operate at gyro rate, not logging rate
+pub fn extract_gyro_rate(header_metadata: Option<&[(String, String)]>) -> Option<f64> {
+    if let Some(metadata) = header_metadata {
+        // Look for explicit gyro rate in various possible header formats
+        for (key, value) in metadata {
+            let key_l = key.to_ascii_lowercase();
+            if key_l.contains("gyrosampleratehz")
+                || key_l.contains("gyro_sample_hz")
+                || key_l.contains("gyro_rate_hz")
+                || key_l.contains("gyro_rate")
+                || key_l.contains("gyrorate")
+            {
+                // Try to parse the gyro rate
+                if let Ok(rate) = value.parse::<f64>() {
+                    if rate > 1000.0 && rate <= 32000.0 {
+                        // Reasonable gyro rate range
+                        return Some(rate);
+                    }
+                }
+            }
+        }
+
+        // Look for gyro sync denominator to calculate rate
+        let mut base_rate = 8000.0; // Default PID loop rate
+        let mut sync_denom = 1.0;
+
+        for (key, value) in metadata {
+            let key_l = key.to_ascii_lowercase();
+            if key_l.contains("gyro_sync_denom") || key_l.contains("gyrosyncdenom") {
+                if let Ok(denom) = value.parse::<f64>() {
+                    if denom > 0.0 && denom <= 32.0 {
+                        sync_denom = denom;
+                    }
+                }
+            }
+            // Some logs have explicit PID loop rate
+            if key_l.contains("looptime") || key_l.contains("pid_process_denom") {
+                if let Ok(val) = value.parse::<f64>() {
+                    if val > 0.0 && val < 1000.0 {
+                        // looptime in microseconds
+                        base_rate = 1000000.0 / val;
+                    } else if val > 1000.0 && val <= 32000.0 {
+                        // direct frequency
+                        base_rate = val;
+                    }
+                }
+            }
+        }
+
+        let calculated_rate = base_rate / sync_denom;
+        if calculated_rate > 1000.0 && calculated_rate <= 32000.0 {
+            return Some(calculated_rate);
+        }
+
+        // Fallback: assume 8kHz for modern firmware
+        for (key, value) in metadata {
+            let key_l = key.to_ascii_lowercase();
+            if (key_l.contains("firmwaretype") || key_l.contains("firmware"))
+                && (value.contains("Betaflight")
+                    || value.contains("EmuFlight")
+                    || value.contains("INAV"))
+            {
+                return Some(8000.0); // 8kHz default for modern firmware
+            }
+        }
+    }
+
+    None // Will use default in calling code
+}
+
+/// Parse filter configurations from header metadata
+pub fn parse_emuflight_filters(headers: &[(String, String)]) -> AllFilterConfigs {
+    let header_map: HashMap<String, String> = headers
+        .iter()
+        .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_string()))
+        .collect();
+
+    let mut config = AllFilterConfigs::default();
+
+    // Parse D-term filters (per-axis)
+    for (axis_idx, axis_name) in ["roll", "pitch", "yaw"].iter().enumerate() {
+        // D-term LPF1
+        if let (Some(filter_type_str), Some(cutoff_str)) = (
+            header_map.get("dterm_filter_type"),
+            header_map.get(&format!("dterm_lowpass_hz_{axis_name}")),
+        ) {
+            if let (Ok(filter_type_num), Ok(cutoff_hz)) =
+                (filter_type_str.parse::<u32>(), cutoff_str.parse::<f64>())
+            {
+                if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
+                    if cutoff_hz > 0.0 {
+                        // Only add if cutoff > 0
+                        config.dterm[axis_idx].lpf1 = Some(FilterConfig {
+                            filter_type,
+                            cutoff_hz,
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        // D-term LPF2
+        if let (Some(filter_type_str), Some(cutoff_str)) = (
+            header_map.get("dterm_filter2_type"),
+            header_map.get(&format!("dterm_lowpass2_hz_{axis_name}")),
+        ) {
+            if let (Ok(filter_type_num), Ok(cutoff_hz)) =
+                (filter_type_str.parse::<u32>(), cutoff_str.parse::<f64>())
+            {
+                if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
+                    if cutoff_hz > 0.0 {
+                        // Only add if cutoff > 0
+                        config.dterm[axis_idx].lpf2 = Some(FilterConfig {
+                            filter_type,
+                            cutoff_hz,
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Gyro filters (per-axis)
+        if let (Some(filter_type_str), Some(cutoff_str)) = (
+            header_map.get("gyro_lowpass_type"),
+            header_map.get(&format!("gyro_lowpass_hz_{axis_name}")),
+        ) {
+            if let (Ok(filter_type_num), Ok(cutoff_hz)) =
+                (filter_type_str.parse::<u32>(), cutoff_str.parse::<f64>())
+            {
+                if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
+                    if cutoff_hz > 0.0 {
+                        // Only add if cutoff > 0
+                        config.gyro[axis_idx].lpf1 = Some(FilterConfig {
+                            filter_type,
+                            cutoff_hz,
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Gyro LPF2 (per-axis)
+        if let (Some(filter_type_str), Some(cutoff_str)) = (
+            header_map.get("gyro_lowpass2_type"),
+            header_map.get(&format!("gyro_lowpass2_hz_{axis_name}")),
+        ) {
+            if let (Ok(filter_type_num), Ok(cutoff_hz)) =
+                (filter_type_str.parse::<u32>(), cutoff_str.parse::<f64>())
+            {
+                if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
+                    if cutoff_hz > 0.0 {
+                        // Only add if cutoff > 0
+                        config.gyro[axis_idx].lpf2 = Some(FilterConfig {
+                            filter_type,
+                            cutoff_hz,
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    config
+}
+
+/// Parse Betaflight unified filter configuration from headers
+pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfigs {
+    let header_map: HashMap<String, String> = headers
+        .iter()
+        .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_string()))
+        .collect();
+
+    let mut config = AllFilterConfigs::default();
+
+    // Parse D-term filters (unified across all axes)
+    if let Some(filter_type_str) = header_map.get("dterm_lpf1_type") {
+        if let Ok(filter_type_num) = filter_type_str.parse::<u32>() {
+            if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
+                // Check for static vs dynamic mode
+                let static_cutoff = header_map
+                    .get("dterm_lpf1_static_hz")
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .unwrap_or(0.0);
+
+                let dynamic_cutoffs = header_map
+                    .get("dterm_lpf1_dyn_hz")
+                    .map(|s| parse_dynamic_cutoffs(s))
+                    .unwrap_or((0.0, 0.0));
+
+                let expo = header_map
+                    .get("dterm_lpf1_dyn_expo")
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(0);
+
+                // Apply to all axes
+                for axis_idx in 0..3 {
+                    if static_cutoff > 0.0 {
+                        // Static mode
+                        config.dterm[axis_idx].lpf1 = Some(FilterConfig {
+                            filter_type,
+                            cutoff_hz: static_cutoff,
+                            enabled: true,
+                        });
+                    } else if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
+                        // Dynamic mode
+                        config.dterm[axis_idx].dynamic_lpf1 = Some(DynamicFilterConfig {
+                            filter_type,
+                            min_cutoff_hz: dynamic_cutoffs.0,
+                            max_cutoff_hz: dynamic_cutoffs.1,
+                            expo,
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Parse D-term LPF2 (static only)
+    if let Some(filter_type_str) = header_map.get("dterm_lpf2_type") {
+        if let Ok(filter_type_num) = filter_type_str.parse::<u32>() {
+            if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
+                let static_cutoff = header_map
+                    .get("dterm_lpf2_static_hz")
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .unwrap_or(0.0);
+
+                if static_cutoff > 0.0 {
+                    for axis_idx in 0..3 {
+                        config.dterm[axis_idx].lpf2 = Some(FilterConfig {
+                            filter_type,
+                            cutoff_hz: static_cutoff,
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Parse Gyro filters (similar pattern)
+    if let Some(filter_type_str) = header_map.get("gyro_lpf1_type") {
+        if let Ok(filter_type_num) = filter_type_str.parse::<u32>() {
+            if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
+                let static_cutoff = header_map
+                    .get("gyro_lpf1_static_hz")
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .unwrap_or(0.0);
+
+                let dynamic_cutoffs = header_map
+                    .get("gyro_lpf1_dyn_hz")
+                    .map(|s| parse_dynamic_cutoffs(s))
+                    .unwrap_or((0.0, 0.0));
+
+                let expo = header_map
+                    .get("gyro_lpf1_dyn_expo")
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(0);
+
+                for axis_idx in 0..3 {
+                    if static_cutoff > 0.0 {
+                        config.gyro[axis_idx].lpf1 = Some(FilterConfig {
+                            filter_type,
+                            cutoff_hz: static_cutoff,
+                            enabled: true,
+                        });
+                    } else if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
+                        config.gyro[axis_idx].dynamic_lpf1 = Some(DynamicFilterConfig {
+                            filter_type,
+                            min_cutoff_hz: dynamic_cutoffs.0,
+                            max_cutoff_hz: dynamic_cutoffs.1,
+                            expo,
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Parse Gyro LPF2 (static only)
+    if let Some(filter_type_str) = header_map.get("gyro_lpf2_type") {
+        if let Ok(filter_type_num) = filter_type_str.parse::<u32>() {
+            if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
+                let static_cutoff = header_map
+                    .get("gyro_lpf2_static_hz")
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .unwrap_or(0.0);
+
+                if static_cutoff > 0.0 {
+                    for axis_idx in 0..3 {
+                        config.gyro[axis_idx].lpf2 = Some(FilterConfig {
+                            filter_type,
+                            cutoff_hz: static_cutoff,
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    config
+}
+
+/// Parse dynamic cutoff string format "min,max" into tuple
+fn parse_dynamic_cutoffs(cutoff_str: &str) -> (f64, f64) {
+    let parts: Vec<&str> = cutoff_str.trim_matches('"').split(',').collect();
+    if parts.len() == 2 {
+        let min_cutoff = parts[0].trim().parse::<f64>().unwrap_or(0.0);
+        let max_cutoff = parts[1].trim().parse::<f64>().unwrap_or(0.0);
+        (min_cutoff, max_cutoff)
+    } else {
+        (0.0, 0.0)
+    }
+}
+
+/// Auto-detect firmware type and parse appropriate filter configuration
+pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
+    // Detect firmware type by looking for characteristic fields
+    let header_map: HashMap<String, String> = headers
+        .iter()
+        .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_string()))
+        .collect();
+
+    // Check for EmuFlight per-axis patterns
+    let has_emuflight_pattern = header_map.contains_key("dterm_lowpass_hz_roll")
+        || header_map.contains_key("gyro_lowpass_hz_roll");
+
+    // Check for Betaflight unified patterns
+    let has_betaflight_pattern = header_map.contains_key("dterm_lpf1_static_hz")
+        || header_map.contains_key("dterm_lpf1_dyn_hz");
+
+    let config = if has_emuflight_pattern {
+        println!("Detected EmuFlight filter configuration (per-axis)");
+        parse_emuflight_filters(headers)
+    } else if has_betaflight_pattern {
+        println!("Detected Betaflight filter configuration (unified)");
+        parse_betaflight_filters(headers)
+    } else {
+        println!("No recognized filter configuration found in headers");
+        AllFilterConfigs::default()
+    };
+
+    // Debug output: Print parsed filter configuration
+    println!("Parsed filter configuration:");
+    for (axis_idx, axis_name) in ["Roll", "Pitch", "Yaw"].iter().enumerate() {
+        println!("  {axis_name} Gyro Filters:");
+        if let Some(ref lpf1) = config.gyro[axis_idx].lpf1 {
+            println!(
+                "    LPF1: {} at {:.0} Hz",
+                lpf1.filter_type.name(),
+                lpf1.cutoff_hz
+            );
+        }
+        if let Some(ref lpf2) = config.gyro[axis_idx].lpf2 {
+            println!(
+                "    LPF2: {} at {:.0} Hz",
+                lpf2.filter_type.name(),
+                lpf2.cutoff_hz
+            );
+        }
+        if let Some(ref dyn_lpf1) = config.gyro[axis_idx].dynamic_lpf1 {
+            println!(
+                "    Dynamic LPF1: {} {:.0}-{:.0} Hz (expo: {})",
+                dyn_lpf1.filter_type.name(),
+                dyn_lpf1.min_cutoff_hz,
+                dyn_lpf1.max_cutoff_hz,
+                dyn_lpf1.expo
+            );
+        }
+        if config.gyro[axis_idx].lpf1.is_none()
+            && config.gyro[axis_idx].lpf2.is_none()
+            && config.gyro[axis_idx].dynamic_lpf1.is_none()
+        {
+            println!("    No gyro filters configured");
+        }
+    }
+
+    config
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pt1_response() {
+        // At cutoff frequency, magnitude should be ~0.707 (-3dB)
+        let response = pt1_response(100.0, 100.0);
+        assert!((response - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.001);
+
+        // At 10x cutoff frequency, should be much lower
+        let response_10x = pt1_response(1000.0, 100.0);
+        assert!(response_10x < 0.1);
+    }
+
+    #[test]
+    fn test_pt2_response() {
+        // At cutoff, should be ~ -3 dB
+        let r_fc = pt2_response(200.0, 200.0);
+        assert!((r_fc - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.001);
+        // Far above cutoff, very small
+        let r_10x = pt2_response(2000.0, 200.0);
+        assert!(r_10x < 0.02);
+    }
+
+    #[test]
+    fn test_pt4_response() {
+        // At cutoff, should be ~ -3 dB
+        let r_fc = pt4_response(150.0, 150.0);
+        assert!((r_fc - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_pt3_response() {
+        // At cutoff, should be ~ -3 dB
+        let r_fc = pt3_response(300.0, 300.0);
+        assert!((r_fc - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.001);
+        // Far above cutoff, very small
+        let r_10x = pt3_response(3000.0, 300.0);
+        assert!(r_10x < 0.01);
+    }
+
+    #[test]
+    fn test_extract_gyro_rate_with_sync_denom() {
+        let headers = vec![
+            ("looptime".to_string(), "125".to_string()), // 1e6 / 125 = 8000 Hz
+            ("gyro_sync_denom".to_string(), "2".to_string()), // -> 4000 Hz
+        ];
+        let rate = extract_gyro_rate(Some(&headers));
+        assert_eq!(rate, Some(4000.0));
+    }
+
+    #[test]
+    fn test_filter_type_conversion() {
+        assert_eq!(FilterType::from_u32(0), Some(FilterType::PT1));
+        assert_eq!(FilterType::from_u32(1), Some(FilterType::Biquad));
+        assert_eq!(FilterType::from_u32(2), Some(FilterType::PT2));
+        assert_eq!(FilterType::from_u32(3), Some(FilterType::PT3));
+        assert_eq!(FilterType::from_u32(99), None);
+    }
+
+    #[test]
+    fn test_dynamic_cutoffs_parsing() {
+        assert_eq!(parse_dynamic_cutoffs("75,150"), (75.0, 150.0));
+        assert_eq!(parse_dynamic_cutoffs("\"100,200\""), (100.0, 200.0));
+        assert_eq!(parse_dynamic_cutoffs("invalid"), (0.0, 0.0));
+    }
+}
