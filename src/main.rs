@@ -301,19 +301,19 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         println!("    ... No sample rate available. Skipping step response calculations.");
     }
 
-    // Set the current working directory to the output directory if specified
+    // Create RAII guard BEFORE changing directory if needed
     let _cwd_guard = if let Some(output_dir) = output_dir {
+        // Create guard to save current directory BEFORE changing it
+        let guard = CwdGuard::new()?;
         // Ensure output directory exists
         std::fs::create_dir_all(output_dir)?;
-        // Change to output directory for plot generation and create RAII guard
+        // Change to output directory for plot generation  
         env::set_current_dir(output_dir)?;
-        Some(CwdGuard::new()?)
+        Some(guard)
     } else {
         None
     };
     // CWD will be automatically restored when _cwd_guard goes out of scope
-
-    // Use only the root filename (without path) for PNG output
 
     // Create PID context for centralized PID metadata and related parameters
     let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
@@ -357,7 +357,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_files: Vec<String> = Vec::new();
     let mut setpoint_threshold_override: Option<f64> = None;
     let mut dps_flag_present = false;
-    let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
+    let mut output_dir: Option<String> = None;
     let mut debug_mode = false;
 
     let mut i = 1;
@@ -400,7 +400,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("Error: --output-dir requires a directory path.");
                 print_usage_and_exit(program_name);
             } else {
-                // --output-dir with directory value
                 output_dir = Some(args[i + 1].clone());
                 i += 1;
             }
@@ -410,7 +409,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
         } else {
-            input_files.push(arg.clone()); // THIS IS THE CORRECT LOGIC FOR VEC
+            input_files.push(arg.clone());
         }
         i += 1;
     }
@@ -450,7 +449,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // No --output-dir specified, use input file's directory (source folder)
                 Path::new(input_file_str).parent().and_then(|p| p.to_str())
             }
-            Some(dir) => Some(dir.as_str()), // --output-dir with specific directory
+            Some(dir) => Some(dir.as_str()),
         };
 
         if let Err(e) = process_file(
@@ -467,22 +466,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if overall_success {
-        println!(
-            "
-All files processed successfully."
-        );
+        println!("
+All files processed successfully.");
         Ok(())
     } else {
-        eprintln!(
-            "
-Some files could not be processed successfully."
-        );
-        // Still return Ok(()) here as we've handled errors per file.
-        // Or, could return a generic error if preferred for the whole batch.
-        // For now, exiting with 0 if any file succeeded, or if all failed but were handled.
-        // To signal overall failure to scripts, one might `std::process::exit(1)` here.
+        eprintln!("
+Some files could not be processed successfully.");
         Ok(())
     }
 }
 
-// main.rs
+// src/main.rs
