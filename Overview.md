@@ -53,7 +53,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                 *   `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.
                 *   `plot_setpoint_vs_gyro`: Setpoint and filtered gyro time-domain comparison for each axis.
                 *   `plot_gyro_vs_unfilt`: Filtered vs. unfiltered gyro time-domain comparison for each axis. Includes enhanced cross-correlation filtering delay calculation.
-                *   `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with peak detection and labeling with configurable thresholds. Includes enhanced cross-correlation filtering delay calculation.
+                *   `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with peak detection and labeling with configurable thresholds. Includes enhanced cross-correlation filtering delay calculation and flight firmware filter response curve overlays.
                 *   `plot_psd`: Power Spectral Density plots in dB scale with peak labeling. Includes enhanced cross-correlation filtering delay calculation.
                 *   `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap.
                 *   `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
@@ -75,6 +75,20 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 *   **Confidence Value Clamping:** Confidence values are clamped to the valid range [0, 1] to handle numerical noise in correlation calculations that could cause values to slightly exceed 1.0.
 *   **Configurable Thresholds:** All correlation thresholds and delay search parameters are defined as named constants in `src/constants.rs` for maintainability and tuning.
 *   **Display:** Results are shown in console output with confidence metrics (as percentages), and estimates are integrated into plot legends as "Delay: X.Xms(c:XX%)" for `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
+
+**Filter Response Curves (`src/data_analysis/filter_response.rs`):**
+
+*   **Flight Firmware Integration:** Automatically detects and parses filter configurations from Betaflight, EmuFlight, and INAV blackbox headers including filter types (PT1, PT2, PT3, PT4, BIQUAD), cutoff frequencies, and dynamic filter ranges.
+*   **Gyro Rate Detection:** Comprehensive parsing of gyro sampling rates from various header formats (`gyroSampleRateHz`, `looptime`, `gyro_sync_denom`) with case-insensitive matching and proper division-based denominator calculation.
+*   **Mathematical Implementation:** 
+    *   **PT1 (1st order)**: `H(s) = 1/(1 + s/ωc)` - Standard single-pole lowpass
+    *   **PT2 (2nd order)**: `H(s) = 1/(1 + √2·s/ωc + (s/ωc)²)` - Butterworth response yielding -3dB at cutoff
+    *   **PT3 (3rd order)**: `H(s) = 1/(1 + s + s² + s³)` - 3rd order Butterworth lowpass  
+    *   **PT4 (4th order)**: `H(s) = 1/(1 + √2·s + s² + √2·s³ + s⁴)` - 4th order Butterworth lowpass
+    *   **BIQUAD**: Enhanced 2nd order implementation
+*   **Curve Generation:** Logarithmic frequency spacing from 10% of cutoff frequency to gyro Nyquist frequency (gyro_rate/2) with 1000 points for smooth visualization. Includes division-by-zero protection and edge case handling.
+*   **Visualization Integration:** Filter response curves are overlaid on spectrum plots (`plot_gyro_spectrums`) as red curves with clear legends showing filter type and cutoff frequency, enhancing spectrum analysis with theoretical filter characteristics.
+*   **Quality Assurance:** Comprehensive unit tests verify -3dB magnitude response at cutoff frequencies for all filter types and validate gyro rate extraction accuracy.
 
 **Step-Response Comparison with Other Analysis Tools:**
 
