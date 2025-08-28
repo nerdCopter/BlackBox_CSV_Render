@@ -16,7 +16,7 @@ pub fn plot_gyro_vs_unfilt(
     root_name: &str,
     sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
-    let output_file_gyro = format!("{}_GyroVsUnfilt_stacked.png", root_name);
+    let output_file_gyro = format!("{root_name}_GyroVsUnfilt_stacked.png");
     let plot_type_name = "Gyro/UnfiltGyro";
 
     // Calculate filtering delay using enhanced cross-correlation
@@ -142,7 +142,7 @@ pub fn plot_gyro_vs_unfilt(
                     }
                 } else if let Some(delay) = average_delay_ms {
                     // Fallback to single method display
-                    format!("Filtered Gyro (gyroADC) - Delay: {:.1}ms", delay)
+                    format!("Filtered Gyro (gyroADC) - Delay: {delay:.1}ms")
                 } else {
                     "Filtered Gyro (gyroADC)".to_string()
                 };
@@ -155,7 +155,7 @@ pub fn plot_gyro_vs_unfilt(
             }
 
             Some((
-                format!("Axis {} Filtered vs Unfiltered Gyro", axis_index),
+                format!("Axis {axis_index} Filtered vs Unfiltered Gyro"),
                 x_range,
                 y_range,
                 series,

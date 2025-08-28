@@ -43,7 +43,7 @@ use crate::data_analysis::calc_step_response;
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("
-Usage: {} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--debug]", program_name);
+Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--debug]");
     eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
     eprintln!("                 deg/s threshold value. Must be a positive number.");
@@ -82,10 +82,10 @@ fn process_file(
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
     if !input_path.exists() {
-        eprintln!("Error: Input file not found: {}", input_file_str);
+        eprintln!("Error: Input file not found: {input_file_str}");
         return Ok(()); // Continue to next file if this one is not found
     }
-    println!("\n--- Processing file: {} ---", input_file_str);
+    println!("\n--- Processing file: {input_file_str} ---");
 
     let file_stem_cow = input_path
         .file_stem()
@@ -110,11 +110,11 @@ fn process_file(
                             }
                         })
                         .collect::<String>();
-                    dir_prefix_to_add = format!("{}_", sanitized_dir);
+                    dir_prefix_to_add = format!("{sanitized_dir}_");
                 }
             }
         }
-        root_name_string = format!("{}{}", dir_prefix_to_add, file_stem_cow);
+        root_name_string = format!("{dir_prefix_to_add}{file_stem_cow}");
     } else {
         root_name_string = file_stem_cow.into_owned();
     }
@@ -132,16 +132,13 @@ fn process_file(
     ) = match parse_log_file(input_path, debug_mode) {
         Ok(data) => data,
         Err(e) => {
-            eprintln!("Error parsing log file {}: {}", input_file_str, e);
+            eprintln!("Error parsing log file {input_file_str}: {e}");
             return Ok(()); // Continue to next file
         }
     };
 
     if all_log_data.is_empty() {
-        println!(
-            "No valid data rows read from {}, cannot generate plots.",
-            input_file_str
-        );
+        println!("No valid data rows read from {input_file_str}, cannot generate plots.");
         return Ok(());
     }
 
@@ -218,8 +215,7 @@ fn process_file(
         } else {
             println!(
                 "
-INFO ({}): Skipping Step Response data collection: Setpoint or Gyro headers missing.",
-                input_file_str
+INFO ({input_file_str}): Skipping Step Response data collection: Setpoint or Gyro headers missing."
             );
         }
     } else {
@@ -230,15 +226,13 @@ INFO ({}): Skipping Step Response data collection: Setpoint or Gyro headers miss
         };
         println!(
             "
-INFO ({}): Skipping Step Response input data filtering: {}.",
-            input_file_str, reason
+INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
 
     println!(
         "
---- Calculating Step Response for {} ---",
-        input_file_str
+--- Calculating Step Response for {input_file_str} ---"
     );
     let mut step_response_calculation_results: StepResponseResults = [None, None, None];
 
@@ -247,10 +241,7 @@ INFO ({}): Skipping Step Response input data filtering: {}.",
             let required_headers_found =
                 setpoint_header_found[axis_index] && gyro_header_found[axis_index];
             if required_headers_found && !contiguous_sr_input_data[axis_index].0.is_empty() {
-                println!(
-                    "  Attempting step response calculation for Axis {}...",
-                    axis_index
-                );
+                println!("  Attempting step response calculation for Axis {axis_index}...");
                 let time_arr = Array1::from(contiguous_sr_input_data[axis_index].0.clone());
                 let setpoints_arr = Array1::from(contiguous_sr_input_data[axis_index].1.clone());
                 let gyros_filtered_arr =
@@ -268,13 +259,13 @@ INFO ({}): Skipping Step Response input data filtering: {}.",
                             let num_qc_windows = result.1.shape()[0];
                             if num_qc_windows > 0 {
                                 step_response_calculation_results[axis_index] = Some(result);
-                                println!("    ... Calculation successful for Axis {}. {} windows passed QC.", axis_index, num_qc_windows);
+                                println!("    ... Calculation successful for Axis {axis_index}. {num_qc_windows} windows passed QC.");
                             } else {
-                                println!("    ... Calculation returned no valid windows for Axis {}. Skipping.", axis_index);
+                                println!("    ... Calculation returned no valid windows for Axis {axis_index}. Skipping.");
                             }
                         }
                         Err(e) => {
-                            eprintln!("    ... Calculation failed for Axis {}: {}", axis_index, e);
+                            eprintln!("    ... Calculation failed for Axis {axis_index}: {e}");
                         }
                     }
                 } else {
@@ -286,24 +277,15 @@ INFO ({}): Skipping Step Response input data filtering: {}.",
                 } else {
                     "No movement-filtered input data available"
                 };
-                println!(
-                    "  Skipping Step Response calculation for Axis {}: {}",
-                    axis_index, reason
-                );
+                println!("  Skipping Step Response calculation for Axis {axis_index}: {reason}");
             }
         }
     } else {
-        println!(
-            "  Skipping Step Response Calculation for {}: Sample rate could not be determined.",
-            input_file_str
-        );
+        println!("  Skipping Step Response Calculation for {input_file_str}: Sample rate could not be determined.");
     }
 
     // --- Generate Plots ---
-    println!(
-        "Generating plots for {} (root name: {})...",
-        input_file_str, root_name_string
-    );
+    println!("Generating plots for {input_file_str} (root name: {root_name_string})...");
 
     // Set the current working directory to the output directory if specified
     let original_dir = std::env::current_dir()?;
@@ -344,7 +326,7 @@ INFO ({}): Skipping Step Response input data filtering: {}.",
     // Restore original working directory
     std::env::set_current_dir(&original_dir)?;
 
-    println!("--- Finished processing file: {} ---", input_file_str);
+    println!("--- Finished processing file: {input_file_str} ---");
     Ok(())
 }
 
@@ -382,8 +364,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             dps_flag_present = true;
             match args[i + 1].parse::<f64>() {
                 Ok(val) => {
-                    if val < 0.0 {
-                        eprintln!("Error: --dps threshold cannot be negative: {}", val);
+                    if val <= 0.0 {
+                        eprintln!("Error: --dps threshold must be > 0: {val}");
                         print_usage_and_exit(program_name);
                     }
                     setpoint_threshold_override = Some(val);
@@ -410,7 +392,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--debug" {
             debug_mode = true;
         } else if arg.starts_with("--") {
-            eprintln!("Error: Unknown option '{}'", arg);
+            eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
         } else {
             input_files.push(arg.clone()); // THIS IS THE CORRECT LOGIC FOR VEC
@@ -464,10 +446,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             actual_output_dir,
             debug_mode,
         ) {
-            eprintln!(
-                "An error occurred while processing {}: {}",
-                input_file_str, e
-            );
+            eprintln!("An error occurred while processing {input_file_str}: {e}");
             overall_success = false;
         }
     }

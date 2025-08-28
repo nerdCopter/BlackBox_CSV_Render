@@ -37,14 +37,10 @@ pub fn plot_step_response(
 
     let output_file_step = if show_legend {
         format!(
-            "{}_Step_Response_stacked_plot_{}s_{}dps.png",
-            root_name, step_response_plot_duration_s, setpoint_threshold
+            "{root_name}_Step_Response_stacked_plot_{step_response_plot_duration_s}s_{setpoint_threshold}dps.png"
         )
     } else {
-        format!(
-            "{}_Step_Response_stacked_plot_{}s.png",
-            root_name, step_response_plot_duration_s
-        )
+        format!("{root_name}_Step_Response_stacked_plot_{step_response_plot_duration_s}s.png")
     };
     let plot_type_name = "Step Response";
     let sr = sample_rate.unwrap_or(1000.0); // Default sample rate if not provided
@@ -73,8 +69,7 @@ pub fn plot_step_response(
                 .max(current_ss_start_idx + 1);
 
             if current_ss_start_idx >= current_ss_end_idx {
-                eprintln!("Warning: Axis {} Step Response: Steady-state window is invalid (start_idx {} >= end_idx {} for response length {}). Skipping final normalization and plot for this axis.",
-                    axis_index, current_ss_start_idx, current_ss_end_idx, response_length_samples);
+                eprintln!("Warning: Axis {axis_index} Step Response: Steady-state window is invalid (start_idx {current_ss_start_idx} >= end_idx {current_ss_end_idx} for response length {response_length_samples}). Skipping final normalization and plot for this axis.");
                 continue;
             }
 
@@ -208,7 +203,7 @@ pub fn plot_step_response(
                     let peak_val_opt = calc_step_response::find_peak_value(&resp);
                     let latency_opt = calc_step_response::calculate_delay_time(&resp, sr);
                     let peak_str =
-                        peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{:.2}", p));
+                        peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{p:.2}"));
                     let latency_str = latency_opt.map_or_else(
                         || "N/A".to_string(),
                         |l_s| format!("{:.0} ms", l_s * 1000.0),
@@ -220,8 +215,7 @@ pub fn plot_step_response(
                             .map(|(&t, &v)| (t, v))
                             .collect(),
                         label: format!(
-                            "< {} deg/s (Peak: {}, Td: {})",
-                            setpoint_threshold, peak_str, latency_str
+                            "< {setpoint_threshold} deg/s (Peak: {peak_str}, Td: {latency_str})"
                         ),
                         color: color_low_sp,
                         stroke_width: line_stroke_plot,
@@ -231,7 +225,7 @@ pub fn plot_step_response(
                     let peak_val_opt = calc_step_response::find_peak_value(&resp);
                     let latency_opt = calc_step_response::calculate_delay_time(&resp, sr);
                     let peak_str =
-                        peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{:.2}", p));
+                        peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{p:.2}"));
                     let latency_str = latency_opt.map_or_else(
                         || "N/A".to_string(),
                         |l_s| format!("{:.0} ms", l_s * 1000.0),
@@ -243,8 +237,7 @@ pub fn plot_step_response(
                             .map(|(&t, &v)| (t, v))
                             .collect(),
                         label: format!(
-                            "\u{2265} {} deg/s (Peak: {}, Td: {})",
-                            setpoint_threshold, peak_str, latency_str
+                            "\u{2265} {setpoint_threshold} deg/s (Peak: {peak_str}, Td: {latency_str})"
                         ),
                         color: color_high_sp,
                         stroke_width: line_stroke_plot,
@@ -254,7 +247,7 @@ pub fn plot_step_response(
                     let peak_val_opt = calc_step_response::find_peak_value(&resp);
                     let latency_opt = calc_step_response::calculate_delay_time(&resp, sr);
                     let peak_str =
-                        peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{:.2}", p));
+                        peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{p:.2}"));
                     let latency_str = latency_opt.map_or_else(
                         || "N/A".to_string(),
                         |l_s| format!("{:.0} ms", l_s * 1000.0),
@@ -265,7 +258,7 @@ pub fn plot_step_response(
                             .zip(resp.iter())
                             .map(|(&t, &v)| (t, v))
                             .collect(),
-                        label: format!("Combined (Peak: {}, Td: {})", peak_str, latency_str), // This is the average of all Y-corrected & QC'd responses
+                        label: format!("Combined (Peak: {peak_str}, Td: {latency_str})"), // This is the average of all Y-corrected & QC'd responses
                         color: color_combined,
                         stroke_width: line_stroke_plot,
                     });
@@ -284,7 +277,7 @@ pub fn plot_step_response(
                     let peak_val_opt = calc_step_response::find_peak_value(&resp);
                     let latency_opt = calc_step_response::calculate_delay_time(&resp, sr);
                     let peak_str =
-                        peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{:.2}", p));
+                        peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{p:.2}"));
                     let latency_str = latency_opt.map_or_else(
                         || "N/A".to_string(),
                         |l_s| format!("{:.0} ms", l_s * 1000.0),
@@ -295,7 +288,7 @@ pub fn plot_step_response(
                             .zip(resp.iter())
                             .map(|(&t, &v)| (t, v))
                             .collect(),
-                        label: format!("step-response (Peak: {}, Td: {})", peak_str, latency_str), // This is the average of all Y-corrected & QC'd responses
+                        label: format!("step-response (Peak: {peak_str}, Td: {latency_str})"), // This is the average of all Y-corrected & QC'd responses
                         color: color_combined,
                         stroke_width: line_stroke_plot,
                     });
@@ -303,7 +296,7 @@ pub fn plot_step_response(
             }
 
             if series.is_empty() {
-                // eprintln!("Debug: Axis {} has no series to plot after process_response.", axis_index);
+                // eprintln!("Debug: Axis {axis_index} has no series to plot after process_response.");
                 continue; // No valid series generated for this axis
             }
 
@@ -323,7 +316,7 @@ pub fn plot_step_response(
                 calculate_range(resp_min, resp_max)
             } else {
                 // Default range if no valid data, or handle as error
-                eprintln!("Warning: Axis {} has no finite data for Y-axis range calculation. Using default range.", axis_index);
+                eprintln!("Warning: Axis {axis_index} has no finite data for Y-axis range calculation. Using default range.");
                 (-0.2, 1.8) // A reasonable default for normalized step responses
             };
 
@@ -332,7 +325,7 @@ pub fn plot_step_response(
 
             plot_data_per_axis[axis_index] = Some((
                 {
-                    let mut title = format!("Axis {} Step Response", axis_index);
+                    let mut title = format!("Axis {axis_index} Step Response");
 
                     // Add PID information to the title using firmware-specific terminology
                     if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {

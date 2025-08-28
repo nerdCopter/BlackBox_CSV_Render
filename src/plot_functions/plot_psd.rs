@@ -146,8 +146,7 @@ fn find_and_sort_peaks(
     if !peaks_to_plot.is_empty() {
         let (main_freq, main_amp_db) = peaks_to_plot[0];
         println!(
-            "  {} {} Gyro PSD: Primary Peak value {:.2} dB at {:.0} Hz",
-            axis_name_str, spectrum_type_str, main_amp_db, main_freq
+            "  {axis_name_str} {spectrum_type_str} Gyro PSD: Primary Peak value {main_amp_db:.2} dB at {main_freq:.0} Hz"
         );
         for (idx, (freq, amp_db)) in peaks_to_plot.iter().skip(1).enumerate() {
             println!(
@@ -158,10 +157,7 @@ fn find_and_sort_peaks(
             );
         }
     } else {
-        println!(
-            "  {} {} Gyro PSD: No significant peaks found.",
-            axis_name_str, spectrum_type_str
-        );
+        println!("  {axis_name_str} {spectrum_type_str} Gyro PSD: No significant peaks found.");
     }
     peaks_to_plot
 }
@@ -172,7 +168,7 @@ pub fn plot_psd(
     root_name: &str,
     sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
-    let output_file = format!("{}_Gyro_PSD_comparative.png", root_name);
+    let output_file = format!("{root_name}_Gyro_PSD_comparative.png");
     let plot_type_name = "Gyro PSD";
 
     let sr_value = if let Some(sr) = sample_rate {
@@ -213,19 +209,13 @@ pub fn plot_psd(
         }
 
         if unfilt_samples.is_empty() || filt_samples.is_empty() {
-            println!(
-                "  No unfiltered or filtered gyro data for {} axis. Skipping PSD analysis.",
-                axis_name
-            );
+            println!("  No unfiltered or filtered gyro data for {axis_name} axis. Skipping PSD analysis.");
             continue;
         }
 
         let min_len = unfilt_samples.len().min(filt_samples.len());
         if min_len == 0 {
-            println!(
-                "  Not enough common gyro data for {} axis. Skipping PSD analysis.",
-                axis_name
-            );
+            println!("  Not enough common gyro data for {axis_name} axis. Skipping PSD analysis.");
             continue;
         }
 
@@ -247,7 +237,7 @@ pub fn plot_psd(
         let filt_spec = fft_utils::fft_forward(&padded_filt);
 
         if unfilt_spec.is_empty() || filt_spec.is_empty() {
-            println!("  FFT computation failed or resulted in empty spectrums for {} axis. Skipping PSD analysis.", axis_name);
+            println!("  FFT computation failed or resulted in empty spectrums for {axis_name} axis. Skipping PSD analysis.");
             continue;
         }
 

@@ -23,12 +23,11 @@ impl fmt::Display for DelayCalculationError {
             DelayCalculationError::InsufficientData { samples, minimum } => {
                 write!(
                     f,
-                    "Insufficient data: {} samples available, minimum {} required",
-                    samples, minimum
+                    "Insufficient data: {samples} samples available, minimum {minimum} required"
                 )
             }
             DelayCalculationError::InvalidSampleRate { sample_rate } => {
-                write!(f, "Invalid sample rate: {} (must be > 0.0)", sample_rate)
+                write!(f, "Invalid sample rate: {sample_rate} (must be > 0.0)")
             }
             DelayCalculationError::LowCorrelation {
                 correlation,
@@ -36,8 +35,7 @@ impl fmt::Display for DelayCalculationError {
             } => {
                 write!(
                     f,
-                    "Low correlation: {:.3} below threshold {:.3}",
-                    correlation, threshold
+                    "Low correlation: {correlation:.3} below threshold {threshold:.3}"
                 )
             }
             DelayCalculationError::SignalMismatch => {
@@ -175,10 +173,7 @@ pub fn calculate_average_filtering_delay(
 
     if !delays.is_empty() {
         let average_delay = delays.iter().sum::<f32>() / delays.len() as f32;
-        println!(
-            "Average Gyro Filtering delay across all axes: {:.2} ms",
-            average_delay
-        );
+        println!("Average Gyro Filtering delay across all axes: {average_delay} ms");
         Some(average_delay)
     } else {
         println!("Average Gyro Filtering delay: Unable to calculate for any axis");

@@ -1,14 +1,27 @@
 ## Code Changes
 - Preserve comments unless related code changes
 - Add only functional comments, no AI/history notes
+- Ask before removing any debug console output
 - **ALWAYS** run `cargo fmt --all` after ANY code changes
-- **ALWAYS** run `cargo clippy --all-targets --all-features -- -D warnings` before changes
+- **ALWAYS** run `cargo clippy --all-targets --all-features -- -D warnings` and fix ANY warnings
 - **NEVER** skip formatting or clippy checks
+
+## Testing
+- **ALWAYS** prefer `cargo build --release` rather than `cargo run`
+- **ALWAYS** use `--output-dir` ./output/
+- Temporary test code must go in ./tests/
 
 ## Git Workflow  
 - **NEVER** use `git add -A` or `git add .`
+- **NEVER** automatically commit changes without an explicit user request
 - Only stage modified files and specified files when commanded
-- No commits unless explicitly commanded
+- Update `.gitignore` when required
+- **ONLY** commit when explicitly commanded with phrases such as:
+  - "commit"
+  - "git commit"
+  - "commit changes" 
+  - "git add and commit"
+  - "stage and commit"
 - Generate concise commit messages from `git diff HEAD`
 
 ## Development Setup

@@ -28,7 +28,7 @@ pub fn plot_psd_db_heatmap(
     root_name: &str,
     sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
-    let output_file = format!("{}_Gyro_PSD_Spectrogram_comparative.png", root_name);
+    let output_file = format!("{root_name}_Gyro_PSD_Spectrogram_comparative.png");
     let plot_type_name = "Gyro PSD Spectrogram";
 
     let sr_value = if let Some(sr) = sample_rate {
@@ -100,8 +100,7 @@ pub fn plot_psd_db_heatmap(
             || filt_time_series.len() < window_size_samples
         {
             println!(
-                "  Not enough data for {} axis to perform STFT. Skipping PSD heatmap.",
-                axis_name
+                "  Not enough data for {axis_name} axis to perform STFT. Skipping PSD heatmap."
             );
             continue;
         }
@@ -173,8 +172,7 @@ pub fn plot_psd_db_heatmap(
 
         if unfilt_psd_matrix.is_empty() {
             println!(
-                "  No valid STFT windows generated for {} axis. Skipping PSD heatmap.",
-                axis_name
+                "  No valid STFT windows generated for {axis_name} axis. Skipping PSD heatmap."
             );
             continue;
         }
@@ -198,7 +196,7 @@ pub fn plot_psd_db_heatmap(
         };
 
         let unfiltered_heatmap_config = HeatmapPlotConfig {
-            title: format!("{} Unfiltered Gyro PSD Spectrogram", axis_name),
+            title: format!("{axis_name} Unfiltered Gyro PSD Spectrogram"),
             x_range: x_range_plot.clone(),
             y_range: y_range_plot.clone(),
             heatmap_data: HeatmapData {
@@ -211,7 +209,7 @@ pub fn plot_psd_db_heatmap(
         };
 
         let filtered_heatmap_config = HeatmapPlotConfig {
-            title: format!("{} Filtered Gyro PSD Spectrogram", axis_name),
+            title: format!("{axis_name} Filtered Gyro PSD Spectrogram"),
             x_range: x_range_plot.clone(),
             y_range: y_range_plot.clone(),
             heatmap_data: HeatmapData {

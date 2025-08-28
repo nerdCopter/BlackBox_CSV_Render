@@ -40,7 +40,7 @@ fn read_headers_csv(headers_file_path: &Path) -> Result<Vec<(String, String)>, B
                 }
             }
             Err(e) => {
-                println!("Warning: Error parsing headers CSV line: {}", e);
+                println!("Warning: Error parsing headers CSV line: {e}");
                 // Continue processing other lines
             }
         }
@@ -101,12 +101,12 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("");
-        input_file_path.with_file_name(format!("{}.headers.csv", file_stem))
+        input_file_path.with_file_name(format!("{file_stem}.headers.csv"))
     };
 
     if headers_file_path.exists() {
         if debug_mode {
-            println!("Found separate headers file: {:?}", headers_file_path);
+            println!("Found separate headers file: {headers_file_path:?}");
         }
         match read_headers_csv(&headers_file_path) {
             Ok(mut headers_metadata) => {
@@ -119,7 +119,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                 header_metadata.append(&mut headers_metadata);
             }
             Err(e) => {
-                println!("Warning: Failed to read headers file: {}", e);
+                println!("Warning: Failed to read headers file: {e}");
             }
         }
     }
@@ -156,7 +156,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             {
                 csv_start_position = current_position;
                 if debug_mode {
-                    println!("Found CSV headers at file position {}", csv_start_position);
+                    println!("Found CSV headers at file position {csv_start_position}");
                 }
                 break;
             }
@@ -215,7 +215,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             .trim(csv::Trim::All)
             .from_reader(BufReader::new(file));
         let header_record = reader.headers()?.clone();
-        println!("Flight data keys found in CSV: {:?}", header_record);
+        println!("Flight data keys found in CSV: {header_record:?}");
 
         header_indices = target_headers
             .iter()
@@ -282,10 +282,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             // Check setpoint[0] to setpoint[3]
             setpoint_header_found[axis] = header_indices[13 + axis].is_some();
             let purpose = if axis < 3 {
-                format!(
-                    "Essential for Setpoint plots and Step Response Axis {}",
-                    axis
-                )
+                format!("Essential for Setpoint plots and Step Response Axis {axis}")
             } else {
                 "Throttle (setpoint[3])".to_string()
             };

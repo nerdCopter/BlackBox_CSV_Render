@@ -36,10 +36,9 @@ impl PidContext {
             0 => "Roll",
             1 => "Pitch",
             2 => "Yaw",
-            _ => panic!(
-                "Invalid axis index: {}. Expected 0 (roll), 1 (pitch), or 2 (yaw)",
-                axis_index
-            ),
+            _ => {
+                panic!("Invalid axis index: {axis_index}. Expected 0 (roll), 1 (pitch), or 2 (yaw)")
+            }
         }
     }
 
@@ -55,7 +54,7 @@ impl PidContext {
             if pid_info.is_empty() {
                 axis_name.to_string()
             } else {
-                format!("{}{}", axis_name, pid_info)
+                format!("{axis_name}{pid_info}")
             }
         } else {
             axis_name.to_string()

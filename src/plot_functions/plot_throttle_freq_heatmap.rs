@@ -35,7 +35,7 @@ pub fn plot_throttle_freq_heatmap(
     root_name: &str,
     sample_rate: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
-    let output_file = format!("{}_Throttle_Freq_Heatmap_comparative.png", root_name);
+    let output_file = format!("{root_name}_Throttle_Freq_Heatmap_comparative.png");
     let plot_type_name = "Throttle-Frequency Heatmap";
 
     let sr_value = if let Some(sr) = sample_rate {
@@ -107,7 +107,7 @@ pub fn plot_throttle_freq_heatmap(
         if unfilt_time_series.len() < window_size_samples
             || filt_time_series.len() < window_size_samples
         {
-            println!("  Not enough data for {} axis to perform STFT. Skipping Throttle-Frequency heatmap.", axis_name);
+            println!("  Not enough data for {axis_name} axis to perform STFT. Skipping Throttle-Frequency heatmap.");
             continue;
         }
 
@@ -208,7 +208,7 @@ pub fn plot_throttle_freq_heatmap(
         }
 
         if final_unfilt_psd_matrix.is_empty() {
-            println!("  No valid STFT windows generated for {} axis. Skipping Throttle-Frequency heatmap.", axis_name);
+            println!("  No valid STFT windows generated for {axis_name} axis. Skipping Throttle-Frequency heatmap.");
             continue;
         }
 
@@ -225,7 +225,7 @@ pub fn plot_throttle_freq_heatmap(
         let y_range_plot = THROTTLE_Y_MIN_VALUE..THROTTLE_Y_MAX_VALUE;
 
         let unfiltered_heatmap_config = HeatmapPlotConfig {
-            title: format!("{} Unfiltered Gyro Frequency vs. Throttle", axis_name),
+            title: format!("{axis_name} Unfiltered Gyro Frequency vs. Throttle"),
             x_range: x_range_plot.clone(),
             y_range: y_range_plot.clone(),
             heatmap_data: HeatmapData {
@@ -238,7 +238,7 @@ pub fn plot_throttle_freq_heatmap(
         };
 
         let filtered_heatmap_config = HeatmapPlotConfig {
-            title: format!("{} Filtered Gyro Frequency vs. Throttle", axis_name),
+            title: format!("{axis_name} Filtered Gyro Frequency vs. Throttle"),
             x_range: x_range_plot.clone(),
             y_range: y_range_plot.clone(),
             heatmap_data: HeatmapData {
