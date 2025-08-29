@@ -48,7 +48,11 @@ impl Drop for CwdGuard {
     /// Automatically restore the original directory when the guard goes out of scope
     fn drop(&mut self) {
         if let Err(e) = env::set_current_dir(&self.original_dir) {
-            eprintln!("Warning: Failed to restore original directory: {}", e);
+            eprintln!(
+                "Warning: Failed to restore original directory to {}: {}",
+                self.original_dir.display(),
+                e
+            );
         }
     }
 }
@@ -287,7 +291,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             }
                         }
                         Err(e) => {
-                            println!("    ... Calculation failed for Axis {axis_index}: {e}");
+                            eprintln!("    ... Calculation failed for Axis {axis_index}: {e}");
                         }
                     }
                 } else {
