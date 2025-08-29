@@ -357,7 +357,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_files: Vec<String> = Vec::new();
     let mut setpoint_threshold_override: Option<f64> = None;
     let mut dps_flag_present = false;
-    let mut output_dir: Option<String> = None;
+    let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
     let mut debug_mode = false;
 
     let mut i = 1;
@@ -449,7 +449,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // No --output-dir specified, use input file's directory (source folder)
                 Path::new(input_file_str).parent().and_then(|p| p.to_str())
             }
-            Some(dir) => Some(dir.as_str()),
+            Some(dir) => Some(dir.as_str()), // --output-dir with specific directory
         };
 
         if let Err(e) = process_file(
@@ -476,6 +476,10 @@ All files processed successfully."
             "
 Some files could not be processed successfully."
         );
+        // Still return Ok(()) here as we've handled errors per file.
+        // Or, could return a generic error if preferred for the whole batch.
+        // For now, exiting with 0 if any file succeeded, or if all failed but were handled.
+        // To signal overall failure to scripts, one might `std::process::exit(1)` here.
         Ok(())
     }
 }
