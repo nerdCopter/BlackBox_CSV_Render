@@ -102,7 +102,7 @@ fn process_file(
     setpoint_threshold: f64,
     show_legend: bool,
     use_dir_prefix: bool,
-    output_dir: Option<&str>,
+    output_dir: Option<&Path>,
     debug_mode: bool,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
@@ -451,9 +451,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         let actual_output_dir = match &output_dir {
             None => {
                 // No --output-dir specified, use input file's directory (source folder)
-                Path::new(input_file_str).parent().and_then(|p| p.to_str())
+                Path::new(input_file_str).parent()
             }
-            Some(dir) => Some(dir.as_str()), // --output-dir with specific directory
+            Some(dir) => Some(Path::new(dir)), // --output-dir with specific directory
         };
 
         if let Err(e) = process_file(
