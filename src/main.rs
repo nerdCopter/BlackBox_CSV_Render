@@ -31,6 +31,32 @@ use crate::plot_functions::plot_setpoint_vs_gyro::plot_setpoint_vs_gyro;
 use crate::plot_functions::plot_step_response::plot_step_response;
 use crate::plot_functions::plot_throttle_freq_heatmap::plot_throttle_freq_heatmap;
 
+/// RAII guard to ensure current working directory is restored
+struct CwdGuard {
+    original_dir: PathBuf,
+}
+
+impl CwdGuard {
+    /// Create a new CWD guard, saving the current directory
+    fn new() -> Result<Self, std::io::Error> {
+        let original_dir = env::current_dir()?;
+        Ok(CwdGuard { original_dir })
+    }
+}
+
+impl Drop for CwdGuard {
+    /// Automatically restore the original directory when the guard goes out of scope
+    fn drop(&mut self) {
+        if let Err(e) = env::set_current_dir(&self.original_dir) {
+            eprintln!(
+                "Warning: Failed to restore original directory to {}: {}",
+                self.original_dir.display(),
+                e
+            );
+        }
+    }
+}
+
 // Data input import
 use crate::data_input::log_parser::parse_log_file;
 use crate::data_input::pid_metadata::parse_pid_metadata;
@@ -76,7 +102,7 @@ fn process_file(
     setpoint_threshold: f64,
     show_legend: bool,
     use_dir_prefix: bool,
-    output_dir: Option<&str>,
+    output_dir: Option<&Path>,
     debug_mode: bool,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
@@ -269,34 +295,29 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                         }
                     }
                 } else {
-                    println!("    ... Skipping Axis {}: Not enough movement data points ({}) for windowing (need at least {}).", axis_index, time_arr.len(), min_required_samples);
+                    println!("    ... Insufficient data for Axis {axis_index}. Skipping.");
                 }
             } else {
-                let reason = if !required_headers_found {
-                    "Setpoint or Gyro headers missing"
-                } else {
-                    "No movement-filtered input data available"
-                };
-                println!("  Skipping Step Response calculation for Axis {axis_index}: {reason}");
+                println!("    ... Required headers not found for Axis {axis_index}. Skipping.");
             }
         }
     } else {
-        println!("  Skipping Step Response Calculation for {input_file_str}: Sample rate could not be determined.");
+        println!("    ... No sample rate available. Skipping step response calculations.");
     }
 
-    // --- Generate Plots ---
-    println!("Generating plots for {input_file_str} (root name: {root_name_string})...");
-
-    // Set the current working directory to the output directory if specified
-    let original_dir = std::env::current_dir()?;
-    if let Some(output_dir) = output_dir {
+    // Create RAII guard BEFORE changing directory if needed
+    let _cwd_guard = if let Some(output_dir) = output_dir {
+        // Create guard to save current directory BEFORE changing it
+        let guard = CwdGuard::new()?;
         // Ensure output directory exists
         std::fs::create_dir_all(output_dir)?;
         // Change to output directory for plot generation
-        std::env::set_current_dir(output_dir)?;
-    }
-
-    // Use only the root filename (without path) for PNG output
+        env::set_current_dir(output_dir)?;
+        Some(guard)
+    } else {
+        None
+    };
+    // CWD will be automatically restored when _cwd_guard goes out of scope
 
     // Create PID context for centralized PID metadata and related parameters
     let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
@@ -323,9 +344,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
     plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
 
-    // Restore original working directory
-    std::env::set_current_dir(&original_dir)?;
-
+    // CWD restoration happens automatically when _cwd_guard goes out of scope
     println!("--- Finished processing file: {input_file_str} ---");
     Ok(())
 }
@@ -385,7 +404,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("Error: --output-dir requires a directory path.");
                 print_usage_and_exit(program_name);
             } else {
-                // --output-dir with directory value
                 output_dir = Some(args[i + 1].clone());
                 i += 1;
             }
@@ -395,7 +413,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
         } else {
-            input_files.push(arg.clone()); // THIS IS THE CORRECT LOGIC FOR VEC
+            input_files.push(arg.clone());
         }
         i += 1;
     }
@@ -433,9 +451,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         let actual_output_dir = match &output_dir {
             None => {
                 // No --output-dir specified, use input file's directory (source folder)
-                Path::new(input_file_str).parent().and_then(|p| p.to_str())
+                Path::new(input_file_str).parent()
             }
-            Some(dir) => Some(dir.as_str()), // --output-dir with specific directory
+            Some(dir) => Some(Path::new(dir)), // --output-dir with specific directory
         };
 
         if let Err(e) = process_file(
