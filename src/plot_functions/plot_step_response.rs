@@ -325,7 +325,8 @@ pub fn plot_step_response(
 
             plot_data_per_axis[axis_index] = Some((
                 {
-                    let mut title = format!("Axis {axis_index} Step Response");
+                    let axis_names = ["Roll", "Pitch", "Yaw"];
+                    let mut title = format!("{} Step Response", axis_names[axis_index]);
 
                     // Add PID information to the title using firmware-specific terminology
                     if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {

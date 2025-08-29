@@ -238,7 +238,7 @@ pub fn plot_throttle_freq_heatmap(
         };
 
         let filtered_heatmap_config = HeatmapPlotConfig {
-            title: format!("{axis_name} Filtered Gyro Frequency vs. Throttle"),
+            title: format!("{axis_name} Filtered Gyro Frequency vs. Throttle"), // axis_name is Roll, Pitch, Yaw
             x_range: x_range_plot.clone(),
             y_range: y_range_plot.clone(),
             heatmap_data: HeatmapData {

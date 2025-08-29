@@ -121,7 +121,10 @@ pub fn plot_pidsum_error_setpoint(
             }
 
             Some((
-                format!("Axis {axis_index} PIDsum vs PID Error vs Setpoint"),
+                {
+                    let axis_names = ["Roll", "Pitch", "Yaw"];
+                    format!("{} PIDsum vs PID Error vs Setpoint", axis_names[axis_index])
+                },
                 x_range,
                 y_range,
                 series,
