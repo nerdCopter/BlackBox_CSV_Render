@@ -209,7 +209,7 @@ pub fn plot_psd_db_heatmap(
         };
 
         let filtered_heatmap_config = HeatmapPlotConfig {
-            title: format!("{axis_name} Filtered Gyro PSD Spectrogram"),
+            title: format!("{axis_name} Filtered Gyro PSD Spectrogram"), // axis_name is Roll, Pitch, Yaw
             x_range: x_range_plot.clone(),
             y_range: y_range_plot.clone(),
             heatmap_data: HeatmapData {

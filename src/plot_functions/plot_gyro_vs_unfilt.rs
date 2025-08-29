@@ -155,7 +155,10 @@ pub fn plot_gyro_vs_unfilt(
             }
 
             Some((
-                format!("Axis {axis_index} Filtered vs Unfiltered Gyro"),
+                {
+                    let axis_names = ["Roll", "Pitch", "Yaw"];
+                    format!("{} Filtered vs Unfiltered Gyro", axis_names[axis_index])
+                },
                 x_range,
                 y_range,
                 series,

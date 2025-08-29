@@ -150,7 +150,10 @@ pub fn plot_setpoint_vs_gyro(
             }
 
             Some((
-                format!("Axis {axis_index} Setpoint vs Gyro"),
+                {
+                    let axis_names = ["Roll", "Pitch", "Yaw"];
+                    format!("{} Setpoint vs Gyro", axis_names[axis_index])
+                },
                 x_range,
                 y_range,
                 series,
