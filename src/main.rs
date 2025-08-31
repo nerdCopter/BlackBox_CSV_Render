@@ -263,11 +263,13 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let mut step_response_calculation_results: StepResponseResults = [None, None, None];
 
     if let Some(sr) = sample_rate {
+        let axis_names = ["Roll", "Pitch", "Yaw"];
         for axis_index in 0..3 {
+            let axis_name = axis_names[axis_index];
             let required_headers_found =
                 setpoint_header_found[axis_index] && gyro_header_found[axis_index];
             if required_headers_found && !contiguous_sr_input_data[axis_index].0.is_empty() {
-                println!("  Attempting step response calculation for Axis {axis_index}...");
+                println!("  Attempting step response calculation for {axis_name}...");
                 let time_arr = Array1::from(contiguous_sr_input_data[axis_index].0.clone());
                 let setpoints_arr = Array1::from(contiguous_sr_input_data[axis_index].1.clone());
                 let gyros_filtered_arr =
@@ -285,20 +287,20 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             let num_qc_windows = result.1.shape()[0];
                             if num_qc_windows > 0 {
                                 step_response_calculation_results[axis_index] = Some(result);
-                                println!("    ... Calculation successful for Axis {axis_index}. {num_qc_windows} windows passed QC.");
+                                println!("    ... Calculation successful for {axis_name}. {num_qc_windows} windows passed QC.");
                             } else {
-                                println!("    ... Calculation returned no valid windows for Axis {axis_index}. Skipping.");
+                                println!("    ... Calculation returned no valid windows for {axis_name}. Skipping.");
                             }
                         }
                         Err(e) => {
-                            eprintln!("    ... Calculation failed for Axis {axis_index}: {e}");
+                            eprintln!("    ... Calculation failed for {axis_name}: {e}");
                         }
                     }
                 } else {
-                    println!("    ... Insufficient data for Axis {axis_index}. Skipping.");
+                    println!("    ... Insufficient data for {axis_name}. Skipping.");
                 }
             } else {
-                println!("    ... Required headers not found for Axis {axis_index}. Skipping.");
+                println!("    ... Required headers not found for {axis_name}. Skipping.");
             }
         }
     } else {
