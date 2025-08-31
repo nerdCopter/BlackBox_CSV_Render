@@ -38,6 +38,8 @@ pub fn draw_unavailable_message(
     plot_type: &str,
     reason: &str,
 ) -> Result<(), Box<dyn Error>> {
+    let axis_names = ["Roll", "Pitch", "Yaw"];
+    let axis_name = axis_names[axis_index];
     let (x_range, y_range) = area.get_pixel_range();
     let (width, height) = (
         (x_range.end - x_range.start) as u32,
@@ -45,7 +47,7 @@ pub fn draw_unavailable_message(
     );
     let text_style = ("sans-serif", 20).into_font().color(&RED);
     area.draw(&Text::new(
-        format!("Axis {axis_index} {plot_type} Data Unavailable:\n{reason}"),
+        format!("{axis_name} {plot_type} Data Unavailable:\n{reason}"),
         (width as i32 / 2 - 100, height as i32 / 2 - 20),
         text_style,
     ))?;
