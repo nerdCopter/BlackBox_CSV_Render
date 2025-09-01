@@ -4,8 +4,6 @@
 const ROLL_AXIS: usize = 0;
 const PITCH_AXIS: usize = 1;
 const YAW_AXIS: usize = 2;
-// Note: Keep in sync with crate::axis_names::AXIS_COUNT
-const AXIS_COUNT: usize = 3;
 
 /// Firmware type detection for appropriate terminology
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -178,7 +176,7 @@ fn parse_d_values(
     }
 
     // Fallback to individual fields
-    for axis in 0..AXIS_COUNT {
+    for axis in 0..3 {
         let key1 = individual_keys[axis * 2];
         let key2 = individual_keys[axis * 2 + 1];
 
