@@ -7,8 +7,7 @@ use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, ENABLE_WINDOW_PEAK_DETECTION,
     MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO,
-    PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_Y_AXIS_FLOOR,
-    SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
+    PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
@@ -269,7 +268,7 @@ pub fn plot_d_term_spectrums(
             continue;
         }
 
-        // Convert to amplitude and create plot data
+        // Convert to dB (power spectral density) and create plot data
         let mut unfilt_series_data: Vec<(f64, f64)> = Vec::new();
         let mut filt_series_data: Vec<(f64, f64)> = Vec::new();
 
@@ -277,8 +276,14 @@ pub fn plot_d_term_spectrums(
             for (i, &freq) in unfilt_freqs.iter().enumerate() {
                 if freq <= sr_value / 2.0 {
                     let amplitude = unfilt_spectrum[i].norm() as f64;
-                    unfilt_series_data.push((freq, amplitude));
-                    global_max_y_unfilt = global_max_y_unfilt.max(amplitude);
+                    // Convert amplitude to dB (20 * log10(amplitude))
+                    let amplitude_db = if amplitude > 0.0 {
+                        20.0 * amplitude.log10()
+                    } else {
+                        -100.0 // Use -100 dB as floor for zero/negative values
+                    };
+                    unfilt_series_data.push((freq, amplitude_db));
+                    global_max_y_unfilt = global_max_y_unfilt.max(amplitude_db);
                     max_freq_for_auto_scale = max_freq_for_auto_scale.max(freq);
                 }
             }
@@ -288,8 +293,14 @@ pub fn plot_d_term_spectrums(
             for (i, &freq) in filt_freqs.iter().enumerate() {
                 if freq <= sr_value / 2.0 {
                     let amplitude = filt_spectrum[i].norm() as f64;
-                    filt_series_data.push((freq, amplitude));
-                    global_max_y_filt = global_max_y_filt.max(amplitude);
+                    // Convert amplitude to dB (20 * log10(amplitude))
+                    let amplitude_db = if amplitude > 0.0 {
+                        20.0 * amplitude.log10()
+                    } else {
+                        -100.0 // Use -100 dB as floor for zero/negative values
+                    };
+                    filt_series_data.push((freq, amplitude_db));
+                    global_max_y_filt = global_max_y_filt.max(amplitude_db);
                     max_freq_for_auto_scale = max_freq_for_auto_scale.max(freq);
                 }
             }
@@ -347,10 +358,20 @@ pub fn plot_d_term_spectrums(
             "No delay data".to_string()
         };
 
+        // Calculate dB-aligned Y-axis range (following Betaflight log viewer approach)
+        let db_step = 10.0;
+        let overall_min_db = global_max_y_unfilt.min(global_max_y_filt).min(-60.0); // Set reasonable minimum
+        let overall_max_db = global_max_y_unfilt.max(global_max_y_filt);
+
+        let min_y_db = (overall_min_db / db_step).floor() * db_step;
+        let max_y_db = if overall_max_db == overall_min_db {
+            overall_max_db + db_step // prevent zero range
+        } else {
+            ((overall_max_db / db_step).floor() + 1.0) * db_step
+        };
+
         // Create plot configurations
         let unfiltered_config = if !unfilt_series_data.is_empty() {
-            let max_y_unfilt = global_max_y_unfilt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR;
-            let y_max_unfilt = max_y_unfilt.max(SPECTRUM_Y_AXIS_FLOOR * 2.0);
             let max_freq_display = if max_freq_for_auto_scale > 0.0 {
                 (max_freq_for_auto_scale * 1.1).min(sr_value / 2.0)
             } else {
@@ -363,7 +384,7 @@ pub fn plot_d_term_spectrums(
                     axis_name, delay_str
                 ),
                 x_range: 0.0..max_freq_display,
-                y_range: SPECTRUM_Y_AXIS_FLOOR..y_max_unfilt,
+                y_range: min_y_db..max_y_db,
                 series: vec![PlotSeries {
                     data: unfilt_series_data,
                     label: "Unfiltered D-term".to_string(),
@@ -371,7 +392,7 @@ pub fn plot_d_term_spectrums(
                     stroke_width: 2,
                 }],
                 x_label: "Frequency (Hz)".to_string(),
-                y_label: "Amplitude".to_string(),
+                y_label: "Amplitude (dB)".to_string(),
                 peaks: unfilt_peaks,
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}Hz".to_string()),
@@ -381,8 +402,6 @@ pub fn plot_d_term_spectrums(
         };
 
         let filtered_config = if !filt_series_data.is_empty() {
-            let max_y_filt = global_max_y_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR;
-            let y_max_filt = max_y_filt.max(SPECTRUM_Y_AXIS_FLOOR * 2.0);
             let max_freq_display = if max_freq_for_auto_scale > 0.0 {
                 (max_freq_for_auto_scale * 1.1).min(sr_value / 2.0)
             } else {
@@ -395,7 +414,7 @@ pub fn plot_d_term_spectrums(
                     axis_name, delay_str
                 ),
                 x_range: 0.0..max_freq_display,
-                y_range: SPECTRUM_Y_AXIS_FLOOR..y_max_filt,
+                y_range: min_y_db..max_y_db,
                 series: vec![PlotSeries {
                     data: filt_series_data,
                     label: "Filtered D-term".to_string(),
@@ -403,7 +422,7 @@ pub fn plot_d_term_spectrums(
                     stroke_width: 2,
                 }],
                 x_label: "Frequency (Hz)".to_string(),
-                y_label: "Amplitude".to_string(),
+                y_label: "Amplitude (dB)".to_string(),
                 peaks: filt_peaks,
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}Hz".to_string()),
