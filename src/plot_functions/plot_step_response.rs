@@ -48,7 +48,7 @@ pub fn plot_step_response(
 
     let mut plot_data_per_axis: AllStepResponsePlotData = Default::default();
 
-    for axis_index in 0..3 {
+    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
         if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) =
             &step_response_results[axis_index]
         {

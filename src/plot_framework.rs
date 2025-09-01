@@ -14,8 +14,7 @@ use std::error::Error;
 use std::ops::Range;
 
 use crate::constants::{
-    HEATMAP_MAX_PSD_DB, HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE,
-    PLOT_HEIGHT, PLOT_WIDTH,
+    HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH,
 };
 
 /// Calculate plot range with padding.
@@ -255,7 +254,7 @@ where
     let mut any_axis_plotted = false;
 
     #[allow(clippy::needless_range_loop)]
-    for axis_index in 0..3 {
+    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
         let area = &sub_plot_areas[axis_index];
         match get_axis_plot_data(axis_index) {
             Some((chart_title, x_range, y_range, series_data, x_label, y_label)) => {
@@ -324,7 +323,7 @@ where
     let sub_plot_areas = margined_root_area.split_evenly((3, 2));
     let mut any_plot_drawn = false;
 
-    for axis_index in 0..3 {
+    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
         let plots_for_axis_option = get_axis_plot_data(axis_index);
 
         for col_idx in 0..2 {
@@ -413,7 +412,8 @@ fn draw_single_heatmap_chart(
         for (y_idx, &y_val) in heatmap_data.y_bins.iter().enumerate() {
             if let Some(row) = heatmap_data.values.get(x_idx) {
                 if let Some(&psd_db) = row.get(y_idx) {
-                    let color = map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, HEATMAP_MAX_PSD_DB);
+                    // Use a reasonable max PSD value for color mapping (-10 dB)
+                    let color = map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, -10.0);
 
                     let rect = Rectangle::new(
                         [
@@ -452,7 +452,7 @@ where
     let sub_plot_areas = margined_root_area.split_evenly((3, 2));
     let mut any_plot_drawn = false;
 
-    for axis_index in 0..3 {
+    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
         let plots_for_axis_option = get_axis_plot_data(axis_index);
 
         for col_idx in 0..2 {

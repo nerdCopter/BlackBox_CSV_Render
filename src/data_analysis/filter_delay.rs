@@ -137,7 +137,7 @@ pub fn calculate_average_filtering_delay(
     let mut delays = Vec::new();
 
     #[allow(clippy::needless_range_loop)]
-    for axis in 0..3 {
+    for axis in 0..AXIS_NAMES.len() {
         // Extract filtered and unfiltered data for this axis
         let mut filtered_data = Vec::new();
         let mut unfiltered_data = Vec::new();
@@ -192,7 +192,7 @@ pub fn calculate_average_filtering_delay_comparison(
     // First, diagnose data availability
     println!("=== Gyro Data Availability Diagnostic ===");
     #[allow(clippy::needless_range_loop)]
-    for axis in 0..3 {
+    for axis in 0..AXIS_NAMES.len() {
         let mut gyro_count = 0;
         let mut gyro_unfilt_count = 0;
         let mut both_available = 0;
@@ -222,7 +222,7 @@ pub fn calculate_average_filtering_delay_comparison(
     }
 
     #[allow(clippy::needless_range_loop)]
-    for axis in 0..3 {
+    for axis in 0..AXIS_NAMES.len() {
         // Extract filtered and unfiltered data for this axis
         let mut filtered_data = Vec::new();
         let mut unfiltered_data = Vec::new();

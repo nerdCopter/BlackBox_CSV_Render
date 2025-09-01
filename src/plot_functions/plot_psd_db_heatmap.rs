@@ -79,7 +79,7 @@ pub fn plot_psd_db_heatmap(
         .collect();
     let num_freq_bins_to_plot = frequencies_y_bins.len();
 
-    for axis_idx in 0..3 {
+    for axis_idx in 0..AXIS_NAMES.len() {
         let axis_name = AXIS_NAMES[axis_idx];
         let mut unfilt_time_series: Vec<f32> = Vec::new();
         let mut filt_time_series: Vec<f32> = Vec::new();

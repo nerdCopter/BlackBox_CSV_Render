@@ -189,7 +189,7 @@ pub fn plot_gyro_spectrums(
         peaks_to_plot
     }
 
-    for axis_idx in 0..3 {
+    for axis_idx in 0..AXIS_NAMES.len() {
         let axis_name = AXIS_NAMES[axis_idx];
         let mut unfilt_samples: Vec<f32> = Vec::new();
         let mut filt_samples: Vec<f32> = Vec::new();

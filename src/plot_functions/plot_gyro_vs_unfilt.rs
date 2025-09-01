@@ -41,7 +41,7 @@ pub fn plot_gyro_vs_unfilt(
     for row in log_data {
         if let Some(time) = row.time_sec {
             #[allow(clippy::needless_range_loop)]
-            for axis_index in 0..3 {
+            for axis_index in 0..AXIS_NAMES.len() {
                 axis_plot_data[axis_index].push((
                     time,
                     row.gyro[axis_index],

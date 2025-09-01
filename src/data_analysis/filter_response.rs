@@ -434,7 +434,7 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     .unwrap_or(0);
 
                 // Apply to all axes
-                for axis_idx in 0..3 {
+                for axis_idx in 0..AXIS_NAMES.len() {
                     if static_cutoff > 0.0 {
                         // Static mode
                         config.dterm[axis_idx].lpf1 = Some(FilterConfig {
@@ -467,7 +467,7 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     .unwrap_or(0.0);
 
                 if static_cutoff > 0.0 {
-                    for axis_idx in 0..3 {
+                    for axis_idx in 0..AXIS_NAMES.len() {
                         config.dterm[axis_idx].lpf2 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
@@ -498,7 +498,7 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     .and_then(|s| s.parse::<u32>().ok())
                     .unwrap_or(0);
 
-                for axis_idx in 0..3 {
+                for axis_idx in 0..AXIS_NAMES.len() {
                     if static_cutoff > 0.0 {
                         config.gyro[axis_idx].lpf1 = Some(FilterConfig {
                             filter_type,
@@ -529,7 +529,7 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     .unwrap_or(0.0);
 
                 if static_cutoff > 0.0 {
-                    for axis_idx in 0..3 {
+                    for axis_idx in 0..AXIS_NAMES.len() {
                         config.gyro[axis_idx].lpf2 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,

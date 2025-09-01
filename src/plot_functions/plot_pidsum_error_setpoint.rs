@@ -24,7 +24,7 @@ pub fn plot_pidsum_error_setpoint(
     for row in log_data {
         if let Some(time) = row.time_sec {
             #[allow(clippy::needless_range_loop)]
-            for axis_index in 0..3 {
+            for axis_index in 0..AXIS_NAMES.len() {
                 let pidsum = row.p_term[axis_index].and_then(|p| {
                     row.i_term[axis_index].and_then(|i| row.d_term[axis_index].map(|d| p + i + d))
                 });

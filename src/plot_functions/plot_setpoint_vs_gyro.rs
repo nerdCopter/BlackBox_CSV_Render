@@ -41,7 +41,7 @@ pub fn plot_setpoint_vs_gyro(
     for row in log_data {
         if let Some(time) = row.time_sec {
             #[allow(clippy::needless_range_loop)]
-            for axis_index in 0..3 {
+            for axis_index in 0..AXIS_NAMES.len() {
                 axis_plot_data[axis_index].push((
                     time,
                     row.setpoint[axis_index],
