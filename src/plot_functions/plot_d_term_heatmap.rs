@@ -255,10 +255,13 @@ pub fn plot_d_term_heatmap(
             }
         }
 
+        // Use the same scale for both unfiltered and filtered for direct comparison
+        let common_max_db = unfilt_max_psd.max(filt_max_psd);
+
         // Debug output for PSD ranges
         println!(
-            "  {axis_name} axis D-term PSD ranges: Unfiltered: {:.1} to {:.1} dB, Filtered: {:.1} to {:.1} dB",
-            HEATMAP_MIN_PSD_DB, unfilt_max_psd, HEATMAP_MIN_PSD_DB, filt_max_psd
+            "  {axis_name} axis D-term PSD ranges: Unfiltered: {:.1} to {:.1} dB, Filtered: {:.1} to {:.1} dB, Common scale: {:.1} dB",
+            HEATMAP_MIN_PSD_DB, unfilt_max_psd, HEATMAP_MIN_PSD_DB, filt_max_psd, common_max_db
         );
 
         // Create HeatmapData structures
@@ -280,7 +283,7 @@ pub fn plot_d_term_heatmap(
             heatmap_data: unfilt_heatmap_data,
             x_label: "Frequency (Hz)".to_string(),
             y_label: "Throttle %".to_string(),
-            max_db: unfilt_max_psd,
+            max_db: common_max_db,
         };
         let filt_config = HeatmapPlotConfig {
             title: format!("Filtered D-term (axisD) - {axis_name}"),
@@ -289,7 +292,7 @@ pub fn plot_d_term_heatmap(
             heatmap_data: filt_heatmap_data,
             x_label: "Frequency (Hz)".to_string(),
             y_label: "Throttle %".to_string(),
-            max_db: filt_max_psd,
+            max_db: common_max_db,
         };
 
         axis_heatmap_spectrums.push(AxisHeatmapSpectrum {
