@@ -351,7 +351,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         sample_rate,
         Some(&header_metadata),
     )?;
-    plot_d_term_spectrums(&all_log_data, &root_name_string, sample_rate)?;
+    plot_d_term_spectrums(
+        &all_log_data,
+        &root_name_string,
+        sample_rate,
+        Some(&header_metadata),
+    )?;
     plot_psd(&all_log_data, &root_name_string, sample_rate)?;
     plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
     plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
