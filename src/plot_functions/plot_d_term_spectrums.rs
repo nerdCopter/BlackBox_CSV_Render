@@ -435,7 +435,7 @@ pub fn plot_d_term_spectrums(
         },
     )?;
 
-    println!("  ✅ D-term spectrum plot saved as '{}'", output_file);
+    println!("  D-term spectrum plot saved as '{}'", output_file);
     Ok(())
 }
 

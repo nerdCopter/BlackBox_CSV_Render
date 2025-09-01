@@ -319,6 +319,6 @@ pub fn plot_d_term_heatmap(
         }
     })?;
 
-    println!("  ✅ D-term heatmap plot saved as '{}'", output_file);
+    println!("  D-term heatmap plot saved as '{}'", output_file);
     Ok(())
 }
