@@ -193,7 +193,9 @@ pub fn plot_psd(
     let mut global_max_y_filt_db = f64::NEG_INFINITY;
     let mut overall_max_y_value_db = f64::NEG_INFINITY;
 
-    for axis_idx in 0..AXIS_NAMES.len() {
+    // Iterate safely over the minimum of AXIS_NAMES.len() and the fixed array size
+    let axis_count = AXIS_NAMES.len().min(all_psd_raw_data.len());
+    for axis_idx in 0..axis_count {
         let axis_name = AXIS_NAMES[axis_idx];
         let mut unfilt_samples: Vec<f32> = Vec::new();
         let mut filt_samples: Vec<f32> = Vec::new();

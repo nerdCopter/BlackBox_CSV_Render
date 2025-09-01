@@ -80,7 +80,9 @@ pub fn plot_throttle_freq_heatmap(
     let mut all_heatmap_data: [Option<(HeatmapPlotConfig, HeatmapPlotConfig)>; 3] =
         Default::default();
 
-    for axis_idx in 0..AXIS_NAMES.len() {
+    // Iterate safely over the minimum of AXIS_NAMES.len() and the fixed array size
+    let axis_count = AXIS_NAMES.len().min(all_heatmap_data.len());
+    for axis_idx in 0..axis_count {
         let axis_name = AXIS_NAMES[axis_idx];
         let mut unfilt_time_series: Vec<f32> = Vec::new();
         let mut filt_time_series: Vec<f32> = Vec::new();

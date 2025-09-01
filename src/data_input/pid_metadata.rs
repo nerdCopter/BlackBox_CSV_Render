@@ -4,7 +4,8 @@
 const ROLL_AXIS: usize = 0;
 const PITCH_AXIS: usize = 1;
 const YAW_AXIS: usize = 2;
-const AXIS_COUNT: usize = 3; // Number of axes (Roll, Pitch, Yaw)
+// Note: Keep in sync with crate::axis_names::AXIS_COUNT
+const AXIS_COUNT: usize = 3;
 
 /// Firmware type detection for appropriate terminology
 #[derive(Debug, Clone, PartialEq, Default)]

@@ -24,8 +24,14 @@ pub fn axis_name(index: usize) -> &'static str {
     }
 }
 
+/// Number of axes (Roll, Pitch, Yaw)
+pub const AXIS_COUNT: usize = 3;
+
 /// Get all axis names as a static array
-pub const AXIS_NAMES: [&str; 3] = ["Roll", "Pitch", "Yaw"];
+pub const AXIS_NAMES: [&str; AXIS_COUNT] = ["Roll", "Pitch", "Yaw"];
+
+// Compile-time check to prevent drift between AXIS_COUNT and AXIS_NAMES.len()
+const _: [(); AXIS_COUNT] = [(); AXIS_NAMES.len()];
 
 #[cfg(test)]
 mod tests {
