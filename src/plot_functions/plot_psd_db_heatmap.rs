@@ -3,6 +3,7 @@
 use ndarray::{s, Array1};
 use std::error::Error;
 
+use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     HEATMAP_MIN_PSD_DB, STFT_OVERLAP_FACTOR, STFT_WINDOW_DURATION_S, TUKEY_ALPHA,
 };
@@ -39,8 +40,6 @@ pub fn plot_psd_db_heatmap(
         );
         return Ok(());
     };
-
-    let axis_names = ["Roll", "Pitch", "Yaw"];
 
     let mut all_heatmap_data: [Option<(HeatmapPlotConfig, HeatmapPlotConfig)>; 3] =
         Default::default();
@@ -81,7 +80,7 @@ pub fn plot_psd_db_heatmap(
     let num_freq_bins_to_plot = frequencies_y_bins.len();
 
     for axis_idx in 0..3 {
-        let axis_name = axis_names[axis_idx];
+        let axis_name = AXIS_NAMES[axis_idx];
         let mut unfilt_time_series: Vec<f32> = Vec::new();
         let mut filt_time_series: Vec<f32> = Vec::new();
         let mut time_stamps: Vec<f64> = Vec::new();

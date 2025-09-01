@@ -3,6 +3,7 @@
 use plotters::style::RGBColor;
 use std::error::Error;
 
+use crate::axis_names::AXIS_NAMES;
 use crate::types::AllAxisPlotData3;
 
 use crate::constants::{
@@ -121,10 +122,7 @@ pub fn plot_pidsum_error_setpoint(
             }
 
             Some((
-                {
-                    let axis_names = ["Roll", "Pitch", "Yaw"];
-                    format!("{} PIDsum vs PID Error vs Setpoint", axis_names[axis_index])
-                },
+                { format!("{} PIDsum vs PID Error vs Setpoint", AXIS_NAMES[axis_index]) },
                 x_range,
                 y_range,
                 series,

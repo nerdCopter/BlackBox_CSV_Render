@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::axis_names::AXIS_NAMES;
+
 /// Filter types supported by flight controllers
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FilterType {
@@ -583,7 +585,7 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
 
     // Debug output: Print parsed filter configuration
     println!("Parsed filter configuration:");
-    for (axis_idx, axis_name) in ["Roll", "Pitch", "Yaw"].iter().enumerate() {
+    for (axis_idx, axis_name) in AXIS_NAMES.iter().enumerate() {
         println!("  {axis_name} Gyro Filters:");
         if let Some(ref lpf1) = config.gyro[axis_idx].lpf1 {
             println!(

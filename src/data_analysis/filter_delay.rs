@@ -1,5 +1,6 @@
 // src/data_analysis/filter_delay.rs
 
+use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     FALLBACK_CORRELATION_THRESHOLD, MAX_DELAY_FRACTION, MAX_DELAY_SAMPLES,
     MIN_CORRELATION_THRESHOLD, MIN_SAMPLES_FOR_DELAY,
@@ -133,7 +134,6 @@ pub fn calculate_average_filtering_delay(
     log_data: &[crate::data_input::log_data::LogRowData],
     sample_rate: f64,
 ) -> Option<f32> {
-    let axis_names = ["Roll", "Pitch", "Yaw"];
     let mut delays = Vec::new();
 
     #[allow(clippy::needless_range_loop)]
@@ -157,14 +157,14 @@ pub fn calculate_average_filtering_delay(
                 Ok(delay_ms) => {
                     println!(
                         "Gyro Filtering delay for {} axis: {:.2} ms",
-                        axis_names[axis], delay_ms
+                        AXIS_NAMES[axis], delay_ms
                     );
                     delays.push(delay_ms);
                 }
                 Err(err) => {
                     println!(
                         "Gyro Filtering delay for {} axis: Unable to calculate - {}",
-                        axis_names[axis], err
+                        AXIS_NAMES[axis], err
                     );
                 }
             }
@@ -187,7 +187,6 @@ pub fn calculate_average_filtering_delay_comparison(
     log_data: &[crate::data_input::log_data::LogRowData],
     sample_rate: f64,
 ) -> DelayAnalysisResult {
-    let axis_names = ["Roll", "Pitch", "Yaw"];
     let mut all_results: Vec<DelayResult> = Vec::new();
 
     // First, diagnose data availability
@@ -218,7 +217,7 @@ pub fn calculate_average_filtering_delay_comparison(
 
         println!(
             "  {} axis: gyro={}, unfilt={}, both={}, longest_continuous={}",
-            axis_names[axis], gyro_count, gyro_unfilt_count, both_available, longest_continuous
+            AXIS_NAMES[axis], gyro_count, gyro_unfilt_count, both_available, longest_continuous
         );
     }
 
@@ -238,7 +237,7 @@ pub fn calculate_average_filtering_delay_comparison(
         println!(
             "  Axis {} ({}) extracted: {} samples",
             axis,
-            axis_names[axis],
+            AXIS_NAMES[axis],
             filtered_data.len()
         );
 
@@ -254,7 +253,7 @@ pub fn calculate_average_filtering_delay_comparison(
 
             println!(
                 "Gyro Filtering delay analysis for {} axis:",
-                axis_names[axis]
+                AXIS_NAMES[axis]
             );
             for result in &axis_results {
                 if let Some(freq) = result.frequency_hz {

@@ -3,6 +3,7 @@
 use ndarray::{s, Array1};
 use std::error::Error;
 
+use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     HEATMAP_MIN_PSD_DB, // Removed HEATMAP_MAX_PSD_DB from here
     STFT_OVERLAP_FACTOR,
@@ -45,8 +46,6 @@ pub fn plot_throttle_freq_heatmap(
         return Ok(());
     };
 
-    let axis_names = ["Roll", "Pitch", "Yaw"];
-
     let window_size_samples = (STFT_WINDOW_DURATION_S * sr_value) as usize;
     let hop_size_samples = (window_size_samples as f64 * (1.0 - STFT_OVERLAP_FACTOR)) as usize;
     if hop_size_samples == 0 {
@@ -87,7 +86,7 @@ pub fn plot_throttle_freq_heatmap(
         Default::default();
 
     for axis_idx in 0..3 {
-        let axis_name = axis_names[axis_idx];
+        let axis_name = AXIS_NAMES[axis_idx];
         let mut unfilt_time_series: Vec<f32> = Vec::new();
         let mut filt_time_series: Vec<f32> = Vec::new();
         let mut throttle_values: Vec<f64> = Vec::new(); // Store throttle for each time point

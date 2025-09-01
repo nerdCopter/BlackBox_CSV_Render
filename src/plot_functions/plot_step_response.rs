@@ -4,6 +4,7 @@ use ndarray::{s, Array1, Array2};
 use plotters::style::RGBColor;
 use std::error::Error;
 
+use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_STEP_RESPONSE_COMBINED, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_LOW_SP,
     FINAL_NORMALIZED_STEADY_STATE_TOLERANCE, LINE_WIDTH_PLOT, POST_AVERAGING_SMOOTHING_WINDOW,
@@ -325,8 +326,7 @@ pub fn plot_step_response(
 
             plot_data_per_axis[axis_index] = Some((
                 {
-                    let axis_names = ["Roll", "Pitch", "Yaw"];
-                    let mut title = format!("{} Step Response", axis_names[axis_index]);
+                    let mut title = format!("{} Step Response", AXIS_NAMES[axis_index]);
 
                     // Add PID information to the title using firmware-specific terminology
                     if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {

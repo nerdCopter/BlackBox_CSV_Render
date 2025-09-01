@@ -3,6 +3,7 @@
 use ndarray::{s, Array1};
 use std::error::Error;
 
+use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, ENABLE_WINDOW_PEAK_DETECTION,
     LINE_WIDTH_PLOT, MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO,
@@ -54,8 +55,6 @@ pub fn plot_gyro_spectrums(
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
     let mut overall_max_y_amplitude = 0.0f64;
-
-    let axis_names = ["Roll", "Pitch", "Yaw"];
 
     fn find_and_sort_peaks(
         series_data: &[(f64, f64)],
@@ -191,7 +190,7 @@ pub fn plot_gyro_spectrums(
     }
 
     for axis_idx in 0..3 {
-        let axis_name = axis_names[axis_idx];
+        let axis_name = AXIS_NAMES[axis_idx];
         let mut unfilt_samples: Vec<f32> = Vec::new();
         let mut filt_samples: Vec<f32> = Vec::new();
 
@@ -424,7 +423,7 @@ pub fn plot_gyro_spectrums(
             }];
 
             let unfiltered_plot_config = Some(PlotConfig {
-                title: format!("{} Unfiltered Gyro Spectrum", axis_names[axis_index]),
+                title: format!("{} Unfiltered Gyro Spectrum", AXIS_NAMES[axis_index]),
                 x_range: x_range.clone(),
                 y_range: y_range_for_all_clone.clone(),
                 series: unfilt_plot_series,
@@ -437,7 +436,7 @@ pub fn plot_gyro_spectrums(
             });
 
             let filtered_plot_config = Some(PlotConfig {
-                title: format!("{} Filtered Gyro Spectrum", axis_names[axis_index]),
+                title: format!("{} Filtered Gyro Spectrum", AXIS_NAMES[axis_index]),
                 x_range,
                 y_range: y_range_for_all_clone,
                 series: filt_plot_series,
