@@ -43,7 +43,7 @@ fn calculate_derivative(data: &[f32], sample_rate: f64) -> Vec<f32> {
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered D-term and Filtered D-term spectrums.
 /// Unfiltered D-term is calculated as the derivative of gyroUnfilt.
-/// Filtered D-term uses the axisD values directly from the flight controller.
+/// Filtered D-term uses the flight controller's processed D-term output.
 pub fn plot_d_term_spectrums(
     log_data: &[LogRowData],
     root_name: &str,
@@ -168,7 +168,7 @@ pub fn plot_d_term_spectrums(
             Vec::new()
         };
 
-        // Extract filtered D-term data (axisD from flight controller)
+        // Extract filtered D-term data (flight controller D-term output)
         let mut filt_d_term_series: Vec<f32> = Vec::new();
         for row in log_data {
             if let Some(d_term_val) = row.d_term[axis_idx] {
@@ -390,7 +390,10 @@ pub fn plot_d_term_spectrums(
             };
 
             Some(PlotConfig {
-                title: format!("Filtered D-term (axisD) - {} - {}", axis_name, delay_str),
+                title: format!(
+                    "Filtered D-term (flight controller output) - {} - {}",
+                    axis_name, delay_str
+                ),
                 x_range: 0.0..max_freq_display,
                 y_range: SPECTRUM_Y_AXIS_FLOOR..y_max_filt,
                 series: vec![PlotSeries {

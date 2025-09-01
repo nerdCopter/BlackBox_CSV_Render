@@ -52,7 +52,7 @@ fn calculate_derivative(data: &[f32], sample_rate: f64) -> Vec<f32> {
 /// Generates a stacked plot with two columns per axis, showing Unfiltered D-term and Filtered D-term Power Spectral Density (PSD) as heatmaps (spectrograms)
 /// with Throttle on the Y-axis and Frequency on the X-axis.
 /// Unfiltered D-term is calculated as the derivative of gyroUnfilt.
-/// Filtered D-term uses the axisD values directly from the flight controller.
+/// Filtered D-term uses the flight controller's processed D-term output.
 pub fn plot_d_term_heatmap(
     log_data: &[LogRowData],
     root_name: &str,
@@ -286,7 +286,7 @@ pub fn plot_d_term_heatmap(
             max_db: common_max_db,
         };
         let filt_config = HeatmapPlotConfig {
-            title: format!("Filtered D-term (axisD) - {axis_name}"),
+            title: format!("Filtered D-term (flight controller output) - {axis_name}"),
             x_range: 0.0..max_freq_to_plot,
             y_range: THROTTLE_Y_MIN_VALUE..THROTTLE_Y_MAX_VALUE,
             heatmap_data: filt_heatmap_data,
