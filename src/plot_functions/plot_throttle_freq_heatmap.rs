@@ -231,6 +231,7 @@ pub fn plot_throttle_freq_heatmap(
             },
             x_label: "Frequency (Hz)".to_string(),
             y_label: "Throttle (setpoint)".to_string(),
+            max_db: -10.0, // Keep existing gyro scaling
         };
 
         let filtered_heatmap_config = HeatmapPlotConfig {
@@ -244,6 +245,7 @@ pub fn plot_throttle_freq_heatmap(
             },
             x_label: "Frequency (Hz)".to_string(),
             y_label: "Throttle (setpoint)".to_string(),
+            max_db: -10.0, // Keep existing gyro scaling
         };
 
         all_heatmap_data[axis_idx] = Some((unfiltered_heatmap_config, filtered_heatmap_config));

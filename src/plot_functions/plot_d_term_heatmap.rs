@@ -233,22 +233,33 @@ pub fn plot_d_term_heatmap(
         let mut final_filt_psd_matrix: Vec<Vec<f64>> =
             vec![vec![0.0; THROTTLE_Y_BINS_COUNT]; num_freq_bins_to_plot];
 
+        let mut unfilt_max_psd = HEATMAP_MIN_PSD_DB;
+        let mut filt_max_psd = HEATMAP_MIN_PSD_DB;
+
         for f_idx in 0..num_freq_bins_to_plot {
             for t_idx in 0..THROTTLE_Y_BINS_COUNT {
                 if unfilt_psd_counts[f_idx][t_idx] > 0 {
                     final_unfilt_psd_matrix[f_idx][t_idx] =
                         unfilt_psd_sums[f_idx][t_idx] / unfilt_psd_counts[f_idx][t_idx] as f64;
+                    unfilt_max_psd = unfilt_max_psd.max(final_unfilt_psd_matrix[f_idx][t_idx]);
                 } else {
                     final_unfilt_psd_matrix[f_idx][t_idx] = HEATMAP_MIN_PSD_DB; // No data for this bin
                 }
                 if filt_psd_counts[f_idx][t_idx] > 0 {
                     final_filt_psd_matrix[f_idx][t_idx] =
                         filt_psd_sums[f_idx][t_idx] / filt_psd_counts[f_idx][t_idx] as f64;
+                    filt_max_psd = filt_max_psd.max(final_filt_psd_matrix[f_idx][t_idx]);
                 } else {
                     final_filt_psd_matrix[f_idx][t_idx] = HEATMAP_MIN_PSD_DB; // No data for this bin
                 }
             }
         }
+
+        // Debug output for PSD ranges
+        println!(
+            "  {axis_name} axis D-term PSD ranges: Unfiltered: {:.1} to {:.1} dB, Filtered: {:.1} to {:.1} dB",
+            HEATMAP_MIN_PSD_DB, unfilt_max_psd, HEATMAP_MIN_PSD_DB, filt_max_psd
+        );
 
         // Create HeatmapData structures
         let unfilt_heatmap_data = HeatmapData {
@@ -269,6 +280,7 @@ pub fn plot_d_term_heatmap(
             heatmap_data: unfilt_heatmap_data,
             x_label: "Frequency (Hz)".to_string(),
             y_label: "Throttle %".to_string(),
+            max_db: unfilt_max_psd,
         };
         let filt_config = HeatmapPlotConfig {
             title: format!("Filtered D-term (axisD) - {axis_name}"),
@@ -277,6 +289,7 @@ pub fn plot_d_term_heatmap(
             heatmap_data: filt_heatmap_data,
             x_label: "Frequency (Hz)".to_string(),
             y_label: "Throttle %".to_string(),
+            max_db: filt_max_psd,
         };
 
         axis_heatmap_spectrums.push(AxisHeatmapSpectrum {

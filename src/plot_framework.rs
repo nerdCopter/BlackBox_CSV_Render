@@ -109,6 +109,7 @@ pub struct HeatmapPlotConfig {
     pub heatmap_data: HeatmapData,
     pub x_label: String,
     pub y_label: String,
+    pub max_db: f64, // Maximum dB value for color scaling
 }
 
 #[derive(Clone)]
@@ -375,6 +376,7 @@ where
 }
 
 /// Draws a single heatmap chart (spectrogram) for one axis within a stacked plot.
+#[allow(clippy::too_many_arguments)]
 fn draw_single_heatmap_chart(
     area: &DrawingArea<BitMapBackend, plotters::coord::Shift>,
     chart_title: &str,
@@ -383,6 +385,7 @@ fn draw_single_heatmap_chart(
     x_label: &str,
     y_label: &str,
     heatmap_data: &HeatmapData,
+    max_db: f64, // Use dynamic max_db instead of hardcoded value
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
         .caption(chart_title, ("sans-serif", 20))
@@ -417,8 +420,8 @@ fn draw_single_heatmap_chart(
         for (y_idx, &y_val) in heatmap_data.y_bins.iter().enumerate() {
             if let Some(row) = heatmap_data.values.get(x_idx) {
                 if let Some(&psd_db) = row.get(y_idx) {
-                    // Use a reasonable max PSD value for color mapping (-10 dB)
-                    let color = map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, -10.0);
+                    // Use dynamic max_db for color mapping
+                    let color = map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, max_db);
 
                     let rect = Rectangle::new(
                         [
@@ -489,6 +492,7 @@ where
                         &plot_config.x_label,
                         &plot_config.y_label,
                         &plot_config.heatmap_data,
+                        plot_config.max_db,
                     )?;
                     any_plot_drawn = true;
                 } else {
