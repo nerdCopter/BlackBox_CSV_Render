@@ -1,5 +1,6 @@
 // src/main.rs
 
+mod axis_names;
 mod constants;
 mod data_analysis;
 mod data_input;
@@ -172,7 +173,7 @@ fn process_file(
     let pid_metadata = parse_pid_metadata(&header_metadata);
 
     let mut has_nonzero_f_term_data = [false; 3];
-    for axis in 0..3 {
+    for axis in 0..crate::axis_names::AXIS_NAMES.len() {
         if f_term_header_found[axis]
             && all_log_data
                 .iter()
@@ -193,7 +194,7 @@ fn process_file(
     let last_time = all_log_data.last().and_then(|row| row.time_sec);
 
     let mut required_headers_for_sr_input = true;
-    for axis in 0..3 {
+    for axis in 0..crate::axis_names::AXIS_NAMES.len() {
         if !setpoint_header_found[axis] || !gyro_header_found[axis] {
             required_headers_for_sr_input = false;
             break;
@@ -263,9 +264,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let mut step_response_calculation_results: StepResponseResults = [None, None, None];
 
     if let Some(sr) = sample_rate {
-        let axis_names = ["Roll", "Pitch", "Yaw"];
-        for axis_index in 0..3 {
-            let axis_name = axis_names[axis_index];
+        for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
+            let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
             let required_headers_found =
                 setpoint_header_found[axis_index] && gyro_header_found[axis_index];
             if required_headers_found && !contiguous_sr_input_data[axis_index].0.is_empty() {

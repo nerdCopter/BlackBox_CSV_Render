@@ -264,7 +264,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         );
 
         // Check f_term headers (Indices 10-12).
-        for axis in 0..3 {
+        for axis in 0..crate::axis_names::AXIS_NAMES.len() {
             f_term_header_found[axis] = header_indices[10 + axis].is_some();
             println!(
                 "  '{}': {} (Optional, defaults to 0.0 if not found)",
@@ -299,7 +299,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         }
 
         // Check gyro (filtered) headers (Indices 17-19).
-        for axis in 0..3 {
+        for axis in 0..crate::axis_names::AXIS_NAMES.len() {
             gyro_header_found[axis] = header_indices[17 + axis].is_some();
             println!(
                 "  '{}': {} (Essential for Step Response, Gyro plots, and PID Error Axis {})",
@@ -314,7 +314,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         }
 
         // Check gyroUnfilt headers (Indices 20-22).
-        for axis in 0..3 {
+        for axis in 0..crate::axis_names::AXIS_NAMES.len() {
             gyro_unfilt_header_found[axis] = header_indices[20 + axis].is_some();
             println!(
                 "  '{}': {} (Fallback for Gyro vs Unfilt Axis {})",
@@ -393,7 +393,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
 
                     // Parse P, I, D, F, Gyro (for axes 0-2)
                     #[allow(clippy::needless_range_loop)]
-                    for axis in 0..3 {
+                    for axis in 0..crate::axis_names::AXIS_NAMES.len() {
                         current_row_data.p_term[axis] = parse_f64_by_target_idx(1 + axis); // Indices 1,2,3
                         current_row_data.i_term[axis] = parse_f64_by_target_idx(4 + axis); // Indices 4,5,6
 
@@ -425,7 +425,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                     // Parse gyroUnfilt and debug
                     let mut parsed_gyro_unfilt = [None; 3];
                     let mut parsed_debug = [None; 4];
-                    for axis in 0..3 {
+                    for axis in 0..crate::axis_names::AXIS_NAMES.len() {
                         if gyro_unfilt_header_found[axis] {
                             parsed_gyro_unfilt[axis] = parse_f64_by_target_idx(20 + axis);
                             // Indices 20,21,22
@@ -441,7 +441,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                     }
 
                     // Apply Fallback Logic for gyro_unfilt (debug[0-2] --> gyroUnfilt[0-2])
-                    for axis in 0..3 {
+                    for axis in 0..crate::axis_names::AXIS_NAMES.len() {
                         current_row_data.gyro_unfilt[axis] = match parsed_gyro_unfilt[axis] {
                             Some(val) => Some(val),
                             None => parsed_debug[axis],

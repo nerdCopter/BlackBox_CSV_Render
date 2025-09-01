@@ -14,8 +14,7 @@ use std::error::Error;
 use std::ops::Range;
 
 use crate::constants::{
-    HEATMAP_MAX_PSD_DB, HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE,
-    PLOT_HEIGHT, PLOT_WIDTH,
+    HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH,
 };
 
 /// Calculate plot range with padding.
@@ -38,19 +37,33 @@ pub fn draw_unavailable_message(
     plot_type: &str,
     reason: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let axis_names = ["Roll", "Pitch", "Yaw"];
-    let axis_name = axis_names[axis_index];
+    let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
     let (x_range, y_range) = area.get_pixel_range();
     let (width, height) = (
         (x_range.end - x_range.start) as u32,
         (y_range.end - y_range.start) as u32,
     );
-    let text_style = ("sans-serif", 20).into_font().color(&RED);
-    area.draw(&Text::new(
-        format!("{axis_name} {plot_type} Data Unavailable:\n{reason}"),
-        (width as i32 / 2 - 100, height as i32 / 2 - 20),
-        text_style,
-    ))?;
+
+    // Create the message text
+    let message = format!("{axis_name} {plot_type} Data Unavailable:\n{reason}");
+
+    // Estimate text dimensions for better centering
+    let font_size = 20;
+    let estimated_char_width = (font_size as f32 * 0.6) as i32; // Approximate character width
+    let estimated_line_height = font_size + 4; // Approximate line height with spacing
+
+    // Find the longest line to estimate width
+    let lines: Vec<&str> = message.split('\n').collect();
+    let max_line_length = lines.iter().map(|line| line.len()).max().unwrap_or(0);
+    let estimated_text_width = max_line_length as i32 * estimated_char_width;
+    let estimated_text_height = lines.len() as i32 * estimated_line_height;
+
+    // Calculate center position with better offset estimation
+    let center_x = width as i32 / 2 - estimated_text_width / 2;
+    let center_y = height as i32 / 2 - estimated_text_height / 2;
+
+    let text_style = ("sans-serif", font_size).into_font().color(&RED);
+    area.draw(&Text::new(message, (center_x, center_y), text_style))?;
     Ok(())
 }
 
@@ -241,7 +254,7 @@ where
     let mut any_axis_plotted = false;
 
     #[allow(clippy::needless_range_loop)]
-    for axis_index in 0..3 {
+    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
         let area = &sub_plot_areas[axis_index];
         match get_axis_plot_data(axis_index) {
             Some((chart_title, x_range, y_range, series_data, x_label, y_label)) => {
@@ -310,7 +323,7 @@ where
     let sub_plot_areas = margined_root_area.split_evenly((3, 2));
     let mut any_plot_drawn = false;
 
-    for axis_index in 0..3 {
+    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
         let plots_for_axis_option = get_axis_plot_data(axis_index);
 
         for col_idx in 0..2 {
@@ -399,7 +412,8 @@ fn draw_single_heatmap_chart(
         for (y_idx, &y_val) in heatmap_data.y_bins.iter().enumerate() {
             if let Some(row) = heatmap_data.values.get(x_idx) {
                 if let Some(&psd_db) = row.get(y_idx) {
-                    let color = map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, HEATMAP_MAX_PSD_DB);
+                    // Use a reasonable max PSD value for color mapping (-10 dB)
+                    let color = map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, -10.0);
 
                     let rect = Rectangle::new(
                         [
@@ -438,7 +452,7 @@ where
     let sub_plot_areas = margined_root_area.split_evenly((3, 2));
     let mut any_plot_drawn = false;
 
-    for axis_index in 0..3 {
+    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
         let plots_for_axis_option = get_axis_plot_data(axis_index);
 
         for col_idx in 0..2 {

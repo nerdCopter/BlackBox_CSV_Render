@@ -3,6 +3,7 @@
 use ndarray::{s, Array1};
 use std::error::Error;
 
+use crate::axis_names::AXIS_NAMES;
 use crate::types::AllPSDData;
 
 use crate::constants::{
@@ -192,10 +193,10 @@ pub fn plot_psd(
     let mut global_max_y_filt_db = f64::NEG_INFINITY;
     let mut overall_max_y_value_db = f64::NEG_INFINITY;
 
-    let axis_names = ["Roll", "Pitch", "Yaw"];
-
-    for axis_idx in 0..3 {
-        let axis_name = axis_names[axis_idx];
+    // Iterate safely over the minimum of AXIS_NAMES.len() and the fixed array size
+    let axis_count = AXIS_NAMES.len().min(all_psd_raw_data.len());
+    for axis_idx in 0..axis_count {
+        let axis_name = AXIS_NAMES[axis_idx];
         let mut unfilt_samples: Vec<f32> = Vec::new();
         let mut filt_samples: Vec<f32> = Vec::new();
 
@@ -397,7 +398,7 @@ pub fn plot_psd(
             let unfiltered_plot_config = Some(PlotConfig {
                 title: format!(
                     "{} Unfiltered Gyro Power Spectral Density",
-                    axis_names[axis_index]
+                    AXIS_NAMES[axis_index]
                 ),
                 x_range: x_range.clone(),
                 y_range: y_range_for_all_clone.clone(),
@@ -412,7 +413,7 @@ pub fn plot_psd(
             let filtered_plot_config = Some(PlotConfig {
                 title: format!(
                     "{} Filtered Gyro Power Spectral Density",
-                    axis_names[axis_index]
+                    AXIS_NAMES[axis_index]
                 ),
                 x_range,
                 y_range: y_range_for_all_clone,

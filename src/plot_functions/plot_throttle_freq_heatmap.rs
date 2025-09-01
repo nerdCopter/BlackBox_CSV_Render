@@ -3,14 +3,10 @@
 use ndarray::{s, Array1};
 use std::error::Error;
 
+use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    HEATMAP_MIN_PSD_DB, // Removed HEATMAP_MAX_PSD_DB from here
-    STFT_OVERLAP_FACTOR,
-    STFT_WINDOW_DURATION_S,
-    THROTTLE_Y_BINS_COUNT,
-    THROTTLE_Y_MAX_VALUE,
-    THROTTLE_Y_MIN_VALUE,
-    TUKEY_ALPHA,
+    HEATMAP_MIN_PSD_DB, STFT_OVERLAP_FACTOR, STFT_WINDOW_DURATION_S, THROTTLE_Y_BINS_COUNT,
+    THROTTLE_Y_MAX_VALUE, THROTTLE_Y_MIN_VALUE, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response;
 use crate::data_analysis::fft_utils;
@@ -44,8 +40,6 @@ pub fn plot_throttle_freq_heatmap(
         println!("\nINFO: Skipping Throttle-Frequency Heatmap Plot: Sample rate could not be determined.");
         return Ok(());
     };
-
-    let axis_names = ["Roll", "Pitch", "Yaw"];
 
     let window_size_samples = (STFT_WINDOW_DURATION_S * sr_value) as usize;
     let hop_size_samples = (window_size_samples as f64 * (1.0 - STFT_OVERLAP_FACTOR)) as usize;
@@ -86,8 +80,10 @@ pub fn plot_throttle_freq_heatmap(
     let mut all_heatmap_data: [Option<(HeatmapPlotConfig, HeatmapPlotConfig)>; 3] =
         Default::default();
 
-    for axis_idx in 0..3 {
-        let axis_name = axis_names[axis_idx];
+    // Iterate safely over the minimum of AXIS_NAMES.len() and the fixed array size
+    let axis_count = AXIS_NAMES.len().min(all_heatmap_data.len());
+    for axis_idx in 0..axis_count {
+        let axis_name = AXIS_NAMES[axis_idx];
         let mut unfilt_time_series: Vec<f32> = Vec::new();
         let mut filt_time_series: Vec<f32> = Vec::new();
         let mut throttle_values: Vec<f64> = Vec::new(); // Store throttle for each time point

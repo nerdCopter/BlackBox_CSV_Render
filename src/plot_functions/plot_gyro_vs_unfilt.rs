@@ -3,6 +3,7 @@
 use plotters::style::RGBColor;
 use std::error::Error;
 
+use crate::axis_names::AXIS_NAMES;
 use crate::constants::{COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, LINE_WIDTH_PLOT};
 use crate::data_analysis::filter_delay;
 use crate::data_analysis::filter_delay::DelayAnalysisResult;
@@ -40,7 +41,7 @@ pub fn plot_gyro_vs_unfilt(
     for row in log_data {
         if let Some(time) = row.time_sec {
             #[allow(clippy::needless_range_loop)]
-            for axis_index in 0..3 {
+            for axis_index in 0..AXIS_NAMES.len() {
                 axis_plot_data[axis_index].push((
                     time,
                     row.gyro[axis_index],
@@ -155,10 +156,7 @@ pub fn plot_gyro_vs_unfilt(
             }
 
             Some((
-                {
-                    let axis_names = ["Roll", "Pitch", "Yaw"];
-                    format!("{} Filtered vs Unfiltered Gyro", axis_names[axis_index])
-                },
+                { format!("{} Filtered vs Unfiltered Gyro", AXIS_NAMES[axis_index]) },
                 x_range,
                 y_range,
                 series,

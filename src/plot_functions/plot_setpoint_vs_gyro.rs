@@ -3,6 +3,7 @@
 use plotters::style::RGBColor;
 use std::error::Error;
 
+use crate::axis_names::AXIS_NAMES;
 use crate::types::AllAxisPlotData2;
 
 use crate::constants::{COLOR_SETPOINT_VS_GYRO_GYRO, COLOR_SETPOINT_VS_GYRO_SP, LINE_WIDTH_PLOT};
@@ -40,7 +41,7 @@ pub fn plot_setpoint_vs_gyro(
     for row in log_data {
         if let Some(time) = row.time_sec {
             #[allow(clippy::needless_range_loop)]
-            for axis_index in 0..3 {
+            for axis_index in 0..AXIS_NAMES.len() {
                 axis_plot_data[axis_index].push((
                     time,
                     row.setpoint[axis_index],
@@ -150,10 +151,7 @@ pub fn plot_setpoint_vs_gyro(
             }
 
             Some((
-                {
-                    let axis_names = ["Roll", "Pitch", "Yaw"];
-                    format!("{} Setpoint vs Gyro", axis_names[axis_index])
-                },
+                { format!("{} Setpoint vs Gyro", AXIS_NAMES[axis_index]) },
                 x_range,
                 y_range,
                 series,

@@ -3,6 +3,7 @@
 use plotters::style::RGBColor;
 use std::error::Error;
 
+use crate::axis_names::AXIS_NAMES;
 use crate::types::AllAxisPlotData3;
 
 use crate::constants::{
@@ -23,7 +24,7 @@ pub fn plot_pidsum_error_setpoint(
     for row in log_data {
         if let Some(time) = row.time_sec {
             #[allow(clippy::needless_range_loop)]
-            for axis_index in 0..3 {
+            for axis_index in 0..AXIS_NAMES.len() {
                 let pidsum = row.p_term[axis_index].and_then(|p| {
                     row.i_term[axis_index].and_then(|i| row.d_term[axis_index].map(|d| p + i + d))
                 });
@@ -121,10 +122,7 @@ pub fn plot_pidsum_error_setpoint(
             }
 
             Some((
-                {
-                    let axis_names = ["Roll", "Pitch", "Yaw"];
-                    format!("{} PIDsum vs PID Error vs Setpoint", axis_names[axis_index])
-                },
+                { format!("{} PIDsum vs PID Error vs Setpoint", AXIS_NAMES[axis_index]) },
                 x_range,
                 y_range,
                 series,

@@ -1,5 +1,13 @@
 // src/data_input/pid_metadata.rs
 
+// Import AXIS_COUNT for non-test builds
+#[cfg(not(test))]
+use crate::axis_names::AXIS_COUNT;
+
+// For test builds (when included via include!()), define locally to match axis_names
+#[cfg(test)]
+const AXIS_COUNT: usize = 3; // Keep in sync with crate::axis_names::AXIS_COUNT
+
 // Axis indices for array access consistency
 const ROLL_AXIS: usize = 0;
 const PITCH_AXIS: usize = 1;
@@ -161,13 +169,13 @@ fn parse_d_values(
     header_map: &std::collections::HashMap<String, String>,
     comma_separated_key: &str,
     individual_keys: [&str; 6], // [roll_key1, roll_key2, pitch_key1, pitch_key2, yaw_key1, yaw_key2]
-) -> [Option<u32>; 3] {
-    let mut values = [None; 3];
+) -> [Option<u32>; AXIS_COUNT] {
+    let mut values = [None; AXIS_COUNT];
 
     // Try comma-separated format first
     if let Some(value_str) = header_map.get(comma_separated_key) {
         let parsed_values = parse_comma_separated_values(value_str);
-        if parsed_values.len() >= 3 {
+        if parsed_values.len() >= AXIS_COUNT {
             values[ROLL_AXIS] = Some(parsed_values[ROLL_AXIS]);
             values[PITCH_AXIS] = Some(parsed_values[PITCH_AXIS]);
             values[YAW_AXIS] = Some(parsed_values[YAW_AXIS]);
@@ -176,7 +184,7 @@ fn parse_d_values(
     }
 
     // Fallback to individual fields
-    for axis in 0..3 {
+    for axis in 0..AXIS_COUNT {
         let key1 = individual_keys[axis * 2];
         let key2 = individual_keys[axis * 2 + 1];
 
@@ -194,7 +202,7 @@ fn parse_d_values(
 fn parse_ff_values(
     header_map: &std::collections::HashMap<String, String>,
     existing_pids: &(&AxisPid, &AxisPid, &AxisPid),
-) -> [Option<u32>; 3] {
+) -> [Option<u32>; AXIS_COUNT] {
     let mut ff_values = [
         existing_pids.0.ff, // Roll FF from PID string
         existing_pids.1.ff, // Pitch FF from PID string
@@ -204,8 +212,8 @@ fn parse_ff_values(
     // Betaflight style: ff_weight with roll,pitch,yaw values (overrides PID string FF)
     if let Some(ff_weight_str) = header_map.get("ff_weight") {
         let values = parse_comma_separated_values(ff_weight_str);
-        if values.len() >= 3 {
-            for (i, &value) in values.iter().enumerate().take(3) {
+        if values.len() >= AXIS_COUNT {
+            for (i, &value) in values.iter().enumerate().take(AXIS_COUNT) {
                 if value > 0 {
                     ff_values[i] = Some(value);
                 }

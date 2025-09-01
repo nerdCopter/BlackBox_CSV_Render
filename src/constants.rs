@@ -59,7 +59,6 @@ pub const PSD_PEAK_LABEL_MIN_VALUE_DB: f64 = -60.0; // Minimum PSD value in dB f
 pub const STFT_WINDOW_DURATION_S: f64 = 0.1; // Duration of each STFT window in seconds
 pub const STFT_OVERLAP_FACTOR: f64 = 0.75; // Overlap between windows (e.g., 0.75 for 75% overlap)
 pub const HEATMAP_MIN_PSD_DB: f64 = -80.0; // Minimum PSD value in dB for heatmap color scaling
-pub const HEATMAP_MAX_PSD_DB: f64 = -10.0; // Maximum PSD value in dB for heatmap color scaling (adjust based on typical values)
 
 // Constants for Throttle-Frequency Heatmap
 pub const THROTTLE_Y_BINS_COUNT: usize = 50; // Number of bins for the throttle (Y) axis
