@@ -338,11 +338,11 @@ pub fn plot_d_term_psd(
             "Filtered D-term",
         );
 
-        // Get delay string for this axis
+        // Get delay string for this axis for legend display
         let delay_str = if let Some(ref results) = delay_comparison_results {
             if let Some(result) = results.get(axis_idx) {
                 format!(
-                    "{}: {:.1}ms(c:{:.2})",
+                    "Delay: {} {:.1}ms (c:{:.2})",
                     if result.method == "Cross-Correlation" {
                         "XCorr"
                     } else {
@@ -352,10 +352,10 @@ pub fn plot_d_term_psd(
                     result.confidence
                 )
             } else {
-                "No delay data".to_string()
+                "Delay: N/A".to_string()
             }
         } else {
-            "No delay data".to_string()
+            "Delay: N/A".to_string()
         };
 
         // Calculate dB-aligned Y-axis range (following Betaflight log viewer approach)
@@ -380,14 +380,14 @@ pub fn plot_d_term_psd(
 
             Some(PlotConfig {
                 title: format!(
-                    "Unfiltered D-term (derivative of gyroUnfilt) - {} - {}",
-                    axis_name, delay_str
+                    "Unfiltered D-term (derivative of gyroUnfilt) - {}",
+                    axis_name
                 ),
                 x_range: 0.0..max_freq_display,
                 y_range: min_y_db..max_y_db,
                 series: vec![PlotSeries {
                     data: unfilt_series_data,
-                    label: "Unfiltered D-term".to_string(),
+                    label: format!("Unfiltered D-term | {}", delay_str),
                     color: *COLOR_GYRO_VS_UNFILT_UNFILT,
                     stroke_width: 2,
                 }],
@@ -409,15 +409,12 @@ pub fn plot_d_term_psd(
             };
 
             Some(PlotConfig {
-                title: format!(
-                    "Filtered D-term (flight controller output) - {} - {}",
-                    axis_name, delay_str
-                ),
+                title: format!("Filtered D-term (flight controller output) - {}", axis_name),
                 x_range: 0.0..max_freq_display,
                 y_range: min_y_db..max_y_db,
                 series: vec![PlotSeries {
                     data: filt_series_data,
-                    label: "Filtered D-term".to_string(),
+                    label: format!("Filtered D-term | {}", delay_str),
                     color: *COLOR_GYRO_VS_UNFILT_FILT,
                     stroke_width: 2,
                 }],
