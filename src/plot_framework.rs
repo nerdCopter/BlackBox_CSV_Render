@@ -75,6 +75,7 @@ pub struct PlotSeries {
     pub stroke_width: u32,
 }
 
+#[derive(Clone)]
 pub struct PlotConfig {
     pub title: String,
     pub x_range: Range<f64>,
@@ -87,17 +88,20 @@ pub struct PlotConfig {
     pub peak_label_format_string: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct AxisSpectrum {
     pub unfiltered: Option<PlotConfig>,
     pub filtered: Option<PlotConfig>,
 }
 
+#[derive(Clone)]
 pub struct HeatmapData {
     pub x_bins: Vec<f64>,
     pub y_bins: Vec<f64>,
     pub values: Vec<Vec<f64>>,
 }
 
+#[derive(Clone)]
 pub struct HeatmapPlotConfig {
     pub title: String,
     pub x_range: Range<f64>,
@@ -107,6 +111,7 @@ pub struct HeatmapPlotConfig {
     pub y_label: String,
 }
 
+#[derive(Clone)]
 pub struct AxisHeatmapSpectrum {
     pub unfiltered: Option<HeatmapPlotConfig>,
     pub filtered: Option<HeatmapPlotConfig>,
