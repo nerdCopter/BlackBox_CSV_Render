@@ -1,4 +1,4 @@
-// src/plot_functions/plot_d_term_spectrums.rs
+// src/plot_functions/plot_d_term_psd.rs
 
 use ndarray::Array1;
 use std::error::Error;
@@ -40,16 +40,16 @@ fn calculate_derivative(data: &[f32], sample_rate: f64) -> Vec<f32> {
     derivative
 }
 
-/// Generates a stacked plot with two columns per axis, showing Unfiltered D-term and Filtered D-term spectrums.
+/// Generates a stacked plot with two columns per axis, showing Unfiltered D-term and Filtered D-term PSDs.
 /// Unfiltered D-term is calculated as the derivative of gyroUnfilt.
 /// Filtered D-term uses the flight controller's processed D-term output.
-pub fn plot_d_term_spectrums(
+pub fn plot_d_term_psd(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
     _header_metadata: Option<&[(String, String)]>,
 ) -> Result<(), Box<dyn Error>> {
-    let output_file = format!("{root_name}_D_Term_Spectrums_comparative.png");
+    let output_file = format!("{root_name}_D_Term_PSD_comparative.png");
 
     let sr_value = if let Some(sr) = sample_rate {
         sr
@@ -392,7 +392,7 @@ pub fn plot_d_term_spectrums(
                     stroke_width: 2,
                 }],
                 x_label: "Frequency (Hz)".to_string(),
-                y_label: "Amplitude (dB)".to_string(),
+                y_label: "PSD (dB)".to_string(),
                 peaks: unfilt_peaks,
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}Hz".to_string()),
@@ -422,7 +422,7 @@ pub fn plot_d_term_spectrums(
                     stroke_width: 2,
                 }],
                 x_label: "Frequency (Hz)".to_string(),
-                y_label: "Amplitude (dB)".to_string(),
+                y_label: "PSD (dB)".to_string(),
                 peaks: filt_peaks,
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}Hz".to_string()),
@@ -444,20 +444,15 @@ pub fn plot_d_term_spectrums(
         return Ok(());
     }
 
-    draw_dual_spectrum_plot(
-        &output_file,
-        root_name,
-        "D-Term Spectrums",
-        move |axis_index| {
-            if axis_index < axis_spectrums.len() {
-                Some(axis_spectrums[axis_index].clone())
-            } else {
-                None
-            }
-        },
-    )?;
+    draw_dual_spectrum_plot(&output_file, root_name, "D-Term PSD", move |axis_index| {
+        if axis_index < axis_spectrums.len() {
+            Some(axis_spectrums[axis_index].clone())
+        } else {
+            None
+        }
+    })?;
 
-    println!("  D-term spectrum plot saved as '{}'", output_file);
+    println!("  D-term PSD plot saved as '{}'", output_file);
     Ok(())
 }
 

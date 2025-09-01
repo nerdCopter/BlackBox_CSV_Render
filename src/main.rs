@@ -24,7 +24,7 @@ use crate::constants::{
 
 // Specific plot function imports
 use crate::plot_functions::plot_d_term_heatmap::plot_d_term_heatmap;
-use crate::plot_functions::plot_d_term_spectrums::plot_d_term_spectrums;
+use crate::plot_functions::plot_d_term_psd::plot_d_term_psd;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
 use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
@@ -344,7 +344,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         sample_rate,
         Some(&header_metadata),
     )?;
-    plot_d_term_spectrums(
+    plot_d_term_psd(
         &all_log_data,
         &root_name_string,
         sample_rate,
