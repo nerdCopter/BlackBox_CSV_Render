@@ -21,10 +21,21 @@ pub fn plot_pidsum_error_setpoint(
     let plot_type_name = "PIDsum/PIDerror/Setpoint";
 
     let mut axis_plot_data: AllAxisPlotData3 = Default::default();
+
+    // Ensure AXIS_NAMES length matches the data array length to prevent out-of-bounds access
+    if AXIS_NAMES.len() != axis_plot_data.len() {
+        return Err(format!(
+            "AXIS_NAMES length ({}) does not match axis_plot_data length ({})",
+            AXIS_NAMES.len(),
+            axis_plot_data.len()
+        )
+        .into());
+    }
+
     for row in log_data {
         if let Some(time) = row.time_sec {
             #[allow(clippy::needless_range_loop)]
-            for axis_index in 0..AXIS_NAMES.len() {
+            for axis_index in 0..axis_plot_data.len() {
                 let pidsum = row.p_term[axis_index].and_then(|p| {
                     row.i_term[axis_index].and_then(|i| row.d_term[axis_index].map(|d| p + i + d))
                 });
@@ -122,7 +133,13 @@ pub fn plot_pidsum_error_setpoint(
             }
 
             Some((
-                { format!("{} PIDsum vs PID Error vs Setpoint", AXIS_NAMES[axis_index]) },
+                {
+                    if axis_index < AXIS_NAMES.len() {
+                        format!("{} PIDsum vs PID Error vs Setpoint", AXIS_NAMES[axis_index])
+                    } else {
+                        format!("Axis {} PIDsum vs PID Error vs Setpoint", axis_index)
+                    }
+                },
                 x_range,
                 y_range,
                 series,

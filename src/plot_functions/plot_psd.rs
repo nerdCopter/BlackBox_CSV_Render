@@ -398,7 +398,7 @@ pub fn plot_psd(
             let unfiltered_plot_config = Some(PlotConfig {
                 title: format!(
                     "{} Unfiltered Gyro Power Spectral Density",
-                    AXIS_NAMES[axis_index]
+                    AXIS_NAMES.get(axis_index).unwrap_or(&"Unknown")
                 ),
                 x_range: x_range.clone(),
                 y_range: y_range_for_all_clone.clone(),
@@ -413,7 +413,7 @@ pub fn plot_psd(
             let filtered_plot_config = Some(PlotConfig {
                 title: format!(
                     "{} Filtered Gyro Power Spectral Density",
-                    AXIS_NAMES[axis_index]
+                    AXIS_NAMES.get(axis_index).unwrap_or(&"Unknown")
                 ),
                 x_range,
                 y_range: y_range_for_all_clone,

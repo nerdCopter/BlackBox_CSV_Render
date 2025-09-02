@@ -48,7 +48,16 @@ pub fn plot_step_response(
 
     let mut plot_data_per_axis: AllStepResponsePlotData = Default::default();
 
-    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
+    // Compute a safe shared bound for all arrays to prevent out-of-bounds access
+    let axis_count = usize::min(
+        AXIS_NAMES.len(),
+        usize::min(
+            step_response_results.len(),
+            usize::min(has_nonzero_f_term_data.len(), plot_data_per_axis.len()),
+        ),
+    );
+
+    for axis_index in 0..axis_count {
         if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) =
             &step_response_results[axis_index]
         {
