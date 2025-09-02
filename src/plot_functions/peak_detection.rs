@@ -1,46 +1,10 @@
 // src/plot_functions/peak_detection.rs
 
 use crate::constants::{
-    ENABLE_FILTERED_D_TERM_PEAK_DETECTION, ENABLE_WINDOW_PEAK_DETECTION, MAX_PEAKS_TO_LABEL,
-    MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS,
-    PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ,
+    ENABLE_WINDOW_PEAK_DETECTION, MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ,
+    MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE,
+    SPECTRUM_NOISE_FLOOR_HZ,
 };
-
-/// Determines if spectrum data is too flat for meaningful peak detection
-/// This is primarily used for filtered D-term data which can be very flat after filtering
-fn is_data_too_flat(series_data: &[(f64, f64)], amplitude_threshold: f64) -> bool {
-    if series_data.len() < 10 {
-        return true; // Too little data
-    }
-
-    // Calculate dynamic range: difference between max and min values
-    let amplitudes: Vec<f64> = series_data.iter().map(|(_, amp)| *amp).collect();
-    let max_amp = amplitudes.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-    let min_amp = amplitudes.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-    let dynamic_range = max_amp - min_amp;
-
-    // For filtered D-term data, be more aggressive about detecting flatness
-    // For dB scale (PSD plots), consider data flat if dynamic range < 30 dB
-    // For linear scale (spectrum plots), consider data flat if dynamic range < 5x amplitude threshold
-    let flatness_threshold = if amplitude_threshold < 0.0 {
-        // dB scale (negative threshold like -60 dB) - be more aggressive for filtered D-term
-        30.0 // Less than 30 dB dynamic range is considered flat for filtered D-term
-    } else {
-        // Linear scale (positive threshold like 1000.0) - be more aggressive for filtered D-term
-        amplitude_threshold * 5.0 // Dynamic range must be at least 5x the threshold (was 10x)
-    };
-
-    let is_flat = dynamic_range < flatness_threshold;
-
-    if is_flat {
-        println!(
-            "    Dynamic range: {:.2}, threshold: {:.2} - flagged as too flat",
-            dynamic_range, flatness_threshold
-        );
-    }
-
-    is_flat
-}
 
 /// Detects and sorts peaks in spectrum data for labeling (D-term plots)
 /// Returns a vector of (frequency, amplitude) tuples for peaks that should be labeled
@@ -71,20 +35,19 @@ pub fn find_and_sort_peaks_with_threshold(
     spectrum_type_str: &str,
     amplitude_threshold: f64,
 ) -> Vec<(f64, f64)> {
-    // Check if filtered D-term peak detection is disabled globally
-    if spectrum_type_str.contains("Filtered D-term") && !ENABLE_FILTERED_D_TERM_PEAK_DETECTION {
-        println!("  {axis_name_str} {spectrum_type_str}: Peak detection disabled for filtered D-term data.");
-        return Vec::new();
-    }
-
-    // Check if this is filtered D-term data and if it's too flat for meaningful peak detection
-    if spectrum_type_str.contains("Filtered D-term")
-        && is_data_too_flat(series_data, amplitude_threshold)
-    {
-        println!(
-            "  {axis_name_str} {spectrum_type_str}: Data too flat for meaningful peak detection."
-        );
-        return Vec::new();
+    // For filtered D-term data, check if the primary peak is below the meaningful threshold
+    // If so, skip peak detection since the peaks aren't significant enough to be useful
+    if spectrum_type_str.contains("Filtered D-term") {
+        if let Some((_, peak_amp)) = primary_peak_info {
+            if peak_amp <= amplitude_threshold {
+                println!("  {axis_name_str} {spectrum_type_str}: Primary peak ({:.2}) below threshold ({:.2}) - skipping peak detection.", peak_amp, amplitude_threshold);
+                return Vec::new();
+            }
+        } else {
+            // No primary peak found at all
+            println!("  {axis_name_str} {spectrum_type_str}: No peaks above threshold - skipping peak detection.");
+            return Vec::new();
+        }
     }
 
     let mut peaks_to_plot: Vec<(f64, f64)> = Vec::new();

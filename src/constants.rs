@@ -74,7 +74,6 @@ pub const MIN_PEAK_SEPARATION_HZ: f64 = 70.0; // Minimum frequency separation be
 pub const ENABLE_WINDOW_PEAK_DETECTION: bool = true; // Set to true to use window-based peak detection
                                                      // Set to false to use the previous 3-point (amp > prev && amp >= next) logic.
 pub const PEAK_DETECTION_WINDOW_RADIUS: usize = 3; // Radius W for peak detection window (total 2*W+1 points).
-pub const ENABLE_FILTERED_D_TERM_PEAK_DETECTION: bool = false; // Set to false to skip peak detection on filtered D-term data (often too flat to be meaningful)
 
 // PIDsum vs PID Error vs Setpoint Plot
 pub const COLOR_PIDSUM_MAIN: &RGBColor = &GREEN;
