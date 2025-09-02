@@ -1,10 +1,20 @@
 // src/plot_functions/peak_detection.rs
 
 use crate::constants::{
-    ENABLE_WINDOW_PEAK_DETECTION, MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ,
-    MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE,
-    SPECTRUM_NOISE_FLOOR_HZ,
+    ENABLE_WINDOW_PEAK_DETECTION, FILTERED_DATA_MIN_PEAK_PERCENTAGE, MAX_PEAKS_TO_LABEL,
+    MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS,
+    PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ,
 };
+
+/// Formats large numbers with "k" notation for better readability
+/// e.g., 1000 -> "1.0k", 30145 -> "30.1k", 104457680 -> "104458k"
+fn format_value_with_k(value: f64) -> String {
+    if value >= 1000.0 {
+        format!("{:.1}k", value / 1000.0)
+    } else {
+        format!("{:.1}", value)
+    }
+}
 
 /// Detects and sorts peaks in spectrum data for labeling (D-term plots)
 /// Returns a vector of (frequency, amplitude) tuples for peaks that should be labeled
@@ -35,12 +45,39 @@ pub fn find_and_sort_peaks_with_threshold(
     spectrum_type_str: &str,
     amplitude_threshold: f64,
 ) -> Vec<(f64, f64)> {
-    // For filtered D-term data, check if the primary peak is below the meaningful threshold
-    // If so, skip peak detection since the peaks aren't significant enough to be useful
+    // For filtered D-term data, use intelligent scale-aware threshold checking
+    // Instead of fixed thresholds, use percentage-based logic that adapts to data scale
     if spectrum_type_str.contains("Filtered D-term") {
         if let Some((_, peak_amp)) = primary_peak_info {
-            if peak_amp <= amplitude_threshold {
-                println!("  {axis_name_str} {spectrum_type_str}: Primary peak ({:.2}) below threshold ({:.2}) - skipping peak detection.", peak_amp, amplitude_threshold);
+            // Calculate scale-aware threshold based on the data type and range
+            let intelligent_threshold = if amplitude_threshold < 0.0 {
+                // PSD plots (dB scale): Use the provided dB threshold
+                amplitude_threshold
+            } else {
+                // Spectrum plots (linear scale): Use percentage-based threshold
+                // For D-term data (typically 20k-500k range), require at least 10% of reasonable scale
+                // This means ~5k minimum for D-term, but adapts if unfiltered peak is very high
+                if spectrum_type_str.contains("D-term") {
+                    // D-term spectrums: Use 10% of a reasonable D-term scale (50k) = 5k minimum
+                    (50000.0 * FILTERED_DATA_MIN_PEAK_PERCENTAGE).max(amplitude_threshold)
+                } else {
+                    // Other spectrum types: Use the original threshold
+                    amplitude_threshold
+                }
+            };
+
+            if peak_amp <= intelligent_threshold {
+                let formatted_peak = if amplitude_threshold < 0.0 {
+                    format!("{:.2}", peak_amp)
+                } else {
+                    format_value_with_k(peak_amp)
+                };
+                let formatted_threshold = if amplitude_threshold < 0.0 {
+                    format!("{:.2}", intelligent_threshold)
+                } else {
+                    format_value_with_k(intelligent_threshold)
+                };
+                println!("  {axis_name_str} {spectrum_type_str}: Primary peak ({}) below intelligent threshold ({}) - skipping peak detection.", formatted_peak, formatted_threshold);
                 return Vec::new();
             }
         } else {
@@ -156,11 +193,29 @@ pub fn find_and_sort_peaks_with_threshold(
     peaks_to_plot.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     if !peaks_to_plot.is_empty() {
         let (main_freq, main_amp) = peaks_to_plot[0];
+        // Use "k" notation for large spectrum values (but not for dB values)
+        let formatted_amp = if amplitude_threshold < 0.0 {
+            // dB scale - don't use k notation
+            format!("{:.2}", main_amp)
+        } else {
+            // Linear scale - use k notation for readability
+            format_value_with_k(main_amp)
+        };
         println!(
-            "  {axis_name_str} {spectrum_type_str}: Primary Peak value {main_amp:.2} at {main_freq} Hz"
+            "  {axis_name_str} {spectrum_type_str}: Primary Peak value {} at {main_freq} Hz",
+            formatted_amp
         );
         for (idx, (freq, amp)) in peaks_to_plot.iter().skip(1).enumerate() {
-            println!("    Subordinate Peak {}: {:.2} at {freq} Hz", idx + 1, amp);
+            let formatted_sub_amp = if amplitude_threshold < 0.0 {
+                format!("{:.2}", amp)
+            } else {
+                format_value_with_k(*amp)
+            };
+            println!(
+                "    Subordinate Peak {}: {} at {freq} Hz",
+                idx + 1,
+                formatted_sub_amp
+            );
         }
     } else {
         println!("  {axis_name_str} {spectrum_type_str}: No significant peaks found.");

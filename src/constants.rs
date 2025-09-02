@@ -48,7 +48,10 @@ pub const EXCLUDE_END_S: f64 = 3.0; // Exclude seconds from the end of the log
 pub const SPECTRUM_Y_AXIS_FLOOR: f64 = 20000.0; // Maximum amplitude for spectrum plots.
 pub const SPECTRUM_NOISE_FLOOR_HZ: f64 = 70.0; // Frequency threshold below which to ignore for dynamic Y-axis scaling (e.g., motor idle noise).
 pub const SPECTRUM_Y_AXIS_HEADROOM_FACTOR: f64 = 1.2; // Factor to extend Y-axis above the highest peak (after noise floor) for better visibility.
-pub const PEAK_LABEL_MIN_AMPLITUDE: f64 = 1000.0; // Ignore peaks under this; Tunable
+pub const PEAK_LABEL_MIN_AMPLITUDE: f64 = 1000.0; // Ignore peaks under this; Tunable (baseline for gyro spectrums)
+
+// Percentage-based peak detection thresholds (more intelligent than fixed values)
+pub const FILTERED_DATA_MIN_PEAK_PERCENTAGE: f64 = 0.10; // Filtered data peaks must be at least 10% of typical scale to be meaningful
 
 // Constants for PSD plots (dB scale)
 pub const PSD_Y_AXIS_FLOOR_DB: f64 = -80.0; // A reasonable floor for PSD values in dB
