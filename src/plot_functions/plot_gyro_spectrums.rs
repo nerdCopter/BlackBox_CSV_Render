@@ -62,6 +62,28 @@ pub fn plot_gyro_spectrums(
         axis_name_str: &str,
         spectrum_type_str: &str,
     ) -> Vec<(f64, f64)> {
+        // For filtered gyro data, use intelligent threshold checking
+        // Based on user feedback: 4k, 2.1k peaks are reasonable, but <1.9k peaks are not meaningful
+        if spectrum_type_str.contains("Filtered") {
+            if let Some((_, peak_amp)) = primary_peak_info {
+                let gyro_filtered_threshold = 2000.0; // 2k threshold for filtered gyro (lower than 100k D-term threshold)
+                if peak_amp <= gyro_filtered_threshold {
+                    let formatted_peak = if peak_amp >= 1000.0 {
+                        format!("{:.1}k", peak_amp / 1000.0)
+                    } else {
+                        format!("{:.1}", peak_amp)
+                    };
+                    let formatted_threshold = format!("{:.1}k", gyro_filtered_threshold / 1000.0);
+                    println!("  {axis_name_str} {spectrum_type_str}: Primary peak ({}) below intelligent threshold ({}) - skipping peak detection.", formatted_peak, formatted_threshold);
+                    return Vec::new();
+                }
+            } else {
+                // No primary peak found at all
+                println!("  {axis_name_str} {spectrum_type_str}: No peaks above threshold - skipping peak detection.");
+                return Vec::new();
+            }
+        }
+
         let mut peaks_to_plot: Vec<(f64, f64)> = Vec::new();
 
         if let Some((peak_freq, peak_amp)) = primary_peak_info {
