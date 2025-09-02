@@ -223,13 +223,13 @@ pub fn plot_d_term_spectrums(
             &unfilt_series_data,
             unfilt_primary_peak,
             axis_name,
-            "Unfiltered D-term",
+            "Unfiltered D-term Spectrum",
         );
         let filt_peaks = find_and_sort_peaks(
             &filt_series_data,
             filt_primary_peak,
             axis_name,
-            "Filtered D-term",
+            "Filtered D-term Spectrum",
         );
 
         // Get delay string for this axis for legend display

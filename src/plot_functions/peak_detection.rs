@@ -141,15 +141,13 @@ pub fn find_and_sort_peaks_with_threshold(
     if !peaks_to_plot.is_empty() {
         let (main_freq, main_amp) = peaks_to_plot[0];
         println!(
-            "  {axis_name_str} {spectrum_type_str} D-term Spectrum: Primary Peak value {main_amp:.2} at {main_freq} Hz"
+            "  {axis_name_str} {spectrum_type_str}: Primary Peak value {main_amp:.2} at {main_freq} Hz"
         );
         for (idx, (freq, amp)) in peaks_to_plot.iter().skip(1).enumerate() {
             println!("    Subordinate Peak {}: {:.2} at {freq} Hz", idx + 1, amp);
         }
     } else {
-        println!(
-            "  {axis_name_str} {spectrum_type_str} D-term Spectrum: No significant peaks found."
-        );
+        println!("  {axis_name_str} {spectrum_type_str}: No significant peaks found.");
     }
     peaks_to_plot
 }

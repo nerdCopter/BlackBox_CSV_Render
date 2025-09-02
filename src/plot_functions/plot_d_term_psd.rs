@@ -213,15 +213,15 @@ pub fn plot_d_term_psd(
         if !unfilt_spectrum.is_empty() {
             for (i, &freq) in unfilt_freqs.iter().enumerate() {
                 if freq <= sr_value / 2.0 {
-                    let amplitude = unfilt_spectrum[i].norm() as f64;
-                    // Convert amplitude to dB (20 * log10(amplitude))
-                    let amplitude_db = if amplitude > 0.0 {
-                        20.0 * amplitude.log10()
+                    let power = unfilt_spectrum[i].norm_sqr() as f64;
+                    // Convert power to dB (10 * log10(power)) for true PSD
+                    let power_db = if power > 0.0 {
+                        10.0 * power.log10()
                     } else {
                         -100.0 // Use -100 dB as floor for zero/negative values
                     };
-                    unfilt_series_data.push((freq, amplitude_db));
-                    global_max_y_unfilt = global_max_y_unfilt.max(amplitude_db);
+                    unfilt_series_data.push((freq, power_db));
+                    global_max_y_unfilt = global_max_y_unfilt.max(power_db);
                     max_freq_for_auto_scale = max_freq_for_auto_scale.max(freq);
                 }
             }
@@ -230,15 +230,15 @@ pub fn plot_d_term_psd(
         if !filt_spectrum.is_empty() {
             for (i, &freq) in filt_freqs.iter().enumerate() {
                 if freq <= sr_value / 2.0 {
-                    let amplitude = filt_spectrum[i].norm() as f64;
-                    // Convert amplitude to dB (20 * log10(amplitude))
-                    let amplitude_db = if amplitude > 0.0 {
-                        20.0 * amplitude.log10()
+                    let power = filt_spectrum[i].norm_sqr() as f64;
+                    // Convert power to dB (10 * log10(power)) for true PSD
+                    let power_db = if power > 0.0 {
+                        10.0 * power.log10()
                     } else {
                         -100.0 // Use -100 dB as floor for zero/negative values
                     };
-                    filt_series_data.push((freq, amplitude_db));
-                    global_max_y_filt = global_max_y_filt.max(amplitude_db);
+                    filt_series_data.push((freq, power_db));
+                    global_max_y_filt = global_max_y_filt.max(power_db);
                     max_freq_for_auto_scale = max_freq_for_auto_scale.max(freq);
                 }
             }
@@ -269,14 +269,14 @@ pub fn plot_d_term_psd(
             &unfilt_series_data,
             unfilt_primary_peak,
             axis_name,
-            "Unfiltered D-term",
+            "Unfiltered D-term PSD",
             PSD_PEAK_LABEL_MIN_VALUE_DB,
         );
         let filt_peaks = find_and_sort_peaks_with_threshold(
             &filt_series_data,
             filt_primary_peak,
             axis_name,
-            "Filtered D-term",
+            "Filtered D-term PSD",
             PSD_PEAK_LABEL_MIN_VALUE_DB,
         );
 
@@ -331,7 +331,7 @@ pub fn plot_d_term_psd(
                     stroke_width: 2,
                 }],
                 x_label: "Frequency (Hz)".to_string(),
-                y_label: "PSD (dB)".to_string(),
+                y_label: "Power/Frequency (dB)".to_string(),
                 peaks: unfilt_peaks,
                 peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
                 peak_label_format_string: Some("{:.0}Hz".to_string()),
@@ -358,7 +358,7 @@ pub fn plot_d_term_psd(
                     stroke_width: 2,
                 }],
                 x_label: "Frequency (Hz)".to_string(),
-                y_label: "PSD (dB)".to_string(),
+                y_label: "Power/Frequency (dB)".to_string(),
                 peaks: filt_peaks,
                 peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
                 peak_label_format_string: Some("{:.0}Hz".to_string()),
