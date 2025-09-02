@@ -3,7 +3,7 @@
 use crate::constants::{
     ENABLE_WINDOW_PEAK_DETECTION, FILTERED_DATA_MIN_PEAK_PERCENTAGE, MAX_PEAKS_TO_LABEL,
     MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS,
-    PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ,
+    SPECTRUM_NOISE_FLOOR_HZ,
 };
 
 /// Formats large numbers with "k" notation for better readability
@@ -14,24 +14,6 @@ fn format_value_with_k(value: f64) -> String {
     } else {
         format!("{:.1}", value)
     }
-}
-
-/// Detects and sorts peaks in spectrum data for labeling (D-term plots)
-/// Returns a vector of (frequency, amplitude) tuples for peaks that should be labeled
-/// Uses the exact same logic as gyro plots, including noise floor filtering to avoid low-frequency artifacts
-pub fn find_and_sort_peaks(
-    series_data: &[(f64, f64)],
-    primary_peak_info: Option<(f64, f64)>,
-    axis_name_str: &str,
-    spectrum_type_str: &str,
-) -> Vec<(f64, f64)> {
-    find_and_sort_peaks_with_threshold(
-        series_data,
-        primary_peak_info,
-        axis_name_str,
-        spectrum_type_str,
-        PEAK_LABEL_MIN_AMPLITUDE,
-    )
 }
 
 /// Detects and sorts peaks with configurable amplitude threshold

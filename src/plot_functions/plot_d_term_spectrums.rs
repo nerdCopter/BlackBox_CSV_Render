@@ -14,7 +14,7 @@ use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_analysis::filter_delay;
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries};
-use crate::plot_functions::peak_detection::find_and_sort_peaks;
+use crate::plot_functions::peak_detection::find_and_sort_peaks_with_threshold;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered D-term and Filtered D-term spectrums (linear amplitude).
 /// Unfiltered D-term is calculated as the derivative of gyroUnfilt.
@@ -219,17 +219,19 @@ pub fn plot_d_term_spectrums(
             None
         };
 
-        let unfilt_peaks = find_and_sort_peaks(
+        let unfilt_peaks = find_and_sort_peaks_with_threshold(
             &unfilt_series_data,
             unfilt_primary_peak,
             axis_name,
             "Unfiltered D-term Spectrum",
+            PEAK_LABEL_MIN_AMPLITUDE,
         );
-        let filt_peaks = find_and_sort_peaks(
+        let filt_peaks = find_and_sort_peaks_with_threshold(
             &filt_series_data,
             filt_primary_peak,
             axis_name,
             "Filtered D-term Spectrum",
+            PEAK_LABEL_MIN_AMPLITUDE,
         );
 
         // Get delay string for this axis for legend display
