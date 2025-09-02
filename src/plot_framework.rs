@@ -202,6 +202,9 @@ fn draw_single_axis_chart_with_config(
 
             let formatted_peak_amp = if peak_label_format_string_ref == "{:.2} dB" {
                 format!("{peak_amp:.2} dB")
+            } else if peak_amp >= 1000.0 {
+                // Use "k" notation for large spectrum values for better readability
+                format!("{:.1}k", peak_amp / 1000.0)
             } else {
                 format!("{peak_amp:.0}")
             };

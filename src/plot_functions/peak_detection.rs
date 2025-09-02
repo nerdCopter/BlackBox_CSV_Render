@@ -1,7 +1,7 @@
 // src/plot_functions/peak_detection.rs
 
 use crate::constants::{
-    ENABLE_WINDOW_PEAK_DETECTION, FILTERED_DATA_MIN_PEAK_PERCENTAGE, MAX_PEAKS_TO_LABEL,
+    ENABLE_WINDOW_PEAK_DETECTION, FILTERED_D_TERM_MIN_THRESHOLD, MAX_PEAKS_TO_LABEL,
     MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS,
     SPECTRUM_NOISE_FLOOR_HZ,
 };
@@ -40,8 +40,9 @@ pub fn find_and_sort_peaks_with_threshold(
                 // For D-term data (typically 20k-500k range), require at least 10% of reasonable scale
                 // This means ~5k minimum for D-term, but adapts if unfiltered peak is very high
                 if spectrum_type_str.contains("D-term") {
-                    // D-term spectrums: Use 10% of a reasonable D-term scale (50k) = 5k minimum
-                    (50000.0 * FILTERED_DATA_MIN_PEAK_PERCENTAGE).max(amplitude_threshold)
+                    // D-term spectrums: Use a realistic threshold based on typical D-term scales
+                    // Unfiltered D-terms are typically 10M-100M, so filtered peaks below 100k are usually noise
+                    FILTERED_D_TERM_MIN_THRESHOLD.max(amplitude_threshold)
                 } else {
                     // Other spectrum types: Use the original threshold
                     amplitude_threshold
