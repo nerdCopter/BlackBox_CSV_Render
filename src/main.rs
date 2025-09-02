@@ -350,6 +350,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         &root_name_string,
         sample_rate,
         Some(&header_metadata),
+        debug_mode,
     )?;
     plot_d_term_spectrums(
         &all_log_data,

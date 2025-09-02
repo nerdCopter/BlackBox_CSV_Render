@@ -48,6 +48,7 @@ pub fn plot_d_term_psd(
     root_name: &str,
     sample_rate: Option<f64>,
     _header_metadata: Option<&[(String, String)]>,
+    debug_mode: bool,
 ) -> Result<(), Box<dyn Error>> {
     let output_file = format!("{root_name}_D_Term_PSD_comparative.png");
 
@@ -172,6 +173,41 @@ pub fn plot_d_term_psd(
         for row in log_data {
             if let Some(d_term_val) = row.d_term[axis_idx] {
                 filt_d_term_series.push(d_term_val as f32);
+            }
+        }
+
+        // Debug: Check D-term value ranges
+        if debug_mode {
+            if !unfilt_d_term_series.is_empty() {
+                let unfilt_min = unfilt_d_term_series
+                    .iter()
+                    .fold(f32::INFINITY, |a, &b| a.min(b));
+                let unfilt_max = unfilt_d_term_series
+                    .iter()
+                    .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let unfilt_rms = (unfilt_d_term_series.iter().map(|&x| x * x).sum::<f32>()
+                    / unfilt_d_term_series.len() as f32)
+                    .sqrt();
+                println!(
+                    "  {axis_name} Unfiltered D-term (derivative): min={:.3}, max={:.3}, rms={:.3}",
+                    unfilt_min, unfilt_max, unfilt_rms
+                );
+            }
+
+            if !filt_d_term_series.is_empty() {
+                let filt_min = filt_d_term_series
+                    .iter()
+                    .fold(f32::INFINITY, |a, &b| a.min(b));
+                let filt_max = filt_d_term_series
+                    .iter()
+                    .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let filt_rms = (filt_d_term_series.iter().map(|&x| x * x).sum::<f32>()
+                    / filt_d_term_series.len() as f32)
+                    .sqrt();
+                println!(
+                    "  {axis_name} Filtered D-term (FC output): min={:.3}, max={:.3}, rms={:.3}",
+                    filt_min, filt_max, filt_rms
+                );
             }
         }
 
