@@ -379,10 +379,7 @@ pub fn plot_d_term_psd(
             };
 
             Some(PlotConfig {
-                title: format!(
-                    "Unfiltered D-term (derivative of gyroUnfilt) - {}",
-                    axis_name
-                ),
+                title: format!("{} Unfiltered D-term (derivative of gyroUnfilt)", axis_name),
                 x_range: 0.0..max_freq_display,
                 y_range: min_y_db..max_y_db,
                 series: vec![PlotSeries {
@@ -409,7 +406,7 @@ pub fn plot_d_term_psd(
             };
 
             Some(PlotConfig {
-                title: format!("Filtered D-term (flight controller output) - {}", axis_name),
+                title: format!("{} Filtered D-term (flight controller output)", axis_name),
                 x_range: 0.0..max_freq_display,
                 y_range: min_y_db..max_y_db,
                 series: vec![PlotSeries {

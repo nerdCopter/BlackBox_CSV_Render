@@ -277,7 +277,7 @@ pub fn plot_d_term_heatmap(
         };
 
         let unfilt_config = HeatmapPlotConfig {
-            title: format!("Unfiltered D-term (derivative of gyroUnfilt) - {axis_name}"),
+            title: format!("{axis_name} Unfiltered D-term (derivative of gyroUnfilt)"),
             x_range: 0.0..max_freq_to_plot,
             y_range: THROTTLE_Y_MIN_VALUE..THROTTLE_Y_MAX_VALUE,
             heatmap_data: unfilt_heatmap_data,
@@ -286,7 +286,7 @@ pub fn plot_d_term_heatmap(
             max_db: common_max_db,
         };
         let filt_config = HeatmapPlotConfig {
-            title: format!("Filtered D-term (flight controller output) - {axis_name}"),
+            title: format!("{axis_name} Filtered D-term (flight controller output)"),
             x_range: 0.0..max_freq_to_plot,
             y_range: THROTTLE_Y_MIN_VALUE..THROTTLE_Y_MAX_VALUE,
             heatmap_data: filt_heatmap_data,
