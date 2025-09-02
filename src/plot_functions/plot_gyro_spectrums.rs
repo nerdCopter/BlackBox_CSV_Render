@@ -64,16 +64,21 @@ pub fn plot_gyro_spectrums(
     ) -> Vec<(f64, f64)> {
         // For filtered gyro data, use intelligent threshold checking
         // Based on user feedback: 4k, 2.1k peaks are reasonable, but <1.9k peaks are not meaningful
+        let amplitude_threshold = if spectrum_type_str.contains("Filtered") {
+            2000.0 // 2k threshold for filtered gyro
+        } else {
+            PEAK_LABEL_MIN_AMPLITUDE // 1k threshold for unfiltered gyro
+        };
+
         if spectrum_type_str.contains("Filtered") {
             if let Some((_, peak_amp)) = primary_peak_info {
-                let gyro_filtered_threshold = 2000.0; // 2k threshold for filtered gyro (lower than 100k D-term threshold)
-                if peak_amp <= gyro_filtered_threshold {
+                if peak_amp <= amplitude_threshold {
                     let formatted_peak = if peak_amp >= 1000.0 {
                         format!("{:.1}k", peak_amp / 1000.0)
                     } else {
                         format!("{:.1}", peak_amp)
                     };
-                    let formatted_threshold = format!("{:.1}k", gyro_filtered_threshold / 1000.0);
+                    let formatted_threshold = format!("{:.1}k", amplitude_threshold / 1000.0);
                     println!("  {axis_name_str} {spectrum_type_str}: Primary peak ({}) below intelligent threshold ({}) - skipping peak detection.", formatted_peak, formatted_threshold);
                     return Vec::new();
                 }
@@ -87,7 +92,7 @@ pub fn plot_gyro_spectrums(
         let mut peaks_to_plot: Vec<(f64, f64)> = Vec::new();
 
         if let Some((peak_freq, peak_amp)) = primary_peak_info {
-            if peak_amp > PEAK_LABEL_MIN_AMPLITUDE {
+            if peak_amp > amplitude_threshold {
                 peaks_to_plot.push((peak_freq, peak_amp));
             }
         }
@@ -147,9 +152,7 @@ pub fn plot_gyro_spectrums(
                     }
                 }; // End of block assignment to is_potential_peak
 
-                if freq >= SPECTRUM_NOISE_FLOOR_HZ
-                    && is_potential_peak
-                    && amp > PEAK_LABEL_MIN_AMPLITUDE
+                if freq >= SPECTRUM_NOISE_FLOOR_HZ && is_potential_peak && amp > amplitude_threshold
                 {
                     let mut is_valid_for_secondary_consideration = true;
                     if let Some((primary_freq, primary_amp_val)) = primary_peak_info {
@@ -182,8 +185,8 @@ pub fn plot_gyro_spectrums(
                         break;
                     }
                 }
-                if !too_close_to_existing && s_amp > PEAK_LABEL_MIN_AMPLITUDE {
-                    // Ensure it's still above min amp
+                if !too_close_to_existing && s_amp > amplitude_threshold {
+                    // Ensure it's still above the intelligent threshold for filtered data or min amp for unfiltered
                     peaks_to_plot.push((s_freq, s_amp));
                 }
             }
