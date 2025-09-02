@@ -145,6 +145,15 @@ fn draw_single_axis_chart_with_config(
         .y_desc(&plot_config.y_label)
         .x_labels(20)
         .y_labels(10)
+        .y_label_formatter(&|y| {
+            // Format Y-axis labels with "k" notation for large values (spectrum plots)
+            // Keep dB values as-is (they're typically small/negative)
+            if y.abs() >= 1000.0 && !plot_config.y_label.contains("dB") {
+                format!("{:.0}k", y / 1000.0)
+            } else {
+                format!("{:.0}", y)
+            }
+        })
         .light_line_style(WHITE.mix(0.7))
         .label_style(("sans-serif", 12))
         .draw()?;
@@ -403,6 +412,15 @@ fn draw_single_heatmap_chart(
         .y_desc(y_label)
         .x_labels(10)
         .y_labels(10)
+        .y_label_formatter(&|y| {
+            // Format Y-axis labels with "k" notation for large values (spectrum plots)
+            // Keep dB values as-is (they're typically small/negative)
+            if y.abs() >= 1000.0 && !y_label.contains("dB") {
+                format!("{:.0}k", y / 1000.0)
+            } else {
+                format!("{:.0}", y)
+            }
+        })
         .light_line_style(WHITE.mix(0.7))
         .label_style(("sans-serif", 12))
         .draw()?;
