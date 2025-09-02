@@ -5,41 +5,16 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, ENABLE_WINDOW_PEAK_DETECTION,
-    MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO,
-    PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_Y_AXIS_FLOOR,
-    SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
+    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, PEAK_LABEL_MIN_AMPLITUDE,
+    SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
+use crate::data_analysis::derivative::calculate_derivative;
 use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_analysis::filter_delay;
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries};
-
-/// Calculates discrete derivative of a time series
-/// For D-term analysis, this represents the rate of change of gyro signal
-fn calculate_derivative(data: &[f32], sample_rate: f64) -> Vec<f32> {
-    if data.len() < 2 {
-        return Vec::new();
-    }
-
-    let dt = 1.0 / sample_rate;
-    let mut derivative = Vec::with_capacity(data.len());
-
-    // Use forward difference for first point
-    derivative.push((data[1] - data[0]) / dt as f32);
-
-    // Use central difference for middle points
-    for i in 1..data.len() - 1 {
-        derivative.push((data[i + 1] - data[i - 1]) / (2.0 * dt as f32));
-    }
-
-    // Use backward difference for last point
-    let n = data.len() - 1;
-    derivative.push((data[n] - data[n - 1]) / dt as f32);
-
-    derivative
-}
+use crate::plot_functions::peak_detection::find_and_sort_peaks;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered D-term and Filtered D-term spectrums (linear amplitude).
 /// Unfiltered D-term is calculated as the derivative of gyroUnfilt.
@@ -69,80 +44,6 @@ pub fn plot_d_term_spectrums(
 
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
-
-    fn find_and_sort_peaks(
-        series_data: &[(f64, f64)],
-        primary_peak_info: Option<(f64, f64)>,
-        _axis_name_str: &str,
-        _spectrum_type_str: &str,
-    ) -> Vec<(f64, f64)> {
-        let mut peaks_to_plot: Vec<(f64, f64)> = Vec::new();
-
-        if let Some((peak_freq, peak_amp)) = primary_peak_info {
-            if peak_amp > PEAK_LABEL_MIN_AMPLITUDE {
-                peaks_to_plot.push((peak_freq, peak_amp));
-            }
-        }
-
-        if series_data.len() > 2 && peaks_to_plot.len() < MAX_PEAKS_TO_LABEL {
-            let mut candidate_secondary_peaks: Vec<(f64, f64)> = Vec::new();
-            for j in 1..(series_data.len() - 1) {
-                let (freq, amp) = series_data[j];
-
-                let is_potential_peak = {
-                    if ENABLE_WINDOW_PEAK_DETECTION {
-                        let w = PEAK_DETECTION_WINDOW_RADIUS;
-                        if j >= w && j + w < series_data.len() {
-                            let mut ge_left_in_window = true;
-                            for k_offset in 1..=w {
-                                if amp < series_data[j - k_offset].1 {
-                                    ge_left_in_window = false;
-                                    break;
-                                }
-                            }
-
-                            let mut gt_right_in_window = true;
-                            if ge_left_in_window {
-                                for k_offset in 1..=w {
-                                    if amp <= series_data[j + k_offset].1 {
-                                        gt_right_in_window = false;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            ge_left_in_window && gt_right_in_window
-                        } else {
-                            // Simple peak detection for edge cases
-                            amp > series_data[j - 1].1 && amp > series_data[j + 1].1
-                        }
-                    } else {
-                        // Simple peak detection: check immediate neighbors
-                        amp > series_data[j - 1].1 && amp > series_data[j + 1].1
-                    }
-                };
-
-                if is_potential_peak && amp > PEAK_LABEL_MIN_AMPLITUDE {
-                    if let Some((primary_freq, primary_amp)) = primary_peak_info {
-                        if (freq - primary_freq).abs() >= MIN_PEAK_SEPARATION_HZ
-                            && amp >= primary_amp * MIN_SECONDARY_PEAK_RATIO
-                        {
-                            candidate_secondary_peaks.push((freq, amp));
-                        }
-                    } else {
-                        candidate_secondary_peaks.push((freq, amp));
-                    }
-                }
-            }
-
-            candidate_secondary_peaks.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-            let remaining_slots = MAX_PEAKS_TO_LABEL - peaks_to_plot.len();
-            peaks_to_plot.extend(candidate_secondary_peaks.into_iter().take(remaining_slots));
-        }
-
-        peaks_to_plot.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        peaks_to_plot
-    }
 
     let mut max_freq_for_auto_scale = 0.0f64;
 
@@ -297,11 +198,12 @@ pub fn plot_d_term_spectrums(
             }
         }
 
-        // Find peaks for labeling
+        // Find peaks for labeling (apply noise floor filtering like gyro plots)
         let unfilt_primary_peak = if !unfilt_series_data.is_empty() {
             unfilt_series_data
                 .iter()
-                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .filter(|(freq, _)| *freq >= SPECTRUM_NOISE_FLOOR_HZ)
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
                 .copied()
         } else {
             None
@@ -310,7 +212,8 @@ pub fn plot_d_term_spectrums(
         let filt_primary_peak = if !filt_series_data.is_empty() {
             filt_series_data
                 .iter()
-                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .filter(|(freq, _)| *freq >= SPECTRUM_NOISE_FLOOR_HZ)
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
                 .copied()
         } else {
             None
@@ -334,7 +237,7 @@ pub fn plot_d_term_spectrums(
             if let Some(result) = results.get(axis_idx) {
                 format!(
                     "Delay: {} {:.1}ms (c:{:.2})",
-                    if result.method == "Cross-Correlation" {
+                    if result.method.contains("Cross") {
                         "XCorr"
                     } else {
                         "TFunc"
