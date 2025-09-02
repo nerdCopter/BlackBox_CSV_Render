@@ -15,10 +15,29 @@ pub fn find_and_sort_peaks(
     axis_name_str: &str,
     spectrum_type_str: &str,
 ) -> Vec<(f64, f64)> {
+    find_and_sort_peaks_with_threshold(
+        series_data,
+        primary_peak_info,
+        axis_name_str,
+        spectrum_type_str,
+        PEAK_LABEL_MIN_AMPLITUDE,
+    )
+}
+
+/// Detects and sorts peaks with configurable amplitude threshold
+/// For PSD plots (dB scale), use PSD_PEAK_LABEL_MIN_VALUE_DB
+/// For linear spectrum plots, use PEAK_LABEL_MIN_AMPLITUDE
+pub fn find_and_sort_peaks_with_threshold(
+    series_data: &[(f64, f64)],
+    primary_peak_info: Option<(f64, f64)>,
+    axis_name_str: &str,
+    spectrum_type_str: &str,
+    amplitude_threshold: f64,
+) -> Vec<(f64, f64)> {
     let mut peaks_to_plot: Vec<(f64, f64)> = Vec::new();
 
     if let Some((peak_freq, peak_amp)) = primary_peak_info {
-        if peak_amp > PEAK_LABEL_MIN_AMPLITUDE {
+        if peak_amp > amplitude_threshold {
             peaks_to_plot.push((peak_freq, peak_amp));
         }
     }
@@ -79,10 +98,7 @@ pub fn find_and_sort_peaks(
             }; // End of block assignment to is_potential_peak
 
             // Apply noise floor filtering to avoid low-frequency artifacts (like 1Hz peaks)
-            if freq >= SPECTRUM_NOISE_FLOOR_HZ
-                && is_potential_peak
-                && amp > PEAK_LABEL_MIN_AMPLITUDE
-            {
+            if freq >= SPECTRUM_NOISE_FLOOR_HZ && is_potential_peak && amp > amplitude_threshold {
                 let mut is_valid_for_secondary_consideration = true;
                 if let Some((primary_freq, primary_amp_val)) = primary_peak_info {
                     if freq == primary_freq && amp == primary_amp_val {
@@ -114,7 +130,7 @@ pub fn find_and_sort_peaks(
                     break;
                 }
             }
-            if !too_close_to_existing && s_amp > PEAK_LABEL_MIN_AMPLITUDE {
+            if !too_close_to_existing && s_amp > amplitude_threshold {
                 // Ensure it's still above min amp
                 peaks_to_plot.push((s_freq, s_amp));
             }

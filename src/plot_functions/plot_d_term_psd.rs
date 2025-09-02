@@ -5,7 +5,7 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, PEAK_LABEL_MIN_AMPLITUDE,
+    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, PSD_PEAK_LABEL_MIN_VALUE_DB,
     SPECTRUM_NOISE_FLOOR_HZ, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
@@ -14,7 +14,7 @@ use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_analysis::filter_delay;
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries};
-use crate::plot_functions::peak_detection::find_and_sort_peaks;
+use crate::plot_functions::peak_detection::find_and_sort_peaks_with_threshold;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered D-term and Filtered D-term PSDs.
 /// Unfiltered D-term is calculated as the derivative of gyroUnfilt.
@@ -265,17 +265,19 @@ pub fn plot_d_term_psd(
             None
         };
 
-        let unfilt_peaks = find_and_sort_peaks(
+        let unfilt_peaks = find_and_sort_peaks_with_threshold(
             &unfilt_series_data,
             unfilt_primary_peak,
             axis_name,
             "Unfiltered D-term",
+            PSD_PEAK_LABEL_MIN_VALUE_DB,
         );
-        let filt_peaks = find_and_sort_peaks(
+        let filt_peaks = find_and_sort_peaks_with_threshold(
             &filt_series_data,
             filt_primary_peak,
             axis_name,
             "Filtered D-term",
+            PSD_PEAK_LABEL_MIN_VALUE_DB,
         );
 
         // Get delay string for this axis for legend display
@@ -331,7 +333,7 @@ pub fn plot_d_term_psd(
                 x_label: "Frequency (Hz)".to_string(),
                 y_label: "PSD (dB)".to_string(),
                 peaks: unfilt_peaks,
-                peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
+                peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
                 peak_label_format_string: Some("{:.0}Hz".to_string()),
             })
         } else {
@@ -358,7 +360,7 @@ pub fn plot_d_term_psd(
                 x_label: "Frequency (Hz)".to_string(),
                 y_label: "PSD (dB)".to_string(),
                 peaks: filt_peaks,
-                peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
+                peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
                 peak_label_format_string: Some("{:.0}Hz".to_string()),
             })
         } else {
