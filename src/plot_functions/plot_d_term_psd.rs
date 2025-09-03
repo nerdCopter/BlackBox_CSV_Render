@@ -222,7 +222,9 @@ pub fn plot_d_term_psd(
                         magnitude_sqr / (sr_value * min_common_length as f64 * window_power);
 
                     // Apply one-sided doubling for positive frequencies (except DC and Nyquist)
-                    if i > 0 && i < unfilt_spectrum.len() - 1 {
+                    // Only exclude the last bin when FFT length is even (true Nyquist exists)
+                    let is_even_n = unfilt_spectrum.len() % 2 == 0;
+                    if i > 0 && !(is_even_n && i == unfilt_spectrum.len() - 1) {
                         psd *= 2.0;
                     }
 
@@ -251,7 +253,9 @@ pub fn plot_d_term_psd(
                         magnitude_sqr / (sr_value * min_common_length as f64 * window_power);
 
                     // Apply one-sided doubling for positive frequencies (except DC and Nyquist)
-                    if i > 0 && i < filt_spectrum.len() - 1 {
+                    // Only exclude the last bin when FFT length is even (true Nyquist exists)
+                    let is_even_n = filt_spectrum.len() % 2 == 0;
+                    if i > 0 && !(is_even_n && i == filt_spectrum.len() - 1) {
                         psd *= 2.0;
                     }
 
