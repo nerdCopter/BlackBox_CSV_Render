@@ -147,10 +147,16 @@ fn draw_single_axis_chart_with_config(
         .x_labels(20)
         .y_labels(10)
         .y_label_formatter(&|y| {
-            // Format Y-axis labels with "k" notation for large values (spectrum plots)
+            // Format Y-axis labels with "k" and "M" notation for large values (spectrum plots)
             // Keep dB values as-is (they're typically small/negative)
-            if y.abs() >= 1000.0 && !plot_config.y_label.contains("dB") {
-                format!("{:.0}k", y / 1000.0)
+            if !plot_config.y_label.contains("dB") {
+                if y.abs() >= 1_000_000.0 {
+                    format!("{:.1}M", y / 1_000_000.0)
+                } else if y.abs() >= 1000.0 {
+                    format!("{:.0}k", y / 1000.0)
+                } else {
+                    format!("{:.0}", y)
+                }
             } else {
                 format!("{:.0}", y)
             }
@@ -222,8 +228,11 @@ fn draw_single_axis_chart_with_config(
 
             let formatted_peak_amp = if peak_label_format_string_ref == "{:.2} dB" {
                 format!("{peak_amp:.2} dB")
+            } else if peak_amp >= 1_000_000.0 {
+                // Use "M" notation for million+ values for better readability
+                format!("{:.1}M", peak_amp / 1_000_000.0)
             } else if peak_amp >= 1000.0 {
-                // Use "k" notation for large spectrum values for better readability
+                // Use "k" notation for thousand+ values for better readability
                 format!("{:.1}k", peak_amp / 1000.0)
             } else {
                 format!("{peak_amp:.0}")

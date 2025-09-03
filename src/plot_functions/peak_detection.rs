@@ -6,10 +6,12 @@ use crate::constants::{
     PEAK_DETECTION_WINDOW_RADIUS, SPECTRUM_NOISE_FLOOR_HZ,
 };
 
-/// Formats large numbers with "k" notation for better readability
-/// e.g., 1000 -> "1.0k", 30145 -> "30.1k", 104457680 -> "104458k"
+/// Formats large numbers with "k" and "M" notation for better readability
+/// e.g., 1000 -> "1.0k", 30145 -> "30.1k", 1000000 -> "1.0M"
 fn format_value_with_k(value: f64) -> String {
-    if value >= 1000.0 {
+    if value >= 1_000_000.0 {
+        format!("{:.1}M", value / 1_000_000.0)
+    } else if value >= 1000.0 {
         format!("{:.1}k", value / 1000.0)
     } else {
         format!("{:.1}", value)
