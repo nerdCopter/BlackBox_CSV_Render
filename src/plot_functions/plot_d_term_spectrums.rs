@@ -9,9 +9,9 @@ use crate::constants::{
     SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
+use crate::data_analysis::d_term_delay;
 use crate::data_analysis::derivative::calculate_derivative;
 use crate::data_analysis::fft_utils; // For fft_forward
-use crate::data_analysis::filter_delay;
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries};
 use crate::plot_functions::peak_detection::find_and_sort_peaks_with_threshold;
@@ -35,8 +35,9 @@ pub fn plot_d_term_spectrums(
     };
 
     // Calculate filtering delay using enhanced cross-correlation on D-terms
-    // This now returns Vec<Option<DelayResult>> with per-axis alignment
-    let delay_by_axis = calculate_d_term_filtering_delay_comparison(log_data, sr_value);
+    // This returns Vec<Option<DelayResult>> with per-axis alignment
+    let delay_by_axis =
+        d_term_delay::calculate_d_term_filtering_delay_comparison(log_data, sr_value);
 
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
@@ -338,58 +339,5 @@ pub fn plot_d_term_spectrums(
     Ok(())
 }
 
-/// Calculate D-term filtering delay using cross-correlation
-/// Similar to gyro filtering delay but for D-term data
-fn calculate_d_term_filtering_delay_comparison(
-    log_data: &[LogRowData],
-    sample_rate: f64,
-) -> Vec<Option<filter_delay::DelayResult>> {
-    // Initialize with None for all axes to preserve axis alignment
-    let mut results: Vec<Option<filter_delay::DelayResult>> = vec![None; AXIS_NAMES.len()];
-
-    // Use AXIS_NAMES.iter().enumerate() for consistency with other parts of the codebase
-    for (axis_idx, _) in AXIS_NAMES.iter().enumerate() {
-        // Extract data for this axis
-        let mut gyro_unfilt_data: Vec<f32> = Vec::new();
-        let mut d_term_filtered_data: Vec<f32> = Vec::new();
-
-        for row in log_data {
-            if let (Some(unfilt_val), Some(d_term_val)) =
-                (row.gyro_unfilt[axis_idx], row.d_term[axis_idx])
-            {
-                gyro_unfilt_data.push(unfilt_val as f32);
-                d_term_filtered_data.push(d_term_val as f32);
-            }
-        }
-
-        if gyro_unfilt_data.len() < 100 || d_term_filtered_data.len() < 100 {
-            continue;
-        }
-
-        // Calculate derivative of unfiltered gyro for comparison with filtered D-term
-        let unfilt_d_term = calculate_derivative(&gyro_unfilt_data, sample_rate);
-
-        if unfilt_d_term.len() != d_term_filtered_data.len() {
-            let min_len = unfilt_d_term.len().min(d_term_filtered_data.len());
-            let unfilt_truncated = &unfilt_d_term[..min_len];
-            let filt_truncated = &d_term_filtered_data[..min_len];
-
-            // Use cross-correlation to find delay
-            if let Some(result) = filter_delay::calculate_filtering_delay_enhanced_xcorr(
-                &Array1::from_vec(filt_truncated.to_vec()),
-                &Array1::from_vec(unfilt_truncated.to_vec()),
-                sample_rate,
-            ) {
-                results[axis_idx] = Some(result);
-            }
-        } else if let Some(result) = filter_delay::calculate_filtering_delay_enhanced_xcorr(
-            &Array1::from_vec(d_term_filtered_data),
-            &Array1::from_vec(unfilt_d_term),
-            sample_rate,
-        ) {
-            results[axis_idx] = Some(result);
-        }
-    }
-
-    results
-}
+// Removed duplicate function: calculate_d_term_filtering_delay_comparison
+// Now using the shared implementation from crate::data_analysis::d_term_delay instead
