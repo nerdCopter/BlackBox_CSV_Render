@@ -504,6 +504,23 @@ where
     for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
         let plots_for_axis_option = get_axis_plot_data(axis_index);
 
+        // Compute a single axis_max_db for both unfiltered and filtered plots
+        let axis_max_db = if let Some(ref axis_spectrum) = plots_for_axis_option {
+            let unfilt_max = axis_spectrum
+                .unfiltered
+                .as_ref()
+                .map(|c| c.max_db)
+                .unwrap_or(0.0);
+            let filt_max = axis_spectrum
+                .filtered
+                .as_ref()
+                .map(|c| c.max_db)
+                .unwrap_or(0.0);
+            unfilt_max.max(filt_max)
+        } else {
+            0.0
+        };
+
         for col_idx in 0..2 {
             let area = &sub_plot_areas[axis_index * 2 + col_idx];
             let plot_config_option = plots_for_axis_option.as_ref().and_then(|axis_spectrum| {
@@ -533,7 +550,7 @@ where
                         &plot_config.x_label,
                         &plot_config.y_label,
                         &plot_config.heatmap_data,
-                        plot_config.max_db,
+                        axis_max_db,
                     )?;
                     any_plot_drawn = true;
                 } else {
