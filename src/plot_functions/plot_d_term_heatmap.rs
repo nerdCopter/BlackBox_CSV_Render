@@ -86,49 +86,71 @@ pub fn plot_d_term_heatmap(
     // Iterate safely over the minimum of AXIS_NAMES.len() and the fixed array size
     let axis_count = AXIS_NAMES.len().min(3);
     for (axis_idx, &axis_name) in AXIS_NAMES.iter().enumerate().take(axis_count) {
-        // Extract gyro_unfilt data for derivative calculation
-        let mut gyro_unfilt_series: Vec<f32> = Vec::new();
-        let mut d_term_filt_series: Vec<f32> = Vec::new();
-        let mut throttle_values: Vec<f64> = Vec::new(); // Store throttle for each time point
+        // Extract data for each series independently
+        let mut gyro_unfilt_series: Vec<(f32, f64)> = Vec::new(); // (gyro value, throttle)
+        let mut d_term_filt_series: Vec<(f32, f64)> = Vec::new(); // (d_term value, throttle)
 
+        // Collect gyro_unfilt and throttle pairs when both are available
         for row in log_data {
-            if let (Some(unfilt_val), Some(d_term_val), Some(throttle_val)) = (
-                row.gyro_unfilt[axis_idx],
-                row.d_term[axis_idx],
-                row.setpoint[3],
-            ) {
-                gyro_unfilt_series.push(unfilt_val as f32);
-                d_term_filt_series.push(d_term_val as f32);
-                throttle_values.push(throttle_val);
+            if let (Some(unfilt_val), Some(throttle_val)) =
+                (row.gyro_unfilt[axis_idx], row.setpoint[3])
+            {
+                gyro_unfilt_series.push((unfilt_val as f32, throttle_val));
             }
         }
 
-        // Calculate unfiltered D-term (derivative of gyroUnfilt)
-        let unfilt_d_term_series = if gyro_unfilt_series.len() >= 2 {
-            calculate_derivative(&gyro_unfilt_series, sr_value)
+        // Collect d_term and throttle pairs when both are available
+        for row in log_data {
+            if let (Some(d_term_val), Some(throttle_val)) = (row.d_term[axis_idx], row.setpoint[3])
+            {
+                d_term_filt_series.push((d_term_val as f32, throttle_val));
+            }
+        }
+
+        // Calculate unfiltered D-term (derivative of gyroUnfilt) if we have enough data
+        let unfilt_d_term_option = if gyro_unfilt_series.len() >= 2 {
+            let gyro_values: Vec<f32> = gyro_unfilt_series.iter().map(|(val, _)| *val).collect();
+            let throttle_values_unfilt: Vec<f64> = gyro_unfilt_series
+                .iter()
+                .map(|(_, throttle)| *throttle)
+                .collect();
+            let unfilt_d_term = calculate_derivative(&gyro_values, sr_value);
+
+            if unfilt_d_term.len() >= window_size_samples {
+                Some((unfilt_d_term, throttle_values_unfilt))
+            } else {
+                println!(
+                    "  Not enough unfiltered D-term data for {axis_name} axis to perform STFT."
+                );
+                None
+            }
         } else {
-            Vec::new()
+            println!("  Not enough gyro data for {axis_name} axis to calculate derivative.");
+            None
         };
 
-        if unfilt_d_term_series.len() < window_size_samples
-            || d_term_filt_series.len() < window_size_samples
-        {
-            println!("  Not enough D-term data for {axis_name} axis to perform STFT. Skipping D-term heatmap.");
+        // Check if we have enough filtered D-term data
+        let filt_d_term_option = if d_term_filt_series.len() >= window_size_samples {
+            let d_term_values: Vec<f32> = d_term_filt_series.iter().map(|(val, _)| *val).collect();
+            let throttle_values_filt: Vec<f64> = d_term_filt_series
+                .iter()
+                .map(|(_, throttle)| *throttle)
+                .collect();
+            Some((d_term_values, throttle_values_filt))
+        } else {
+            println!("  Not enough filtered D-term data for {axis_name} axis to perform STFT.");
+            None
+        };
+
+        // If both series are empty, skip this axis entirely
+        if unfilt_d_term_option.is_none() && filt_d_term_option.is_none() {
+            println!("  No usable D-term data for {axis_name} axis. Skipping D-term heatmap.");
             axis_heatmap_spectrums.push(AxisHeatmapSpectrum {
                 unfiltered: None,
                 filtered: None,
             });
             continue;
         }
-
-        // Ensure all data series have the same length
-        let min_length = unfilt_d_term_series
-            .len()
-            .min(d_term_filt_series.len())
-            .min(throttle_values.len());
-        let unfilt_d_term_truncated = &unfilt_d_term_series[..min_length];
-        let d_term_filt_truncated = &d_term_filt_series[..min_length];
-        let throttle_truncated = &throttle_values[..min_length];
 
         // Initialize aggregation matrices: [frequency_bin_idx][throttle_bin_idx]
         let mut unfilt_psd_sums: Vec<Vec<f64>> =
@@ -142,65 +164,109 @@ pub fn plot_d_term_heatmap(
 
         let window_func = calc_step_response::tukeywin(window_size_samples, TUKEY_ALPHA);
 
-        let mut current_start_sample = 0;
-        while current_start_sample + window_size_samples <= min_length {
-            let end_sample = current_start_sample + window_size_samples;
+        // Process unfiltered D-term data if available
+        if let Some((unfilt_d_term, throttle_values_unfilt)) = &unfilt_d_term_option {
+            let mut current_start_sample = 0;
+            while current_start_sample + window_size_samples <= unfilt_d_term.len() {
+                let end_sample = current_start_sample + window_size_samples;
 
-            let unfilt_window_slice = &unfilt_d_term_truncated[current_start_sample..end_sample];
-            let filt_window_slice = &d_term_filt_truncated[current_start_sample..end_sample];
+                let unfilt_window_slice = &unfilt_d_term[current_start_sample..end_sample];
 
-            // Get throttle value at the center of the window
-            let window_throttle_val =
-                throttle_truncated[current_start_sample + window_size_samples / 2];
+                // Get throttle value at the center of the window
+                let window_throttle_val =
+                    throttle_values_unfilt[current_start_sample + window_size_samples / 2];
 
-            // Map throttle value to a Y-axis bin
-            let mut throttle_y_bin_idx =
-                ((window_throttle_val - THROTTLE_Y_MIN_VALUE) / throttle_bin_size).floor() as usize;
-            throttle_y_bin_idx = throttle_y_bin_idx.clamp(0, THROTTLE_Y_BINS_COUNT - 1);
+                // Map throttle value to a Y-axis bin
+                let mut throttle_y_bin_idx = ((window_throttle_val - THROTTLE_Y_MIN_VALUE)
+                    / throttle_bin_size)
+                    .floor() as usize;
+                throttle_y_bin_idx = throttle_y_bin_idx.clamp(0, THROTTLE_Y_BINS_COUNT - 1);
 
-            let mut padded_unfilt = Array1::<f32>::zeros(fft_padded_len);
-            padded_unfilt
-                .slice_mut(s![0..window_size_samples])
-                .assign(&(&Array1::from_vec(unfilt_window_slice.to_vec()) * &window_func));
-            let mut padded_filt = Array1::<f32>::zeros(fft_padded_len);
-            padded_filt
-                .slice_mut(s![0..window_size_samples])
-                .assign(&(&Array1::from_vec(filt_window_slice.to_vec()) * &window_func));
+                let mut padded_unfilt = Array1::<f32>::zeros(fft_padded_len);
+                padded_unfilt
+                    .slice_mut(s![0..window_size_samples])
+                    .assign(&(&Array1::from_vec(unfilt_window_slice.to_vec()) * &window_func));
 
-            let unfilt_spec = fft_utils::fft_forward(&padded_unfilt);
-            let filt_spec = fft_utils::fft_forward(&padded_filt);
+                let unfilt_spec = fft_utils::fft_forward(&padded_unfilt);
 
-            if unfilt_spec.is_empty() || filt_spec.is_empty() {
-                current_start_sample += hop_size_samples;
-                continue;
-            }
+                if !unfilt_spec.is_empty() {
+                    // Normalization for one-sided Power Spectral Density (PSD) for real signals:
+                    let psd_scale = 1.0 / (window_size_samples as f64 * sr_value);
 
-            // Normalization for one-sided Power Spectral Density (PSD) for real signals:
-            let psd_scale = 1.0 / (window_size_samples as f64 * sr_value);
+                    for i in 0..num_unique_freqs {
+                        if i >= num_freq_bins_to_plot {
+                            break;
+                        } // Only process frequencies we intend to plot
 
-            for i in 0..num_unique_freqs {
-                if i >= num_freq_bins_to_plot {
-                    break;
-                } // Only process frequencies we intend to plot
+                        let mut amp_unfilt_linear_psd =
+                            unfilt_spec[i].norm_sqr() as f64 * psd_scale;
 
-                let mut amp_unfilt_linear_psd = unfilt_spec[i].norm_sqr() as f64 * psd_scale;
-                let mut amp_filt_linear_psd = filt_spec[i].norm_sqr() as f64 * psd_scale;
+                        let is_nyquist = fft_padded_len % 2 == 0 && i == num_unique_freqs - 1;
 
-                let is_nyquist = fft_padded_len % 2 == 0 && i == num_unique_freqs - 1;
+                        if i > 0 && !is_nyquist {
+                            amp_unfilt_linear_psd *= 2.0;
+                        }
 
-                if i > 0 && !is_nyquist {
-                    amp_unfilt_linear_psd *= 2.0;
-                    amp_filt_linear_psd *= 2.0;
+                        unfilt_psd_sums[i][throttle_y_bin_idx] +=
+                            linear_to_db_for_heatmap(amp_unfilt_linear_psd);
+                        unfilt_psd_counts[i][throttle_y_bin_idx] += 1;
+                    }
                 }
 
-                unfilt_psd_sums[i][throttle_y_bin_idx] +=
-                    linear_to_db_for_heatmap(amp_unfilt_linear_psd);
-                unfilt_psd_counts[i][throttle_y_bin_idx] += 1;
-                filt_psd_sums[i][throttle_y_bin_idx] +=
-                    linear_to_db_for_heatmap(amp_filt_linear_psd);
-                filt_psd_counts[i][throttle_y_bin_idx] += 1;
+                current_start_sample += hop_size_samples;
             }
-            current_start_sample += hop_size_samples;
+        }
+
+        // Process filtered D-term data if available
+        if let Some((d_term_filt, throttle_values_filt)) = &filt_d_term_option {
+            let mut current_start_sample = 0;
+            while current_start_sample + window_size_samples <= d_term_filt.len() {
+                let end_sample = current_start_sample + window_size_samples;
+
+                let filt_window_slice = &d_term_filt[current_start_sample..end_sample];
+
+                // Get throttle value at the center of the window
+                let window_throttle_val =
+                    throttle_values_filt[current_start_sample + window_size_samples / 2];
+
+                // Map throttle value to a Y-axis bin
+                let mut throttle_y_bin_idx = ((window_throttle_val - THROTTLE_Y_MIN_VALUE)
+                    / throttle_bin_size)
+                    .floor() as usize;
+                throttle_y_bin_idx = throttle_y_bin_idx.clamp(0, THROTTLE_Y_BINS_COUNT - 1);
+
+                let mut padded_filt = Array1::<f32>::zeros(fft_padded_len);
+                padded_filt
+                    .slice_mut(s![0..window_size_samples])
+                    .assign(&(&Array1::from_vec(filt_window_slice.to_vec()) * &window_func));
+
+                let filt_spec = fft_utils::fft_forward(&padded_filt);
+
+                if !filt_spec.is_empty() {
+                    // Normalization for one-sided Power Spectral Density (PSD) for real signals:
+                    let psd_scale = 1.0 / (window_size_samples as f64 * sr_value);
+
+                    for i in 0..num_unique_freqs {
+                        if i >= num_freq_bins_to_plot {
+                            break;
+                        } // Only process frequencies we intend to plot
+
+                        let mut amp_filt_linear_psd = filt_spec[i].norm_sqr() as f64 * psd_scale;
+
+                        let is_nyquist = fft_padded_len % 2 == 0 && i == num_unique_freqs - 1;
+
+                        if i > 0 && !is_nyquist {
+                            amp_filt_linear_psd *= 2.0;
+                        }
+
+                        filt_psd_sums[i][throttle_y_bin_idx] +=
+                            linear_to_db_for_heatmap(amp_filt_linear_psd);
+                        filt_psd_counts[i][throttle_y_bin_idx] += 1;
+                    }
+                }
+
+                current_start_sample += hop_size_samples;
+            }
         }
 
         // Calculate averaged PSDs for the heatmap
@@ -240,40 +306,58 @@ pub fn plot_d_term_heatmap(
             HEATMAP_MIN_PSD_DB, unfilt_max_psd, HEATMAP_MIN_PSD_DB, filt_max_psd, common_max_db
         );
 
+        // Check if we have any data for either unfiltered or filtered
+        let has_unfilt_data = unfilt_d_term_option.is_some()
+            && unfilt_psd_counts.iter().flatten().any(|&count| count > 0);
+        let has_filt_data = filt_d_term_option.is_some()
+            && filt_psd_counts.iter().flatten().any(|&count| count > 0);
+
         // Create HeatmapData structures
-        let unfilt_heatmap_data = HeatmapData {
-            values: final_unfilt_psd_matrix,
-            x_bins: frequencies_x_bins.clone(),
-            y_bins: throttle_y_bins.clone(),
-        };
-        let filt_heatmap_data = HeatmapData {
-            values: final_filt_psd_matrix,
-            x_bins: frequencies_x_bins.clone(),
-            y_bins: throttle_y_bins.clone(),
+        let unfilt_config = if has_unfilt_data {
+            let unfilt_heatmap_data = HeatmapData {
+                values: final_unfilt_psd_matrix,
+                x_bins: frequencies_x_bins.clone(),
+                y_bins: throttle_y_bins.clone(),
+            };
+
+            Some(HeatmapPlotConfig {
+                title: format!("{axis_name} Unfiltered D-term (derivative of gyroUnfilt)"),
+                x_range: 0.0..max_freq_to_plot,
+                y_range: THROTTLE_Y_MIN_VALUE..THROTTLE_Y_MAX_VALUE,
+                heatmap_data: unfilt_heatmap_data,
+                x_label: "Frequency (Hz)".to_string(),
+                y_label: "Throttle %".to_string(),
+                max_db: common_max_db,
+            })
+        } else {
+            println!("  No valid unfiltered D-term data for {axis_name} axis.");
+            None
         };
 
-        let unfilt_config = HeatmapPlotConfig {
-            title: format!("{axis_name} Unfiltered D-term (derivative of gyroUnfilt)"),
-            x_range: 0.0..max_freq_to_plot,
-            y_range: THROTTLE_Y_MIN_VALUE..THROTTLE_Y_MAX_VALUE,
-            heatmap_data: unfilt_heatmap_data,
-            x_label: "Frequency (Hz)".to_string(),
-            y_label: "Throttle %".to_string(),
-            max_db: common_max_db,
-        };
-        let filt_config = HeatmapPlotConfig {
-            title: format!("{axis_name} Filtered D-term (flight controller output)"),
-            x_range: 0.0..max_freq_to_plot,
-            y_range: THROTTLE_Y_MIN_VALUE..THROTTLE_Y_MAX_VALUE,
-            heatmap_data: filt_heatmap_data,
-            x_label: "Frequency (Hz)".to_string(),
-            y_label: "Throttle %".to_string(),
-            max_db: common_max_db,
+        let filt_config = if has_filt_data {
+            let filt_heatmap_data = HeatmapData {
+                values: final_filt_psd_matrix,
+                x_bins: frequencies_x_bins.clone(),
+                y_bins: throttle_y_bins.clone(),
+            };
+
+            Some(HeatmapPlotConfig {
+                title: format!("{axis_name} Filtered D-term (flight controller output)"),
+                x_range: 0.0..max_freq_to_plot,
+                y_range: THROTTLE_Y_MIN_VALUE..THROTTLE_Y_MAX_VALUE,
+                heatmap_data: filt_heatmap_data,
+                x_label: "Frequency (Hz)".to_string(),
+                y_label: "Throttle %".to_string(),
+                max_db: common_max_db,
+            })
+        } else {
+            println!("  No valid filtered D-term data for {axis_name} axis.");
+            None
         };
 
         axis_heatmap_spectrums.push(AxisHeatmapSpectrum {
-            unfiltered: Some(unfilt_config),
-            filtered: Some(filt_config),
+            unfiltered: unfilt_config,
+            filtered: filt_config,
         });
     }
 
