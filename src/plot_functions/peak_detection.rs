@@ -2,8 +2,8 @@
 
 use crate::constants::{
     ENABLE_WINDOW_PEAK_DETECTION, FILTERED_D_TERM_MIN_THRESHOLD, MAX_PEAKS_TO_LABEL,
-    MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS,
-    SPECTRUM_NOISE_FLOOR_HZ,
+    MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_DB, MIN_SECONDARY_PEAK_RATIO,
+    PEAK_DETECTION_WINDOW_RADIUS, SPECTRUM_NOISE_FLOOR_HZ,
 };
 
 /// Formats large numbers with "k" notation for better readability
@@ -141,8 +141,19 @@ pub fn find_and_sort_peaks_with_threshold(
                         // Don't re-add the primary peak
                         is_valid_for_secondary_consideration = false;
                     } else {
-                        is_valid_for_secondary_consideration = (amp
-                            >= primary_amp_val * MIN_SECONDARY_PEAK_RATIO)
+                        // Check if amplitudes are in dB (negative values or spectrum_type contains "dB")
+                        let is_db_scale =
+                            amplitude_threshold < 0.0 || spectrum_type_str.contains("dB");
+
+                        let amplitude_check = if is_db_scale {
+                            // For dB scale: compare using dB difference
+                            amp - primary_amp_val >= -MIN_SECONDARY_PEAK_DB
+                        } else {
+                            // For linear scale: compare using ratio
+                            amp >= primary_amp_val * MIN_SECONDARY_PEAK_RATIO
+                        };
+
+                        is_valid_for_secondary_consideration = amplitude_check
                             && ((freq - primary_freq).abs() > MIN_PEAK_SEPARATION_HZ);
                     }
                 }

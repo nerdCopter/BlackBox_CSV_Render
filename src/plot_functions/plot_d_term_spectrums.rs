@@ -382,15 +382,15 @@ fn calculate_d_term_filtering_delay_comparison(
 
             // Use cross-correlation to find delay
             if let Some(result) = filter_delay::calculate_filtering_delay_enhanced_xcorr(
-                &Array1::from_vec(unfilt_truncated.to_vec()),
                 &Array1::from_vec(filt_truncated.to_vec()),
+                &Array1::from_vec(unfilt_truncated.to_vec()),
                 sample_rate,
             ) {
                 results.push(result);
             }
         } else if let Some(result) = filter_delay::calculate_filtering_delay_enhanced_xcorr(
-            &Array1::from_vec(unfilt_d_term),
             &Array1::from_vec(d_term_filtered_data),
+            &Array1::from_vec(unfilt_d_term),
             sample_rate,
         ) {
             results.push(result);

@@ -206,22 +206,38 @@ pub fn plot_d_term_psd(
             continue;
         }
 
-        // Convert to linear amplitude and create plot data
+        // Calculate window power for proper PSD normalization
+        let window_power: f64 =
+            window_func.iter().map(|&w| w * w).sum::<f32>() as f64 / min_common_length as f64;
+
+        // Convert to linear amplitude and create plot data with proper PSD normalization
         let mut unfilt_series_data: Vec<(f64, f64)> = Vec::new();
         let mut filt_series_data: Vec<(f64, f64)> = Vec::new();
 
         if !unfilt_spectrum.is_empty() {
             for (i, &freq) in unfilt_freqs.iter().enumerate() {
                 if freq <= sr_value / 2.0 {
-                    let power = unfilt_spectrum[i].norm_sqr() as f64;
-                    // Convert power to dB (10 * log10(power)) for true PSD
-                    let power_db = if power > 0.0 {
-                        10.0 * power.log10()
+                    // Calculate power spectral density with proper normalization
+                    let magnitude_sqr = unfilt_spectrum[i].norm_sqr() as f64;
+
+                    // Proper PSD calculation: divide by (Fs * N) and correct for window power
+                    let mut psd =
+                        magnitude_sqr / (sr_value * min_common_length as f64 * window_power);
+
+                    // Apply one-sided doubling for positive frequencies (except DC and Nyquist)
+                    if i > 0 && i < unfilt_spectrum.len() - 1 {
+                        psd *= 2.0;
+                    }
+
+                    // Convert to dB/Hz
+                    let psd_db = if psd > 0.0 {
+                        10.0 * psd.log10()
                     } else {
                         -100.0 // Use -100 dB as floor for zero/negative values
                     };
-                    unfilt_series_data.push((freq, power_db));
-                    global_max_y_unfilt = global_max_y_unfilt.max(power_db);
+
+                    unfilt_series_data.push((freq, psd_db));
+                    global_max_y_unfilt = global_max_y_unfilt.max(psd_db);
                     max_freq_for_auto_scale = max_freq_for_auto_scale.max(freq);
                 }
             }
@@ -230,15 +246,27 @@ pub fn plot_d_term_psd(
         if !filt_spectrum.is_empty() {
             for (i, &freq) in filt_freqs.iter().enumerate() {
                 if freq <= sr_value / 2.0 {
-                    let power = filt_spectrum[i].norm_sqr() as f64;
-                    // Convert power to dB (10 * log10(power)) for true PSD
-                    let power_db = if power > 0.0 {
-                        10.0 * power.log10()
+                    // Calculate power spectral density with proper normalization
+                    let magnitude_sqr = filt_spectrum[i].norm_sqr() as f64;
+
+                    // Proper PSD calculation: divide by (Fs * N) and correct for window power
+                    let mut psd =
+                        magnitude_sqr / (sr_value * min_common_length as f64 * window_power);
+
+                    // Apply one-sided doubling for positive frequencies (except DC and Nyquist)
+                    if i > 0 && i < filt_spectrum.len() - 1 {
+                        psd *= 2.0;
+                    }
+
+                    // Convert to dB/Hz
+                    let psd_db = if psd > 0.0 {
+                        10.0 * psd.log10()
                     } else {
                         -100.0 // Use -100 dB as floor for zero/negative values
                     };
-                    filt_series_data.push((freq, power_db));
-                    global_max_y_filt = global_max_y_filt.max(power_db);
+
+                    filt_series_data.push((freq, psd_db));
+                    global_max_y_filt = global_max_y_filt.max(psd_db);
                     max_freq_for_auto_scale = max_freq_for_auto_scale.max(freq);
                 }
             }
@@ -331,7 +359,7 @@ pub fn plot_d_term_psd(
                     stroke_width: 2,
                 }],
                 x_label: "Frequency (Hz)".to_string(),
-                y_label: "Power/Frequency (dB)".to_string(),
+                y_label: "Power Spectral Density (dB/Hz)".to_string(),
                 peaks: unfilt_peaks,
                 peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
                 peak_label_format_string: Some("{:.0}Hz".to_string()),
@@ -358,7 +386,7 @@ pub fn plot_d_term_psd(
                     stroke_width: 2,
                 }],
                 x_label: "Frequency (Hz)".to_string(),
-                y_label: "Power/Frequency (dB)".to_string(),
+                y_label: "Power Spectral Density (dB/Hz)".to_string(),
                 peaks: filt_peaks,
                 peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
                 peak_label_format_string: Some("{:.0}Hz".to_string()),
@@ -428,15 +456,15 @@ fn calculate_d_term_filtering_delay_comparison(
 
             // Use cross-correlation to find delay
             if let Some(result) = filter_delay::calculate_filtering_delay_enhanced_xcorr(
-                &Array1::from_vec(unfilt_truncated.to_vec()),
                 &Array1::from_vec(filt_truncated.to_vec()),
+                &Array1::from_vec(unfilt_truncated.to_vec()),
                 sample_rate,
             ) {
                 results.push(result);
             }
         } else if let Some(result) = filter_delay::calculate_filtering_delay_enhanced_xcorr(
-            &Array1::from_vec(unfilt_d_term),
             &Array1::from_vec(d_term_filtered_data),
+            &Array1::from_vec(unfilt_d_term),
             sample_rate,
         ) {
             results.push(result);

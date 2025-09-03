@@ -14,7 +14,8 @@ use std::error::Error;
 use std::ops::Range;
 
 use crate::constants::{
-    HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH,
+    FILTERED_D_TERM_MIN_THRESHOLD, HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE,
+    PLOT_HEIGHT, PLOT_WIDTH, PSD_PEAK_LABEL_MIN_VALUE_DB,
 };
 
 /// Calculate plot range with padding.
@@ -194,9 +195,19 @@ fn draw_single_axis_chart_with_config(
     const TEXT_WIDTH_ESTIMATE: i32 = 300;
     const TEXT_HEIGHT_ESTIMATE: i32 = 20;
 
-    let peak_label_threshold = plot_config
-        .peak_label_threshold
-        .unwrap_or(PEAK_LABEL_MIN_AMPLITUDE);
+    let peak_label_threshold = plot_config.peak_label_threshold.unwrap_or_else(|| {
+        // Select appropriate threshold based on plot type
+        if plot_config.y_label.contains("dB") {
+            // PSD plots use dB scale
+            PSD_PEAK_LABEL_MIN_VALUE_DB
+        } else if plot_config.title.contains("D-term") {
+            // D-term plots need higher threshold due to different amplitude scale
+            FILTERED_D_TERM_MIN_THRESHOLD
+        } else {
+            // Default to gyro spectrum threshold for other plot types
+            PEAK_LABEL_MIN_AMPLITUDE
+        }
+    });
     let peak_label_format_string_ref = plot_config
         .peak_label_format_string
         .as_deref()
