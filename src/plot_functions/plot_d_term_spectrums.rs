@@ -35,12 +35,8 @@ pub fn plot_d_term_spectrums(
     };
 
     // Calculate filtering delay using enhanced cross-correlation on D-terms
-    let delay_analysis = calculate_d_term_filtering_delay_comparison(log_data, sr_value);
-    let delay_comparison_results = if !delay_analysis.results.is_empty() {
-        Some(delay_analysis.results)
-    } else {
-        None
-    };
+    // This now returns Vec<Option<DelayResult>> with per-axis alignment
+    let delay_by_axis = calculate_d_term_filtering_delay_comparison(log_data, sr_value);
 
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
@@ -235,21 +231,17 @@ pub fn plot_d_term_spectrums(
         );
 
         // Get delay string for this axis for legend display
-        let delay_str = if let Some(ref results) = delay_comparison_results {
-            if let Some(result) = results.get(axis_idx) {
-                format!(
-                    "Delay: {} {:.1}ms (c:{:.2})",
-                    if result.method.contains("Cross") {
-                        "XCorr"
-                    } else {
-                        "TFunc"
-                    },
-                    result.delay_ms,
-                    result.confidence
-                )
-            } else {
-                "Delay: N/A".to_string()
-            }
+        let delay_str = if let Some(result) = &delay_by_axis[axis_idx] {
+            format!(
+                "Delay: {} {:.1}ms (c:{:.2})",
+                if result.method.contains("Cross") {
+                    "XCorr"
+                } else {
+                    "TFunc"
+                },
+                result.delay_ms,
+                result.confidence
+            )
         } else {
             "Delay: N/A".to_string()
         };
@@ -351,10 +343,12 @@ pub fn plot_d_term_spectrums(
 fn calculate_d_term_filtering_delay_comparison(
     log_data: &[LogRowData],
     sample_rate: f64,
-) -> filter_delay::DelayAnalysisResult {
-    let mut results = Vec::new();
+) -> Vec<Option<filter_delay::DelayResult>> {
+    // Initialize with None for all axes to preserve axis alignment
+    let mut results: Vec<Option<filter_delay::DelayResult>> = vec![None; AXIS_NAMES.len()];
 
-    for axis_idx in 0..3 {
+    // Use AXIS_NAMES.iter().enumerate() for consistency with other parts of the codebase
+    for (axis_idx, _) in AXIS_NAMES.iter().enumerate() {
         // Extract data for this axis
         let mut gyro_unfilt_data: Vec<f32> = Vec::new();
         let mut d_term_filtered_data: Vec<f32> = Vec::new();
@@ -386,19 +380,16 @@ fn calculate_d_term_filtering_delay_comparison(
                 &Array1::from_vec(unfilt_truncated.to_vec()),
                 sample_rate,
             ) {
-                results.push(result);
+                results[axis_idx] = Some(result);
             }
         } else if let Some(result) = filter_delay::calculate_filtering_delay_enhanced_xcorr(
             &Array1::from_vec(d_term_filtered_data),
             &Array1::from_vec(unfilt_d_term),
             sample_rate,
         ) {
-            results.push(result);
+            results[axis_idx] = Some(result);
         }
     }
 
-    filter_delay::DelayAnalysisResult {
-        average_delay: None,
-        results,
-    }
+    results
 }

@@ -16,12 +16,12 @@ use crate::plot_framework::{
     draw_dual_heatmap_plot, AxisHeatmapSpectrum, HeatmapData, HeatmapPlotConfig,
 };
 
-/// Helper to convert linear amplitude to dB. Clamps values to prevent log(0) and provide a floor.
+/// Helper to convert linear power values to dB. Clamps values to prevent log(0) and provide a floor.
 fn linear_to_db_for_heatmap(value: f64) -> f64 {
     if value <= 0.0 {
         HEATMAP_MIN_PSD_DB // Clamp very small or zero values to the minimum dB for plotting
     } else {
-        20.0 * value.log10() // Use 20*log10 for amplitude conversion (consistent with spectrum plots)
+        10.0 * value.log10() // Use 10*log10 for power (PSD) to dB conversion
     }
 }
 

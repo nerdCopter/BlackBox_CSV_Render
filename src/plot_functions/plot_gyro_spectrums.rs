@@ -64,13 +64,14 @@ pub fn plot_gyro_spectrums(
     ) -> Vec<(f64, f64)> {
         // For filtered gyro data, use intelligent threshold checking
         // Based on user feedback: 4k, 2.1k peaks are reasonable, but <1.9k peaks are not meaningful
-        let amplitude_threshold = if spectrum_type_str.contains("Filtered") {
+        let is_filtered = spectrum_type_str == "Filtered";
+        let amplitude_threshold = if is_filtered {
             FILTERED_GYRO_MIN_THRESHOLD // Use constant from constants.rs
         } else {
             PEAK_LABEL_MIN_AMPLITUDE // 1k threshold for unfiltered gyro
         };
 
-        if spectrum_type_str.contains("Filtered") {
+        if is_filtered {
             if let Some((_, peak_amp)) = primary_peak_info {
                 if peak_amp <= amplitude_threshold {
                     let formatted_peak = if peak_amp >= 1000.0 {
