@@ -3,12 +3,7 @@
 The Rust program processes Betaflight Blackbox CSV logs to generate various plots. Here's a concise overview:
 
 **Configuration:**
-All analysis parameters, thresholds, plot dimensions, and algorithmic constants are centrally defined in `src/constants.rs`, making the implementation highly configurable for different analysis needs and flight controller characteristics. Includes intelligent peak detection thresholds: 100k for filtered D-term spectrums, 2k for filtered gyro spectrums, and -60 dB for PSD plots.
-
-**Peak Detection and Formatting (`src/plot_functions/peak_detection.rs`):**
-*   **Intelligent Scale-Aware Thresholds:** Dynamically filters insignificant peaks based on data type and scale. Filtered D-term data uses 100k threshold (appropriate for typical 10M-100M unfiltered scale), filtered gyro data uses 2k threshold (based on user feedback for meaningful vs. noise peaks), and PSD data uses -60 dB threshold.
-*   **Readable "k" Notation:** Large amplitude values are automatically formatted with "k" notation (e.g., 104.5k instead of 104457680) in both console output and PNG graphics for improved readability. Frequency values in console output are shown to 1 decimal precision.
-*   **User-Driven Design:** Thresholds and formatting are based on real-world flight log analysis feedback to ensure practical, meaningful results without noise or irrelevant peak labels.
+All analysis parameters, thresholds, plot dimensions, and algorithmic constants are centrally defined in `src/constants.rs`, making the implementation highly configurable for different analysis needs and flight controller characteristics.
 
 **Core Functionality:**
 
@@ -58,10 +53,10 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                 *   `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.
                 *   `plot_setpoint_vs_gyro`: Setpoint and filtered gyro time-domain comparison for each axis.
                 *   `plot_gyro_vs_unfilt`: Filtered vs. unfiltered gyro time-domain comparison for each axis. Includes enhanced cross-correlation filtering delay calculation.
-                *   `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with intelligent peak detection and labeling. Features scale-aware thresholds (2k for filtered gyro data) and "k" notation formatting for both console output and PNG graphics. Includes enhanced cross-correlation filtering delay calculation and flight firmware filter response curve overlays.
+                *   `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with intelligent peak detection and labeling using scale-aware thresholds (`FILTERED_GYRO_MIN_THRESHOLD` for filtered gyro data). Includes enhanced cross-correlation filtering delay calculation and flight firmware filter response curve overlays.
                 *   `plot_psd`: Power Spectral Density plots in dB scale with peak labeling. Includes enhanced cross-correlation filtering delay calculation.
-                *   `plot_d_term_spectrums`: Frequency-domain amplitude spectrums of D-term data with intelligent peak detection using scale-aware thresholds (100k for filtered D-term data) and "k" notation formatting for improved readability.
-                *   `plot_d_term_psd`: Power Spectral Density plots of D-term data in dB scale with intelligent threshold filtering (-60 dB for filtered data) and enhanced formatting.
+                *   `plot_d_term_spectrums`: Frequency-domain amplitude spectrums of D-term data with intelligent peak detection using scale-aware thresholds (`FILTERED_D_TERM_MIN_THRESHOLD` for filtered D-term data).
+                *   `plot_d_term_psd`: Power Spectral Density plots of D-term data in dB scale with intelligent threshold filtering (`PSD_PEAK_LABEL_MIN_VALUE_DB` for filtered data) and enhanced formatting.
                 *   `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap.
                 *   `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
 

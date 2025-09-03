@@ -6,9 +6,9 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, ENABLE_WINDOW_PEAK_DETECTION,
-    LINE_WIDTH_PLOT, MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO,
-    PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ,
-    SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
+    FILTERED_GYRO_MIN_THRESHOLD, LINE_WIDTH_PLOT, MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ,
+    MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE,
+    SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
@@ -65,7 +65,7 @@ pub fn plot_gyro_spectrums(
         // For filtered gyro data, use intelligent threshold checking
         // Based on user feedback: 4k, 2.1k peaks are reasonable, but <1.9k peaks are not meaningful
         let amplitude_threshold = if spectrum_type_str.contains("Filtered") {
-            2000.0 // 2k threshold for filtered gyro
+            FILTERED_GYRO_MIN_THRESHOLD // Use constant from constants.rs
         } else {
             PEAK_LABEL_MIN_AMPLITUDE // 1k threshold for unfiltered gyro
         };

@@ -53,6 +53,9 @@ pub const PEAK_LABEL_MIN_AMPLITUDE: f64 = 1000.0; // Ignore peaks under this; Tu
 // Intelligent threshold for filtered D-term peak detection
 pub const FILTERED_D_TERM_MIN_THRESHOLD: f64 = 100000.0; // Filtered D-term peaks below 100k (0.1% of typical 100M unfiltered) are not meaningful
 
+// Intelligent threshold for filtered gyro peak detection
+pub const FILTERED_GYRO_MIN_THRESHOLD: f64 = 2000.0; // Filtered gyro peaks below 2k are typically noise (based on user feedback)
+
 // Constants for PSD plots (dB scale)
 pub const PSD_Y_AXIS_FLOOR_DB: f64 = -80.0; // A reasonable floor for PSD values in dB
 pub const PSD_Y_AXIS_HEADROOM_FACTOR_DB: f64 = 10.0; // Factor to extend Y-axis above the highest peak (in dB, e.g., 10 dB headroom)
