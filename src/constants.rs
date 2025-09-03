@@ -1,7 +1,7 @@
 // src/constants.rs
 
 // Import specific colors needed
-use plotters::style::colors::full_palette::{AMBER, GREEN, LIGHTBLUE, ORANGE, PURPLE, RED, YELLOW};
+use plotters::style::colors::full_palette::{AMBER, GREEN, LIGHTBLUE, ORANGE, PURPLE, RED};
 use plotters::style::RGBColor;
 
 // Plot dimensions.
@@ -96,7 +96,7 @@ pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;
 
 // D-term Plot Colors (distinct from gyro colors)
 pub const COLOR_D_TERM_FILT: &RGBColor = &LIGHTBLUE; // Keep blue for filtered (consistent)
-pub const COLOR_D_TERM_UNFILT: &RGBColor = &YELLOW; // Use yellow for unfiltered (distinct from amber)
+pub const COLOR_D_TERM_UNFILT: &RGBColor = &ORANGE; // Use orange for unfiltered (better contrast than yellow)
 
 // Step Response Plot
 pub const COLOR_STEP_RESPONSE_LOW_SP: &RGBColor = &LIGHTBLUE;
