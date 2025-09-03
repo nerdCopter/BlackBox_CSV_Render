@@ -5,8 +5,8 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, PSD_PEAK_LABEL_MIN_VALUE_DB,
-    SPECTRUM_NOISE_FLOOR_HZ, TUKEY_ALPHA,
+    COLOR_D_TERM_FILT, COLOR_D_TERM_UNFILT, PSD_PEAK_LABEL_MIN_VALUE_DB, SPECTRUM_NOISE_FLOOR_HZ,
+    TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::derivative::calculate_derivative;
@@ -327,7 +327,7 @@ pub fn plot_d_term_psd(
                 series: vec![PlotSeries {
                     data: unfilt_series_data,
                     label: format!("Unfiltered D-term | {}", delay_str),
-                    color: *COLOR_GYRO_VS_UNFILT_UNFILT,
+                    color: *COLOR_D_TERM_UNFILT,
                     stroke_width: 2,
                 }],
                 x_label: "Frequency (Hz)".to_string(),
@@ -354,7 +354,7 @@ pub fn plot_d_term_psd(
                 series: vec![PlotSeries {
                     data: filt_series_data,
                     label: format!("Filtered D-term | {}", delay_str),
-                    color: *COLOR_GYRO_VS_UNFILT_FILT,
+                    color: *COLOR_D_TERM_FILT,
                     stroke_width: 2,
                 }],
                 x_label: "Frequency (Hz)".to_string(),
