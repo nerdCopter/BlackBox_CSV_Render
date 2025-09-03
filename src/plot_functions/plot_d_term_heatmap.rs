@@ -207,8 +207,8 @@ pub fn plot_d_term_heatmap(
                             amp_unfilt_linear_psd *= 2.0;
                         }
 
-                        unfilt_psd_sums[i][throttle_y_bin_idx] +=
-                            linear_to_db_for_heatmap(amp_unfilt_linear_psd);
+                        // Store the linear PSD value (not converted to dB)
+                        unfilt_psd_sums[i][throttle_y_bin_idx] += amp_unfilt_linear_psd;
                         unfilt_psd_counts[i][throttle_y_bin_idx] += 1;
                     }
                 }
@@ -259,8 +259,8 @@ pub fn plot_d_term_heatmap(
                             amp_filt_linear_psd *= 2.0;
                         }
 
-                        filt_psd_sums[i][throttle_y_bin_idx] +=
-                            linear_to_db_for_heatmap(amp_filt_linear_psd);
+                        // Store the linear PSD value (not converted to dB)
+                        filt_psd_sums[i][throttle_y_bin_idx] += amp_filt_linear_psd;
                         filt_psd_counts[i][throttle_y_bin_idx] += 1;
                     }
                 }
@@ -281,15 +281,22 @@ pub fn plot_d_term_heatmap(
         for f_idx in 0..num_freq_bins_to_plot {
             for t_idx in 0..THROTTLE_Y_BINS_COUNT {
                 if unfilt_psd_counts[f_idx][t_idx] > 0 {
-                    final_unfilt_psd_matrix[f_idx][t_idx] =
+                    // Calculate the average linear PSD value first
+                    let avg_linear_psd =
                         unfilt_psd_sums[f_idx][t_idx] / unfilt_psd_counts[f_idx][t_idx] as f64;
+                    // Then convert to dB after averaging
+                    final_unfilt_psd_matrix[f_idx][t_idx] =
+                        linear_to_db_for_heatmap(avg_linear_psd);
                     unfilt_max_psd = unfilt_max_psd.max(final_unfilt_psd_matrix[f_idx][t_idx]);
                 } else {
                     final_unfilt_psd_matrix[f_idx][t_idx] = HEATMAP_MIN_PSD_DB; // No data for this bin
                 }
                 if filt_psd_counts[f_idx][t_idx] > 0 {
-                    final_filt_psd_matrix[f_idx][t_idx] =
+                    // Calculate the average linear PSD value first
+                    let avg_linear_psd =
                         filt_psd_sums[f_idx][t_idx] / filt_psd_counts[f_idx][t_idx] as f64;
+                    // Then convert to dB after averaging
+                    final_filt_psd_matrix[f_idx][t_idx] = linear_to_db_for_heatmap(avg_linear_psd);
                     filt_max_psd = filt_max_psd.max(final_filt_psd_matrix[f_idx][t_idx]);
                 } else {
                     final_filt_psd_matrix[f_idx][t_idx] = HEATMAP_MIN_PSD_DB; // No data for this bin
