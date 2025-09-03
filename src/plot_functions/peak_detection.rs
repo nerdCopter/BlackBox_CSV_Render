@@ -185,8 +185,8 @@ pub fn find_and_sort_peaks_with_threshold(
             format_value_with_k(main_amp)
         };
         println!(
-            "  {axis_name_str} {spectrum_type_str}: Primary Peak value {} at {main_freq} Hz",
-            formatted_amp
+            "  {axis_name_str} {spectrum_type_str}: Primary Peak value {} at {:.1} Hz",
+            formatted_amp, main_freq
         );
         for (idx, (freq, amp)) in peaks_to_plot.iter().skip(1).enumerate() {
             let formatted_sub_amp = if amplitude_threshold < 0.0 {
@@ -195,9 +195,10 @@ pub fn find_and_sort_peaks_with_threshold(
                 format_value_with_k(*amp)
             };
             println!(
-                "    Subordinate Peak {}: {} at {freq} Hz",
+                "    Subordinate Peak {}: {} at {:.1} Hz",
                 idx + 1,
-                formatted_sub_amp
+                formatted_sub_amp,
+                freq
             );
         }
     } else {

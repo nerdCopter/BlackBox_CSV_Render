@@ -196,11 +196,12 @@ pub fn plot_gyro_spectrums(
         if !peaks_to_plot.is_empty() {
             let (main_freq, main_amp) = peaks_to_plot[0];
             println!(
-                "  {axis_name_str} {spectrum_type_str} Gyro Spectrum: Primary Peak amplitude {main_amp:.0} at {main_freq:.0} Hz"
+                "  {axis_name_str} {spectrum_type_str} Gyro Spectrum: Primary Peak amplitude {main_amp:.0} at {:.1} Hz",
+                main_freq
             );
             for (idx, (freq, amp)) in peaks_to_plot.iter().skip(1).enumerate() {
                 println!(
-                    "    Subordinate Peak: {}: {:.0} at {:.0} Hz",
+                    "    Subordinate Peak: {}: {:.0} at {:.1} Hz",
                     idx + 1,
                     amp,
                     freq
