@@ -29,7 +29,12 @@ pub fn plot_d_term_psd(
     let output_file = format!("{root_name}_D_Term_PSD_comparative.png");
 
     let sr_value = if let Some(sr) = sample_rate {
-        sr
+        if sr.is_finite() && sr > 0.0 {
+            sr
+        } else {
+            println!("\nINFO: Skipping D-Term Power Spectral Density (PSD) Plot: Sample rate could not be determined.");
+            return Ok(());
+        }
     } else {
         println!("\nINFO: Skipping D-Term Power Spectral Density (PSD) Plot: Sample rate could not be determined.");
         return Ok(());
