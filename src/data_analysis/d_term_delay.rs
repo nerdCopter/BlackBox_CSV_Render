@@ -3,7 +3,11 @@
 use ndarray::Array1;
 
 use crate::axis_names::AXIS_NAMES;
-use crate::constants::{MAX_DELAY_FRACTION, MAX_DELAY_SAMPLES, MIN_SAMPLES_FOR_DELAY};
+use crate::constants::{
+    D_TERM_CORRELATION_THRESHOLD, D_TERM_MIN_STD_DEV, D_TERM_MIN_THRESHOLD, MAX_DELAY_FRACTION,
+    MAX_DELAY_SAMPLES, MIN_D_TERM_SAMPLES_FOR_ANALYSIS, MIN_SAMPLES_FOR_DELAY,
+    MIN_SAMPLES_FOR_D_TERM_CORR,
+};
 use crate::data_analysis::derivative::calculate_derivative;
 use crate::data_analysis::filter_delay;
 use crate::data_input::log_data::LogRowData;
@@ -60,12 +64,12 @@ pub fn calculate_d_term_filtering_delay_comparison(
         }
         if !d_term_available[axis_idx] {
             println!("  {}: D-term data not logged", axis_name);
-        } else if sample_counts[axis_idx] < 100 {
+        } else if sample_counts[axis_idx] < MIN_D_TERM_SAMPLES_FOR_ANALYSIS {
             println!(
                 "  {}: Insufficient D-term samples ({})",
                 axis_name, sample_counts[axis_idx]
             );
-        } else if d_term_max_values[axis_idx] < 1e-6 {
+        } else if d_term_max_values[axis_idx] < D_TERM_MIN_THRESHOLD {
             println!(
                 "  {}: D-term data present but appears disabled (max abs: {:.2e})",
                 axis_name, d_term_max_values[axis_idx]
@@ -98,7 +102,9 @@ pub fn calculate_d_term_filtering_delay_comparison(
             }
         }
 
-        if gyro_unfilt_data.len() < 100 || d_term_filtered_data.len() < 100 {
+        if gyro_unfilt_data.len() < MIN_D_TERM_SAMPLES_FOR_ANALYSIS
+            || d_term_filtered_data.len() < MIN_D_TERM_SAMPLES_FOR_ANALYSIS
+        {
             println!(
                 "  {}: Insufficient paired samples ({} gyro, {} d-term)",
                 axis_name,
@@ -116,7 +122,6 @@ pub fn calculate_d_term_filtering_delay_comparison(
             .fold(0.0f32, f32::max);
 
         // If maximum absolute D-term value is very small, D gain is likely disabled
-        const D_TERM_MIN_THRESHOLD: f32 = 1e-6; // Very small threshold for "effectively zero"
         if d_term_max_abs < D_TERM_MIN_THRESHOLD {
             println!(
                 "  {}: D-term appears disabled (max abs value: {:.2e}, likely D gain = 0)",
@@ -135,7 +140,6 @@ pub fn calculate_d_term_filtering_delay_comparison(
             / d_term_filtered_data.len() as f32;
         let d_term_std_dev = d_term_variance.sqrt();
 
-        const D_TERM_MIN_STD_DEV: f32 = 1e-6; // Minimum standard deviation for meaningful D-term
         if d_term_std_dev < D_TERM_MIN_STD_DEV {
             println!(
                 "  {}: D-term has no variation (std dev: {:.2e}, likely D gain = 0)",
@@ -258,7 +262,6 @@ fn calculate_d_term_filtering_delay_enhanced_xcorr(
     }
 
     // Use a much more lenient threshold for D-terms (0.1 instead of 0.2)
-    const D_TERM_CORRELATION_THRESHOLD: f64 = 0.1;
     if best_correlation < D_TERM_CORRELATION_THRESHOLD || best_delay == 0 {
         return None;
     }
@@ -302,8 +305,7 @@ fn compute_d_term_pearson_corr_at_delay(
     }
 
     let len = n - delay;
-    const MIN_SAMPLES_FOR_D_TERM: usize = 50; // Lower requirement for D-terms
-    if len < MIN_SAMPLES_FOR_D_TERM {
+    if len < MIN_SAMPLES_FOR_D_TERM_CORR {
         return None;
     }
 
@@ -311,7 +313,7 @@ fn compute_d_term_pearson_corr_at_delay(
     let safe_len = len
         .min(filtered.len().saturating_sub(delay))
         .min(unfiltered.len());
-    if safe_len < MIN_SAMPLES_FOR_D_TERM {
+    if safe_len < MIN_SAMPLES_FOR_D_TERM_CORR {
         return None;
     }
 

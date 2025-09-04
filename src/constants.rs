@@ -116,4 +116,11 @@ pub const MAX_DELAY_FRACTION: usize = 10; // Search up to 1/10 of signal length
 pub const MAX_DELAY_SAMPLES: usize = 200; // Maximum delay samples to search
 pub const MIN_SAMPLES_FOR_DELAY: usize = 100; // Minimum samples required for delay analysis
 
+// D-term specific analysis constants
+pub const MIN_D_TERM_SAMPLES_FOR_ANALYSIS: usize = 100; // Minimum D-term samples needed for meaningful analysis
+pub const D_TERM_MIN_THRESHOLD: f32 = 1e-6; // Very small threshold for detecting "effectively zero" D-terms
+pub const D_TERM_MIN_STD_DEV: f32 = 1e-6; // Minimum standard deviation for meaningful D-term variation
+pub const D_TERM_CORRELATION_THRESHOLD: f64 = 0.1; // More lenient threshold for D-term cross-correlation
+pub const MIN_SAMPLES_FOR_D_TERM_CORR: usize = 50; // Lower sample requirement for D-term correlation
+
 // src/constants.rs

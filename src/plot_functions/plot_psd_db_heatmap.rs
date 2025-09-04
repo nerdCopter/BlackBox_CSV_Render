@@ -180,7 +180,7 @@ pub fn plot_psd_db_heatmap(
 
         // Determine X-axis range for plotting (time)
         let x_range_plot = if time_x_bins.len() > 1 {
-            *time_x_bins.first().unwrap()..*time_x_bins.last().unwrap()
+            time_x_bins[0]..time_x_bins[time_x_bins.len() - 1]
         } else if !time_x_bins.is_empty() {
             time_x_bins[0]..time_x_bins[0] + STFT_WINDOW_DURATION_S
         } else {
@@ -189,7 +189,7 @@ pub fn plot_psd_db_heatmap(
 
         // Determine Y-axis range for plotting (frequency)
         let y_range_plot = if frequencies_y_bins.len() > 1 {
-            *frequencies_y_bins.first().unwrap()..*frequencies_y_bins.last().unwrap()
+            frequencies_y_bins[0]..frequencies_y_bins[frequencies_y_bins.len() - 1]
         } else if !frequencies_y_bins.is_empty() {
             0.0..frequencies_y_bins[0] + freq_step
         } else {

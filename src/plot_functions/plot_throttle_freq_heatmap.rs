@@ -210,7 +210,7 @@ pub fn plot_throttle_freq_heatmap(
 
         // Determine X-axis range for plotting (frequency)
         let x_range_plot = if frequencies_x_bins.len() > 1 {
-            *frequencies_x_bins.first().unwrap()..*frequencies_x_bins.last().unwrap()
+            frequencies_x_bins[0]..frequencies_x_bins[frequencies_x_bins.len() - 1]
         } else if !frequencies_x_bins.is_empty() {
             frequencies_x_bins[0]..frequencies_x_bins[0] + freq_step
         } else {

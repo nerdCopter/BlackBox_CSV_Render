@@ -484,7 +484,9 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         if count > 0 {
             let avg_delta = total_delta / count as f64;
             sample_rate = Some(1.0 / avg_delta);
-            println!("Estimated Sample Rate: {:.2} Hz", sample_rate.unwrap());
+            if let Some(sr) = sample_rate {
+                println!("Estimated Sample Rate: {:.2} Hz", sr);
+            }
         }
     }
     if sample_rate.is_none() {
