@@ -6,8 +6,22 @@ use crate::constants::{
     PEAK_DETECTION_WINDOW_RADIUS, SPECTRUM_NOISE_FLOOR_HZ,
 };
 
-/// Formats large numbers with "k" and "M" notation for better readability
-/// e.g., 1000 -> "1.0k", 30145 -> "30.1k", 1000000 -> "1.0M"
+/// Formats large numbers with "k" and "M" notation for better readability.
+///
+/// # Arguments
+/// * `value` - The numeric value to format
+///
+/// # Returns
+/// A formatted string with appropriate unit suffixes:
+/// * Values >= 1,000,000: formatted as "X.XM" (e.g., "1.5M")  
+/// * Values >= 1,000: formatted as "X.Xk" (e.g., "30.1k")
+/// * Values < 1,000: formatted as "X.X" (e.g., "123.4")
+///
+/// # Examples
+/// ```
+/// assert_eq!(format_value_with_k(1500.0), "1.5k");
+/// assert_eq!(format_value_with_k(2500000.0), "2.5M");
+/// ```
 fn format_value_with_k(value: f64) -> String {
     if value >= 1_000_000.0 {
         format!("{:.1}M", value / 1_000_000.0)
@@ -18,10 +32,30 @@ fn format_value_with_k(value: f64) -> String {
     }
 }
 
-/// Detects and sorts peaks with configurable amplitude threshold
-/// For PSD plots (dB scale), use PSD_PEAK_LABEL_MIN_VALUE_DB
-/// For linear spectrum plots, use PEAK_LABEL_MIN_AMPLITUDE
+/// Detects and sorts peaks with configurable amplitude threshold and intelligent filtering.
+///
+/// This function implements scale-aware peak detection that adapts thresholds based on data type
+/// and range. For filtered D-term data, it uses intelligent threshold checking to avoid
+/// reporting peaks that are below meaningful amplitudes for the specific data type.
+///
+/// # Arguments
+/// * `series_data` - The frequency-amplitude data points to analyze
+/// * `primary_peak_info` - Optional primary peak information for threshold validation  
+/// * `axis_name_str` - Name of the axis for logging (e.g., "Roll", "Pitch", "Yaw")
+/// * `spectrum_type_str` - Type of spectrum for adaptive thresholding (e.g., "Filtered D-term")
+/// * `amplitude_threshold` - Base amplitude threshold (adapted based on data type)
+///
+/// # Returns
+/// Vector of (frequency, amplitude) tuples for peaks above the threshold, sorted by amplitude
+///
+/// # Threshold Adaptation
+/// * PSD plots (dB scale, negative values): Uses provided dB threshold directly
+/// * D-term spectrums: Uses `FILTERED_D_TERM_MIN_THRESHOLD` for realistic scale-aware filtering
+/// * Other spectrum types: Uses the original `amplitude_threshold` parameter
+///
+/// # Notes
 /// Includes flatness detection to skip peak finding on near flat-line filtered D-term data
+/// where peak detection would not be meaningful.
 pub fn find_and_sort_peaks_with_threshold(
     series_data: &[(f64, f64)],
     primary_peak_info: Option<(f64, f64)>,

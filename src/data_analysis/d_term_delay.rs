@@ -12,25 +12,53 @@ use crate::data_analysis::derivative::calculate_derivative;
 use crate::data_analysis::filter_delay;
 use crate::data_input::log_data::LogRowData;
 
-/// Calculate filtering delay comparison between unfiltered and filtered D-terms
+/// Calculate filtering delay comparison between unfiltered and filtered D-terms.
 ///
 /// This function computes the delay between the unfiltered D-term (calculated as derivative of gyroUnfilt)
-/// and the filtered D-term (direct flight controller output) for each axis.
+/// and the filtered D-term (direct flight controller output) for each axis using enhanced cross-correlation
+/// with sub-sample precision via parabolic interpolation.
 ///
-/// Note: EmuFlight logs often use debug[0-2] as gyroUnfilt fallback, which is handled by the log parser.
-/// Many BTFL logs only include axisD[0] and axisD[1] (Roll/Pitch), missing Yaw D-term data.
+/// # Data Sources
+/// * Unfiltered D-term: Computed as the derivative of `gyroUnfilt` using central difference method
+/// * Filtered D-term: Direct from flight controller `d_term` arrays  
+///
+/// # Compatibility Notes
+/// * EmuFlight logs often use debug[0-2] as gyroUnfilt fallback, which is handled by the log parser
+/// * Many BTFL logs only include axisD[0] and axisD[1] (Roll/Pitch), missing Yaw D-term data
+/// * Function includes intelligent D-term activity detection to skip axes where D gain = 0
 ///
 /// # Arguments
 /// * `log_data` - The raw log data containing gyro and D-term values
-/// * `sample_rate` - The sample rate in Hz
+/// * `sample_rate` - The sample rate in Hz (must be positive and finite)
 ///
 /// # Returns
-/// Vector of Option<DelayResult> with fixed length matching AXIS_NAMES.len(),
-/// where each element corresponds to the respective axis (or None if calculation failed for that axis).
+/// Vector of `Option<DelayResult>` with fixed length matching `AXIS_NAMES.len()`,
+/// where each element corresponds to the respective axis (or `None` if calculation failed for that axis).
+///
+/// # Error Conditions
+/// Returns `None` for individual axes when:
+/// * Insufficient data samples (< `MIN_D_TERM_SAMPLES_FOR_ANALYSIS`)
+/// * D-term appears disabled (max absolute value < `D_TERM_MIN_THRESHOLD`)  
+/// * D-term has no variation (standard deviation < `D_TERM_MIN_STD_DEV`)
+/// * Cross-correlation below threshold (`D_TERM_CORRELATION_THRESHOLD`)
 pub fn calculate_d_term_filtering_delay_comparison(
     log_data: &[LogRowData],
     sample_rate: f64,
 ) -> Vec<Option<filter_delay::DelayResult>> {
+    // Validate input parameters
+    if !sample_rate.is_finite() || sample_rate <= 0.0 {
+        eprintln!(
+            "Error: Invalid sample rate ({}) for D-term delay analysis",
+            sample_rate
+        );
+        return vec![None; AXIS_NAMES.len()];
+    }
+
+    if log_data.is_empty() {
+        eprintln!("Error: Empty log data provided for D-term delay analysis");
+        return vec![None; AXIS_NAMES.len()];
+    }
+
     // Initialize with None for all axes to preserve axis alignment
     let mut results: Vec<Option<filter_delay::DelayResult>> = vec![None; AXIS_NAMES.len()];
 
@@ -54,7 +82,7 @@ pub fn calculate_d_term_filtering_delay_comparison(
     }
 
     println!("D-term delay analysis diagnostic:");
-    // Print diagnosis for debugging
+    // Print diagnosis for debugging with consistent formatting
     for (axis_idx, axis_name) in AXIS_NAMES.iter().enumerate() {
         if !gyro_unfilt_available[axis_idx] {
             println!(
@@ -225,8 +253,20 @@ pub fn calculate_d_term_filtering_delay_comparison(
     results
 }
 
-/// D-term specific enhanced cross-correlation with more lenient correlation threshold
+/// D-term specific enhanced cross-correlation with more lenient correlation threshold.
+///
 /// D-terms are inherently noisier due to differentiation, so we use a lower threshold
+/// than standard gyro analysis. This function implements sub-sample precision delay
+/// detection via parabolic interpolation around the correlation peak.
+///
+/// # Arguments
+/// * `filtered` - The filtered D-term data array
+/// * `unfiltered` - The unfiltered D-term data array (calculated as derivative)
+/// * `sample_rate` - The sampling rate in Hz (must be positive and finite)
+///
+/// # Returns
+/// * `Some(DelayResult)` - If a reliable delay is detected above threshold
+/// * `None` - If correlation is below `D_TERM_CORRELATION_THRESHOLD` or input validation fails
 fn calculate_d_term_filtering_delay_enhanced_xcorr(
     filtered: &Array1<f32>,
     unfiltered: &Array1<f32>,

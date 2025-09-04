@@ -38,6 +38,11 @@ pub fn draw_unavailable_message(
     plot_type: &str,
     reason: &str,
 ) -> Result<(), Box<dyn Error>> {
+    // Constants for text rendering
+    const DEFAULT_FONT_SIZE: i32 = 20;
+    const CHAR_WIDTH_RATIO: f32 = 0.6; // Approximate character width relative to font size
+    const LINE_HEIGHT_SPACING: i32 = 4; // Additional spacing between lines
+
     let axis_name = if axis_index < crate::axis_names::AXIS_NAMES.len() {
         crate::axis_names::AXIS_NAMES[axis_index]
     } else {
@@ -53,9 +58,8 @@ pub fn draw_unavailable_message(
     let message = format!("{axis_name} {plot_type} Data Unavailable:\n{reason}");
 
     // Estimate text dimensions for better centering
-    let font_size = 20;
-    let estimated_char_width = (font_size as f32 * 0.6) as i32; // Approximate character width
-    let estimated_line_height = font_size + 4; // Approximate line height with spacing
+    let estimated_char_width = (DEFAULT_FONT_SIZE as f32 * CHAR_WIDTH_RATIO) as i32;
+    let estimated_line_height = DEFAULT_FONT_SIZE + LINE_HEIGHT_SPACING;
 
     // Find the longest line to estimate width
     let lines: Vec<&str> = message.split('\n').collect();
@@ -67,7 +71,7 @@ pub fn draw_unavailable_message(
     let center_x = width as i32 / 2 - estimated_text_width / 2;
     let center_y = height as i32 / 2 - estimated_text_height / 2;
 
-    let text_style = ("sans-serif", font_size).into_font().color(&RED);
+    let text_style = ("sans-serif", DEFAULT_FONT_SIZE).into_font().color(&RED);
     area.draw(&Text::new(message, (center_x, center_y), text_style))?;
     Ok(())
 }

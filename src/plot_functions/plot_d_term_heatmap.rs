@@ -42,14 +42,14 @@ pub fn plot_d_term_heatmap(
     let output_file = format!("{root_name}_D_Term_Heatmap_comparative.png");
     let plot_type_name = "D-Term Throttle-Frequency Heatmap";
 
-    let sr_value = if let Some(sr) = sample_rate {
+    let sample_rate_hz = if let Some(sr) = sample_rate {
         sr
     } else {
         println!("\nINFO: Skipping D-Term Throttle-Frequency Heatmap Plot: Sample rate could not be determined.");
         return Ok(());
     };
 
-    let window_size_samples = (STFT_WINDOW_DURATION_S * sr_value) as usize;
+    let window_size_samples = (STFT_WINDOW_DURATION_S * sample_rate_hz) as usize;
     let hop_size_raw = window_size_samples as f64 * (1.0 - STFT_OVERLAP_FACTOR);
     if !hop_size_raw.is_finite() || hop_size_raw <= 0.0 {
         eprintln!("Error: Invalid hop size calculation. Check STFT parameters.");
@@ -76,7 +76,7 @@ pub fn plot_d_term_heatmap(
         );
         return Ok(());
     }
-    let freq_step = sr_value / fft_padded_len as f64;
+    let freq_step = sample_rate_hz / fft_padded_len as f64;
     if !freq_step.is_finite() || freq_step <= 0.0 {
         eprintln!("Error: Invalid frequency step calculated.");
         return Ok(());
@@ -88,7 +88,7 @@ pub fn plot_d_term_heatmap(
     };
 
     // Frequencies to display on X-axis (up to Nyquist frequency)
-    let max_freq_to_plot = sr_value / 2.0;
+    let max_freq_to_plot = sample_rate_hz / 2.0;
     let frequencies_x_bins: Vec<f64> = (0..num_unique_freqs)
         .map(|i| i as f64 * freq_step) // Calculate frequency for each bin
         .filter(|&f| f <= max_freq_to_plot * 1.05) // Add a small buffer for plotting range
@@ -152,7 +152,7 @@ pub fn plot_d_term_heatmap(
                 .iter()
                 .map(|(_, throttle)| *throttle)
                 .collect();
-            let unfilt_d_term = calculate_derivative(&gyro_values, sr_value);
+            let unfilt_d_term = calculate_derivative(&gyro_values, sample_rate_hz);
 
             if unfilt_d_term.len() >= window_size_samples {
                 Some((unfilt_d_term, throttle_values_unfilt))
@@ -234,7 +234,7 @@ pub fn plot_d_term_heatmap(
 
                 if !unfilt_spec.is_empty() {
                     // Normalization for one-sided Power Spectral Density (PSD) for real signals:
-                    let psd_scale = 1.0 / (window_size_samples as f64 * sr_value);
+                    let psd_scale = 1.0 / (window_size_samples as f64 * sample_rate_hz);
 
                     for i in 0..num_unique_freqs {
                         if i >= num_freq_bins_to_plot {
@@ -292,7 +292,7 @@ pub fn plot_d_term_heatmap(
 
                 if !filt_spec.is_empty() {
                     // Normalization for one-sided Power Spectral Density (PSD) for real signals:
-                    let psd_scale = 1.0 / (window_size_samples as f64 * sr_value);
+                    let psd_scale = 1.0 / (window_size_samples as f64 * sample_rate_hz);
 
                     for i in 0..num_unique_freqs {
                         if i >= num_freq_bins_to_plot {
@@ -421,7 +421,7 @@ pub fn plot_d_term_heatmap(
         .iter()
         .any(|axis| axis.unfiltered.is_some() || axis.filtered.is_some());
     if !has_data {
-        println!("  No valid D-term heatmap data found. Skipping D-term heatmap plot.");
+        println!("INFO: No valid D-term heatmap data found for any axis. Skipping D-term heatmap plot generation.");
         return Ok(());
     }
 

@@ -78,9 +78,9 @@ pub const MIN_SECONDARY_PEAK_DB: f64 = 6.0; // Minimum dB difference for seconda
 pub const MIN_PEAK_SEPARATION_HZ: f64 = 70.0; // Minimum frequency separation between reported peaks on spectrum plots
 
 // Constants for advanced peak detection
-pub const ENABLE_WINDOW_PEAK_DETECTION: bool = true; // Set to true to use window-based peak detection
+pub const ENABLE_WINDOW_PEAK_DETECTION: bool = true; // Enable window-based peak detection for more robust analysis
                                                      // Set to false to use the previous 3-point (amp > prev && amp >= next) logic.
-pub const PEAK_DETECTION_WINDOW_RADIUS: usize = 3; // Radius W for peak detection window (total 2*W+1 points).
+pub const PEAK_DETECTION_WINDOW_RADIUS: usize = 3; // Radius W for peak detection window (total window size: 2*W+1 points)
 
 // PIDsum vs PID Error vs Setpoint Plot
 pub const COLOR_PIDSUM_MAIN: &RGBColor = &GREEN;
