@@ -5,8 +5,8 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    HEATMAP_MIN_PSD_DB, STFT_OVERLAP_FACTOR, STFT_WINDOW_DURATION_S, THROTTLE_Y_BINS_COUNT,
-    THROTTLE_Y_MAX_VALUE, THROTTLE_Y_MIN_VALUE, TUKEY_ALPHA,
+    GYRO_PSD_HEATMAP_MAX_DB, HEATMAP_MIN_PSD_DB, STFT_OVERLAP_FACTOR, STFT_WINDOW_DURATION_S,
+    THROTTLE_Y_BINS_COUNT, THROTTLE_Y_MAX_VALUE, THROTTLE_Y_MIN_VALUE, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response;
 use crate::data_analysis::fft_utils;
@@ -41,6 +41,10 @@ pub fn plot_throttle_freq_heatmap(
         return Ok(());
     };
 
+    if !(0.0..1.0).contains(&STFT_OVERLAP_FACTOR) {
+        eprintln!("Error: STFT_OVERLAP_FACTOR must be in [0,1).");
+        return Ok(());
+    }
     let window_size_samples = (STFT_WINDOW_DURATION_S * sr_value) as usize;
     let hop_size_samples = (window_size_samples as f64 * (1.0 - STFT_OVERLAP_FACTOR)) as usize;
     if hop_size_samples == 0 {
@@ -231,7 +235,7 @@ pub fn plot_throttle_freq_heatmap(
             },
             x_label: "Frequency (Hz)".to_string(),
             y_label: "Throttle (setpoint)".to_string(),
-            max_db: -10.0, // Keep existing gyro scaling
+            max_db: GYRO_PSD_HEATMAP_MAX_DB, // Keep existing gyro scaling
         };
 
         let filtered_heatmap_config = HeatmapPlotConfig {
@@ -245,24 +249,19 @@ pub fn plot_throttle_freq_heatmap(
             },
             x_label: "Frequency (Hz)".to_string(),
             y_label: "Throttle (setpoint)".to_string(),
-            max_db: -10.0, // Keep existing gyro scaling
+            max_db: GYRO_PSD_HEATMAP_MAX_DB, // Keep existing gyro scaling
         };
 
         all_heatmap_data[axis_idx] = Some((unfiltered_heatmap_config, filtered_heatmap_config));
     }
 
     draw_dual_heatmap_plot(&output_file, root_name, plot_type_name, move |axis_index| {
-        if let Some((unfiltered_config, filtered_config)) = all_heatmap_data[axis_index].take() {
-            Some(AxisHeatmapSpectrum {
-                unfiltered: Some(unfiltered_config),
-                filtered: Some(filtered_config),
+        all_heatmap_data[axis_index]
+            .take()
+            .map(|(unf, filt)| AxisHeatmapSpectrum {
+                unfiltered: Some(unf),
+                filtered: Some(filt),
             })
-        } else {
-            Some(AxisHeatmapSpectrum {
-                unfiltered: None,
-                filtered: None,
-            })
-        }
     })
 }
 

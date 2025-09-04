@@ -331,14 +331,20 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         // Check debug headers (Indices 23-26).
         for idx_offset in 0..4 {
             debug_header_found[idx_offset] = header_indices[23 + idx_offset].is_some();
+            let purpose = if idx_offset < 3 {
+                "Fallback for gyroUnfilt[0-2]"
+            } else {
+                "Optional debug channel"
+            };
             println!(
-                "  '{}': {} (Fallback for gyroUnfilt[0-2])",
+                "  '{}': {} ({})",
                 target_headers[23 + idx_offset],
                 if debug_header_found[idx_offset] {
                     "Found"
                 } else {
                     "Not Found"
-                }
+                },
+                purpose
             );
         }
 

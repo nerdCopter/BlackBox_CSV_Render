@@ -123,4 +123,7 @@ pub const D_TERM_MIN_STD_DEV: f32 = 1e-6; // Minimum standard deviation for mean
 pub const D_TERM_CORRELATION_THRESHOLD: f64 = 0.1; // More lenient threshold for D-term cross-correlation
 pub const MIN_SAMPLES_FOR_D_TERM_CORR: usize = 50; // Lower sample requirement for D-term correlation
 
+// Gyro PSD heatmap scaling constants
+pub const GYRO_PSD_HEATMAP_MAX_DB: f64 = -10.0; // Maximum dB for gyro PSD heatmap color scaling
+
 // src/constants.rs
