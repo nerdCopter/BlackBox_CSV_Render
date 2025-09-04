@@ -120,10 +120,16 @@ pub struct AxisHeatmapSpectrum {
 }
 
 fn map_db_to_color(db_value: f64, min_db: f64, max_db: f64) -> RGBColor {
-    let clamped_db = db_value.max(min_db).min(max_db);
-    let normalized_value = (clamped_db - min_db) / (max_db - min_db);
+    // Ensure span is non-zero to avoid division by zero
+    let span = (max_db - min_db).max(1e-9);
 
-    let color = colorous::VIRIDIS.eval_continuous(normalized_value);
+    // Clamp db_value to valid range
+    let clamped_db = db_value.clamp(min_db, max_db);
+
+    // Compute normalized value with clamping to ensure [0.0, 1.0] range
+    let t = ((clamped_db - min_db) / span).clamp(0.0, 1.0);
+
+    let color = colorous::VIRIDIS.eval_continuous(t);
     RGBColor(color.r, color.g, color.b)
 }
 
@@ -461,8 +467,13 @@ fn draw_single_heatmap_chart(
         for (y_idx, &y_val) in heatmap_data.y_bins.iter().enumerate() {
             if let Some(row) = heatmap_data.values.get(x_idx) {
                 if let Some(&psd_db) = row.get(y_idx) {
-                    // Use dynamic max_db for color mapping
-                    let color = map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, max_db);
+                    // Ensure safe_max_db has sufficient span to avoid division by zero
+                    let safe_max_db = max_db.max(HEATMAP_MIN_PSD_DB + 1.0);
+
+                    // Clamp psd_db to valid range before color mapping
+                    let clamped_psd_db = psd_db.clamp(HEATMAP_MIN_PSD_DB, safe_max_db);
+
+                    let color = map_db_to_color(clamped_psd_db, HEATMAP_MIN_PSD_DB, safe_max_db);
 
                     let rect = Rectangle::new(
                         [

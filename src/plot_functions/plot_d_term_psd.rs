@@ -48,8 +48,8 @@ pub fn plot_d_term_psd(
     // Check if any delay calculations succeeded - if not, don't show delay in legends
     let any_delay_calculated = delay_by_axis.iter().any(|result| result.is_some());
 
-    let mut global_max_y_unfilt = 0.0f64;
-    let mut global_max_y_filt = 0.0f64;
+    let mut global_max_y_unfilt = f64::NEG_INFINITY;
+    let mut global_max_y_filt = f64::NEG_INFINITY;
 
     let mut max_freq_for_auto_scale = 0.0f64;
 
@@ -415,7 +415,7 @@ pub fn plot_d_term_psd(
 
     let overall_max_y_amplitude = global_max_y_unfilt.max(global_max_y_filt);
 
-    if overall_max_y_amplitude <= 0.0 {
+    if overall_max_y_amplitude == f64::NEG_INFINITY || overall_max_y_amplitude <= -100.0 {
         println!("  No valid D-term spectrum data found. Skipping D-term spectrum plot.");
         return Ok(());
     }
