@@ -132,10 +132,16 @@ pub fn find_and_sort_peaks_with_threshold(
                 // Assign directly from the block's result
                 if ENABLE_WINDOW_PEAK_DETECTION {
                     let w = PEAK_DETECTION_WINDOW_RADIUS;
-                    // Check if a full window can be formed around j.
-                    // j must be at least w points from the start,
-                    // and j must be at least w points from the end (so j+w is a valid index).
-                    if j >= w && j + w < series_data.len() {
+                    if w == 0 {
+                        // Fallback to 3-point logic when window radius is zero to avoid marking all points as peaks
+                        let prev_amp = series_data[j - 1].1;
+                        let next_amp = series_data[j + 1].1;
+                        amp >= prev_amp && amp > next_amp
+                    } else {
+                        // Check if a full window can be formed around j.
+                        // j must be at least w points from the start,
+                        // and j must be at least w points from the end (so j+w is a valid index).
+                        if j >= w && j + w < series_data.len() {
                         // Full window logic
                         let mut ge_left_in_window = true;
                         for k_offset in 1..=w {
@@ -167,6 +173,7 @@ pub fn find_and_sort_peaks_with_threshold(
                         // Using rightmost point of plateau for consistency with window logic's tendency
                         amp >= prev_amp && amp > next_amp // Return this value for this path
                     }
+                    } // Close the w != 0 block
                 } else {
                     // Original 3-point logic (leftmost point of plateau or sharp peak).
                     // The loop for j ensures j-1 and j+1 are always valid.
