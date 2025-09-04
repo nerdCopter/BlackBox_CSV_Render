@@ -39,6 +39,9 @@ pub fn plot_d_term_spectrums(
     let delay_by_axis =
         d_term_delay::calculate_d_term_filtering_delay_comparison(log_data, sr_value);
 
+    // Check if any delay calculations succeeded - if not, don't show delay in legends
+    let any_delay_calculated = delay_by_axis.iter().any(|result| result.is_some());
+
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
 
@@ -232,19 +235,19 @@ pub fn plot_d_term_spectrums(
         );
 
         // Get delay string for this axis for legend display
-        let delay_str = if let Some(result) = &delay_by_axis[axis_idx] {
-            format!(
-                "Delay: {} {:.1}ms (c:{:.2})",
-                if result.method.contains("Cross") {
-                    "XCorr"
-                } else {
-                    "TFunc"
-                },
-                result.delay_ms,
-                result.confidence
-            )
+        let delay_str = if any_delay_calculated {
+            if let Some(result) = &delay_by_axis[axis_idx] {
+                format!(
+                    "Delay: {:.1}ms(c:{:.0}%)",
+                    result.delay_ms,
+                    result.confidence * 100.0
+                )
+            } else {
+                "Delay: N/A".to_string()
+            }
         } else {
-            "Delay: N/A".to_string()
+            // Don't show delay information if no axes could calculate delay
+            "".to_string()
         };
 
         // Calculate linear amplitude Y-axis range
@@ -268,7 +271,11 @@ pub fn plot_d_term_spectrums(
                 y_range: SPECTRUM_Y_AXIS_FLOOR..y_max_unfilt,
                 series: vec![PlotSeries {
                     data: unfilt_series_data,
-                    label: format!("Unfiltered D-term | {}", delay_str),
+                    label: if delay_str.is_empty() {
+                        "Unfiltered D-term".to_string()
+                    } else {
+                        format!("Unfiltered D-term | {}", delay_str)
+                    },
                     color: *COLOR_D_TERM_UNFILT,
                     stroke_width: 2,
                 }],
@@ -295,7 +302,11 @@ pub fn plot_d_term_spectrums(
                 y_range: SPECTRUM_Y_AXIS_FLOOR..y_max_filt,
                 series: vec![PlotSeries {
                     data: filt_series_data,
-                    label: format!("Filtered D-term | {}", delay_str),
+                    label: if delay_str.is_empty() {
+                        "Filtered D-term".to_string()
+                    } else {
+                        format!("Filtered D-term | {}", delay_str)
+                    },
                     color: *COLOR_D_TERM_FILT,
                     stroke_width: 2,
                 }],
