@@ -241,11 +241,11 @@ fn calculate_d_term_filtering_delay_enhanced_xcorr(
 
     let n = filtered.len();
     let max_delay_samples = (n / MAX_DELAY_FRACTION).min(MAX_DELAY_SAMPLES);
-    let mut correlations: Vec<f64> = Vec::with_capacity(max_delay_samples);
+    let mut correlations: Vec<f64> = Vec::with_capacity(max_delay_samples + 1);
     let mut best_correlation = f64::NEG_INFINITY;
     let mut best_delay = 0;
 
-    for delay in 1..max_delay_samples {
+    for delay in 0..=max_delay_samples {
         if delay >= n {
             break;
         }
@@ -262,13 +262,13 @@ fn calculate_d_term_filtering_delay_enhanced_xcorr(
     }
 
     // Use a much more lenient threshold for D-terms (0.1 instead of 0.2)
-    if best_correlation < D_TERM_CORRELATION_THRESHOLD || best_delay == 0 {
+    if best_correlation < D_TERM_CORRELATION_THRESHOLD {
         return None;
     }
 
     // Parabolic interpolation bounds check fix
-    let idx = best_delay - 1; // map delay→index (delay 1 → index 0)
-    if idx > 0 && idx < correlations.len() - 1 {
+    let idx = best_delay; // index aligns with tested delay
+    if idx > 0 && idx + 1 < correlations.len() {
         let y1 = correlations[idx - 1] as f32;
         let y2 = correlations[idx] as f32;
         let y3 = correlations[idx + 1] as f32;
