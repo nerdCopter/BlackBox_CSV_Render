@@ -51,14 +51,14 @@ pub fn plot_d_term_psd(
     let mut global_max_y_unfilt = f64::NEG_INFINITY;
     let mut global_max_y_filt = f64::NEG_INFINITY;
 
-    let mut max_freq_for_auto_scale = 0.0f64;
-
     // Store axis spectrum data
     let mut axis_spectrums: Vec<AxisSpectrum> = Vec::new();
 
     // Iterate safely over the minimum of AXIS_NAMES.len() and the fixed array size
     let axis_count = AXIS_NAMES.len().min(3);
     for (axis_idx, &axis_name) in AXIS_NAMES.iter().enumerate().take(axis_count) {
+        // Reset max_freq_for_auto_scale for each axis to prevent leakage between axes
+        let mut max_freq_for_auto_scale = 0.0f64;
         // Extract gyro_unfilt data for derivative calculation
         let mut gyro_unfilt_series: Vec<f32> = Vec::new();
         for row in log_data {
@@ -370,7 +370,7 @@ pub fn plot_d_term_psd(
                 y_label: "Power Spectral Density (dB/Hz)".to_string(),
                 peaks: unfilt_peaks,
                 peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
-                peak_label_format_string: Some("{:.0}Hz".to_string()),
+                peak_label_format_string: Some("{:.0}dB".to_string()),
             })
         } else {
             None
@@ -401,7 +401,7 @@ pub fn plot_d_term_psd(
                 y_label: "Power Spectral Density (dB/Hz)".to_string(),
                 peaks: filt_peaks,
                 peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
-                peak_label_format_string: Some("{:.0}Hz".to_string()),
+                peak_label_format_string: Some("{:.0}dB".to_string()),
             })
         } else {
             None

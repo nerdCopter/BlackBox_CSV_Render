@@ -232,7 +232,9 @@ fn draw_single_axis_chart_with_config(
             let mut text_x = peak_pixel_coords_relative_to_plotting_area.0 - area_offset.0;
             let mut text_y = peak_pixel_coords_relative_to_plotting_area.1 - area_offset.1;
 
-            let formatted_peak_amp = if peak_label_format_string_ref == "{:.2} dB" {
+            let formatted_peak_amp = if plot_config.y_label.to_lowercase().contains("db")
+                || peak_label_format_string_ref.contains("dB")
+            {
                 format!("{peak_amp:.2} dB")
             } else if peak_amp >= 1_000_000.0 {
                 // Use "M" notation for million+ values for better readability
@@ -521,15 +523,21 @@ where
                 .unfiltered
                 .as_ref()
                 .map(|c| c.max_db)
-                .unwrap_or(0.0);
+                .unwrap_or(f64::NEG_INFINITY);
             let filt_max = axis_spectrum
                 .filtered
                 .as_ref()
                 .map(|c| c.max_db)
-                .unwrap_or(0.0);
-            unfilt_max.max(filt_max)
+                .unwrap_or(f64::NEG_INFINITY);
+            let computed_max = unfilt_max.max(filt_max);
+            // Replace NEG_INFINITY result with a safe floor value
+            if computed_max == f64::NEG_INFINITY {
+                HEATMAP_MIN_PSD_DB + 1.0
+            } else {
+                computed_max
+            }
         } else {
-            0.0
+            HEATMAP_MIN_PSD_DB + 1.0
         };
 
         for col_idx in 0..2 {

@@ -283,7 +283,7 @@ pub fn plot_d_term_spectrums(
                 y_label: "Amplitude".to_string(),
                 peaks: unfilt_peaks,
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
-                peak_label_format_string: Some("{:.0}Hz".to_string()),
+                peak_label_format_string: Some("{:.0}".to_string()),
             })
         } else {
             None
@@ -314,7 +314,7 @@ pub fn plot_d_term_spectrums(
                 y_label: "Amplitude".to_string(),
                 peaks: filt_peaks,
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
-                peak_label_format_string: Some("{:.0}Hz".to_string()),
+                peak_label_format_string: Some("{:.0}".to_string()),
             })
         } else {
             None
