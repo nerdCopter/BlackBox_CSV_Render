@@ -39,9 +39,6 @@ pub fn plot_d_term_spectrums(
     let delay_by_axis =
         d_term_delay::calculate_d_term_filtering_delay_comparison(log_data, sr_value);
 
-    // Check if any delay calculations succeeded - if not, don't show delay in legends
-    let any_delay_calculated = delay_by_axis.iter().any(|result| result.is_some());
-
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
 
@@ -235,18 +232,14 @@ pub fn plot_d_term_spectrums(
         );
 
         // Get delay string for this axis for legend display
-        let delay_str = if any_delay_calculated {
-            if let Some(result) = &delay_by_axis[axis_idx] {
-                format!(
-                    "Delay: {:.1}ms(c:{:.0}%)",
-                    result.delay_ms,
-                    result.confidence * 100.0
-                )
-            } else {
-                "Delay: N/A".to_string()
-            }
+        let delay_str = if let Some(result) = &delay_by_axis[axis_idx] {
+            format!(
+                "Delay: {:.1}ms(c:{:.0}%)",
+                result.delay_ms,
+                result.confidence * 100.0
+            )
         } else {
-            // Don't show delay information if no axes could calculate delay
+            // Don't show delay information for this axis if calculation failed
             "".to_string()
         };
 
