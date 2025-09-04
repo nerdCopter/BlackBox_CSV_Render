@@ -25,10 +25,24 @@ pub fn plot_d_term_spectrums(
     sample_rate: Option<f64>,
     _header_metadata: Option<&[(String, String)]>,
 ) -> Result<(), Box<dyn Error>> {
+    // Input validation
+    if log_data.is_empty() {
+        return Ok(()); // No data to process
+    }
+
+    if root_name.is_empty() {
+        return Err("Root name cannot be empty".into());
+    }
+
     let output_file = format!("{root_name}_D_Term_Spectrums_comparative.png");
 
-    let sr_value = if let Some(sr) = sample_rate {
-        sr
+    let sample_rate_value = if let Some(sr) = sample_rate {
+        if sr.is_finite() && sr > 0.0 {
+            sr
+        } else {
+            println!("\nINFO: Skipping D-Term Spectrum Plot: Invalid sample rate provided.");
+            return Ok(());
+        }
     } else {
         println!("\nINFO: Skipping D-Term Spectrum Plot: Sample rate could not be determined.");
         return Ok(());
@@ -37,7 +51,7 @@ pub fn plot_d_term_spectrums(
     // Calculate filtering delay using enhanced cross-correlation on D-terms
     // This returns Vec<Option<DelayResult>> with per-axis alignment
     let delay_by_axis =
-        d_term_delay::calculate_d_term_filtering_delay_comparison(log_data, sr_value);
+        d_term_delay::calculate_d_term_filtering_delay_comparison(log_data, sample_rate_value);
 
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
@@ -60,7 +74,7 @@ pub fn plot_d_term_spectrums(
 
         // Calculate unfiltered D-term (derivative of gyroUnfilt)
         let unfilt_d_term_series = if gyro_unfilt_series.len() >= 2 {
-            calculate_derivative(&gyro_unfilt_series, sr_value)
+            calculate_derivative(&gyro_unfilt_series, sample_rate_value)
         } else {
             println!("  Not enough unfiltered gyro data for {axis_name} axis. Skipping unfiltered D-term spectrum.");
             Vec::new()
@@ -132,7 +146,7 @@ pub fn plot_d_term_spectrums(
 
             if !spectrum.is_empty() {
                 let freqs: Vec<f64> = (0..spectrum.len())
-                    .map(|i| (i as f64 * sr_value) / (min_common_length as f64))
+                    .map(|i| (i as f64 * sample_rate_value) / (min_common_length as f64))
                     .collect();
                 (spectrum, freqs)
             } else {
@@ -148,7 +162,7 @@ pub fn plot_d_term_spectrums(
 
             if !spectrum.is_empty() {
                 let freqs: Vec<f64> = (0..spectrum.len())
-                    .map(|i| (i as f64 * sr_value) / (min_common_length as f64))
+                    .map(|i| (i as f64 * sample_rate_value) / (min_common_length as f64))
                     .collect();
                 (spectrum, freqs)
             } else {
@@ -173,7 +187,7 @@ pub fn plot_d_term_spectrums(
 
         if !unfilt_spectrum.is_empty() {
             for (i, &freq) in unfilt_freqs.iter().enumerate() {
-                if freq <= sr_value / 2.0 {
+                if freq <= sample_rate_value / 2.0 {
                     let amplitude = unfilt_spectrum[i].norm() as f64;
                     // Use linear amplitude (not dB)
                     unfilt_series_data.push((freq, amplitude));
@@ -185,7 +199,7 @@ pub fn plot_d_term_spectrums(
 
         if !filt_spectrum.is_empty() {
             for (i, &freq) in filt_freqs.iter().enumerate() {
-                if freq <= sr_value / 2.0 {
+                if freq <= sample_rate_value / 2.0 {
                     let amplitude = filt_spectrum[i].norm() as f64;
                     // Use linear amplitude (not dB)
                     filt_series_data.push((freq, amplitude));
@@ -253,9 +267,9 @@ pub fn plot_d_term_spectrums(
         // Create plot configurations
         let unfiltered_config = if !unfilt_series_data.is_empty() {
             let max_freq_display = if max_freq_for_auto_scale > 0.0 {
-                (max_freq_for_auto_scale * 1.1).min(sr_value / 2.0)
+                (max_freq_for_auto_scale * 1.1).min(sample_rate_value / 2.0)
             } else {
-                sr_value / 2.0
+                sample_rate_value / 2.0
             };
 
             Some(PlotConfig {
@@ -284,9 +298,9 @@ pub fn plot_d_term_spectrums(
 
         let filtered_config = if !filt_series_data.is_empty() {
             let max_freq_display = if max_freq_for_auto_scale > 0.0 {
-                (max_freq_for_auto_scale * 1.1).min(sr_value / 2.0)
+                (max_freq_for_auto_scale * 1.1).min(sample_rate_value / 2.0)
             } else {
-                sr_value / 2.0
+                sample_rate_value / 2.0
             };
 
             Some(PlotConfig {

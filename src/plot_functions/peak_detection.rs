@@ -57,6 +57,19 @@ pub fn find_and_sort_peaks_with_threshold(
     spectrum_type_str: &str,
     amplitude_threshold: f64,
 ) -> Vec<(f64, f64)> {
+    // Input validation
+    if series_data.is_empty() {
+        return Vec::new();
+    }
+
+    if axis_name_str.is_empty() || spectrum_type_str.is_empty() {
+        return Vec::new();
+    }
+
+    if !amplitude_threshold.is_finite() {
+        return Vec::new();
+    }
+
     // For filtered D-term data, use intelligent scale-aware threshold checking
     // Instead of fixed thresholds, use percentage-based logic that adapts to data scale
     if spectrum_type_str.contains("Filtered D-term") {

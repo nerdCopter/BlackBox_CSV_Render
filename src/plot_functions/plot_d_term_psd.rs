@@ -26,6 +26,15 @@ pub fn plot_d_term_psd(
     _header_metadata: Option<&[(String, String)]>,
     debug_mode: bool,
 ) -> Result<(), Box<dyn Error>> {
+    // Input validation
+    if log_data.is_empty() {
+        return Ok(()); // No data to process
+    }
+
+    if root_name.is_empty() {
+        return Err("Root name cannot be empty".into());
+    }
+
     let output_file = format!("{root_name}_D_Term_PSD_comparative.png");
 
     let sr_value = if let Some(sr) = sample_rate {
