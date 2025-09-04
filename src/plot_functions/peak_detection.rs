@@ -70,35 +70,29 @@ pub fn find_and_sort_peaks_with_threshold(
         return Vec::new();
     }
 
-    // For filtered D-term data, use intelligent scale-aware threshold checking
-    // Instead of fixed thresholds, use percentage-based logic that adapts to data scale
+    // For filtered D-term data, use intelligent, scale-aware threshold checking
+    let is_db_scale = amplitude_threshold.is_sign_negative()
+        || spectrum_type_str.contains("dB")
+        || spectrum_type_str.contains("PSD");
+
     if spectrum_type_str.contains("Filtered D-term") {
         if let Some((_, peak_amp)) = primary_peak_info {
             // Calculate scale-aware threshold based on the data type and range
-            let intelligent_threshold = if amplitude_threshold < 0.0 {
+            let intelligent_threshold = if is_db_scale {
                 // PSD plots (dB scale): Use the provided dB threshold
                 amplitude_threshold
             } else {
-                // Spectrum plots (linear scale): Use percentage-based threshold
-                // For D-term data (typically 20k-500k range), require at least 10% of reasonable scale
-                // This means ~5k minimum for D-term, but adapts if unfiltered peak is very high
-                if spectrum_type_str.contains("D-term") {
-                    // D-term spectrums: Use a realistic threshold based on typical D-term scales
-                    // Unfiltered D-terms are typically 10M-100M, so filtered peaks below 100k are usually noise
-                    FILTERED_D_TERM_MIN_THRESHOLD.max(amplitude_threshold)
-                } else {
-                    // Other spectrum types: Use the original threshold
-                    amplitude_threshold
-                }
+                // Filtered D-term (linear): enforce a realistic minimum floor
+                FILTERED_D_TERM_MIN_THRESHOLD.max(amplitude_threshold)
             };
 
             if peak_amp <= intelligent_threshold {
-                let formatted_peak = if amplitude_threshold < 0.0 {
+                let formatted_peak = if is_db_scale {
                     format!("{:.2}", peak_amp)
                 } else {
                     format_value_with_k(peak_amp)
                 };
-                let formatted_threshold = if amplitude_threshold < 0.0 {
+                let formatted_threshold = if is_db_scale {
                     format!("{:.2}", intelligent_threshold)
                 } else {
                     format_value_with_k(intelligent_threshold)
@@ -192,8 +186,7 @@ pub fn find_and_sort_peaks_with_threshold(
                         is_valid_for_secondary_consideration = false;
                     } else {
                         // Check if amplitudes are in dB (negative values or spectrum_type contains "dB")
-                        let is_db_scale =
-                            amplitude_threshold < 0.0 || spectrum_type_str.contains("dB");
+                        // Use precomputed scale flag
 
                         let amplitude_check = if is_db_scale {
                             // For dB scale: compare using dB difference
@@ -238,7 +231,7 @@ pub fn find_and_sort_peaks_with_threshold(
     if !peaks_to_plot.is_empty() {
         let (main_freq, main_amp) = peaks_to_plot[0];
         // Use "k" notation for large spectrum values (but not for dB values)
-        let formatted_amp = if amplitude_threshold < 0.0 {
+        let formatted_amp = if is_db_scale {
             // dB scale - don't use k notation
             format!("{:.2}", main_amp)
         } else {
@@ -250,7 +243,7 @@ pub fn find_and_sort_peaks_with_threshold(
             formatted_amp, main_freq
         );
         for (idx, (freq, amp)) in peaks_to_plot.iter().skip(1).enumerate() {
-            let formatted_sub_amp = if amplitude_threshold < 0.0 {
+            let formatted_sub_amp = if is_db_scale {
                 format!("{:.2}", amp)
             } else {
                 format_value_with_k(*amp)
