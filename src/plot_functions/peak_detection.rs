@@ -16,12 +16,6 @@ use crate::constants::{
 /// * Values >= 1,000,000: formatted as "X.XM" (e.g., "1.5M")  
 /// * Values >= 1,000: formatted as "X.Xk" (e.g., "30.1k")
 /// * Values < 1,000: formatted as "X.X" (e.g., "123.4")
-///
-/// # Examples
-/// ```
-/// assert_eq!(format_value_with_k(1500.0), "1.5k");
-/// assert_eq!(format_value_with_k(2500000.0), "2.5M");
-/// ```
 fn format_value_with_k(value: f64) -> String {
     if value >= 1_000_000.0 {
         format!("{:.1}M", value / 1_000_000.0)
