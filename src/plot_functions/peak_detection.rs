@@ -142,37 +142,37 @@ pub fn find_and_sort_peaks_with_threshold(
                         // j must be at least w points from the start,
                         // and j must be at least w points from the end (so j+w is a valid index).
                         if j >= w && j + w < series_data.len() {
-                        // Full window logic
-                        let mut ge_left_in_window = true;
-                        for k_offset in 1..=w {
-                            // series_data[j - k_offset] is valid because j >= w >= k_offset
-                            if amp < series_data[j - k_offset].1 {
-                                ge_left_in_window = false;
-                                break;
-                            }
-                        }
-
-                        let mut gt_right_in_window = true;
-                        if ge_left_in_window {
-                            // Optimization: only check right if left is good
+                            // Full window logic
+                            let mut ge_left_in_window = true;
                             for k_offset in 1..=w {
-                                // series_data[j + k_offset] is valid because j + w < series_data.len()
-                                // and k_offset <= w
-                                if amp <= series_data[j + k_offset].1 {
-                                    gt_right_in_window = false;
+                                // series_data[j - k_offset] is valid because j >= w >= k_offset
+                                if amp < series_data[j - k_offset].1 {
+                                    ge_left_in_window = false;
                                     break;
                                 }
                             }
+
+                            let mut gt_right_in_window = true;
+                            if ge_left_in_window {
+                                // Optimization: only check right if left is good
+                                for k_offset in 1..=w {
+                                    // series_data[j + k_offset] is valid because j + w < series_data.len()
+                                    // and k_offset <= w
+                                    if amp <= series_data[j + k_offset].1 {
+                                        gt_right_in_window = false;
+                                        break;
+                                    }
+                                }
+                            }
+                            ge_left_in_window && gt_right_in_window // Return this value for this path
+                        } else {
+                            // Fallback for edges where a full window isn't possible.
+                            // The loop for j ensures j-1 and j+1 are always valid.
+                            let prev_amp = series_data[j - 1].1;
+                            let next_amp = series_data[j + 1].1;
+                            // Using rightmost point of plateau for consistency with window logic's tendency
+                            amp >= prev_amp && amp > next_amp // Return this value for this path
                         }
-                        ge_left_in_window && gt_right_in_window // Return this value for this path
-                    } else {
-                        // Fallback for edges where a full window isn't possible.
-                        // The loop for j ensures j-1 and j+1 are always valid.
-                        let prev_amp = series_data[j - 1].1;
-                        let next_amp = series_data[j + 1].1;
-                        // Using rightmost point of plateau for consistency with window logic's tendency
-                        amp >= prev_amp && amp > next_amp // Return this value for this path
-                    }
                     } // Close the w != 0 block
                 } else {
                     // Original 3-point logic (leftmost point of plateau or sharp peak).
