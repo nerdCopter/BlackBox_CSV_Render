@@ -267,20 +267,28 @@ fn calculate_d_term_filtering_delay_enhanced_xcorr(
     }
 
     // Parabolic interpolation bounds check fix
-    let idx = best_delay; // index aligns with tested delay
-    if idx > 0 && idx + 1 < correlations.len() {
-        let y1 = correlations[idx - 1] as f32;
-        let y2 = correlations[idx] as f32;
-        let y3 = correlations[idx + 1] as f32;
-        let a = (y1 - 2.0 * y2 + y3) / 2.0;
-        let b = (y3 - y1) / 2.0;
-        if a.abs() > 1e-10 {
-            let sub_sample_offset = -(b as f64) / (2.0 * a as f64);
+    let peak_idx = best_delay; // index aligns with tested delay
+    if peak_idx > 0 && peak_idx + 1 < correlations.len() {
+        let correlation_before = correlations[peak_idx - 1] as f32;
+        let correlation_peak = correlations[peak_idx] as f32;
+        let correlation_after = correlations[peak_idx + 1] as f32;
+        let parabola_coeff_a =
+            (correlation_before - 2.0 * correlation_peak + correlation_after) / 2.0;
+        let parabola_coeff_b = (correlation_after - correlation_before) / 2.0;
+        if parabola_coeff_a.abs() > 1e-10 {
+            let sub_sample_offset = -(parabola_coeff_b as f64) / (2.0 * parabola_coeff_a as f64);
             let refined_delay = best_delay as f64 + sub_sample_offset.clamp(-0.5, 0.5);
             return Some(filter_delay::DelayResult {
                 method: "D-term Cross-Correlation".to_string(),
                 delay_ms: ((refined_delay / sample_rate) * 1000.0) as f32,
-                confidence: (((best_correlation + 1.0) / 2.0) as f32).clamp(0.0, 1.0),
+                confidence: {
+                    let raw_confidence = (best_correlation + 1.0) / 2.0;
+                    if raw_confidence.is_finite() {
+                        (raw_confidence as f32).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    }
+                },
                 frequency_hz: None,
             });
         }
@@ -288,7 +296,14 @@ fn calculate_d_term_filtering_delay_enhanced_xcorr(
     Some(filter_delay::DelayResult {
         method: "D-term Cross-Correlation".to_string(),
         delay_ms: ((best_delay as f64 / sample_rate) * 1000.0) as f32,
-        confidence: (((best_correlation + 1.0) / 2.0) as f32).clamp(0.0, 1.0),
+        confidence: {
+            let raw_confidence = (best_correlation + 1.0) / 2.0;
+            if raw_confidence.is_finite() {
+                (raw_confidence as f32).clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        },
         frequency_hz: None,
     })
 }

@@ -18,10 +18,15 @@ use crate::plot_framework::{
 
 /// Helper to convert linear power values to dB. Clamps values to prevent log(0) and provide a floor.
 fn linear_to_db_for_heatmap(value: f64) -> f64 {
-    if value <= 0.0 {
-        HEATMAP_MIN_PSD_DB // Clamp very small or zero values to the minimum dB for plotting
+    if !value.is_finite() || value <= 0.0 {
+        HEATMAP_MIN_PSD_DB // Clamp very small, zero, or invalid values to the minimum dB for plotting
     } else {
-        10.0 * value.log10() // Use 10*log10 for power (PSD) to dB conversion
+        let db_value = 10.0 * value.log10(); // Use 10*log10 for power (PSD) to dB conversion
+        if db_value.is_finite() {
+            db_value
+        } else {
+            HEATMAP_MIN_PSD_DB
+        }
     }
 }
 
@@ -45,7 +50,12 @@ pub fn plot_d_term_heatmap(
     };
 
     let window_size_samples = (STFT_WINDOW_DURATION_S * sr_value) as usize;
-    let hop_size_samples = (window_size_samples as f64 * (1.0 - STFT_OVERLAP_FACTOR)) as usize;
+    let hop_size_raw = window_size_samples as f64 * (1.0 - STFT_OVERLAP_FACTOR);
+    if !hop_size_raw.is_finite() || hop_size_raw <= 0.0 {
+        eprintln!("Error: Invalid hop size calculation. Check STFT parameters.");
+        return Ok(());
+    }
+    let hop_size_samples = hop_size_raw as usize;
     if hop_size_samples == 0 {
         eprintln!("Error: Hop size is zero, cannot perform STFT. Adjust STFT_OVERLAP_FACTOR or STFT_WINDOW_DURATION_S.");
         return Ok(());
@@ -58,7 +68,19 @@ pub fn plot_d_term_heatmap(
     }
 
     let fft_padded_len = window_size_samples.next_power_of_two();
+    if fft_padded_len == 0 || fft_padded_len > 1_048_576 {
+        // Reasonable upper limit
+        eprintln!(
+            "Error: Invalid FFT length calculated: {}. Check window size.",
+            fft_padded_len
+        );
+        return Ok(());
+    }
     let freq_step = sr_value / fft_padded_len as f64;
+    if !freq_step.is_finite() || freq_step <= 0.0 {
+        eprintln!("Error: Invalid frequency step calculated.");
+        return Ok(());
+    }
     let num_unique_freqs = if fft_padded_len % 2 == 0 {
         fft_padded_len / 2 + 1
     } else {
@@ -75,7 +97,15 @@ pub fn plot_d_term_heatmap(
 
     // Throttle bins for Y-axis
     let throttle_range = THROTTLE_Y_MAX_VALUE - THROTTLE_Y_MIN_VALUE;
+    if throttle_range <= 0.0 {
+        eprintln!("Error: Invalid throttle range for heatmap. Check THROTTLE_Y_MIN_VALUE and THROTTLE_Y_MAX_VALUE.");
+        return Ok(());
+    }
     let throttle_bin_size = throttle_range / THROTTLE_Y_BINS_COUNT as f64;
+    if !throttle_bin_size.is_finite() || throttle_bin_size <= 0.0 {
+        eprintln!("Error: Invalid throttle bin size calculated.");
+        return Ok(());
+    }
     let throttle_y_bins: Vec<f64> = (0..THROTTLE_Y_BINS_COUNT)
         .map(|i| THROTTLE_Y_MIN_VALUE + (i as f64 + 0.5) * throttle_bin_size) // Center of the bin
         .collect();
@@ -86,6 +116,14 @@ pub fn plot_d_term_heatmap(
     // Iterate safely over the minimum of AXIS_NAMES.len() and the fixed array size
     let axis_count = AXIS_NAMES.len().min(3);
     for (axis_idx, &axis_name) in AXIS_NAMES.iter().enumerate().take(axis_count) {
+        // Ensure axis index is within valid bounds for data arrays
+        if axis_idx >= 3 {
+            println!(
+                "  Warning: Axis index {} exceeds maximum supported axes (3). Skipping.",
+                axis_idx
+            );
+            continue;
+        }
         // Extract data for each series independently
         let mut gyro_unfilt_series: Vec<(f32, f64)> = Vec::new(); // (gyro value, throttle)
         let mut d_term_filt_series: Vec<(f32, f64)> = Vec::new(); // (d_term value, throttle)
@@ -176,11 +214,16 @@ pub fn plot_d_term_heatmap(
                 let window_throttle_val =
                     throttle_values_unfilt[current_start_sample + window_size_samples / 2];
 
-                // Map throttle value to a Y-axis bin
-                let mut throttle_y_bin_idx = ((window_throttle_val - THROTTLE_Y_MIN_VALUE)
-                    / throttle_bin_size)
-                    .floor() as usize;
-                throttle_y_bin_idx = throttle_y_bin_idx.clamp(0, THROTTLE_Y_BINS_COUNT - 1);
+                // Map throttle value to a Y-axis bin with bounds checking
+                let throttle_bin_raw =
+                    (window_throttle_val - THROTTLE_Y_MIN_VALUE) / throttle_bin_size;
+                if !throttle_bin_raw.is_finite() {
+                    current_start_sample += hop_size_samples;
+                    continue;
+                }
+                let throttle_y_bin_idx = (throttle_bin_raw.floor() as i32)
+                    .clamp(0, THROTTLE_Y_BINS_COUNT as i32 - 1)
+                    as usize;
 
                 let mut padded_unfilt = Array1::<f32>::zeros(fft_padded_len);
                 padded_unfilt
@@ -229,11 +272,16 @@ pub fn plot_d_term_heatmap(
                 let window_throttle_val =
                     throttle_values_filt[current_start_sample + window_size_samples / 2];
 
-                // Map throttle value to a Y-axis bin
-                let mut throttle_y_bin_idx = ((window_throttle_val - THROTTLE_Y_MIN_VALUE)
-                    / throttle_bin_size)
-                    .floor() as usize;
-                throttle_y_bin_idx = throttle_y_bin_idx.clamp(0, THROTTLE_Y_BINS_COUNT - 1);
+                // Map throttle value to a Y-axis bin with bounds checking
+                let throttle_bin_raw =
+                    (window_throttle_val - THROTTLE_Y_MIN_VALUE) / throttle_bin_size;
+                if !throttle_bin_raw.is_finite() {
+                    current_start_sample += hop_size_samples;
+                    continue;
+                }
+                let throttle_y_bin_idx = (throttle_bin_raw.floor() as i32)
+                    .clamp(0, THROTTLE_Y_BINS_COUNT as i32 - 1)
+                    as usize;
 
                 let mut padded_filt = Array1::<f32>::zeros(fft_padded_len);
                 padded_filt

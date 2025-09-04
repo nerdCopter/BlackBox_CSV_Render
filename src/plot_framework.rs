@@ -38,7 +38,11 @@ pub fn draw_unavailable_message(
     plot_type: &str,
     reason: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
+    let axis_name = if axis_index < crate::axis_names::AXIS_NAMES.len() {
+        crate::axis_names::AXIS_NAMES[axis_index]
+    } else {
+        "Unknown"
+    };
     let (x_range, y_range) = area.get_pixel_range();
     let (width, height) = (
         (x_range.end - x_range.start) as u32,
@@ -56,8 +60,8 @@ pub fn draw_unavailable_message(
     // Find the longest line to estimate width
     let lines: Vec<&str> = message.split('\n').collect();
     let max_line_length = lines.iter().map(|line| line.len()).max().unwrap_or(0);
-    let estimated_text_width = max_line_length as i32 * estimated_char_width;
-    let estimated_text_height = lines.len() as i32 * estimated_line_height;
+    let estimated_text_width = max_line_length.saturating_mul(estimated_char_width as usize) as i32;
+    let estimated_text_height = lines.len().saturating_mul(estimated_line_height as usize) as i32;
 
     // Calculate center position with better offset estimation
     let center_x = width as i32 / 2 - estimated_text_width / 2;
@@ -120,8 +124,13 @@ pub struct AxisHeatmapSpectrum {
 }
 
 fn map_db_to_color(db_value: f64, min_db: f64, max_db: f64) -> RGBColor {
+    // Validate input parameters
+    if !db_value.is_finite() || !min_db.is_finite() || !max_db.is_finite() {
+        return RGBColor(0, 0, 0); // Black for invalid values
+    }
+
     // Ensure span is non-zero to avoid division by zero
-    let span = (max_db - min_db).max(1e-9);
+    let span = (max_db - min_db).abs().max(1e-9);
 
     // Clamp db_value to valid range
     let clamped_db = db_value.clamp(min_db, max_db);
