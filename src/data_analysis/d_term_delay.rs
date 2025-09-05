@@ -125,8 +125,10 @@ pub fn calculate_d_term_filtering_delay_comparison(
             if let (Some(unfilt_val), Some(d_term_val)) =
                 (row.gyro_unfilt[axis_idx], row.d_term[axis_idx])
             {
-                gyro_unfilt_data.push(unfilt_val as f32);
-                d_term_filtered_data.push(d_term_val as f32);
+                if unfilt_val.is_finite() && d_term_val.is_finite() {
+                    gyro_unfilt_data.push(unfilt_val as f32);
+                    d_term_filtered_data.push(d_term_val as f32);
+                }
             }
         }
 

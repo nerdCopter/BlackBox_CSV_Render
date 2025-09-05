@@ -184,9 +184,8 @@ pub fn plot_d_term_psd(
             let spectrum = fft_utils::fft_forward(&windowed_unfilt);
 
             if !spectrum.is_empty() {
-                let freqs: Vec<f64> = (0..spectrum.len())
-                    .map(|i| (i as f64 * sr_value) / (min_common_length as f64))
-                    .collect();
+                let n = spectrum.len();
+                let freqs: Vec<f64> = (0..n).map(|i| (i as f64 * sr_value) / (n as f64)).collect();
                 (spectrum, freqs)
             } else {
                 (Array1::zeros(0), Vec::new())
@@ -200,9 +199,8 @@ pub fn plot_d_term_psd(
             let spectrum = fft_utils::fft_forward(&windowed_filt);
 
             if !spectrum.is_empty() {
-                let freqs: Vec<f64> = (0..spectrum.len())
-                    .map(|i| (i as f64 * sr_value) / (min_common_length as f64))
-                    .collect();
+                let n = spectrum.len();
+                let freqs: Vec<f64> = (0..n).map(|i| (i as f64 * sr_value) / (n as f64)).collect();
                 (spectrum, freqs)
             } else {
                 (Array1::zeros(0), Vec::new())
@@ -326,7 +324,7 @@ pub fn plot_d_term_psd(
 
         // Get delay string for this axis for legend display
         let delay_str = if any_delay_calculated {
-            if let Some(result) = &delay_by_axis[axis_idx] {
+            if let Some(result) = delay_by_axis.get(axis_idx).and_then(|r| r.as_ref()) {
                 format!(
                     "Delay: {:.1}ms(c:{:.0}%)",
                     result.delay_ms,

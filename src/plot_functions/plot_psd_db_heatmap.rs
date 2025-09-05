@@ -247,7 +247,8 @@ pub fn plot_psd_db_heatmap(
 
     draw_dual_heatmap_plot(&output_file, root_name, plot_type_name, move |axis_index| {
         all_heatmap_data[axis_index]
-            .take()
+            .as_ref()
+            .cloned()
             .map(|(unf, filt)| AxisHeatmapSpectrum {
                 unfiltered: Some(unf),
                 filtered: Some(filt),

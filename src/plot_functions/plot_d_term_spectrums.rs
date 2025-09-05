@@ -145,8 +145,9 @@ pub fn plot_d_term_spectrums(
             let spectrum = fft_utils::fft_forward(&windowed_unfilt);
 
             if !spectrum.is_empty() {
-                let freqs: Vec<f64> = (0..spectrum.len())
-                    .map(|i| (i as f64 * sample_rate_value) / (min_common_length as f64))
+                let n = spectrum.len();
+                let freqs: Vec<f64> = (0..n)
+                    .map(|i| (i as f64 * sample_rate_value) / (n as f64))
                     .collect();
                 (spectrum, freqs)
             } else {
@@ -161,8 +162,9 @@ pub fn plot_d_term_spectrums(
             let spectrum = fft_utils::fft_forward(&windowed_filt);
 
             if !spectrum.is_empty() {
-                let freqs: Vec<f64> = (0..spectrum.len())
-                    .map(|i| (i as f64 * sample_rate_value) / (min_common_length as f64))
+                let n = spectrum.len();
+                let freqs: Vec<f64> = (0..n)
+                    .map(|i| (i as f64 * sample_rate_value) / (n as f64))
                     .collect();
                 (spectrum, freqs)
             } else {
@@ -246,7 +248,7 @@ pub fn plot_d_term_spectrums(
         );
 
         // Get delay string for this axis for legend display
-        let delay_str = if let Some(result) = &delay_by_axis[axis_idx] {
+        let delay_str = if let Some(result) = delay_by_axis.get(axis_idx).and_then(|r| r.as_ref()) {
             format!(
                 "Delay: {:.1}ms(c:{:.0}%)",
                 result.delay_ms,
