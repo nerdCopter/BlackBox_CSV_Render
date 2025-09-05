@@ -367,7 +367,7 @@ pub fn plot_step_response(
         plot_type_name,
         move |axis_idx_for_closure| {
             // Renamed to avoid conflict if axis_index is passed for debug
-            plot_data_per_axis[axis_idx_for_closure].take()
+            plot_data_per_axis[axis_idx_for_closure].as_ref().cloned()
         },
     )
 }

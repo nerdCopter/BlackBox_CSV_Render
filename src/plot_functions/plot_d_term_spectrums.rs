@@ -145,9 +145,11 @@ pub fn plot_d_term_spectrums(
             let spectrum = fft_utils::fft_forward(&windowed_unfilt);
 
             if !spectrum.is_empty() {
-                let freqs: Vec<f64> = (0..spectrum.len())
-                    .map(|i| (i as f64 * sample_rate_value) / (min_common_length as f64))
-                    .collect();
+                // number of unique (one‐sided) FFT bins
+                let n_unique = spectrum.len();
+                // use original input length to compute true frequency step
+                let freq_step = sample_rate_value / (min_common_length as f64);
+                let freqs: Vec<f64> = (0..n_unique).map(|i| i as f64 * freq_step).collect();
                 (spectrum, freqs)
             } else {
                 (Array1::zeros(0), Vec::new())
@@ -161,9 +163,9 @@ pub fn plot_d_term_spectrums(
             let spectrum = fft_utils::fft_forward(&windowed_filt);
 
             if !spectrum.is_empty() {
-                let freqs: Vec<f64> = (0..spectrum.len())
-                    .map(|i| (i as f64 * sample_rate_value) / (min_common_length as f64))
-                    .collect();
+                let n_unique = spectrum.len();
+                let freq_step = sample_rate_value / (min_common_length as f64);
+                let freqs: Vec<f64> = (0..n_unique).map(|i| i as f64 * freq_step).collect();
                 (spectrum, freqs)
             } else {
                 (Array1::zeros(0), Vec::new())
@@ -246,7 +248,7 @@ pub fn plot_d_term_spectrums(
         );
 
         // Get delay string for this axis for legend display
-        let delay_str = if let Some(result) = &delay_by_axis[axis_idx] {
+        let delay_str = if let Some(result) = delay_by_axis.get(axis_idx).and_then(|r| r.as_ref()) {
             format!(
                 "Delay: {:.1}ms(c:{:.0}%)",
                 result.delay_ms,

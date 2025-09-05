@@ -341,7 +341,7 @@ pub fn plot_psd(
 
     draw_dual_spectrum_plot(&output_file, root_name, plot_type_name, move |axis_index| {
         if let Some((unfilt_psd_data, unfilt_peaks, filt_psd_data, filt_peaks)) =
-            all_psd_raw_data[axis_index].take()
+            all_psd_raw_data[axis_index].as_ref().cloned()
         {
             let max_freq_val = sr_value / 2.0;
             let x_range = 0.0..max_freq_val * 1.05;
