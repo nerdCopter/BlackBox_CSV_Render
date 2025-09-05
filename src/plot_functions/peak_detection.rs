@@ -75,27 +75,31 @@ pub fn find_and_sort_peaks_with_threshold(
         || spectrum_type_str.contains("dB")
         || spectrum_type_str.contains("PSD");
 
+    // Calculate the effective threshold to use consistently throughout
+    let effective_threshold = if spectrum_type_str.contains("Filtered D-term") {
+        if is_db_scale {
+            // PSD plots (dB scale): Use the provided dB threshold
+            amplitude_threshold
+        } else {
+            // Filtered D-term (linear): enforce a realistic minimum floor
+            FILTERED_D_TERM_MIN_THRESHOLD.max(amplitude_threshold)
+        }
+    } else {
+        amplitude_threshold
+    };
+
     if spectrum_type_str.contains("Filtered D-term") {
         if let Some((_, peak_amp)) = primary_peak_info {
-            // Calculate scale-aware threshold based on the data type and range
-            let intelligent_threshold = if is_db_scale {
-                // PSD plots (dB scale): Use the provided dB threshold
-                amplitude_threshold
-            } else {
-                // Filtered D-term (linear): enforce a realistic minimum floor
-                FILTERED_D_TERM_MIN_THRESHOLD.max(amplitude_threshold)
-            };
-
-            if peak_amp <= intelligent_threshold {
+            if peak_amp <= effective_threshold {
                 let formatted_peak = if is_db_scale {
                     format!("{:.2}", peak_amp)
                 } else {
                     format_value_with_k(peak_amp)
                 };
                 let formatted_threshold = if is_db_scale {
-                    format!("{:.2}", intelligent_threshold)
+                    format!("{:.2}", effective_threshold)
                 } else {
-                    format_value_with_k(intelligent_threshold)
+                    format_value_with_k(effective_threshold)
                 };
                 println!("  {axis_name_str} {spectrum_type_str}: Primary peak ({}) below intelligent threshold ({}) - skipping peak detection.", formatted_peak, formatted_threshold);
                 return Vec::new();
@@ -110,7 +114,7 @@ pub fn find_and_sort_peaks_with_threshold(
     let mut peaks_to_plot: Vec<(f64, f64)> = Vec::new();
 
     if let Some((peak_freq, peak_amp)) = primary_peak_info {
-        if peak_amp > amplitude_threshold {
+        if peak_amp > effective_threshold {
             peaks_to_plot.push((peak_freq, peak_amp));
         }
     }
@@ -178,7 +182,7 @@ pub fn find_and_sort_peaks_with_threshold(
             }; // End of block assignment to is_potential_peak
 
             // Apply noise floor filtering to avoid low-frequency artifacts (like 1Hz peaks)
-            if freq >= SPECTRUM_NOISE_FLOOR_HZ && is_potential_peak && amp > amplitude_threshold {
+            if freq >= SPECTRUM_NOISE_FLOOR_HZ && is_potential_peak && amp > effective_threshold {
                 let mut is_valid_for_secondary_consideration = true;
                 if let Some((primary_freq, primary_amp_val)) = primary_peak_info {
                     if freq == primary_freq && amp == primary_amp_val {
@@ -189,8 +193,9 @@ pub fn find_and_sort_peaks_with_threshold(
                         // Use precomputed scale flag
 
                         let amplitude_check = if is_db_scale {
-                            // For dB scale: compare using dB difference
-                            amp - primary_amp_val >= -MIN_SECONDARY_PEAK_DB
+                            // For dB scale: require secondary to be at least MIN_SECONDARY_PEAK_DB below primary
+                            // (primary_amp_val - amp) >= MIN_SECONDARY_PEAK_DB
+                            primary_amp_val - amp >= MIN_SECONDARY_PEAK_DB
                         } else {
                             // For linear scale: compare using ratio
                             amp >= primary_amp_val * MIN_SECONDARY_PEAK_RATIO
@@ -220,8 +225,8 @@ pub fn find_and_sort_peaks_with_threshold(
                     break;
                 }
             }
-            if !too_close_to_existing && s_amp > amplitude_threshold {
-                // Ensure it's still above min amp
+            if !too_close_to_existing && s_amp > effective_threshold {
+                // Ensure it's still above the effective threshold
                 peaks_to_plot.push((s_freq, s_amp));
             }
         }

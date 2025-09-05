@@ -122,6 +122,14 @@ pub fn plot_throttle_freq_heatmap(
             vec![vec![0; THROTTLE_Y_BINS_COUNT]; num_freq_bins_to_plot];
 
         let window_func = calc_step_response::tukeywin(window_size_samples, TUKEY_ALPHA);
+        // Σ w[n]^2 for window-power normalization
+        let window_power: f64 = window_func
+            .iter()
+            .map(|&w| {
+                let wf = w as f64;
+                wf * wf
+            })
+            .sum();
 
         let mut current_start_sample = 0;
         while current_start_sample + window_size_samples <= unfilt_time_series.len() {
@@ -156,8 +164,8 @@ pub fn plot_throttle_freq_heatmap(
                 continue;
             }
 
-            // Normalization for one-sided Power Spectral Density (PSD) for real signals:
-            let psd_scale = 1.0 / (window_size_samples as f64 * sr_value);
+            // Normalization for one-sided PSD: 1 / (Σw² · fs)
+            let psd_scale = 1.0 / (window_power * sr_value);
 
             for i in 0..num_unique_freqs {
                 if i >= num_freq_bins_to_plot {
@@ -257,7 +265,8 @@ pub fn plot_throttle_freq_heatmap(
 
     draw_dual_heatmap_plot(&output_file, root_name, plot_type_name, move |axis_index| {
         all_heatmap_data[axis_index]
-            .take()
+            .as_ref()
+            .cloned()
             .map(|(unf, filt)| AxisHeatmapSpectrum {
                 unfiltered: Some(unf),
                 filtered: Some(filt),

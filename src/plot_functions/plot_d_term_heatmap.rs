@@ -201,6 +201,14 @@ pub fn plot_d_term_heatmap(
             vec![vec![0; THROTTLE_Y_BINS_COUNT]; num_freq_bins_to_plot];
 
         let window_func = calc_step_response::tukeywin(window_size_samples, TUKEY_ALPHA);
+        // Σ w[n]^2 for window-power normalization
+        let window_power: f64 = window_func
+            .iter()
+            .map(|&w| {
+                let wf = w as f64;
+                wf * wf
+            })
+            .sum();
 
         // Process unfiltered D-term data if available
         if let Some((unfilt_d_term, throttle_values_unfilt)) = &unfilt_d_term_option {
@@ -233,8 +241,8 @@ pub fn plot_d_term_heatmap(
                 let unfilt_spec = fft_utils::fft_forward(&padded_unfilt);
 
                 if !unfilt_spec.is_empty() {
-                    // Normalization for one-sided Power Spectral Density (PSD) for real signals:
-                    let psd_scale = 1.0 / (window_size_samples as f64 * sample_rate_hz);
+                    // Normalization for one-sided PSD: 1 / (Σw² · fs)
+                    let psd_scale = 1.0 / (window_power * sample_rate_hz);
 
                     for i in 0..num_unique_freqs {
                         if i >= num_freq_bins_to_plot {
@@ -291,8 +299,8 @@ pub fn plot_d_term_heatmap(
                 let filt_spec = fft_utils::fft_forward(&padded_filt);
 
                 if !filt_spec.is_empty() {
-                    // Normalization for one-sided Power Spectral Density (PSD) for real signals:
-                    let psd_scale = 1.0 / (window_size_samples as f64 * sample_rate_hz);
+                    // Normalization for one-sided PSD: 1 / (Σw² · fs)
+                    let psd_scale = 1.0 / (window_power * sample_rate_hz);
 
                     for i in 0..num_unique_freqs {
                         if i >= num_freq_bins_to_plot {

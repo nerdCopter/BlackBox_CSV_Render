@@ -340,10 +340,49 @@ pub fn plot_d_term_psd(
             "".to_string()
         };
 
-        // Calculate dB-aligned Y-axis range (following Betaflight log viewer approach)
+        // Calculate dB-aligned Y-axis range from actual data present on this axis
         let db_step = 10.0;
-        let overall_min_db = global_max_y_unfilt.min(global_max_y_filt).min(-60.0); // Set reasonable minimum
-        let overall_max_db = global_max_y_unfilt.max(global_max_y_filt);
+
+        // Get finite values from current axis data
+        let unfilt_finite_vals: Vec<f64> = unfilt_series_data
+            .iter()
+            .map(|(_, db)| *db)
+            .filter(|&db| db.is_finite())
+            .collect();
+
+        let filt_finite_vals: Vec<f64> = filt_series_data
+            .iter()
+            .map(|(_, db)| *db)
+            .filter(|&db| db.is_finite())
+            .collect();
+
+        // Calculate per-axis min/max from finite values
+        let axis_min_unfilt = unfilt_finite_vals
+            .iter()
+            .fold(f64::INFINITY, |a, &b| a.min(b));
+        let axis_max_unfilt = unfilt_finite_vals
+            .iter()
+            .fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+
+        let axis_min_filt = filt_finite_vals
+            .iter()
+            .fold(f64::INFINITY, |a, &b| a.min(b));
+        let axis_max_filt = filt_finite_vals
+            .iter()
+            .fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+
+        // Combine axis values with fallbacks
+        let overall_min_db = if axis_min_unfilt.is_finite() || axis_min_filt.is_finite() {
+            axis_min_unfilt.min(axis_min_filt).min(-60.0)
+        } else {
+            -60.0 // fallback minimum
+        };
+
+        let overall_max_db = if axis_max_unfilt.is_finite() || axis_max_filt.is_finite() {
+            axis_max_unfilt.max(axis_max_filt)
+        } else {
+            0.0 // fallback maximum
+        };
 
         let min_y_db = (overall_min_db / db_step).floor() * db_step;
         let max_y_db = if overall_max_db == overall_min_db {
