@@ -184,8 +184,9 @@ pub fn plot_d_term_psd(
             let spectrum = fft_utils::fft_forward(&windowed_unfilt);
 
             if !spectrum.is_empty() {
-                let n = spectrum.len();
-                let freqs: Vec<f64> = (0..n).map(|i| (i as f64 * sr_value) / (n as f64)).collect();
+                let n_unique = spectrum.len();
+                let freq_step = sr_value / (min_common_length as f64);
+                let freqs: Vec<f64> = (0..n_unique).map(|i| i as f64 * freq_step).collect();
                 (spectrum, freqs)
             } else {
                 (Array1::zeros(0), Vec::new())
