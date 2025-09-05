@@ -37,21 +37,28 @@ pub fn calculate_derivative(data: &[f32], sample_rate: f64) -> Vec<f32> {
         return Vec::new();
     }
 
+    // Pre-filter to remove non-finite values
+    let finite_data: Vec<f32> = data.iter().filter(|&&x| x.is_finite()).copied().collect();
+    if finite_data.len() < 2 {
+        return Vec::new();
+    }
+
     // Convert to samples per second (frequency) for multiplication instead of division
     let fs: f32 = sample_rate as f32;
-    let mut derivative = Vec::with_capacity(data.len());
+    let mut derivative = Vec::with_capacity(finite_data.len());
 
     // Use forward difference for first point
-    derivative.push((data[1] - data[0]) * fs);
+    derivative.push((finite_data[1] - finite_data[0]) * fs);
 
     // Use central difference for middle points
-    for i in 1..data.len() - 1 {
-        derivative.push((data[i + 1] - data[i - 1]) * (CENTRAL_DIFF_COEFFICIENT * fs));
+    for i in 1..finite_data.len() - 1 {
+        derivative
+            .push((finite_data[i + 1] - finite_data[i - 1]) * (CENTRAL_DIFF_COEFFICIENT * fs));
     }
 
     // Use backward difference for last point
-    let n = data.len() - 1;
-    derivative.push((data[n] - data[n - 1]) * fs);
+    let n = finite_data.len() - 1;
+    derivative.push((finite_data[n] - finite_data[n - 1]) * fs);
 
     derivative
 }

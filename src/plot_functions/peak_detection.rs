@@ -70,6 +70,14 @@ pub fn find_and_sort_peaks_with_threshold(
         return Vec::new();
     }
 
+    // Validate that series data contains finite values
+    if !series_data
+        .iter()
+        .any(|(f, a)| f.is_finite() && a.is_finite())
+    {
+        return Vec::new();
+    }
+
     // For filtered D-term data, use intelligent, scale-aware threshold checking
     let is_db_scale = amplitude_threshold.is_sign_negative()
         || spectrum_type_str.contains("dB")
