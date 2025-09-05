@@ -145,9 +145,12 @@ pub fn plot_d_term_spectrums(
             let spectrum = fft_utils::fft_forward(&windowed_unfilt);
 
             if !spectrum.is_empty() {
-                let n = spectrum.len();
-                let freqs: Vec<f64> = (0..n)
-                    .map(|i| (i as f64 * sample_rate_value) / (n as f64))
+                // number of unique (one‐sided) FFT bins
+                let n_unique = spectrum.len();
+                // use original input length to compute true frequency step
+                let freq_step = sample_rate_value / (min_common_length as f64);
+                let freqs: Vec<f64> = (0..n_unique)
+                    .map(|i| i as f64 * freq_step)
                     .collect();
                 (spectrum, freqs)
             } else {
