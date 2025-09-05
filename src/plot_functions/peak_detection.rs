@@ -78,6 +78,15 @@ pub fn find_and_sort_peaks_with_threshold(
         return Vec::new();
     }
 
+    // Replace raw input with a cleaned copy to avoid NaN/Inf artifacts in neighbor/window logic.
+    let series_data: Vec<(f64, f64)> = series_data
+        .iter()
+        .copied()
+        .filter(|(f, a)| f.is_finite() && a.is_finite())
+        .collect();
+    if series_data.len() < 3 {
+        return Vec::new();
+    }
     // For filtered D-term data, use intelligent, scale-aware threshold checking
     let is_db_scale = amplitude_threshold.is_sign_negative()
         || spectrum_type_str.contains("dB")
