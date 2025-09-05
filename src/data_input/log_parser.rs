@@ -331,14 +331,20 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         // Check debug headers (Indices 23-26).
         for idx_offset in 0..4 {
             debug_header_found[idx_offset] = header_indices[23 + idx_offset].is_some();
+            let purpose = if idx_offset < 3 {
+                "Fallback for gyroUnfilt[0-2]"
+            } else {
+                "Optional debug channel"
+            };
             println!(
-                "  '{}': {} (Fallback for gyroUnfilt[0-2])",
+                "  '{}': {} ({})",
                 target_headers[23 + idx_offset],
                 if debug_header_found[idx_offset] {
                     "Found"
                 } else {
                     "Not Found"
-                }
+                },
+                purpose
             );
         }
 
@@ -484,7 +490,9 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         if count > 0 {
             let avg_delta = total_delta / count as f64;
             sample_rate = Some(1.0 / avg_delta);
-            println!("Estimated Sample Rate: {:.2} Hz", sample_rate.unwrap());
+            if let Some(sr) = sample_rate {
+                println!("Estimated Sample Rate: {:.2} Hz", sr);
+            }
         }
     }
     if sample_rate.is_none() {

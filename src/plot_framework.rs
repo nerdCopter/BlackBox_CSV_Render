@@ -14,7 +14,8 @@ use std::error::Error;
 use std::ops::Range;
 
 use crate::constants::{
-    HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH,
+    FILTERED_D_TERM_MIN_THRESHOLD, HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE,
+    PLOT_HEIGHT, PLOT_WIDTH, PSD_PEAK_LABEL_MIN_VALUE_DB,
 };
 
 /// Calculate plot range with padding.
@@ -37,7 +38,16 @@ pub fn draw_unavailable_message(
     plot_type: &str,
     reason: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
+    // Constants for text rendering
+    const DEFAULT_FONT_SIZE: i32 = 20;
+    const CHAR_WIDTH_RATIO: f32 = 0.6; // Approximate character width relative to font size
+    const LINE_HEIGHT_SPACING: i32 = 4; // Additional spacing between lines
+
+    let axis_name = if axis_index < crate::axis_names::AXIS_NAMES.len() {
+        crate::axis_names::AXIS_NAMES[axis_index]
+    } else {
+        "Unknown"
+    };
     let (x_range, y_range) = area.get_pixel_range();
     let (width, height) = (
         (x_range.end - x_range.start) as u32,
@@ -48,21 +58,20 @@ pub fn draw_unavailable_message(
     let message = format!("{axis_name} {plot_type} Data Unavailable:\n{reason}");
 
     // Estimate text dimensions for better centering
-    let font_size = 20;
-    let estimated_char_width = (font_size as f32 * 0.6) as i32; // Approximate character width
-    let estimated_line_height = font_size + 4; // Approximate line height with spacing
+    let estimated_char_width = (DEFAULT_FONT_SIZE as f32 * CHAR_WIDTH_RATIO) as i32;
+    let estimated_line_height = DEFAULT_FONT_SIZE + LINE_HEIGHT_SPACING;
 
     // Find the longest line to estimate width
     let lines: Vec<&str> = message.split('\n').collect();
     let max_line_length = lines.iter().map(|line| line.len()).max().unwrap_or(0);
-    let estimated_text_width = max_line_length as i32 * estimated_char_width;
-    let estimated_text_height = lines.len() as i32 * estimated_line_height;
+    let estimated_text_width = max_line_length.saturating_mul(estimated_char_width as usize) as i32;
+    let estimated_text_height = lines.len().saturating_mul(estimated_line_height as usize) as i32;
 
     // Calculate center position with better offset estimation
     let center_x = width as i32 / 2 - estimated_text_width / 2;
     let center_y = height as i32 / 2 - estimated_text_height / 2;
 
-    let text_style = ("sans-serif", font_size).into_font().color(&RED);
+    let text_style = ("sans-serif", DEFAULT_FONT_SIZE).into_font().color(&RED);
     area.draw(&Text::new(message, (center_x, center_y), text_style))?;
     Ok(())
 }
@@ -75,6 +84,7 @@ pub struct PlotSeries {
     pub stroke_width: u32,
 }
 
+#[derive(Clone)]
 pub struct PlotConfig {
     pub title: String,
     pub x_range: Range<f64>,
@@ -87,17 +97,20 @@ pub struct PlotConfig {
     pub peak_label_format_string: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct AxisSpectrum {
     pub unfiltered: Option<PlotConfig>,
     pub filtered: Option<PlotConfig>,
 }
 
+#[derive(Clone)]
 pub struct HeatmapData {
     pub x_bins: Vec<f64>,
     pub y_bins: Vec<f64>,
     pub values: Vec<Vec<f64>>,
 }
 
+#[derive(Clone)]
 pub struct HeatmapPlotConfig {
     pub title: String,
     pub x_range: Range<f64>,
@@ -105,18 +118,31 @@ pub struct HeatmapPlotConfig {
     pub heatmap_data: HeatmapData,
     pub x_label: String,
     pub y_label: String,
+    pub max_db: f64, // Maximum dB value for color scaling
 }
 
+#[derive(Clone)]
 pub struct AxisHeatmapSpectrum {
     pub unfiltered: Option<HeatmapPlotConfig>,
     pub filtered: Option<HeatmapPlotConfig>,
 }
 
 fn map_db_to_color(db_value: f64, min_db: f64, max_db: f64) -> RGBColor {
-    let clamped_db = db_value.max(min_db).min(max_db);
-    let normalized_value = (clamped_db - min_db) / (max_db - min_db);
+    // Validate input parameters
+    if !db_value.is_finite() || !min_db.is_finite() || !max_db.is_finite() {
+        return RGBColor(0, 0, 0); // Black for invalid values
+    }
 
-    let color = colorous::VIRIDIS.eval_continuous(normalized_value);
+    // Ensure span is non-zero to avoid division by zero
+    let span = (max_db - min_db).abs().max(1e-9);
+
+    // Clamp db_value to valid range
+    let clamped_db = db_value.clamp(min_db, max_db);
+
+    // Compute normalized value with clamping to ensure [0.0, 1.0] range
+    let t = ((clamped_db - min_db) / span).clamp(0.0, 1.0);
+
+    let color = colorous::VIRIDIS.eval_continuous(t);
     RGBColor(color.r, color.g, color.b)
 }
 
@@ -139,6 +165,21 @@ fn draw_single_axis_chart_with_config(
         .y_desc(&plot_config.y_label)
         .x_labels(20)
         .y_labels(10)
+        .y_label_formatter(&|y| {
+            // Format Y-axis labels with "k" and "M" notation for large values (spectrum plots)
+            // Keep dB values as-is (they're typically small/negative)
+            if !plot_config.y_label.contains("dB") {
+                if y.abs() >= 1_000_000.0 {
+                    format!("{:.1}M", y / 1_000_000.0)
+                } else if y.abs() >= 1000.0 {
+                    format!("{:.0}k", y / 1000.0)
+                } else {
+                    format!("{:.0}", y)
+                }
+            } else {
+                format!("{:.0}", y)
+            }
+        })
         .light_line_style(WHITE.mix(0.7))
         .label_style(("sans-serif", 12))
         .draw()?;
@@ -179,9 +220,19 @@ fn draw_single_axis_chart_with_config(
     const TEXT_WIDTH_ESTIMATE: i32 = 300;
     const TEXT_HEIGHT_ESTIMATE: i32 = 20;
 
-    let peak_label_threshold = plot_config
-        .peak_label_threshold
-        .unwrap_or(PEAK_LABEL_MIN_AMPLITUDE);
+    let peak_label_threshold = plot_config.peak_label_threshold.unwrap_or_else(|| {
+        // Select appropriate threshold based on plot type
+        if plot_config.y_label.contains("dB") {
+            // PSD plots use dB scale
+            PSD_PEAK_LABEL_MIN_VALUE_DB
+        } else if plot_config.title.contains("D-term") {
+            // D-term plots need higher threshold due to different amplitude scale
+            FILTERED_D_TERM_MIN_THRESHOLD
+        } else {
+            // Default to gyro spectrum threshold for other plot types
+            PEAK_LABEL_MIN_AMPLITUDE
+        }
+    });
     let peak_label_format_string_ref = plot_config
         .peak_label_format_string
         .as_deref()
@@ -194,8 +245,16 @@ fn draw_single_axis_chart_with_config(
             let mut text_x = peak_pixel_coords_relative_to_plotting_area.0 - area_offset.0;
             let mut text_y = peak_pixel_coords_relative_to_plotting_area.1 - area_offset.1;
 
-            let formatted_peak_amp = if peak_label_format_string_ref == "{:.2} dB" {
+            let formatted_peak_amp = if plot_config.y_label.to_lowercase().contains("db")
+                || peak_label_format_string_ref.contains("dB")
+            {
                 format!("{peak_amp:.2} dB")
+            } else if peak_amp >= 1_000_000.0 {
+                // Use "M" notation for million+ values for better readability
+                format!("{:.1}M", peak_amp / 1_000_000.0)
+            } else if peak_amp >= 1000.0 {
+                // Use "k" notation for thousand+ values for better readability
+                format!("{:.1}k", peak_amp / 1000.0)
             } else {
                 format!("{peak_amp:.0}")
             };
@@ -370,6 +429,7 @@ where
 }
 
 /// Draws a single heatmap chart (spectrogram) for one axis within a stacked plot.
+#[allow(clippy::too_many_arguments)]
 fn draw_single_heatmap_chart(
     area: &DrawingArea<BitMapBackend, plotters::coord::Shift>,
     chart_title: &str,
@@ -378,6 +438,7 @@ fn draw_single_heatmap_chart(
     x_label: &str,
     y_label: &str,
     heatmap_data: &HeatmapData,
+    max_db: f64, // Use dynamic max_db instead of hardcoded value
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
         .caption(chart_title, ("sans-serif", 20))
@@ -392,6 +453,15 @@ fn draw_single_heatmap_chart(
         .y_desc(y_label)
         .x_labels(10)
         .y_labels(10)
+        .y_label_formatter(&|y| {
+            // Format Y-axis labels with "k" notation for large values (spectrum plots)
+            // Keep dB values as-is (they're typically small/negative)
+            if y.abs() >= 1000.0 && !y_label.contains("dB") {
+                format!("{:.0}k", y / 1000.0)
+            } else {
+                format!("{:.0}", y)
+            }
+        })
         .light_line_style(WHITE.mix(0.7))
         .label_style(("sans-serif", 12))
         .draw()?;
@@ -412,8 +482,13 @@ fn draw_single_heatmap_chart(
         for (y_idx, &y_val) in heatmap_data.y_bins.iter().enumerate() {
             if let Some(row) = heatmap_data.values.get(x_idx) {
                 if let Some(&psd_db) = row.get(y_idx) {
-                    // Use a reasonable max PSD value for color mapping (-10 dB)
-                    let color = map_db_to_color(psd_db, HEATMAP_MIN_PSD_DB, -10.0);
+                    // Ensure safe_max_db has sufficient span to avoid division by zero
+                    let safe_max_db = max_db.max(HEATMAP_MIN_PSD_DB + 1.0);
+
+                    // Clamp psd_db to valid range before color mapping
+                    let clamped_psd_db = psd_db.clamp(HEATMAP_MIN_PSD_DB, safe_max_db);
+
+                    let color = map_db_to_color(clamped_psd_db, HEATMAP_MIN_PSD_DB, safe_max_db);
 
                     let rect = Rectangle::new(
                         [
@@ -455,6 +530,29 @@ where
     for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
         let plots_for_axis_option = get_axis_plot_data(axis_index);
 
+        // Compute a single axis_max_db for both unfiltered and filtered plots
+        let axis_max_db = if let Some(ref axis_spectrum) = plots_for_axis_option {
+            let unfilt_max = axis_spectrum
+                .unfiltered
+                .as_ref()
+                .map(|c| c.max_db)
+                .unwrap_or(f64::NEG_INFINITY);
+            let filt_max = axis_spectrum
+                .filtered
+                .as_ref()
+                .map(|c| c.max_db)
+                .unwrap_or(f64::NEG_INFINITY);
+            let computed_max = unfilt_max.max(filt_max);
+            // Replace NEG_INFINITY result with a safe floor value
+            if computed_max == f64::NEG_INFINITY {
+                HEATMAP_MIN_PSD_DB + 1.0
+            } else {
+                computed_max
+            }
+        } else {
+            HEATMAP_MIN_PSD_DB + 1.0
+        };
+
         for col_idx in 0..2 {
             let area = &sub_plot_areas[axis_index * 2 + col_idx];
             let plot_config_option = plots_for_axis_option.as_ref().and_then(|axis_spectrum| {
@@ -484,6 +582,7 @@ where
                         &plot_config.x_label,
                         &plot_config.y_label,
                         &plot_config.heatmap_data,
+                        axis_max_db,
                     )?;
                     any_plot_drawn = true;
                 } else {

@@ -48,7 +48,13 @@ pub const EXCLUDE_END_S: f64 = 3.0; // Exclude seconds from the end of the log
 pub const SPECTRUM_Y_AXIS_FLOOR: f64 = 20000.0; // Maximum amplitude for spectrum plots.
 pub const SPECTRUM_NOISE_FLOOR_HZ: f64 = 70.0; // Frequency threshold below which to ignore for dynamic Y-axis scaling (e.g., motor idle noise).
 pub const SPECTRUM_Y_AXIS_HEADROOM_FACTOR: f64 = 1.2; // Factor to extend Y-axis above the highest peak (after noise floor) for better visibility.
-pub const PEAK_LABEL_MIN_AMPLITUDE: f64 = 1000.0; // Ignore peaks under this; Tunable
+pub const PEAK_LABEL_MIN_AMPLITUDE: f64 = 1000.0; // Ignore peaks under this; Tunable (gyro spectrums only)
+
+// Intelligent threshold for filtered D-term peak detection
+pub const FILTERED_D_TERM_MIN_THRESHOLD: f64 = 100000.0; // Filtered D-term peaks below 100k (0.1% of typical 100M unfiltered) are not meaningful
+
+// Intelligent threshold for filtered gyro peak detection
+pub const FILTERED_GYRO_MIN_THRESHOLD: f64 = 2000.0; // Filtered gyro peaks below 2k are typically noise (based on user feedback)
 
 // Constants for PSD plots (dB scale)
 pub const PSD_Y_AXIS_FLOOR_DB: f64 = -80.0; // A reasonable floor for PSD values in dB
@@ -68,12 +74,13 @@ pub const THROTTLE_Y_MAX_VALUE: f64 = 1000.0; // Maximum throttle value for plot
 // Constants for spectrum peak labeling
 pub const MAX_PEAKS_TO_LABEL: usize = 3; // Max number of peaks (including primary) to label on spectrum plots
 pub const MIN_SECONDARY_PEAK_RATIO: f64 = 0.05; // Secondary peak must be ≥ this linear ratio of the primary peak’s amplitude
+pub const MIN_SECONDARY_PEAK_DB: f64 = 6.0; // Minimum dB difference for secondary peaks in dB domain (6 dB = 4x power ratio)
 pub const MIN_PEAK_SEPARATION_HZ: f64 = 70.0; // Minimum frequency separation between reported peaks on spectrum plots
 
 // Constants for advanced peak detection
-pub const ENABLE_WINDOW_PEAK_DETECTION: bool = true; // Set to true to use window-based peak detection
+pub const ENABLE_WINDOW_PEAK_DETECTION: bool = true; // Enable window-based peak detection for more robust analysis
                                                      // Set to false to use the previous 3-point (amp > prev && amp >= next) logic.
-pub const PEAK_DETECTION_WINDOW_RADIUS: usize = 3; // Radius W for peak detection window (total 2*W+1 points).
+pub const PEAK_DETECTION_WINDOW_RADIUS: usize = 3; // Radius W for peak detection window (total window size: 2*W+1 points)
 
 // PIDsum vs PID Error vs Setpoint Plot
 pub const COLOR_PIDSUM_MAIN: &RGBColor = &GREEN;
@@ -87,6 +94,10 @@ pub const COLOR_SETPOINT_VS_GYRO_GYRO: &RGBColor = &LIGHTBLUE;
 // Gyro vs Unfilt Gyro Plot
 pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
 pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;
+
+// D-term Plot Colors (distinct from gyro colors)
+pub const COLOR_D_TERM_FILT: &RGBColor = &LIGHTBLUE; // Keep blue for filtered (consistent)
+pub const COLOR_D_TERM_UNFILT: &RGBColor = &ORANGE; // Use orange for unfiltered (better contrast than yellow)
 
 // Step Response Plot
 pub const COLOR_STEP_RESPONSE_LOW_SP: &RGBColor = &LIGHTBLUE;
@@ -104,5 +115,15 @@ pub const FALLBACK_CORRELATION_THRESHOLD: f32 = 0.2; // Lower threshold for fall
 pub const MAX_DELAY_FRACTION: usize = 10; // Search up to 1/10 of signal length
 pub const MAX_DELAY_SAMPLES: usize = 200; // Maximum delay samples to search
 pub const MIN_SAMPLES_FOR_DELAY: usize = 100; // Minimum samples required for delay analysis
+
+// D-term specific analysis constants
+pub const MIN_D_TERM_SAMPLES_FOR_ANALYSIS: usize = 100; // Minimum D-term samples needed for meaningful analysis
+pub const D_TERM_MIN_THRESHOLD: f32 = 1e-6; // Very small threshold for detecting "effectively zero" D-terms
+pub const D_TERM_MIN_STD_DEV: f32 = 1e-6; // Minimum standard deviation for meaningful D-term variation
+pub const D_TERM_CORRELATION_THRESHOLD: f64 = 0.1; // More lenient threshold for D-term cross-correlation
+pub const MIN_SAMPLES_FOR_D_TERM_CORR: usize = 50; // Lower sample requirement for D-term correlation
+
+// Gyro PSD heatmap scaling constants
+pub const GYRO_PSD_HEATMAP_MAX_DB: f64 = -10.0; // Maximum dB for gyro PSD heatmap color scaling
 
 // src/constants.rs

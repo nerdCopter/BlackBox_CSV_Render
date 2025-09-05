@@ -352,7 +352,7 @@ fn calculate_filtering_delay_comparison(
 
 /// Enhanced cross-correlation with parabolic peak interpolation for sub-sample accuracy
 /// This addresses the expert feedback about achieving better than sample-rate precision
-fn calculate_filtering_delay_enhanced_xcorr(
+pub fn calculate_filtering_delay_enhanced_xcorr(
     filtered: &Array1<f32>,
     unfiltered: &Array1<f32>,
     sample_rate: f64,

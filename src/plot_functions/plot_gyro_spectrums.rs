@@ -6,9 +6,9 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, ENABLE_WINDOW_PEAK_DETECTION,
-    LINE_WIDTH_PLOT, MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO,
-    PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ,
-    SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
+    FILTERED_GYRO_MIN_THRESHOLD, LINE_WIDTH_PLOT, MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ,
+    MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE,
+    SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
@@ -62,10 +62,38 @@ pub fn plot_gyro_spectrums(
         axis_name_str: &str,
         spectrum_type_str: &str,
     ) -> Vec<(f64, f64)> {
+        // For filtered gyro data, use intelligent threshold checking
+        // Based on user feedback: 4k, 2.1k peaks are reasonable, but <1.9k peaks are not meaningful
+        let is_filtered = spectrum_type_str == "Filtered";
+        let amplitude_threshold = if is_filtered {
+            FILTERED_GYRO_MIN_THRESHOLD // Use constant from constants.rs
+        } else {
+            PEAK_LABEL_MIN_AMPLITUDE // 1k threshold for unfiltered gyro
+        };
+
+        if is_filtered {
+            if let Some((_, peak_amp)) = primary_peak_info {
+                if peak_amp <= amplitude_threshold {
+                    let formatted_peak = if peak_amp >= 1000.0 {
+                        format!("{:.1}k", peak_amp / 1000.0)
+                    } else {
+                        format!("{:.1}", peak_amp)
+                    };
+                    let formatted_threshold = format!("{:.1}k", amplitude_threshold / 1000.0);
+                    println!("  {axis_name_str} {spectrum_type_str}: Primary peak ({}) below intelligent threshold ({}) - skipping peak detection.", formatted_peak, formatted_threshold);
+                    return Vec::new();
+                }
+            } else {
+                // No primary peak found at all
+                println!("  {axis_name_str} {spectrum_type_str}: No peaks above threshold - skipping peak detection.");
+                return Vec::new();
+            }
+        }
+
         let mut peaks_to_plot: Vec<(f64, f64)> = Vec::new();
 
         if let Some((peak_freq, peak_amp)) = primary_peak_info {
-            if peak_amp > PEAK_LABEL_MIN_AMPLITUDE {
+            if peak_amp > amplitude_threshold {
                 peaks_to_plot.push((peak_freq, peak_amp));
             }
         }
@@ -125,9 +153,7 @@ pub fn plot_gyro_spectrums(
                     }
                 }; // End of block assignment to is_potential_peak
 
-                if freq >= SPECTRUM_NOISE_FLOOR_HZ
-                    && is_potential_peak
-                    && amp > PEAK_LABEL_MIN_AMPLITUDE
+                if freq >= SPECTRUM_NOISE_FLOOR_HZ && is_potential_peak && amp > amplitude_threshold
                 {
                     let mut is_valid_for_secondary_consideration = true;
                     if let Some((primary_freq, primary_amp_val)) = primary_peak_info {
@@ -160,8 +186,8 @@ pub fn plot_gyro_spectrums(
                         break;
                     }
                 }
-                if !too_close_to_existing && s_amp > PEAK_LABEL_MIN_AMPLITUDE {
-                    // Ensure it's still above min amp
+                if !too_close_to_existing && s_amp > amplitude_threshold {
+                    // Ensure it's still above the intelligent threshold for filtered data or min amp for unfiltered
                     peaks_to_plot.push((s_freq, s_amp));
                 }
             }
@@ -171,11 +197,12 @@ pub fn plot_gyro_spectrums(
         if !peaks_to_plot.is_empty() {
             let (main_freq, main_amp) = peaks_to_plot[0];
             println!(
-                "  {axis_name_str} {spectrum_type_str} Gyro Spectrum: Primary Peak amplitude {main_amp:.0} at {main_freq:.0} Hz"
+                "  {axis_name_str} {spectrum_type_str} Gyro Spectrum: Primary Peak amplitude {main_amp:.0} at {:.1} Hz",
+                main_freq
             );
             for (idx, (freq, amp)) in peaks_to_plot.iter().skip(1).enumerate() {
                 println!(
-                    "    Subordinate Peak: {}: {:.0} at {:.0} Hz",
+                    "    Subordinate Peak: {}: {:.0} at {:.1} Hz",
                     idx + 1,
                     amp,
                     freq

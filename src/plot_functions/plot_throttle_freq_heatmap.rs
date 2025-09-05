@@ -5,8 +5,8 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    HEATMAP_MIN_PSD_DB, STFT_OVERLAP_FACTOR, STFT_WINDOW_DURATION_S, THROTTLE_Y_BINS_COUNT,
-    THROTTLE_Y_MAX_VALUE, THROTTLE_Y_MIN_VALUE, TUKEY_ALPHA,
+    GYRO_PSD_HEATMAP_MAX_DB, HEATMAP_MIN_PSD_DB, STFT_OVERLAP_FACTOR, STFT_WINDOW_DURATION_S,
+    THROTTLE_Y_BINS_COUNT, THROTTLE_Y_MAX_VALUE, THROTTLE_Y_MIN_VALUE, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response;
 use crate::data_analysis::fft_utils;
@@ -41,6 +41,10 @@ pub fn plot_throttle_freq_heatmap(
         return Ok(());
     };
 
+    if !(0.0..1.0).contains(&STFT_OVERLAP_FACTOR) {
+        eprintln!("Error: STFT_OVERLAP_FACTOR must be in [0,1).");
+        return Ok(());
+    }
     let window_size_samples = (STFT_WINDOW_DURATION_S * sr_value) as usize;
     let hop_size_samples = (window_size_samples as f64 * (1.0 - STFT_OVERLAP_FACTOR)) as usize;
     if hop_size_samples == 0 {
@@ -118,6 +122,14 @@ pub fn plot_throttle_freq_heatmap(
             vec![vec![0; THROTTLE_Y_BINS_COUNT]; num_freq_bins_to_plot];
 
         let window_func = calc_step_response::tukeywin(window_size_samples, TUKEY_ALPHA);
+        // Σ w[n]^2 for window-power normalization
+        let window_power: f64 = window_func
+            .iter()
+            .map(|&w| {
+                let wf = w as f64;
+                wf * wf
+            })
+            .sum();
 
         let mut current_start_sample = 0;
         while current_start_sample + window_size_samples <= unfilt_time_series.len() {
@@ -152,8 +164,8 @@ pub fn plot_throttle_freq_heatmap(
                 continue;
             }
 
-            // Normalization for one-sided Power Spectral Density (PSD) for real signals:
-            let psd_scale = 1.0 / (window_size_samples as f64 * sr_value);
+            // Normalization for one-sided PSD: 1 / (Σw² · fs)
+            let psd_scale = 1.0 / (window_power * sr_value);
 
             for i in 0..num_unique_freqs {
                 if i >= num_freq_bins_to_plot {
@@ -210,7 +222,7 @@ pub fn plot_throttle_freq_heatmap(
 
         // Determine X-axis range for plotting (frequency)
         let x_range_plot = if frequencies_x_bins.len() > 1 {
-            *frequencies_x_bins.first().unwrap()..*frequencies_x_bins.last().unwrap()
+            frequencies_x_bins[0]..frequencies_x_bins[frequencies_x_bins.len() - 1]
         } else if !frequencies_x_bins.is_empty() {
             frequencies_x_bins[0]..frequencies_x_bins[0] + freq_step
         } else {
@@ -231,6 +243,7 @@ pub fn plot_throttle_freq_heatmap(
             },
             x_label: "Frequency (Hz)".to_string(),
             y_label: "Throttle (setpoint)".to_string(),
+            max_db: GYRO_PSD_HEATMAP_MAX_DB, // Keep existing gyro scaling
         };
 
         let filtered_heatmap_config = HeatmapPlotConfig {
@@ -244,23 +257,20 @@ pub fn plot_throttle_freq_heatmap(
             },
             x_label: "Frequency (Hz)".to_string(),
             y_label: "Throttle (setpoint)".to_string(),
+            max_db: GYRO_PSD_HEATMAP_MAX_DB, // Keep existing gyro scaling
         };
 
         all_heatmap_data[axis_idx] = Some((unfiltered_heatmap_config, filtered_heatmap_config));
     }
 
     draw_dual_heatmap_plot(&output_file, root_name, plot_type_name, move |axis_index| {
-        if let Some((unfiltered_config, filtered_config)) = all_heatmap_data[axis_index].take() {
-            Some(AxisHeatmapSpectrum {
-                unfiltered: Some(unfiltered_config),
-                filtered: Some(filtered_config),
+        all_heatmap_data[axis_index]
+            .as_ref()
+            .cloned()
+            .map(|(unf, filt)| AxisHeatmapSpectrum {
+                unfiltered: Some(unf),
+                filtered: Some(filt),
             })
-        } else {
-            Some(AxisHeatmapSpectrum {
-                unfiltered: None,
-                filtered: None,
-            })
-        }
     })
 }
 
