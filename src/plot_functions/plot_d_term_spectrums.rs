@@ -6,7 +6,7 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_D_TERM_FILT, COLOR_D_TERM_UNFILT, PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ,
-    SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
+    SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::d_term_delay;
@@ -257,12 +257,17 @@ pub fn plot_d_term_spectrums(
             "".to_string()
         };
 
-        // Calculate linear amplitude Y-axis range
+        // Calculate linear amplitude Y-axis range with intelligent floor for D-terms
+        // D-terms naturally have lower amplitudes, especially filtered ones
+        // Use a much lower floor to prevent compressing low-amplitude signals
+        let d_term_floor_unfilt = (global_max_y_unfilt * 0.001).max(1.0); // 0.1% of max or 1.0 minimum
+        let d_term_floor_filt = (global_max_y_filt * 0.001).max(1.0); // 0.1% of max or 1.0 minimum
+
         let max_y_unfilt = global_max_y_unfilt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR;
-        let y_max_unfilt = max_y_unfilt.max(SPECTRUM_Y_AXIS_FLOOR * 2.0);
+        let y_max_unfilt = max_y_unfilt.max(d_term_floor_unfilt * 100.0); // Ensure reasonable range
 
         let max_y_filt = global_max_y_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR;
-        let y_max_filt = max_y_filt.max(SPECTRUM_Y_AXIS_FLOOR * 2.0);
+        let y_max_filt = max_y_filt.max(d_term_floor_filt * 100.0); // Ensure reasonable range
 
         // Create plot configurations
         let unfiltered_config = if !unfilt_series_data.is_empty() {
@@ -275,7 +280,7 @@ pub fn plot_d_term_spectrums(
             Some(PlotConfig {
                 title: format!("{} Unfiltered D-term (derivative of gyroUnfilt)", axis_name),
                 x_range: 0.0..max_freq_display,
-                y_range: SPECTRUM_Y_AXIS_FLOOR..y_max_unfilt,
+                y_range: d_term_floor_unfilt..y_max_unfilt,
                 series: vec![PlotSeries {
                     data: unfilt_series_data,
                     label: if delay_str.is_empty() {
@@ -306,7 +311,7 @@ pub fn plot_d_term_spectrums(
             Some(PlotConfig {
                 title: format!("{} Filtered D-term (flight controller output)", axis_name),
                 x_range: 0.0..max_freq_display,
-                y_range: SPECTRUM_Y_AXIS_FLOOR..y_max_filt,
+                y_range: d_term_floor_filt..y_max_filt,
                 series: vec![PlotSeries {
                     data: filt_series_data,
                     label: if delay_str.is_empty() {
