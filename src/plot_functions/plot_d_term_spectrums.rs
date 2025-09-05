@@ -149,9 +149,7 @@ pub fn plot_d_term_spectrums(
                 let n_unique = spectrum.len();
                 // use original input length to compute true frequency step
                 let freq_step = sample_rate_value / (min_common_length as f64);
-                let freqs: Vec<f64> = (0..n_unique)
-                    .map(|i| i as f64 * freq_step)
-                    .collect();
+                let freqs: Vec<f64> = (0..n_unique).map(|i| i as f64 * freq_step).collect();
                 (spectrum, freqs)
             } else {
                 (Array1::zeros(0), Vec::new())
@@ -165,12 +163,9 @@ pub fn plot_d_term_spectrums(
             let spectrum = fft_utils::fft_forward(&windowed_filt);
 
             if !spectrum.is_empty() {
-            if !spectrum.is_empty() {
                 let n_unique = spectrum.len();
                 let freq_step = sample_rate_value / (min_common_length as f64);
-                let freqs: Vec<f64> = (0..n_unique)
-                    .map(|i| i as f64 * freq_step)
-                    .collect();
+                let freqs: Vec<f64> = (0..n_unique).map(|i| i as f64 * freq_step).collect();
                 (spectrum, freqs)
             } else {
                 (Array1::zeros(0), Vec::new())
