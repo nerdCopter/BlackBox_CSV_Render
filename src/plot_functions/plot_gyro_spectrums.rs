@@ -354,7 +354,23 @@ pub fn plot_gyro_spectrums(
 
             let mut unfilt_plot_series = vec![PlotSeries {
                 data: unfilt_series_data,
-                label: "Unfiltered Gyro".to_string(),
+                label: {
+                    // Check if dynamic LPF is being used to enhance the legend
+                    if let Some(ref config) = filter_config {
+                        let (has_dynamic, min_cutoff, max_cutoff) =
+                            filter_response::check_gyro_dynamic_lpf_usage(config);
+                        if has_dynamic {
+                            format!(
+                                "Unfiltered Gyro (Dynamic LPF {:.0}-{:.0}Hz)",
+                                min_cutoff, max_cutoff
+                            )
+                        } else {
+                            "Unfiltered Gyro".to_string()
+                        }
+                    } else {
+                        "Unfiltered Gyro".to_string()
+                    }
+                },
                 color: *COLOR_GYRO_VS_UNFILT_UNFILT,
                 stroke_width: LINE_WIDTH_PLOT,
             }];
