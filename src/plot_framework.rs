@@ -184,17 +184,17 @@ fn draw_single_axis_chart_with_config(
         .label_style(("sans-serif", 12))
         .draw()?;
 
-    let mut series_drawn_count = 0;
+    let mut legend_series_count = 0;
     for s in &plot_config.series {
         if !s.data.is_empty() {
             // Special handling for cutoff lines: label starts with __CUTOFF_LINE__
             if s.label.starts_with("__CUTOFF_LINE__") && s.data.len() == 2 {
                 // Draw a vertical line at the cutoff frequency without adding to legend
-                let (cutoff_freq, _) = s.data[0];
-                let (_, max_y) = s.data[1];
-
+                let cutoff_freq = s.data[0].0;
+                let y0 = plot_config.y_range.start;
+                let y1 = plot_config.y_range.end;
                 chart.draw_series(LineSeries::new(
-                    vec![(cutoff_freq, 0.0), (cutoff_freq, max_y)],
+                    vec![(cutoff_freq, y0), (cutoff_freq, y1)],
                     s.color.stroke_width(s.stroke_width),
                 ))?;
                 // No legend entry for cutoff lines
@@ -212,12 +212,12 @@ fn draw_single_axis_chart_with_config(
                             s.color.stroke_width(LINE_WIDTH_LEGEND),
                         )
                     });
+                legend_series_count += 1;
             }
-            series_drawn_count += 1;
         }
     }
 
-    if series_drawn_count > 0 {
+    if legend_series_count > 0 {
         chart
             .configure_series_labels()
             .position(SeriesLabelPosition::UpperRight)

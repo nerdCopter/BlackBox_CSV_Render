@@ -395,7 +395,8 @@ pub fn plot_gyro_spectrums(
                     RGBColor(255, 69, 0),  // Red-orange for third filter
                 ];
 
-                for (curve_idx, (label, curve_data, _cutoff_hz)) in filter_curves.iter().enumerate()
+                for (curve_idx, (label, curve_data, cutoff_hz_ref)) in
+                    filter_curves.iter().enumerate()
                 {
                     if !curve_data.is_empty() {
                         // Show filter response as a normalized curve overlaid on the spectrum
@@ -422,7 +423,7 @@ pub fn plot_gyro_spectrums(
                         });
 
                         // Add vertical cutoff indicator line (no legend entry)
-                        let cutoff_hz = *_cutoff_hz;
+                        let cutoff_hz = *cutoff_hz_ref;
                         unfilt_plot_series.push(PlotSeries {
                             data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
                             label: format!("__CUTOFF_LINE__{}", cutoff_hz), // Special prefix to avoid legend
