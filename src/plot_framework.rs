@@ -187,18 +187,32 @@ fn draw_single_axis_chart_with_config(
     let mut series_drawn_count = 0;
     for s in &plot_config.series {
         if !s.data.is_empty() {
-            chart
-                .draw_series(LineSeries::new(
-                    s.data.iter().cloned(),
+            // Special handling for cutoff lines: label starts with __CUTOFF_LINE__
+            if s.label.starts_with("__CUTOFF_LINE__") && s.data.len() == 2 {
+                // Draw a vertical line at the cutoff frequency without adding to legend
+                let (cutoff_freq, _) = s.data[0];
+                let (_, max_y) = s.data[1];
+
+                chart.draw_series(LineSeries::new(
+                    vec![(cutoff_freq, 0.0), (cutoff_freq, max_y)],
                     s.color.stroke_width(s.stroke_width),
-                ))?
-                .label(&s.label)
-                .legend(move |(x, y)| {
-                    PathElement::new(
-                        vec![(x, y), (x + 20, y)],
-                        s.color.stroke_width(LINE_WIDTH_LEGEND),
-                    )
-                });
+                ))?;
+                // No legend entry for cutoff lines
+            } else {
+                // Regular series with legend
+                chart
+                    .draw_series(LineSeries::new(
+                        s.data.iter().cloned(),
+                        s.color.stroke_width(s.stroke_width),
+                    ))?
+                    .label(&s.label)
+                    .legend(move |(x, y)| {
+                        PathElement::new(
+                            vec![(x, y), (x + 20, y)],
+                            s.color.stroke_width(LINE_WIDTH_LEGEND),
+                        )
+                    });
+            }
             series_drawn_count += 1;
         }
     }

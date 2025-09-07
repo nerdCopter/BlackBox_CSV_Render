@@ -405,8 +405,14 @@ pub fn plot_gyro_spectrums(
                             stroke_width: 2,
                         });
 
-                        // Note: Vertical cutoff markers removed to avoid empty legend entries
-                        // The filter curves themselves clearly indicate where cutoff begins
+                        // Add vertical cutoff indicator line (no legend entry)
+                        let cutoff_hz = *_cutoff_hz;
+                        unfilt_plot_series.push(PlotSeries {
+                            data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
+                            label: format!("__CUTOFF_LINE__{}", cutoff_hz), // Special prefix to avoid legend
+                            color: filter_colors[curve_idx % filter_colors.len()],
+                            stroke_width: 1,
+                        });
                     }
                 }
             }
