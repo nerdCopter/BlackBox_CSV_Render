@@ -23,11 +23,13 @@ use plotters::style::RGBColor;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro spectrums.
 /// Now includes filter response curve overlays based on header metadata.
+/// When debug_mode is enabled, also overlays filter curves on the filtered gyro plot.
 pub fn plot_gyro_spectrums(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
     header_metadata: Option<&[(String, String)]>,
+    debug_mode: bool,
 ) -> Result<(), Box<dyn Error>> {
     let output_file = format!("{root_name}_Gyro_Spectrums_comparative.png");
     let plot_type_name = "Gyro Spectrums";
@@ -440,7 +442,7 @@ pub fn plot_gyro_spectrums(
                     }
                 }
             }
-            let filt_plot_series = vec![PlotSeries {
+            let mut filt_plot_series = vec![PlotSeries {
                 data: filt_series_data,
                 label: if let Some(ref results) = delay_comparison_results {
                     // Show comparison of both methods if available - NO AVERAGING
@@ -480,6 +482,61 @@ pub fn plot_gyro_spectrums(
                 color: *COLOR_GYRO_VS_UNFILT_FILT,
                 stroke_width: LINE_WIDTH_PLOT,
             }];
+
+            // Add debug filter response curves to filtered plot when debug mode is enabled
+            if debug_mode {
+                if let Some(ref config) = filter_config {
+                    // Use gyro rate for Nyquist, not logging rate - filters operate at gyro frequency
+                    let max_freq = gyro_rate_hz / 2.0; // Proper gyro Nyquist frequency
+                    let num_points = 1000; // More points for smooth curves
+
+                    // Generate individual filter response curves for this axis
+                    let filter_curves = filter_response::generate_individual_filter_curves(
+                        &config.gyro[axis_index],
+                        max_freq,
+                        num_points,
+                    );
+
+                    // Add each filter curve as a separate series with distinct colors
+                    let debug_filter_colors = [
+                        RGBColor(255, 165, 0),  // Orange for first filter
+                        RGBColor(255, 20, 147), // Deep pink for second filter  
+                        RGBColor(138, 43, 226), // Blue violet for third filter
+                    ];
+
+                    for (curve_idx, (label, curve_data, _cutoff_hz_ref)) in
+                        filter_curves.iter().enumerate()
+                    {
+                        if !curve_data.is_empty() && curve_idx < debug_filter_colors.len() {
+                            // Show filter response as a normalized curve overlaid on the filtered spectrum
+                            // Use a fixed amplitude scale that makes the cutoff frequency visible  
+                            let filter_curve_amplitude = overall_max_y_amplitude * 0.25; // 25% of max spectrum height
+                            let filter_curve_offset = overall_max_y_amplitude * 0.02; // Small offset from bottom
+
+                            let scaled_response: Vec<(f64, f64)> = curve_data
+                                .iter()
+                                // Keep overlay within the plotted spectrum range
+                                .filter(|(freq, _)| *freq <= max_freq_val)
+                                .map(|(freq, response)| {
+                                    // Scale response from [0,1] to [offset, offset + amplitude]
+                                    let scaled_amplitude =
+                                        filter_curve_offset + (response * filter_curve_amplitude);
+                                    (*freq, scaled_amplitude)
+                                })
+                                .collect();
+
+                            if !scaled_response.is_empty() {
+                                filt_plot_series.push(PlotSeries {
+                                    data: scaled_response,
+                                    label: format!("DEBUG: {}", label),
+                                    color: debug_filter_colors[curve_idx],
+                                    stroke_width: 2, // Slightly thicker for debug visibility
+                                });
+                            }
+                        }
+                    }
+                }
+            }
 
             let unfiltered_plot_config = Some(PlotConfig {
                 title: format!("{} Unfiltered Gyro Spectrum", AXIS_NAMES[axis_index]),
