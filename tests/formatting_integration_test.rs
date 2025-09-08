@@ -43,35 +43,39 @@ mod tests {
         println!("Step Response Y-axis formatting test:");
         println!("Before fix: values like 0.2, 0.4, 0.6, 0.8 would show as 0, 0, 1, 1");
         println!("After fix:");
-        
+
         for (value, expected) in test_values.iter().zip(expected_labels.iter()) {
             let formatted = format_y_axis_label(*value, &step_response_config);
             println!("  Value {:.1} -> Label '{}'", value, formatted);
-            assert_eq!(&formatted, expected, "Y-axis formatting failed for value {}", value);
+            assert_eq!(
+                &formatted, expected,
+                "Y-axis formatting failed for value {}",
+                value
+            );
         }
-        
+
         println!("✓ All step response Y-axis labels now show proper decimal values!");
     }
 
-    #[test] 
+    #[test]
     fn test_other_plot_types_unaffected() {
         // Verify spectrum plots still work correctly
         let spectrum_config = MockPlotConfig {
             y_label: "Amplitude".to_string(),
         };
-        
+
         // Large values should still use k/M notation
         assert_eq!(format_y_axis_label(1000.0, &spectrum_config), "1k");
         assert_eq!(format_y_axis_label(1_000_000.0, &spectrum_config), "1.0M");
-        
+
         // dB plots should use integer formatting
         let psd_config = MockPlotConfig {
             y_label: "Power Spectral Density (dB/Hz)".to_string(),
         };
-        
+
         assert_eq!(format_y_axis_label(-30.5, &psd_config), "-30");
         assert_eq!(format_y_axis_label(10.7, &psd_config), "11");
-        
+
         println!("✓ Other plot types maintain their correct formatting!");
     }
 }
