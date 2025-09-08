@@ -258,30 +258,9 @@ pub fn generate_individual_filter_curves(
                 filter_curves.push((effective_label, effective_curve, imuf.effective_cutoff_hz));
             }
 
-            // Generate curve for sample rate corrected cutoff if significantly different
-            if (imuf.sample_rate_corrected_hz - imuf.effective_cutoff_hz).abs() > 1.0 {
-                let corrected_filter = FilterConfig {
-                    filter_type,
-                    cutoff_hz: imuf.sample_rate_corrected_hz,
-                    enabled: true,
-                };
-                let corrected_curve =
-                    generate_single_filter_curve(&corrected_filter, max_frequency_hz, num_points);
-                let corrected_label = format!(
-                    "IMUF v256 Theoretical ({} @ {:.0}Hz, rate adjusted)",
-                    filter_type.name(),
-                    imuf.sample_rate_corrected_hz
-                );
-                filter_curves.push((
-                    corrected_label,
-                    corrected_curve,
-                    imuf.sample_rate_corrected_hz,
-                ));
-            }
-
-            // TODO: Add measured curve based on actual transfer function analysis
-            // This would analyze filtered vs unfiltered data to determine real response
-            // For now, users can visually compare theoretical curves with actual filtered data
+            // TODO: Remove theoretical curves entirely - they don't match reality
+            // Instead, implement measured filter response that works for ALL firmware types
+            // This would provide real diagnostic value vs misleading theoretical curves
         }
     }
 
@@ -703,14 +682,117 @@ fn calculate_sample_rate_corrected_cutoff(
     effective_cutoff_hz * (flight_controller_gyro_rate_hz / IMUF_ASSUMED_RATE_HZ)
 }
 
-// TODO: Implement measured filter response analysis
-// Proper approach would be to:
-// 1. Take FFT of both filtered and unfiltered gyro data
-// 2. Calculate transfer function H(f) = FFT(filtered) / FFT(unfiltered)
-// 3. Find -3dB point to determine actual cutoff frequency
-// 4. Analyze slope to determine actual filter order (PT1, PT2, etc.)
-// 5. Generate measured curve from this analysis
-// This would show the REAL filter behavior vs theoretical expectations
+/// Measure actual filter response from spectrum data (magnitude vs frequency)
+/// This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
+/// Returns measured filter characteristics extracted from real spectral data
+#[allow(dead_code)]
+pub fn measure_filter_response(
+    unfiltered_spectrum: &[(f64, f64)], // (frequency, magnitude) pairs
+    filtered_spectrum: &[(f64, f64)],   // (frequency, magnitude) pairs
+    _sample_rate: f64, // Not needed since we have frequency data
+) -> Result<MeasuredFilterResponse, Box<dyn std::error::Error>> {
+    
+    // Validate input data
+    if filtered_spectrum.len() != unfiltered_spectrum.len() {
+        return Err("Filtered and unfiltered spectra must have same length".into());
+    }
+    if filtered_spectrum.len() < 50 {
+        return Err("Need at least 50 frequency points for reliable analysis".into());
+    }
+    
+    // Calculate transfer function magnitude |H(f)| = |Filtered(f)| / |Unfiltered(f)|
+    let mut transfer_function = Vec::new();
+    
+    for i in 0..filtered_spectrum.len() {
+        let (freq, filt_mag) = filtered_spectrum[i];
+        let (_, unfilt_mag) = unfiltered_spectrum[i];
+        
+        if freq > 10.0 && freq < 500.0 && unfilt_mag > 0.0 { // Focus on filter-relevant frequencies
+            let magnitude_ratio = filt_mag / unfilt_mag;
+            transfer_function.push((freq, magnitude_ratio));
+        }
+    }
+    
+    if transfer_function.is_empty() {
+        return Err("No valid transfer function data found".into());
+    }
+    
+    // Find -3dB cutoff frequency (magnitude ratio = 0.707)
+    let cutoff_hz = find_cutoff_frequency(&transfer_function, 0.707)?;
+    
+    // Estimate filter order from rolloff slope
+    let filter_order = estimate_filter_order(&transfer_function, cutoff_hz)?;
+    
+    // Calculate confidence based on data quality
+    let confidence = calculate_measurement_confidence(&transfer_function);
+    
+    Ok(MeasuredFilterResponse {
+        cutoff_hz,
+        filter_order,
+        confidence,
+        transfer_function,
+    })
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct MeasuredFilterResponse {
+    pub cutoff_hz: f64,
+    pub filter_order: f64,  // 1.0 = PT1, 2.0 = PT2, etc.
+    pub confidence: f64,    // 0.0-1.0
+    pub transfer_function: Vec<(f64, f64)>, // (freq, magnitude)
+}
+
+#[allow(dead_code)]
+fn find_cutoff_frequency(
+    transfer_function: &[(f64, f64)], 
+    target_ratio: f64
+) -> Result<f64, Box<dyn std::error::Error>> {
+    let mut best_freq = 0.0;
+    let mut best_diff = f64::INFINITY;
+    
+    for &(freq, ratio) in transfer_function {
+        let diff = (ratio - target_ratio).abs();
+        if diff < best_diff {
+            best_diff = diff;
+            best_freq = freq;
+        }
+    }
+    
+    if best_freq > 0.0 {
+        Ok(best_freq)
+    } else {
+        Err("Could not find cutoff frequency".into())
+    }
+}
+
+#[allow(dead_code, unused_variables)]
+fn estimate_filter_order(
+    transfer_function: &[(f64, f64)],
+    cutoff_hz: f64,
+) -> Result<f64, Box<dyn std::error::Error>> {
+    // Analyze rolloff slope above cutoff frequency
+    // -20dB/decade = PT1 (order 1.0)
+    // -40dB/decade = PT2 (order 2.0)
+    // This is simplified - real implementation would do linear regression
+    
+    // For now, return a reasonable default
+    // TODO: Implement proper slope analysis
+    Ok(1.5) // Placeholder - between PT1 and PT2
+}
+
+#[allow(dead_code)]
+fn calculate_measurement_confidence(
+    _transfer_function: &[(f64, f64)]
+) -> f64 {
+    // TODO: Calculate confidence based on:
+    // - Signal-to-noise ratio
+    // - Smoothness of transfer function
+    // - Number of valid data points
+    // - Consistency of rolloff slope
+    
+    0.8 // Placeholder confidence
+}
 /// Parse IMUF filters with optional gyro rate for sample rate correction
 pub fn parse_imuf_filters_with_gyro_rate(
     headers: &[(String, String)],

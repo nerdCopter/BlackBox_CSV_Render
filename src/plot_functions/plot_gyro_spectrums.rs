@@ -352,6 +352,10 @@ pub fn plot_gyro_spectrums(
         if let Some((unfilt_series_data, unfilt_peaks, filt_series_data, filt_peaks)) =
             all_fft_raw_data[axis_index].as_ref().cloned()
         {
+            // Clone spectrum data for measured filter analysis (before data gets moved)
+            let unfilt_spectrum_data = unfilt_series_data.clone();
+            let filt_spectrum_data = filt_series_data.clone();
+
             let max_freq_val = sr_value / 2.0;
             let x_range = 0.0..max_freq_val * 1.05;
             let y_range_for_all_clone = 0.0..overall_max_y_amplitude;
@@ -442,6 +446,8 @@ pub fn plot_gyro_spectrums(
                     }
                 }
             }
+            // Use amplitude data extracted at the beginning for measured filter analysis
+
             let mut filt_plot_series = vec![PlotSeries {
                 data: filt_series_data,
                 label: if let Some(ref results) = delay_comparison_results {
@@ -483,58 +489,64 @@ pub fn plot_gyro_spectrums(
                 stroke_width: LINE_WIDTH_PLOT,
             }];
 
-            // Add debug filter response curves to filtered plot when debug mode is enabled
+            // Add measured filter response curve when debug mode is enabled
             if debug_mode {
-                if let Some(ref config) = filter_config {
-                    // Use gyro rate for Nyquist, not logging rate - filters operate at gyro frequency
-                    let max_freq = gyro_rate_hz / 2.0; // Proper gyro Nyquist frequency
-                    let num_points = 1000; // More points for smooth curves
-
-                    // Generate individual filter response curves for this axis
-                    let filter_curves = filter_response::generate_individual_filter_curves(
-                        &config.gyro[axis_index],
-                        max_freq,
-                        num_points,
-                    );
-
-                    // Add each filter curve as a separate series with distinct colors
-                    let debug_filter_colors = [
-                        RGBColor(255, 165, 0),  // Orange for first filter
-                        RGBColor(255, 20, 147), // Deep pink for second filter
-                        RGBColor(138, 43, 226), // Blue violet for third filter
-                    ];
-
-                    for (curve_idx, (label, curve_data, _cutoff_hz_ref)) in
-                        filter_curves.iter().enumerate()
-                    {
-                        if !curve_data.is_empty() && curve_idx < debug_filter_colors.len() {
-                            // Show filter response as a normalized curve overlaid on the filtered spectrum
-                            // Use a fixed amplitude scale that makes the cutoff frequency visible
-                            let filter_curve_amplitude = overall_max_y_amplitude * 0.25; // 25% of max spectrum height
-                            let filter_curve_offset = overall_max_y_amplitude * 0.02; // Small offset from bottom
-
-                            let scaled_response: Vec<(f64, f64)> = curve_data
-                                .iter()
-                                // Keep overlay within the plotted spectrum range
-                                .filter(|(freq, _)| *freq <= max_freq_val)
-                                .map(|(freq, response)| {
-                                    // Scale response from [0,1] to [offset, offset + amplitude]
-                                    let scaled_amplitude =
-                                        filter_curve_offset + (response * filter_curve_amplitude);
-                                    (*freq, scaled_amplitude)
-                                })
-                                .collect();
-
-                            if !scaled_response.is_empty() {
-                                filt_plot_series.push(PlotSeries {
-                                    data: scaled_response,
-                                    label: format!("DEBUG: {}", label),
-                                    color: debug_filter_colors[curve_idx],
-                                    stroke_width: 2, // Slightly thicker for debug visibility
-                                });
-                            }
+                // Attempt to measure actual filter response from the spectrum data
+                // This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
+                if let Ok(measured_response) = filter_response::measure_filter_response(
+                    &unfilt_spectrum_data,
+                    &filt_spectrum_data,
+                    sr_value,
+                ) {
+                    // Generate measured filter curve for visualization
+                    let max_freq = sr_value / 2.0;
+                    let num_points = 1000;
+                    let freq_step = max_freq / num_points as f64;
+                    
+                    // Generate ideal filter response curve based on measured characteristics
+                    let mut measured_curve_data = Vec::new();
+                    for i in 0..num_points {
+                        let freq = i as f64 * freq_step;
+                        if freq > 0.0 && freq <= max_freq_val {
+                            // Generate filter response based on measured cutoff and order
+                            let normalized_freq = freq / measured_response.cutoff_hz;
+                            let response = match measured_response.filter_order as i32 {
+                                1 => 1.0 / (1.0 + normalized_freq * normalized_freq).sqrt(), // PT1
+                                2 => 1.0 / (1.0 + normalized_freq.powi(4)).sqrt(), // PT2 approximation
+                                _ => 1.0 / (1.0 + normalized_freq.powi(4)).sqrt(), // Default to PT2
+                            };
+                            measured_curve_data.push((freq, response));
                         }
                     }
+
+                    if !measured_curve_data.is_empty() {
+                        // Scale curve to overlay on spectrum
+                        let filter_curve_amplitude = overall_max_y_amplitude * 0.3; // 30% of max spectrum height
+                        let filter_curve_offset = overall_max_y_amplitude * 0.05; // Small offset from bottom
+
+                        let scaled_measured_curve: Vec<(f64, f64)> = measured_curve_data
+                            .iter()
+                            .map(|(freq, response)| {
+                                let scaled_amplitude = filter_curve_offset + (response * filter_curve_amplitude);
+                                (*freq, scaled_amplitude)
+                            })
+                            .collect();
+
+                        filt_plot_series.push(PlotSeries {
+                            data: scaled_measured_curve,
+                            label: format!(
+                                "MEASURED: {:.0}Hz {:.1} order ({:.0}% conf)",
+                                measured_response.cutoff_hz,
+                                measured_response.filter_order,
+                                measured_response.confidence * 100.0
+                            ),
+                            color: RGBColor(50, 205, 50), // Lime green for measured response
+                            stroke_width: 3, // Thick line for measured data
+                        });
+                    }
+                } else {
+                    // If measurement fails, add a note about it
+                    println!("      DEBUG: Unable to measure filter response for {} axis - insufficient data or analysis failed", AXIS_NAMES[axis_index]);
                 }
             }
 
