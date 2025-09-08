@@ -16,7 +16,8 @@ use crate::data_analysis::filter_delay;
 use crate::data_analysis::filter_response;
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{
-    draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries, CUTOFF_LINE_PREFIX,
+    draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries, CUTOFF_LINE_DOTTED_PREFIX,
+    CUTOFF_LINE_PREFIX,
 };
 use crate::types::AllFFTData;
 use plotters::style::RGBColor;
@@ -438,9 +439,17 @@ pub fn plot_gyro_spectrums(
                         if !cutoff_hz.is_finite() {
                             continue;
                         }
+
+                        // Use dotted line for IMUF effective cutoffs, solid line for others
+                        let cutoff_prefix = if label.contains("IMUF v256 Effective") {
+                            CUTOFF_LINE_DOTTED_PREFIX
+                        } else {
+                            CUTOFF_LINE_PREFIX
+                        };
+
                         unfilt_plot_series.push(PlotSeries {
                             data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
-                            label: format!("{}{}", CUTOFF_LINE_PREFIX, cutoff_hz), // Special prefix to avoid legend
+                            label: format!("{}{}", cutoff_prefix, cutoff_hz), // Special prefix to avoid legend
                             color: filter_colors[curve_idx % filter_colors.len()],
                             stroke_width: 1,
                         });
