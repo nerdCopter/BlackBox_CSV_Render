@@ -181,11 +181,20 @@ pub fn generate_individual_filter_curves(
                 enabled: true,
             };
             let curve = generate_single_filter_curve(&static_filter, max_frequency_hz, num_points);
-            let label = format!(
-                "Dynamic LPF1 ({} @ {:.0}Hz)",
-                dyn_lpf1.filter_type.name(),
-                dyn_lpf1.min_cutoff_hz
-            );
+            let label = if dyn_lpf1.max_cutoff_hz > dyn_lpf1.min_cutoff_hz {
+                format!(
+                    "Dyn LPF1 ({} {:.0}-{:.0}Hz)",
+                    dyn_lpf1.filter_type.name(),
+                    dyn_lpf1.min_cutoff_hz,
+                    dyn_lpf1.max_cutoff_hz
+                )
+            } else {
+                format!(
+                    "Dyn LPF1 ({} @ {:.0}Hz)",
+                    dyn_lpf1.filter_type.name(),
+                    dyn_lpf1.min_cutoff_hz
+                )
+            };
             filter_curves.push((label, curve, dyn_lpf1.min_cutoff_hz));
         }
     }
@@ -234,6 +243,23 @@ fn generate_single_filter_curve(
 
     curve_points
 }
+
+/// Check if gyro dynamic LPF filtering is enabled
+/// Returns (has_dynamic, min_cutoff, max_cutoff)
+/// Note: Betaflight (only firmware with dynamic LPF) uses same settings for all axes,
+/// so we only need to check the first axis (Roll)
+pub fn check_gyro_dynamic_lpf_usage(config: &AllFilterConfigs) -> (bool, f64, f64) {
+    if let Some(ref dyn_lpf) = config.gyro[0].dynamic_lpf1 {
+        if dyn_lpf.enabled
+            && dyn_lpf.min_cutoff_hz > 0.0
+            && dyn_lpf.max_cutoff_hz > dyn_lpf.min_cutoff_hz
+        {
+            return (true, dyn_lpf.min_cutoff_hz, dyn_lpf.max_cutoff_hz);
+        }
+    }
+    (false, 0.0, 0.0)
+}
+
 /// Extract gyro rate from header metadata for proper Nyquist calculation
 /// Filters operate at gyro rate, not logging rate
 pub fn extract_gyro_rate(header_metadata: Option<&[(String, String)]>) -> Option<f64> {
@@ -603,7 +629,7 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
         }
         if let Some(ref dyn_lpf1) = config.gyro[axis_idx].dynamic_lpf1 {
             println!(
-                "    Dynamic LPF1: {} {:.0}-{:.0} Hz (expo: {})",
+                "    Dyn LPF1: {} {:.0}-{:.0} Hz (expo: {})",
                 dyn_lpf1.filter_type.name(),
                 dyn_lpf1.min_cutoff_hz,
                 dyn_lpf1.max_cutoff_hz,

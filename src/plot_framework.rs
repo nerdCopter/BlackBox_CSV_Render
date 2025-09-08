@@ -18,6 +18,9 @@ use crate::constants::{
     PLOT_HEIGHT, PLOT_WIDTH, PSD_PEAK_LABEL_MIN_VALUE_DB,
 };
 
+/// Special prefix for cutoff line series to avoid showing them in legends
+pub const CUTOFF_LINE_PREFIX: &str = "__CUTOFF_LINE__";
+
 /// Calculate plot range with padding.
 /// Adds 15% padding, or a fixed padding for very small ranges.
 pub fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
@@ -184,26 +187,45 @@ fn draw_single_axis_chart_with_config(
         .label_style(("sans-serif", 12))
         .draw()?;
 
-    let mut series_drawn_count = 0;
+    let mut legend_series_count = 0;
     for s in &plot_config.series {
         if !s.data.is_empty() {
-            chart
-                .draw_series(LineSeries::new(
-                    s.data.iter().cloned(),
+            // Special handling for cutoff lines: label starts with __CUTOFF_LINE__
+            if s.label.starts_with(CUTOFF_LINE_PREFIX) && s.data.len() == 2 {
+                // Draw a vertical line at the cutoff frequency without adding to legend
+                let mut cutoff_freq = s.data[0].0;
+                if !cutoff_freq.is_finite() {
+                    continue; // skip malformed input
+                }
+                // Keep the line within the plotted X range
+                cutoff_freq = cutoff_freq.clamp(plot_config.x_range.start, plot_config.x_range.end);
+                let y0 = plot_config.y_range.start;
+                let y1 = plot_config.y_range.end;
+                chart.draw_series(LineSeries::new(
+                    vec![(cutoff_freq, y0), (cutoff_freq, y1)],
                     s.color.stroke_width(s.stroke_width),
-                ))?
-                .label(&s.label)
-                .legend(move |(x, y)| {
-                    PathElement::new(
-                        vec![(x, y), (x + 20, y)],
-                        s.color.stroke_width(LINE_WIDTH_LEGEND),
-                    )
-                });
-            series_drawn_count += 1;
+                ))?;
+                // No legend entry for cutoff lines
+            } else {
+                // Regular series with legend
+                chart
+                    .draw_series(LineSeries::new(
+                        s.data.iter().cloned(),
+                        s.color.stroke_width(s.stroke_width),
+                    ))?
+                    .label(&s.label)
+                    .legend(move |(x, y)| {
+                        PathElement::new(
+                            vec![(x, y), (x + 20, y)],
+                            s.color.stroke_width(LINE_WIDTH_LEGEND),
+                        )
+                    });
+                legend_series_count += 1;
+            }
         }
     }
 
-    if series_drawn_count > 0 {
+    if legend_series_count > 0 {
         chart
             .configure_series_labels()
             .position(SeriesLabelPosition::UpperRight)
