@@ -20,6 +20,8 @@ use crate::constants::{
 
 /// Special prefix for cutoff line series to avoid showing them in legends
 pub const CUTOFF_LINE_PREFIX: &str = "__CUTOFF_LINE__";
+/// Special prefix for dotted cutoff line series
+pub const CUTOFF_LINE_DOTTED_PREFIX: &str = "__CUTOFF_LINE_DOTTED__";
 
 /// Calculate plot range with padding.
 /// Adds 15% padding, or a fixed padding for very small ranges.
@@ -198,7 +200,10 @@ fn draw_single_axis_chart_with_config(
     for s in &plot_config.series {
         if !s.data.is_empty() {
             // Special handling for cutoff lines: label starts with __CUTOFF_LINE__
-            if s.label.starts_with(CUTOFF_LINE_PREFIX) && s.data.len() == 2 {
+            if (s.label.starts_with(CUTOFF_LINE_PREFIX)
+                || s.label.starts_with(CUTOFF_LINE_DOTTED_PREFIX))
+                && s.data.len() == 2
+            {
                 // Draw a vertical line at the cutoff frequency without adding to legend
                 let mut cutoff_freq = s.data[0].0;
                 if !cutoff_freq.is_finite() {
@@ -208,10 +213,31 @@ fn draw_single_axis_chart_with_config(
                 cutoff_freq = cutoff_freq.clamp(plot_config.x_range.start, plot_config.x_range.end);
                 let y0 = plot_config.y_range.start;
                 let y1 = plot_config.y_range.end;
-                chart.draw_series(LineSeries::new(
-                    vec![(cutoff_freq, y0), (cutoff_freq, y1)],
-                    s.color.stroke_width(s.stroke_width),
-                ))?;
+
+                // Draw dotted line for CUTOFF_LINE_DOTTED_PREFIX, solid line for regular CUTOFF_LINE_PREFIX
+                if s.label.starts_with(CUTOFF_LINE_DOTTED_PREFIX) {
+                    // Draw dotted line by drawing small segments
+                    let y_range = y1 - y0;
+                    let num_segments = 20; // Number of dash segments
+                    let segment_length = y_range / (num_segments as f64 * 2.0); // Half for dash, half for gap
+
+                    for i in 0..num_segments {
+                        let y_start = y0 + (i as f64 * 2.0) * segment_length;
+                        let y_end = y_start + segment_length;
+                        if y_end <= y1 {
+                            chart.draw_series(LineSeries::new(
+                                vec![(cutoff_freq, y_start), (cutoff_freq, y_end)],
+                                s.color.stroke_width(s.stroke_width),
+                            ))?;
+                        }
+                    }
+                } else {
+                    // Draw solid line
+                    chart.draw_series(LineSeries::new(
+                        vec![(cutoff_freq, y0), (cutoff_freq, y1)],
+                        s.color.stroke_width(s.stroke_width),
+                    ))?;
+                }
                 // No legend entry for cutoff lines
             } else {
                 // Regular series with legend
