@@ -57,11 +57,27 @@ pub struct DynamicFilterConfig {
     pub enabled: bool,
 }
 
+/// IMUF filter configuration for HELIOSPRING flight controllers
+#[derive(Debug, Clone)]
+pub struct ImufFilterConfig {
+    // Header values (as configured)
+    pub lowpass_cutoff_hz: f64, // Original configured cutoff from header
+    pub ptn_order: u32,         // Filter order (1-4 -> PT1, PT2, PT3, PT4)
+    pub q_factor: f64,          // Q-factor (scaled by 1000 in headers)
+
+    // Calculated values (accounting for IMU-F implementation)
+    pub effective_cutoff_hz: f64, // Actual cutoff after PTN scaling factors
+    pub sample_rate_corrected_hz: f64, // Cutoff corrected for actual vs assumed sample rate
+
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AxisFilterConfig {
     pub lpf1: Option<FilterConfig>,
     pub lpf2: Option<FilterConfig>,
     pub dynamic_lpf1: Option<DynamicFilterConfig>,
+    pub imuf: Option<ImufFilterConfig>,
 }
 
 /// Filter configuration for all gyro and dterm filters
@@ -196,6 +212,72 @@ pub fn generate_individual_filter_curves(
                 )
             };
             filter_curves.push((label, curve, dyn_lpf1.min_cutoff_hz));
+        }
+    }
+
+    // Generate curves for IMUF filter if enabled - show both header and corrected values
+    if let Some(ref imuf) = axis_config.imuf {
+        if imuf.enabled && imuf.lowpass_cutoff_hz > 0.0 {
+            let filter_type = match imuf.ptn_order {
+                1 => FilterType::PT1,
+                2 => FilterType::PT2,
+                3 => FilterType::PT3,
+                4 => FilterType::PT4,
+                _ => FilterType::PT2, // Default fallback
+            };
+
+            // Generate curve for header-configured cutoff (what user intended)
+            let header_filter = FilterConfig {
+                filter_type,
+                cutoff_hz: imuf.lowpass_cutoff_hz,
+                enabled: true,
+            };
+            let header_curve =
+                generate_single_filter_curve(&header_filter, max_frequency_hz, num_points);
+            let header_label = format!(
+                "IMUF v256 Header ({} @ {:.0}Hz)",
+                filter_type.name(),
+                imuf.lowpass_cutoff_hz
+            );
+            filter_curves.push((header_label, header_curve, imuf.lowpass_cutoff_hz));
+
+            // Generate curve for effective cutoff (accounting for PTN scaling)
+            if (imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz).abs() > 1.0 {
+                let effective_filter = FilterConfig {
+                    filter_type,
+                    cutoff_hz: imuf.effective_cutoff_hz,
+                    enabled: true,
+                };
+                let effective_curve =
+                    generate_single_filter_curve(&effective_filter, max_frequency_hz, num_points);
+                let effective_label = format!(
+                    "IMUF v256 Effective ({} @ {:.0}Hz, PTN scaled)",
+                    filter_type.name(),
+                    imuf.effective_cutoff_hz
+                );
+                filter_curves.push((effective_label, effective_curve, imuf.effective_cutoff_hz));
+            }
+
+            // Generate curve for sample rate corrected cutoff if significantly different
+            if (imuf.sample_rate_corrected_hz - imuf.effective_cutoff_hz).abs() > 1.0 {
+                let corrected_filter = FilterConfig {
+                    filter_type,
+                    cutoff_hz: imuf.sample_rate_corrected_hz,
+                    enabled: true,
+                };
+                let corrected_curve =
+                    generate_single_filter_curve(&corrected_filter, max_frequency_hz, num_points);
+                let corrected_label = format!(
+                    "IMUF v256 Actual ({} @ {:.0}Hz, rate corrected)",
+                    filter_type.name(),
+                    imuf.sample_rate_corrected_hz
+                );
+                filter_curves.push((
+                    corrected_label,
+                    corrected_curve,
+                    imuf.sample_rate_corrected_hz,
+                ));
+            }
         }
     }
 
@@ -582,6 +664,99 @@ fn parse_dynamic_cutoffs(cutoff_str: &str) -> (f64, f64) {
     }
 }
 
+/// Calculate effective IMUF filter cutoff frequency accounting for PTN scaling factors
+/// Based on IMU-F ptnFilter.c: Adj_f_cut = (float)f_cut * ScaleF[filter->order - 1]
+fn calculate_imuf_effective_cutoff(configured_cutoff_hz: f64, ptn_order: u32) -> f64 {
+    // PTN filter scaling factors from IMU-F source code
+    const PTN_SCALE_FACTORS: [f64; 4] = [
+        1.0,         // PT1 (order 1)
+        1.553773974, // PT2 (order 2)
+        1.961459177, // PT3 (order 3)
+        2.298959223, // PT4 (order 4)
+    ];
+
+    let scale_factor = match ptn_order {
+        1..=4 => PTN_SCALE_FACTORS[(ptn_order - 1) as usize],
+        _ => 1.553773974, // Default to PT2 scaling
+    };
+
+    configured_cutoff_hz * scale_factor
+}
+
+/// Calculate sample rate corrected cutoff frequency
+/// IMU-F assumes 32kHz (REFRESH_RATE = 0.00003125f), but actual gyro rate may differ
+fn calculate_sample_rate_corrected_cutoff(
+    effective_cutoff_hz: f64,
+    actual_gyro_rate_hz: f64,
+) -> f64 {
+    const IMUF_ASSUMED_RATE_HZ: f64 = 32000.0; // 1.0 / 0.00003125
+
+    // If actual rate differs from assumed rate, the effective cutoff changes
+    // Higher actual rate = higher effective cutoff (filters less aggressive)
+    // Lower actual rate = lower effective cutoff (filters more aggressive)
+    effective_cutoff_hz * (actual_gyro_rate_hz / IMUF_ASSUMED_RATE_HZ)
+}
+
+/// Parse IMUF filters with optional gyro rate for sample rate correction
+pub fn parse_imuf_filters_with_gyro_rate(
+    headers: &[(String, String)],
+    gyro_rate_hz: Option<f64>,
+) -> AllFilterConfigs {
+    let header_map: HashMap<String, String> = headers
+        .iter()
+        .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_string()))
+        .collect();
+
+    let mut config = AllFilterConfigs::default();
+    let actual_gyro_rate = gyro_rate_hz.unwrap_or(32000.0); // Default to IMU-F assumed rate
+
+    // Parse IMUF parameters for each axis
+    let axis_names = ["roll", "pitch", "yaw"];
+    for (axis_idx, axis_name) in axis_names.iter().enumerate() {
+        // Parse per-axis lowpass cutoff frequencies
+        let lowpass_key = format!("imuf_lowpass_{}", axis_name);
+        let lowpass_cutoff_hz = header_map
+            .get(&lowpass_key)
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+
+        // Parse per-axis Q-factors (scaled by 1000 in headers)
+        let q_key = format!("imuf_{}_q", axis_name);
+        let q_factor_scaled = header_map
+            .get(&q_key)
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let q_factor = q_factor_scaled / 1000.0; // Scale down from header value
+
+        // Parse PTn filter order (applies to all axes)
+        let ptn_order = header_map
+            .get("imuf_ptn_order")
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(2); // Default to PT2 if not specified
+
+        // Create IMUF filter config if we have valid parameters
+        if lowpass_cutoff_hz > 0.0 {
+            // Calculate effective cutoff after PTN scaling
+            let effective_cutoff_hz = calculate_imuf_effective_cutoff(lowpass_cutoff_hz, ptn_order);
+
+            // Calculate sample rate corrected cutoff
+            let sample_rate_corrected_hz =
+                calculate_sample_rate_corrected_cutoff(effective_cutoff_hz, actual_gyro_rate);
+
+            config.gyro[axis_idx].imuf = Some(ImufFilterConfig {
+                lowpass_cutoff_hz,
+                ptn_order,
+                q_factor,
+                effective_cutoff_hz,
+                sample_rate_corrected_hz,
+                enabled: true,
+            });
+        }
+    }
+
+    config
+}
+
 /// Auto-detect firmware type and parse appropriate filter configuration
 pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     // Detect firmware type by looking for characteristic fields
@@ -589,6 +764,12 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
         .iter()
         .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_string()))
         .collect();
+
+    // Check for IMUF patterns (EmuFlight HELIOSPRING)
+    let has_imuf_pattern = header_map.contains_key("imuf_lowpass_roll")
+        || header_map.contains_key("imuf_lowpass_pitch")
+        || header_map.contains_key("imuf_lowpass_yaw")
+        || header_map.contains_key("imuf_ptn_order");
 
     // Check for EmuFlight per-axis patterns
     let has_emuflight_pattern = header_map.contains_key("dterm_lowpass_hz_roll")
@@ -598,7 +779,7 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     let has_betaflight_pattern = header_map.contains_key("dterm_lpf1_static_hz")
         || header_map.contains_key("dterm_lpf1_dyn_hz");
 
-    let config = if has_emuflight_pattern {
+    let mut config = if has_emuflight_pattern {
         println!("Detected EmuFlight filter configuration (per-axis)");
         parse_emuflight_filters(headers)
     } else if has_betaflight_pattern {
@@ -609,7 +790,21 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
         AllFilterConfigs::default()
     };
 
-    // Debug output: Print parsed filter configuration
+    // Check for IMUF configuration and merge it with existing config
+    if has_imuf_pattern {
+        println!("Detected EmuFlight HELIOSPRING IMUF v256 filter configuration");
+
+        // Extract gyro rate for sample rate correction calculations
+        let gyro_rate_hz = extract_gyro_rate(Some(headers));
+        let imuf_config = parse_imuf_filters_with_gyro_rate(headers, gyro_rate_hz);
+
+        // Merge IMUF filters into the existing configuration
+        for axis_idx in 0..3 {
+            if let Some(ref imuf_filter) = imuf_config.gyro[axis_idx].imuf {
+                config.gyro[axis_idx].imuf = Some(imuf_filter.clone());
+            }
+        }
+    } // Debug output: Print parsed filter configuration
     println!("Parsed filter configuration:");
     for (axis_idx, axis_name) in AXIS_NAMES.iter().enumerate() {
         println!("  {axis_name} Gyro Filters:");
@@ -636,9 +831,46 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
                 dyn_lpf1.expo
             );
         }
+        if let Some(ref imuf) = config.gyro[axis_idx].imuf {
+            let filter_type = match imuf.ptn_order {
+                1 => "PT1",
+                2 => "PT2",
+                3 => "PT3",
+                4 => "PT4",
+                _ => "PT2",
+            };
+            println!(
+                "    IMUF v256: {} Header={:.0}Hz → Effective={:.0}Hz → Actual={:.0}Hz (Q={:.1})",
+                filter_type,
+                imuf.lowpass_cutoff_hz,
+                imuf.effective_cutoff_hz,
+                imuf.sample_rate_corrected_hz,
+                imuf.q_factor
+            );
+
+            // Show warnings for significant differences
+            let ptn_scaling_diff = imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz;
+            let rate_correction_diff = imuf.sample_rate_corrected_hz - imuf.effective_cutoff_hz;
+
+            if ptn_scaling_diff.abs() > 5.0 {
+                println!(
+                    "      ⚠️  PTN scaling increases cutoff by {:.0}Hz ({:.1}x multiplier)",
+                    ptn_scaling_diff,
+                    imuf.effective_cutoff_hz / imuf.lowpass_cutoff_hz
+                );
+            }
+
+            if rate_correction_diff.abs() > 5.0 {
+                println!(
+                    "      ⚠️  Sample rate correction changes cutoff by {:.0}Hz",
+                    rate_correction_diff
+                );
+            }
+        }
         if config.gyro[axis_idx].lpf1.is_none()
             && config.gyro[axis_idx].lpf2.is_none()
             && config.gyro[axis_idx].dynamic_lpf1.is_none()
+            && config.gyro[axis_idx].imuf.is_none()
         {
             println!("    No gyro filters configured");
         }
@@ -713,5 +945,106 @@ mod tests {
         assert_eq!(parse_dynamic_cutoffs("75,150"), (75.0, 150.0));
         assert_eq!(parse_dynamic_cutoffs("\"100,200\""), (100.0, 200.0));
         assert_eq!(parse_dynamic_cutoffs("invalid"), (0.0, 0.0));
+    }
+
+    #[test]
+    fn test_imuf_filter_parsing() {
+        let headers = vec![
+            ("IMUF_lowpass_roll".to_string(), "90".to_string()),
+            ("IMUF_lowpass_pitch".to_string(), "95".to_string()),
+            ("IMUF_lowpass_yaw".to_string(), "85".to_string()),
+            ("IMUF_roll_q".to_string(), "8000".to_string()),
+            ("IMUF_pitch_q".to_string(), "7500".to_string()),
+            ("IMUF_yaw_q".to_string(), "9000".to_string()),
+            ("IMUF_ptn_order".to_string(), "3".to_string()),
+        ];
+
+        let config = parse_imuf_filters_with_gyro_rate(&headers, None);
+
+        // Check roll axis
+        assert!(config.gyro[0].imuf.is_some());
+        let roll_imuf = config.gyro[0].imuf.as_ref().unwrap();
+        assert_eq!(roll_imuf.lowpass_cutoff_hz, 90.0);
+        assert_eq!(roll_imuf.q_factor, 8.0); // 8000 / 1000
+        assert_eq!(roll_imuf.ptn_order, 3);
+        assert!(roll_imuf.enabled);
+
+        // Check pitch axis
+        assert!(config.gyro[1].imuf.is_some());
+        let pitch_imuf = config.gyro[1].imuf.as_ref().unwrap();
+        assert_eq!(pitch_imuf.lowpass_cutoff_hz, 95.0);
+        assert_eq!(pitch_imuf.q_factor, 7.5); // 7500 / 1000
+
+        // Check yaw axis
+        assert!(config.gyro[2].imuf.is_some());
+        let yaw_imuf = config.gyro[2].imuf.as_ref().unwrap();
+        assert_eq!(yaw_imuf.lowpass_cutoff_hz, 85.0);
+        assert_eq!(yaw_imuf.q_factor, 9.0); // 9000 / 1000
+    }
+
+    #[test]
+    fn test_imuf_filter_detection() {
+        let headers = vec![
+            ("IMUF_lowpass_roll".to_string(), "90".to_string()),
+            ("IMUF_ptn_order".to_string(), "2".to_string()),
+        ];
+
+        let config = parse_filter_config(&headers);
+        assert!(config.gyro[0].imuf.is_some());
+    }
+
+    #[test]
+    fn test_imuf_calculation_functions() {
+        // Test PTN scaling factors
+        assert_eq!(calculate_imuf_effective_cutoff(100.0, 1), 100.0); // PT1 no scaling
+        assert!((calculate_imuf_effective_cutoff(100.0, 2) - 155.377).abs() < 0.1); // PT2 scaling
+        assert!((calculate_imuf_effective_cutoff(100.0, 3) - 196.146).abs() < 0.1); // PT3 scaling
+        assert!((calculate_imuf_effective_cutoff(100.0, 4) - 229.896).abs() < 0.1); // PT4 scaling
+
+        // Test sample rate correction
+        let corrected_32k = calculate_sample_rate_corrected_cutoff(100.0, 32000.0);
+        assert_eq!(corrected_32k, 100.0); // No change at assumed rate
+
+        let corrected_16k = calculate_sample_rate_corrected_cutoff(100.0, 16000.0);
+        assert_eq!(corrected_16k, 50.0); // Half rate = half cutoff
+
+        let corrected_64k = calculate_sample_rate_corrected_cutoff(100.0, 64000.0);
+        assert_eq!(corrected_64k, 200.0); // Double rate = double cutoff
+    }
+
+    #[test]
+    fn test_imuf_filter_curves() {
+        let imuf_config = ImufFilterConfig {
+            lowpass_cutoff_hz: 100.0,
+            ptn_order: 2,
+            q_factor: 8.0,
+            effective_cutoff_hz: 155.4,      // 100 * 1.553773974
+            sample_rate_corrected_hz: 155.4, // Same as effective for 32kHz rate
+            enabled: true,
+        };
+
+        let axis_config = AxisFilterConfig {
+            lpf1: None,
+            lpf2: None,
+            dynamic_lpf1: None,
+            imuf: Some(imuf_config),
+        };
+
+        let curves = generate_individual_filter_curves(&axis_config, 1000.0, 100);
+        assert!(!curves.is_empty()); // Should have at least header curve, possibly more
+
+        // Check header curve
+        let (header_label, _curve_points, header_cutoff) = &curves[0];
+        assert!(header_label.contains("IMUF v256 Header"));
+        assert!(header_label.contains("PT2"));
+        assert!(header_label.contains("100Hz"));
+        assert_eq!(*header_cutoff, 100.0);
+
+        // Check for effective curve if different enough
+        if curves.len() > 1 {
+            let (effective_label, _, effective_cutoff) = &curves[1];
+            assert!(effective_label.contains("IMUF v256 Effective"));
+            assert!(*effective_cutoff > 150.0); // Should be scaled up
+        }
     }
 }
