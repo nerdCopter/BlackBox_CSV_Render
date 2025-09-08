@@ -37,8 +37,8 @@ mod tests {
         };
 
         // Test the exact values that were problematic in the issue
-        let test_values = vec![0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2];
-        let expected_labels = vec!["0.0", "0.2", "0.4", "0.6", "0.8", "1.0", "1.2"];
+        let test_values = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2];
+        let expected_labels = ["0.0", "0.2", "0.4", "0.6", "0.8", "1.0", "1.2"];
 
         println!("Step Response Y-axis formatting test:");
         println!("Before fix: values like 0.2, 0.4, 0.6, 0.8 would show as 0, 0, 1, 1");
