@@ -30,6 +30,7 @@ pub fn plot_gyro_spectrums(
     sample_rate: Option<f64>,
     header_metadata: Option<&[(String, String)]>,
     debug_mode: bool,
+    measure_filters: bool,
 ) -> Result<(), Box<dyn Error>> {
     let output_file = format!("{root_name}_Gyro_Spectrums_comparative.png");
     let plot_type_name = "Gyro Spectrums";
@@ -489,8 +490,9 @@ pub fn plot_gyro_spectrums(
                 stroke_width: LINE_WIDTH_PLOT,
             }];
 
-            // Add measured filter response curve when debug mode is enabled
-            if debug_mode {
+            // Add measured filter response curve when measure_filters flag is enabled
+            if measure_filters || debug_mode {
+                println!("      MEASURE-FILTERS: Attempting to analyze {} axis filter response...", AXIS_NAMES[axis_index]);
                 // Attempt to measure actual filter response from the spectrum data
                 // This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
                 if let Ok(measured_response) = filter_response::measure_filter_response(
@@ -502,7 +504,7 @@ pub fn plot_gyro_spectrums(
                     let max_freq = sr_value / 2.0;
                     let num_points = 1000;
                     let freq_step = max_freq / num_points as f64;
-                    
+
                     // Generate ideal filter response curve based on measured characteristics
                     let mut measured_curve_data = Vec::new();
                     for i in 0..num_points {
@@ -527,7 +529,8 @@ pub fn plot_gyro_spectrums(
                         let scaled_measured_curve: Vec<(f64, f64)> = measured_curve_data
                             .iter()
                             .map(|(freq, response)| {
-                                let scaled_amplitude = filter_curve_offset + (response * filter_curve_amplitude);
+                                let scaled_amplitude =
+                                    filter_curve_offset + (response * filter_curve_amplitude);
                                 (*freq, scaled_amplitude)
                             })
                             .collect();
@@ -541,12 +544,12 @@ pub fn plot_gyro_spectrums(
                                 measured_response.confidence * 100.0
                             ),
                             color: RGBColor(50, 205, 50), // Lime green for measured response
-                            stroke_width: 3, // Thick line for measured data
+                            stroke_width: 3,              // Thick line for measured data
                         });
                     }
                 } else {
                     // If measurement fails, add a note about it
-                    println!("      DEBUG: Unable to measure filter response for {} axis - insufficient data or analysis failed", AXIS_NAMES[axis_index]);
+                    println!("      MEASURE-FILTERS: Unable to measure filter response for {} axis - insufficient data or analysis failed", AXIS_NAMES[axis_index]);
                 }
             }
 

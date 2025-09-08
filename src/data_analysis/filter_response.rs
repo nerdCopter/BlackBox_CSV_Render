@@ -689,9 +689,8 @@ fn calculate_sample_rate_corrected_cutoff(
 pub fn measure_filter_response(
     unfiltered_spectrum: &[(f64, f64)], // (frequency, magnitude) pairs
     filtered_spectrum: &[(f64, f64)],   // (frequency, magnitude) pairs
-    _sample_rate: f64, // Not needed since we have frequency data
+    _sample_rate: f64,                  // Not needed since we have frequency data
 ) -> Result<MeasuredFilterResponse, Box<dyn std::error::Error>> {
-    
     // Validate input data
     if filtered_spectrum.len() != unfiltered_spectrum.len() {
         return Err("Filtered and unfiltered spectra must have same length".into());
@@ -699,33 +698,34 @@ pub fn measure_filter_response(
     if filtered_spectrum.len() < 50 {
         return Err("Need at least 50 frequency points for reliable analysis".into());
     }
-    
+
     // Calculate transfer function magnitude |H(f)| = |Filtered(f)| / |Unfiltered(f)|
     let mut transfer_function = Vec::new();
-    
+
     for i in 0..filtered_spectrum.len() {
         let (freq, filt_mag) = filtered_spectrum[i];
         let (_, unfilt_mag) = unfiltered_spectrum[i];
-        
-        if freq > 10.0 && freq < 500.0 && unfilt_mag > 0.0 { // Focus on filter-relevant frequencies
+
+        if freq > 10.0 && freq < 500.0 && unfilt_mag > 0.0 {
+            // Focus on filter-relevant frequencies
             let magnitude_ratio = filt_mag / unfilt_mag;
             transfer_function.push((freq, magnitude_ratio));
         }
     }
-    
+
     if transfer_function.is_empty() {
         return Err("No valid transfer function data found".into());
     }
-    
+
     // Find -3dB cutoff frequency (magnitude ratio = 0.707)
     let cutoff_hz = find_cutoff_frequency(&transfer_function, 0.707)?;
-    
+
     // Estimate filter order from rolloff slope
     let filter_order = estimate_filter_order(&transfer_function, cutoff_hz)?;
-    
+
     // Calculate confidence based on data quality
     let confidence = calculate_measurement_confidence(&transfer_function);
-    
+
     Ok(MeasuredFilterResponse {
         cutoff_hz,
         filter_order,
@@ -738,19 +738,19 @@ pub fn measure_filter_response(
 #[allow(dead_code)]
 pub struct MeasuredFilterResponse {
     pub cutoff_hz: f64,
-    pub filter_order: f64,  // 1.0 = PT1, 2.0 = PT2, etc.
-    pub confidence: f64,    // 0.0-1.0
+    pub filter_order: f64,                  // 1.0 = PT1, 2.0 = PT2, etc.
+    pub confidence: f64,                    // 0.0-1.0
     pub transfer_function: Vec<(f64, f64)>, // (freq, magnitude)
 }
 
 #[allow(dead_code)]
 fn find_cutoff_frequency(
-    transfer_function: &[(f64, f64)], 
-    target_ratio: f64
+    transfer_function: &[(f64, f64)],
+    target_ratio: f64,
 ) -> Result<f64, Box<dyn std::error::Error>> {
     let mut best_freq = 0.0;
     let mut best_diff = f64::INFINITY;
-    
+
     for &(freq, ratio) in transfer_function {
         let diff = (ratio - target_ratio).abs();
         if diff < best_diff {
@@ -758,7 +758,7 @@ fn find_cutoff_frequency(
             best_freq = freq;
         }
     }
-    
+
     if best_freq > 0.0 {
         Ok(best_freq)
     } else {
@@ -775,23 +775,53 @@ fn estimate_filter_order(
     // -20dB/decade = PT1 (order 1.0)
     // -40dB/decade = PT2 (order 2.0)
     // This is simplified - real implementation would do linear regression
-    
+
     // For now, return a reasonable default
     // TODO: Implement proper slope analysis
     Ok(1.5) // Placeholder - between PT1 and PT2
 }
 
 #[allow(dead_code)]
-fn calculate_measurement_confidence(
-    _transfer_function: &[(f64, f64)]
-) -> f64 {
-    // TODO: Calculate confidence based on:
-    // - Signal-to-noise ratio
-    // - Smoothness of transfer function
-    // - Number of valid data points
-    // - Consistency of rolloff slope
-    
-    0.8 // Placeholder confidence
+fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
+    if transfer_function.is_empty() {
+        return 0.0;
+    }
+
+    let mut confidence = 1.0;
+
+    // Factor 1: Number of data points (more points = higher confidence)
+    let num_points = transfer_function.len() as f64;
+    let point_factor = (num_points / 100.0).min(1.0); // Max confidence at 100+ points
+    confidence *= 0.3 + (0.7 * point_factor); // Scale from 30% to 100%
+
+    // Factor 2: Smoothness of transfer function (less noise = higher confidence)
+    let mut smoothness_score = 1.0;
+    if transfer_function.len() > 2 {
+        let mut total_variation = 0.0;
+        for i in 1..transfer_function.len() {
+            let prev_ratio = transfer_function[i - 1].1;
+            let curr_ratio = transfer_function[i].1;
+            total_variation += (curr_ratio - prev_ratio).abs();
+        }
+        let avg_variation = total_variation / (transfer_function.len() - 1) as f64;
+        // Less variation = higher smoothness score
+        smoothness_score = (1.0 - avg_variation.min(1.0)).max(0.1);
+    }
+    confidence *= smoothness_score;
+
+    // Factor 3: Signal strength (avoid low-signal measurements)
+    let avg_magnitude: f64 =
+        transfer_function.iter().map(|(_, mag)| *mag).sum::<f64>() / transfer_function.len() as f64;
+
+    let signal_factor = if avg_magnitude > 0.1 {
+        1.0
+    } else {
+        avg_magnitude * 10.0
+    };
+    confidence *= signal_factor;
+
+    // Clamp to reasonable range
+    confidence.clamp(0.1, 1.0)
 }
 /// Parse IMUF filters with optional gyro rate for sample rate correction
 pub fn parse_imuf_filters_with_gyro_rate(
