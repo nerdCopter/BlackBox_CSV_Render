@@ -171,11 +171,18 @@ fn draw_single_axis_chart_with_config(
         .y_label_formatter(&|y| {
             // Format Y-axis labels with "k" and "M" notation for large values (spectrum plots)
             // Keep dB values as-is (they're typically small/negative)
+            // Use decimal formatting for normalized response values (step response plots)
             if !plot_config.y_label.contains("dB") {
                 if y.abs() >= 1_000_000.0 {
                     format!("{:.1}M", y / 1_000_000.0)
                 } else if y.abs() >= 1000.0 {
                     format!("{:.0}k", y / 1000.0)
+                } else if y.abs() < 10.0
+                    && (y.fract() != 0.0 || plot_config.y_label.contains("Response"))
+                {
+                    // Use decimal formatting for small values with fractional parts
+                    // or for step response plots (which use normalized values 0.0-2.0)
+                    format!("{:.1}", y)
                 } else {
                     format!("{:.0}", y)
                 }

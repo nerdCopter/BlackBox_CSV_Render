@@ -11,6 +11,10 @@ src/**
 !Cargo.toml
 !Cargo.lock
 
+# Include tests directory
+!tests/
+!tests/**/*.rs
+
 # Include README and LICENSE files
 !Readme.md
 !LICENSE.txt
