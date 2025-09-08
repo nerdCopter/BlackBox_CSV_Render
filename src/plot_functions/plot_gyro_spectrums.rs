@@ -15,7 +15,9 @@ use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_analysis::filter_delay;
 use crate::data_analysis::filter_response;
 use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries};
+use crate::plot_framework::{
+    draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries, CUTOFF_LINE_PREFIX,
+};
 use crate::types::AllFFTData;
 use plotters::style::RGBColor;
 
@@ -354,7 +356,23 @@ pub fn plot_gyro_spectrums(
 
             let mut unfilt_plot_series = vec![PlotSeries {
                 data: unfilt_series_data,
-                label: "Unfiltered Gyro".to_string(),
+                label: {
+                    // Check if dynamic LPF is being used to enhance the legend
+                    if let Some(ref config) = filter_config {
+                        let (has_dynamic, min_cutoff, max_cutoff) =
+                            filter_response::check_gyro_dynamic_lpf_usage(config);
+                        if has_dynamic {
+                            format!(
+                                "Unfiltered Gyro (Dynamic LPF {:.0}-{:.0}Hz)",
+                                min_cutoff, max_cutoff
+                            )
+                        } else {
+                            "Unfiltered Gyro".to_string()
+                        }
+                    } else {
+                        "Unfiltered Gyro".to_string()
+                    }
+                },
                 color: *COLOR_GYRO_VS_UNFILT_UNFILT,
                 stroke_width: LINE_WIDTH_PLOT,
             }];
@@ -379,7 +397,8 @@ pub fn plot_gyro_spectrums(
                     RGBColor(255, 69, 0),  // Red-orange for third filter
                 ];
 
-                for (curve_idx, (label, curve_data, _cutoff_hz)) in filter_curves.iter().enumerate()
+                for (curve_idx, (label, curve_data, cutoff_hz_ref)) in
+                    filter_curves.iter().enumerate()
                 {
                     if !curve_data.is_empty() {
                         // Show filter response as a normalized curve overlaid on the spectrum
@@ -389,6 +408,8 @@ pub fn plot_gyro_spectrums(
 
                         let scaled_response: Vec<(f64, f64)> = curve_data
                             .iter()
+                            // Keep overlay within the plotted spectrum range
+                            .filter(|(freq, _)| *freq <= max_freq_val)
                             .map(|(freq, response)| {
                                 // Scale response from [0,1] to [offset, offset + amplitude]
                                 let scaled_amplitude =
@@ -405,8 +426,17 @@ pub fn plot_gyro_spectrums(
                             stroke_width: 2,
                         });
 
-                        // Note: Vertical cutoff markers removed to avoid empty legend entries
-                        // The filter curves themselves clearly indicate where cutoff begins
+                        // Add vertical cutoff indicator line (no legend entry)
+                        let cutoff_hz = *cutoff_hz_ref;
+                        if !cutoff_hz.is_finite() {
+                            continue;
+                        }
+                        unfilt_plot_series.push(PlotSeries {
+                            data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
+                            label: format!("{}{}", CUTOFF_LINE_PREFIX, cutoff_hz), // Special prefix to avoid legend
+                            color: filter_colors[curve_idx % filter_colors.len()],
+                            stroke_width: 1,
+                        });
                     }
                 }
             }
