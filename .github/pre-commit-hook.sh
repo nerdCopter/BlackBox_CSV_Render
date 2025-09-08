@@ -1,6 +1,12 @@
 #!/bin/bash
 # Pre-commit hook to automatically format Rust code and run clippy
 # Install this by copying to .git/hooks/pre-commit and making it executable
+#
+# This hook will:
+# 1. Run cargo fmt to format code
+# 2. Automatically stage any formatting changes (prevents unstaged changes after commit)
+# 3. Verify formatting compliance
+# 4. Run clippy to check for warnings
 
 echo "🔍 Running pre-commit checks..."
 
@@ -17,7 +23,11 @@ if ! cargo fmt --all; then
     exit 1
 fi
 
-# Check if formatting is compliant
+# Auto-stage any formatting changes made by cargo fmt
+echo "📝 Staging formatting changes..."
+git add -u
+
+# Check if formatting is compliant (should pass since we just formatted)
 echo "✅ Checking formatting compliance..."
 if ! cargo fmt --all -- --check; then
     echo "❌ Code is not properly formatted after running cargo fmt!"
