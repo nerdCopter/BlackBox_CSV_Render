@@ -83,8 +83,12 @@ Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] 
     );
     eprintln!("                         If omitted, plots are saved in the source folder (input file's directory).");
     eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
-    eprintln!("  --measure-filters: Optional. Analyzes actual filter response from flight data and");
-    eprintln!("                     overlays measured curves on spectrum plots. Works with all firmware.");
+    eprintln!(
+        "  --measure-filters: Optional. Analyzes actual filter response from flight data and"
+    );
+    eprintln!(
+        "                     overlays measured curves on spectrum plots. Works with all firmware."
+    );
     eprintln!("  --help: Show this help message and exit.");
     eprintln!("  --version: Show version information and exit.");
     eprintln!(

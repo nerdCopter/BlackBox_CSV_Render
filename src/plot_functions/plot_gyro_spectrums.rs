@@ -492,7 +492,10 @@ pub fn plot_gyro_spectrums(
 
             // Add measured filter response curve when measure_filters flag is enabled
             if measure_filters || debug_mode {
-                println!("      MEASURE-FILTERS: Attempting to analyze {} axis filter response...", AXIS_NAMES[axis_index]);
+                println!(
+                    "      MEASURE-FILTERS: Attempting to analyze {} axis filter response...",
+                    AXIS_NAMES[axis_index]
+                );
                 // Attempt to measure actual filter response from the spectrum data
                 // This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
                 if let Ok(measured_response) = filter_response::measure_filter_response(
@@ -500,6 +503,9 @@ pub fn plot_gyro_spectrums(
                     &filt_spectrum_data,
                     sr_value,
                 ) {
+                    println!("      MEASURE-FILTERS: SUCCESS! {} axis - {:.0}Hz {:.1} order ({:.0}% conf)",
+                             AXIS_NAMES[axis_index], measured_response.cutoff_hz,
+                             measured_response.filter_order, measured_response.confidence * 100.0);
                     // Generate measured filter curve for visualization
                     let max_freq = sr_value / 2.0;
                     let num_points = 1000;
@@ -549,7 +555,15 @@ pub fn plot_gyro_spectrums(
                     }
                 } else {
                     // If measurement fails, add a note about it
-                    println!("      MEASURE-FILTERS: Unable to measure filter response for {} axis - insufficient data or analysis failed", AXIS_NAMES[axis_index]);
+                    println!(
+                        "      MEASURE-FILTERS: Unable to measure filter response for {} axis",
+                        AXIS_NAMES[axis_index]
+                    );
+                    println!(
+                        "        Data available: {} unfiltered points, {} filtered points",
+                        unfilt_spectrum_data.len(),
+                        filt_spectrum_data.len()
+                    );
                 }
             }
 
