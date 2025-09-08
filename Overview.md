@@ -9,7 +9,8 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 1.  **Argument Parsing (`src/main.rs`):**
     *   Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), and an optional `--output-dir` for specifying the output directory.
-    *   Additional options include `--help` and `--version` for user assistance.
+    *   Additional options include `--help`, `--version`, `--debug`, and `--measure` for user assistance and analysis control.
+    *   The `--measure` parameter enables measured filter response analysis from flight data, overlaying measured curves on spectrum plots. Works with all firmware types.
     *   The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     *   Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
 

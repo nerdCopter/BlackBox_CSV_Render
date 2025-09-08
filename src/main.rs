@@ -73,7 +73,7 @@ use crate::data_analysis::calc_step_response;
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("
-Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--debug] [--measure-filters]");
+Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--debug] [--measure]");
     eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
     eprintln!("                 deg/s threshold value. Must be a positive number.");
@@ -83,12 +83,8 @@ Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] 
     );
     eprintln!("                         If omitted, plots are saved in the source folder (input file's directory).");
     eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
-    eprintln!(
-        "  --measure-filters: Optional. Analyzes actual filter response from flight data and"
-    );
-    eprintln!(
-        "                     overlays measured curves on spectrum plots. Works with all firmware."
-    );
+    eprintln!("  --measure: Optional. Analyzes actual filter response from flight data and");
+    eprintln!("             overlays measured curves on spectrum plots. Works with all firmware.");
     eprintln!("  --help: Show this help message and exit.");
     eprintln!("  --version: Show version information and exit.");
     eprintln!(
@@ -437,7 +433,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         } else if arg == "--debug" {
             debug_mode = true;
-        } else if arg == "--measure-filters" {
+        } else if arg == "--measure" {
             measure_filters = true;
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
