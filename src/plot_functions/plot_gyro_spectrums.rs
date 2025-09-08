@@ -500,7 +500,7 @@ pub fn plot_gyro_spectrums(
                     // Add each filter curve as a separate series with distinct colors
                     let debug_filter_colors = [
                         RGBColor(255, 165, 0),  // Orange for first filter
-                        RGBColor(255, 20, 147), // Deep pink for second filter  
+                        RGBColor(255, 20, 147), // Deep pink for second filter
                         RGBColor(138, 43, 226), // Blue violet for third filter
                     ];
 
@@ -509,7 +509,7 @@ pub fn plot_gyro_spectrums(
                     {
                         if !curve_data.is_empty() && curve_idx < debug_filter_colors.len() {
                             // Show filter response as a normalized curve overlaid on the filtered spectrum
-                            // Use a fixed amplitude scale that makes the cutoff frequency visible  
+                            // Use a fixed amplitude scale that makes the cutoff frequency visible
                             let filter_curve_amplitude = overall_max_y_amplitude * 0.25; // 25% of max spectrum height
                             let filter_curve_offset = overall_max_y_amplitude * 0.02; // Small offset from bottom
 

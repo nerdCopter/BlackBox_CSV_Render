@@ -66,8 +66,8 @@ pub struct ImufFilterConfig {
     pub q_factor: f64,          // Q-factor (scaled by 1000 in headers)
 
     // Calculated values (accounting for IMU-F implementation)
-    pub effective_cutoff_hz: f64, // Actual cutoff after PTN scaling factors
-    pub sample_rate_corrected_hz: f64, // Cutoff corrected for actual vs assumed sample rate
+    pub effective_cutoff_hz: f64, // Cutoff after PTN scaling factors
+    pub sample_rate_corrected_hz: f64, // Cutoff corrected for gyro rate vs IMUF assumed 32kHz
 
     pub enabled: bool,
 }
@@ -268,7 +268,7 @@ pub fn generate_individual_filter_curves(
                 let corrected_curve =
                     generate_single_filter_curve(&corrected_filter, max_frequency_hz, num_points);
                 let corrected_label = format!(
-                    "IMUF v256 Actual ({} @ {:.0}Hz, rate corrected)",
+                    "IMUF v256 Theoretical ({} @ {:.0}Hz, rate adjusted)",
                     filter_type.name(),
                     imuf.sample_rate_corrected_hz
                 );
@@ -683,20 +683,21 @@ fn calculate_imuf_effective_cutoff(configured_cutoff_hz: f64, ptn_order: u32) ->
     configured_cutoff_hz * scale_factor
 }
 
-/// Calculate sample rate corrected cutoff frequency
-/// IMU-F assumes 32kHz (REFRESH_RATE = 0.00003125f), but actual gyro rate may differ
+/// Calculate theoretical sample rate corrected cutoff frequency
+/// IMU-F assumes 32kHz (REFRESH_RATE = 0.00003125f), but flight controllers may run at different rates
+/// Note: This is theoretical - IMUF firmware may struggle to sustain intended rates
 fn calculate_sample_rate_corrected_cutoff(
     effective_cutoff_hz: f64,
-    actual_gyro_rate_hz: f64,
+    flight_controller_gyro_rate_hz: f64,
 ) -> f64 {
     const IMUF_ASSUMED_RATE_HZ: f64 = 32000.0; // 1.0 / 0.00003125
 
-    // If actual rate differs from assumed rate, the effective cutoff changes
-    // Higher actual rate = higher effective cutoff (filters less aggressive)
-    // Lower actual rate = lower effective cutoff (filters more aggressive)
-    effective_cutoff_hz * (actual_gyro_rate_hz / IMUF_ASSUMED_RATE_HZ)
+    // Theoretical adjustment based on FC gyro rate vs IMUF assumption
+    // Higher FC rate = higher theoretical cutoff (filters less aggressive)
+    // Lower FC rate = lower theoretical cutoff (filters more aggressive)
+    // NOTE: Actual performance may differ due to IMUF implementation issues
+    effective_cutoff_hz * (flight_controller_gyro_rate_hz / IMUF_ASSUMED_RATE_HZ)
 }
-
 /// Parse IMUF filters with optional gyro rate for sample rate correction
 pub fn parse_imuf_filters_with_gyro_rate(
     headers: &[(String, String)],
@@ -708,7 +709,7 @@ pub fn parse_imuf_filters_with_gyro_rate(
         .collect();
 
     let mut config = AllFilterConfigs::default();
-    let actual_gyro_rate = gyro_rate_hz.unwrap_or(32000.0); // Default to IMU-F assumed rate
+    let fc_gyro_rate = gyro_rate_hz.unwrap_or(32000.0); // Default to IMU-F assumed rate
 
     // Parse IMUF parameters for each axis
     let axis_names = ["roll", "pitch", "yaw"];
@@ -741,7 +742,7 @@ pub fn parse_imuf_filters_with_gyro_rate(
 
             // Calculate sample rate corrected cutoff
             let sample_rate_corrected_hz =
-                calculate_sample_rate_corrected_cutoff(effective_cutoff_hz, actual_gyro_rate);
+                calculate_sample_rate_corrected_cutoff(effective_cutoff_hz, fc_gyro_rate);
 
             config.gyro[axis_idx].imuf = Some(ImufFilterConfig {
                 lowpass_cutoff_hz,
@@ -840,7 +841,7 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
                 _ => "PT2",
             };
             println!(
-                "    IMUF v256: {} Header={:.0}Hz → Effective={:.0}Hz → Actual={:.0}Hz (Q={:.1})",
+                "    IMUF v256: {} Header={:.0}Hz → Effective={:.0}Hz → Theoretical={:.0}Hz (Q={:.1})",
                 filter_type,
                 imuf.lowpass_cutoff_hz,
                 imuf.effective_cutoff_hz,
@@ -854,7 +855,7 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
 
             if ptn_scaling_diff.abs() > 5.0 {
                 println!(
-                    "      ⚠️  PTN scaling increases cutoff by {:.0}Hz ({:.1}x multiplier)",
+                    "      WARNING: PTN scaling increases cutoff by {:.0}Hz ({:.1}x multiplier)",
                     ptn_scaling_diff,
                     imuf.effective_cutoff_hz / imuf.lowpass_cutoff_hz
                 );
@@ -862,7 +863,7 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
 
             if rate_correction_diff.abs() > 5.0 {
                 println!(
-                    "      ⚠️  Sample rate correction changes cutoff by {:.0}Hz",
+                    "      WARNING: Sample rate correction changes cutoff by {:.0}Hz",
                     rate_correction_diff
                 );
             }
