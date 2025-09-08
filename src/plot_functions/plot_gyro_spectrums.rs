@@ -16,7 +16,8 @@ use crate::data_analysis::filter_delay;
 use crate::data_analysis::filter_response;
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{
-    draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries, CUTOFF_LINE_PREFIX,
+    draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries, CUTOFF_LINE_DOTTED_PREFIX,
+    CUTOFF_LINE_PREFIX,
 };
 use crate::types::AllFFTData;
 use plotters::style::RGBColor;
@@ -418,11 +419,17 @@ pub fn plot_gyro_spectrums(
                             })
                             .collect();
 
-                        // Create filter response series
+                        // Create filter response series - use gray for effective curves
+                        let curve_color = if label.contains("IMUF v256 Effective") {
+                            RGBColor(128, 128, 128) // Gray for calculated effective curves
+                        } else {
+                            filter_colors[curve_idx % filter_colors.len()] // Standard colors for user-configured curves
+                        };
+
                         unfilt_plot_series.push(PlotSeries {
                             data: scaled_response,
                             label: label.clone(),
-                            color: filter_colors[curve_idx % filter_colors.len()],
+                            color: curve_color,
                             stroke_width: 2,
                         });
 
@@ -431,10 +438,25 @@ pub fn plot_gyro_spectrums(
                         if !cutoff_hz.is_finite() {
                             continue;
                         }
+
+                        // Use dotted line and different color for IMUF effective cutoffs
+                        let (cutoff_prefix, cutoff_color) = if label.contains("IMUF v256 Effective")
+                        {
+                            // Effective cutoffs: dotted line with muted gray color to show they're calculated
+                            (CUTOFF_LINE_DOTTED_PREFIX, RGBColor(128, 128, 128))
+                        // Gray for calculated values
+                        } else {
+                            // Header cutoffs: solid line with filter color to show user configuration
+                            (
+                                CUTOFF_LINE_PREFIX,
+                                filter_colors[curve_idx % filter_colors.len()],
+                            )
+                        };
+
                         unfilt_plot_series.push(PlotSeries {
                             data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
-                            label: format!("{}{}", CUTOFF_LINE_PREFIX, cutoff_hz), // Special prefix to avoid legend
-                            color: filter_colors[curve_idx % filter_colors.len()],
+                            label: format!("{}{}", cutoff_prefix, cutoff_hz), // Special prefix to avoid legend
+                            color: cutoff_color,
                             stroke_width: 1,
                         });
                     }
