@@ -693,12 +693,19 @@ pub fn measure_filter_response(
 ) -> Result<MeasuredFilterResponse, Box<dyn std::error::Error>> {
     // Validate input data
     if filtered_spectrum.len() != unfiltered_spectrum.len() {
-        return Err(format!("Filtered and unfiltered spectra must have same length (got {} vs {})", 
-                          filtered_spectrum.len(), unfiltered_spectrum.len()).into());
+        return Err(format!(
+            "Filtered and unfiltered spectra must have same length (got {} vs {})",
+            filtered_spectrum.len(),
+            unfiltered_spectrum.len()
+        )
+        .into());
     }
     if filtered_spectrum.len() < 50 {
-        return Err(format!("Need at least 50 frequency points for reliable analysis (got {})", 
-                          filtered_spectrum.len()).into());
+        return Err(format!(
+            "Need at least 50 frequency points for reliable analysis (got {})",
+            filtered_spectrum.len()
+        )
+        .into());
     }
 
     // Calculate transfer function magnitude |H(f)| = |Filtered(f)| / |Unfiltered(f)|
@@ -716,8 +723,11 @@ pub fn measure_filter_response(
     }
 
     if transfer_function.is_empty() {
-        return Err(format!("No valid transfer function data found (checked {} spectrum points)", 
-                          filtered_spectrum.len()).into());
+        return Err(format!(
+            "No valid transfer function data found (checked {} spectrum points)",
+            filtered_spectrum.len()
+        )
+        .into());
     }
 
     // Find -3dB cutoff frequency (magnitude ratio = 0.707)
@@ -777,57 +787,58 @@ fn estimate_filter_order(
     // Analyze rolloff slope above cutoff frequency
     // -20dB/decade = PT1 (order 1.0)
     // -40dB/decade = PT2 (order 2.0)
-    
+
     // Find points above cutoff frequency for slope analysis
     let high_freq_points: Vec<(f64, f64)> = transfer_function
         .iter()
         .filter(|(freq, _)| *freq > cutoff_hz * 1.2) // Start analysis 20% above cutoff
         .map(|(freq, mag)| (*freq, *mag))
         .collect();
-    
+
     if high_freq_points.len() < 3 {
         // Not enough data for slope analysis, return default
         return Ok(1.5);
     }
-    
+
     // Convert to log-log scale for linear regression
     // log|H(f)| vs log(f) should give a straight line with slope = -order
     let mut log_points = Vec::new();
     for (freq, mag) in &high_freq_points {
-        if *freq > 0.0 && *mag > 1e-6 { // Avoid log(0) and very small values
+        if *freq > 0.0 && *mag > 1e-6 {
+            // Avoid log(0) and very small values
             log_points.push((freq.ln(), mag.ln()));
         }
     }
-    
+
     if log_points.len() < 3 {
         return Ok(1.5);
     }
-    
+
     // Linear regression: y = mx + b, where m is the slope
     let n = log_points.len() as f64;
     let sum_x: f64 = log_points.iter().map(|(x, _)| *x).sum();
     let sum_y: f64 = log_points.iter().map(|(_, y)| *y).sum();
     let sum_xy: f64 = log_points.iter().map(|(x, y)| x * y).sum();
     let sum_x2: f64 = log_points.iter().map(|(x, _)| x * x).sum();
-    
+
     let denominator = n * sum_x2 - sum_x * sum_x;
     if denominator.abs() < 1e-10 {
         return Ok(1.5); // Avoid division by zero
     }
-    
+
     let slope = (n * sum_xy - sum_x * sum_y) / denominator;
-    
+
     // Convert slope to filter order
     // In a perfect filter: slope = -order (negative because magnitude decreases with frequency)
     // Real filters may have different slopes, so we adjust
     let estimated_order = (-slope).abs();
-    
+
     // Clamp to reasonable range and round to common filter orders
     let clamped_order = estimated_order.clamp(0.5, 4.0);
-    
+
     // Round to nearest 0.1 for cleaner display
     let rounded_order = (clamped_order * 10.0).round() / 10.0;
-    
+
     Ok(rounded_order)
 }
 
