@@ -18,6 +18,9 @@ use crate::constants::{
     PLOT_HEIGHT, PLOT_WIDTH, PSD_PEAK_LABEL_MIN_VALUE_DB,
 };
 
+/// Special prefix for cutoff line series to avoid showing them in legends
+pub const CUTOFF_LINE_PREFIX: &str = "__CUTOFF_LINE__";
+
 /// Calculate plot range with padding.
 /// Adds 15% padding, or a fixed padding for very small ranges.
 pub fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
@@ -188,9 +191,14 @@ fn draw_single_axis_chart_with_config(
     for s in &plot_config.series {
         if !s.data.is_empty() {
             // Special handling for cutoff lines: label starts with __CUTOFF_LINE__
-            if s.label.starts_with("__CUTOFF_LINE__") && s.data.len() == 2 {
+            if s.label.starts_with(CUTOFF_LINE_PREFIX) && s.data.len() == 2 {
                 // Draw a vertical line at the cutoff frequency without adding to legend
-                let cutoff_freq = s.data[0].0;
+                let mut cutoff_freq = s.data[0].0;
+                if !cutoff_freq.is_finite() {
+                    continue; // skip malformed input
+                }
+                // Keep the line within the plotted X range
+                cutoff_freq = cutoff_freq.clamp(plot_config.x_range.start, plot_config.x_range.end);
                 let y0 = plot_config.y_range.start;
                 let y1 = plot_config.y_range.end;
                 chart.draw_series(LineSeries::new(

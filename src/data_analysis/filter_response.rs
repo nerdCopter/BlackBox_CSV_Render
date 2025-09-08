@@ -183,14 +183,14 @@ pub fn generate_individual_filter_curves(
             let curve = generate_single_filter_curve(&static_filter, max_frequency_hz, num_points);
             let label = if dyn_lpf1.max_cutoff_hz > dyn_lpf1.min_cutoff_hz {
                 format!(
-                    "Dynamic LPF1 ({} {:.0}-{:.0}Hz)",
+                    "Dyn LPF1 ({} {:.0}-{:.0}Hz)",
                     dyn_lpf1.filter_type.name(),
                     dyn_lpf1.min_cutoff_hz,
                     dyn_lpf1.max_cutoff_hz
                 )
             } else {
                 format!(
-                    "Dynamic LPF1 ({} @ {:.0}Hz)",
+                    "Dyn LPF1 ({} @ {:.0}Hz)",
                     dyn_lpf1.filter_type.name(),
                     dyn_lpf1.min_cutoff_hz
                 )
@@ -629,7 +629,7 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
         }
         if let Some(ref dyn_lpf1) = config.gyro[axis_idx].dynamic_lpf1 {
             println!(
-                "    Dynamic LPF1: {} {:.0}-{:.0} Hz (expo: {})",
+                "    Dyn LPF1: {} {:.0}-{:.0} Hz (expo: {})",
                 dyn_lpf1.filter_type.name(),
                 dyn_lpf1.min_cutoff_hz,
                 dyn_lpf1.max_cutoff_hz,

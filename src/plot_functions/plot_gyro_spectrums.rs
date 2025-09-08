@@ -15,7 +15,9 @@ use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_analysis::filter_delay;
 use crate::data_analysis::filter_response;
 use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries};
+use crate::plot_framework::{
+    draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries, CUTOFF_LINE_PREFIX,
+};
 use crate::types::AllFFTData;
 use plotters::style::RGBColor;
 
@@ -406,6 +408,8 @@ pub fn plot_gyro_spectrums(
 
                         let scaled_response: Vec<(f64, f64)> = curve_data
                             .iter()
+                            // Keep overlay within the plotted spectrum range
+                            .filter(|(freq, _)| *freq <= max_freq_val)
                             .map(|(freq, response)| {
                                 // Scale response from [0,1] to [offset, offset + amplitude]
                                 let scaled_amplitude =
@@ -424,9 +428,12 @@ pub fn plot_gyro_spectrums(
 
                         // Add vertical cutoff indicator line (no legend entry)
                         let cutoff_hz = *cutoff_hz_ref;
+                        if !cutoff_hz.is_finite() {
+                            continue;
+                        }
                         unfilt_plot_series.push(PlotSeries {
                             data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
-                            label: format!("__CUTOFF_LINE__{}", cutoff_hz), // Special prefix to avoid legend
+                            label: format!("{}{}", CUTOFF_LINE_PREFIX, cutoff_hz), // Special prefix to avoid legend
                             color: filter_colors[curve_idx % filter_colors.len()],
                             stroke_width: 1,
                         });
