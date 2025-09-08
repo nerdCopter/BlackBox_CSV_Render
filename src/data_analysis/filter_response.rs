@@ -278,6 +278,10 @@ pub fn generate_individual_filter_curves(
                     imuf.sample_rate_corrected_hz,
                 ));
             }
+
+            // TODO: Add measured curve based on actual transfer function analysis
+            // This would analyze filtered vs unfiltered data to determine real response
+            // For now, users can visually compare theoretical curves with actual filtered data
         }
     }
 
@@ -698,6 +702,15 @@ fn calculate_sample_rate_corrected_cutoff(
     // NOTE: Actual performance may differ due to IMUF implementation issues
     effective_cutoff_hz * (flight_controller_gyro_rate_hz / IMUF_ASSUMED_RATE_HZ)
 }
+
+// TODO: Implement measured filter response analysis
+// Proper approach would be to:
+// 1. Take FFT of both filtered and unfiltered gyro data
+// 2. Calculate transfer function H(f) = FFT(filtered) / FFT(unfiltered)
+// 3. Find -3dB point to determine actual cutoff frequency
+// 4. Analyze slope to determine actual filter order (PT1, PT2, etc.)
+// 5. Generate measured curve from this analysis
+// This would show the REAL filter behavior vs theoretical expectations
 /// Parse IMUF filters with optional gyro rate for sample rate correction
 pub fn parse_imuf_filters_with_gyro_rate(
     headers: &[(String, String)],
@@ -847,6 +860,9 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
                 imuf.effective_cutoff_hz,
                 imuf.sample_rate_corrected_hz,
                 imuf.q_factor
+            );
+            println!(
+                "      NOTE: Real behavior may differ significantly - use debug curves to compare with actual filtered data"
             );
 
             // Show warnings for significant differences
@@ -1011,6 +1027,8 @@ mod tests {
 
         let corrected_64k = calculate_sample_rate_corrected_cutoff(100.0, 64000.0);
         assert_eq!(corrected_64k, 200.0); // Double rate = double cutoff
+
+        // TODO: Add test for measured filter response when implemented
     }
 
     #[test]
