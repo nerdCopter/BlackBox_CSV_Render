@@ -825,6 +825,252 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     config
 }
 
+/// Measure actual filter response from spectrum data (magnitude vs frequency)
+/// This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
+/// Returns measured filter characteristics extracted from real spectral data
+pub fn measure_filter_response(
+    unfiltered_spectrum: &[(f64, f64)], // (frequency, magnitude) pairs
+    filtered_spectrum: &[(f64, f64)],   // (frequency, magnitude) pairs
+    _sample_rate: f64,                  // Not needed since we have frequency data
+) -> Result<MeasuredFilterResponse, Box<dyn std::error::Error>> {
+    // Validate input data
+    if filtered_spectrum.len() != unfiltered_spectrum.len() {
+        return Err("Filtered and unfiltered spectra must have same length".into());
+    }
+    if filtered_spectrum.len() < 50 {
+        return Err("Need at least 50 frequency points for reliable analysis".into());
+    }
+
+    // Calculate transfer function magnitude |H(f)| = |Filtered(f)| / |Unfiltered(f)|
+    let mut transfer_function = Vec::new();
+
+    for i in 0..filtered_spectrum.len() {
+        let (freq, filt_mag) = filtered_spectrum[i];
+        let (_, unfilt_mag) = unfiltered_spectrum[i];
+
+        if freq > 10.0 && freq < 500.0 && unfilt_mag > 0.0 {
+            // Focus on filter-relevant frequencies
+            let magnitude_ratio = filt_mag / unfilt_mag;
+            transfer_function.push((freq, magnitude_ratio));
+        }
+    }
+
+    if transfer_function.is_empty() {
+        return Err("No valid transfer function data found".into());
+    }
+
+    // Find -3dB cutoff frequency (magnitude ratio = 0.707)
+    let cutoff_hz = find_cutoff_frequency(&transfer_function, 0.707)?;
+
+    // Estimate filter order from rolloff slope
+    let filter_order = estimate_filter_order_from_transfer(&transfer_function, cutoff_hz)?;
+
+    // Calculate confidence based on data quality
+    let confidence = calculate_measurement_confidence(&transfer_function);
+
+    Ok(MeasuredFilterResponse {
+        cutoff_hz,
+        filter_order,
+        confidence,
+        transfer_function,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct MeasuredFilterResponse {
+    pub cutoff_hz: f64,
+    pub filter_order: f64, // 1.0 = PT1, 2.0 = PT2, etc.
+    pub confidence: f64,   // 0.0-1.0
+    #[allow(dead_code)]
+    pub transfer_function: Vec<(f64, f64)>, // (freq, magnitude)
+}
+
+fn find_cutoff_frequency(
+    transfer_function: &[(f64, f64)],
+    target_ratio: f64,
+) -> Result<f64, Box<dyn std::error::Error>> {
+    let mut best_freq = 0.0;
+    let mut best_diff = f64::INFINITY;
+
+    for &(freq, ratio) in transfer_function {
+        let diff = (ratio - target_ratio).abs();
+        if diff < best_diff {
+            best_diff = diff;
+            best_freq = freq;
+        }
+    }
+
+    if best_freq > 0.0 {
+        Ok(best_freq)
+    } else {
+        Err("Could not find cutoff frequency".into())
+    }
+}
+
+fn estimate_filter_order_from_transfer(
+    transfer_function: &[(f64, f64)],
+    cutoff_hz: f64,
+) -> Result<f64, Box<dyn std::error::Error>> {
+    // Analyze rolloff slope above cutoff frequency
+    // -20dB/decade = PT1 (order 1.0)
+    // -40dB/decade = PT2 (order 2.0)
+
+    // Find points above cutoff frequency for slope analysis
+    let high_freq_points: Vec<(f64, f64)> = transfer_function
+        .iter()
+        .filter(|(freq, _)| *freq > cutoff_hz * 1.2) // Start analysis 20% above cutoff
+        .map(|(freq, mag)| (*freq, *mag))
+        .collect();
+
+    if high_freq_points.len() < 3 {
+        // Not enough data for slope analysis, return default
+        return Ok(1.5);
+    }
+
+    // Convert to log-log scale for linear regression
+    // log|H(f)| vs log(f) should give a straight line with slope = -order
+    let mut log_points = Vec::new();
+    for (freq, mag) in &high_freq_points {
+        if *freq > 0.0 && *mag > 1e-6 {
+            // Avoid log(0) and very small values
+            log_points.push((freq.ln(), mag.ln()));
+        }
+    }
+
+    if log_points.len() < 3 {
+        return Ok(1.5);
+    }
+
+    // Linear regression: y = mx + b, where m is the slope
+    let n = log_points.len() as f64;
+    let sum_x: f64 = log_points.iter().map(|(x, _)| *x).sum();
+    let sum_y: f64 = log_points.iter().map(|(_, y)| *y).sum();
+    let sum_xy: f64 = log_points.iter().map(|(x, y)| x * y).sum();
+    let sum_x2: f64 = log_points.iter().map(|(x, _)| x * x).sum();
+
+    let denominator = n * sum_x2 - sum_x * sum_x;
+    if denominator.abs() < 1e-10 {
+        return Ok(1.5); // Avoid division by zero
+    }
+
+    let slope = (n * sum_xy - sum_x * sum_y) / denominator;
+
+    // Convert slope to filter order
+    // In a perfect filter: slope = -order (negative because magnitude decreases with frequency)
+    // Real filters may have different slopes, so we adjust
+    let estimated_order = (-slope).abs();
+
+    // Clamp to reasonable range and round to common filter orders
+    let clamped_order = estimated_order.clamp(0.5, 4.0);
+
+    // Round to nearest 0.1 for cleaner display
+    let rounded_order = (clamped_order * 10.0).round() / 10.0;
+
+    Ok(rounded_order)
+}
+
+fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
+    if transfer_function.is_empty() {
+        return 0.0;
+    }
+
+    let mut confidence = 1.0;
+
+    // Factor 1: Number of data points (more points = higher confidence)
+    let num_points = transfer_function.len() as f64;
+    let point_factor = (num_points / 100.0).min(1.0); // Max confidence at 100+ points
+    confidence *= 0.3 + (0.7 * point_factor); // Scale from 30% to 100%
+
+    // Factor 2: Smoothness of transfer function (less noise = higher confidence)
+    let mut smoothness_score = 1.0;
+    if transfer_function.len() > 2 {
+        let mut total_variation = 0.0;
+        for i in 1..transfer_function.len() {
+            let prev_ratio = transfer_function[i - 1].1;
+            let curr_ratio = transfer_function[i].1;
+            total_variation += (curr_ratio - prev_ratio).abs();
+        }
+        let avg_variation = total_variation / (transfer_function.len() - 1) as f64;
+        // Less variation = higher smoothness score
+        smoothness_score = (1.0 - avg_variation.min(1.0)).max(0.1);
+    }
+    confidence *= smoothness_score;
+
+    // Factor 3: Signal strength (avoid low-signal measurements)
+    let avg_magnitude: f64 =
+        transfer_function.iter().map(|(_, mag)| *mag).sum::<f64>() / transfer_function.len() as f64;
+
+    let signal_factor = if avg_magnitude > 0.1 {
+        1.0
+    } else {
+        avg_magnitude * 10.0
+    };
+    confidence *= signal_factor;
+
+    // Clamp to reasonable range
+    confidence.clamp(0.1, 1.0)
+}
+
+/// Estimate filter order from measured response using slope analysis
+/// Returns estimated order and confidence (0.0-1.0)
+#[allow(dead_code)]
+pub fn estimate_filter_order(
+    measured_response: &[(f64, f64)],
+    cutoff_freq: f64,
+) -> Result<(u32, f64), Box<dyn std::error::Error>> {
+    if measured_response.len() < 10 {
+        return Err("Need at least 10 data points for order estimation".into());
+    }
+
+    // Find points above cutoff frequency for roll-off analysis
+    let rolloff_points: Vec<(f64, f64)> = measured_response
+        .iter()
+        .filter(|(freq, mag)| *freq > cutoff_freq && *freq < cutoff_freq * 5.0 && *mag > 0.0)
+        .map(|(freq, mag)| (*freq, mag.ln())) // Convert to log scale for slope analysis
+        .collect();
+
+    if rolloff_points.len() < 5 {
+        return Ok((2, 0.0)); // Default to PT2 with no confidence
+    }
+
+    // Calculate slope using linear regression on log-log scale
+    let n = rolloff_points.len() as f64;
+    let sum_x: f64 = rolloff_points.iter().map(|(freq, _)| freq.ln()).sum();
+    let sum_y: f64 = rolloff_points.iter().map(|(_, log_mag)| *log_mag).sum();
+    let sum_xy: f64 = rolloff_points
+        .iter()
+        .map(|(freq, log_mag)| freq.ln() * log_mag)
+        .sum();
+    let sum_x2: f64 = rolloff_points
+        .iter()
+        .map(|(freq, _)| freq.ln().powi(2))
+        .sum();
+
+    let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x.powi(2));
+
+    // Theoretical slopes for different filter orders (per decade):
+    // PT1: -20 dB/decade = -6.02 per octave
+    // PT2: -40 dB/decade = -12.04 per octave
+    // PT3: -60 dB/decade = -18.06 per octave
+    // PT4: -80 dB/decade = -24.08 per octave
+
+    let slope_per_decade = slope * (10.0_f64.ln()); // Convert to per-decade slope
+    let estimated_order = match slope_per_decade {
+        s if s > -30.0 => 1,
+        s if s > -50.0 => 2,
+        s if s > -70.0 => 3,
+        _ => 4,
+    };
+
+    // Calculate confidence based on how well the slope matches theoretical values
+    let theoretical_slopes = [-20.0, -40.0, -60.0, -80.0];
+    let closest_theoretical = theoretical_slopes[(estimated_order - 1) as usize];
+    let slope_error = (slope_per_decade - closest_theoretical).abs();
+    let confidence = (1.0 - (slope_error / 20.0)).clamp(0.0, 1.0);
+
+    Ok((estimated_order, confidence))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

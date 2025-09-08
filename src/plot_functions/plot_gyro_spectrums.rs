@@ -24,11 +24,13 @@ use plotters::style::RGBColor;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered and Filtered Gyro spectrums.
 /// Now includes filter response curve overlays based on header metadata.
+/// When measure_filters is enabled, also overlays measured filter curves on the filtered gyro plot.
 pub fn plot_gyro_spectrums(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
     header_metadata: Option<&[(String, String)]>,
+    measure_filters: bool,
 ) -> Result<(), Box<dyn Error>> {
     let output_file = format!("{root_name}_Gyro_Spectrums_comparative.png");
     let plot_type_name = "Gyro Spectrums";
@@ -355,6 +357,18 @@ pub fn plot_gyro_spectrums(
             let x_range = 0.0..max_freq_val * 1.05;
             let y_range_for_all_clone = 0.0..overall_max_y_amplitude;
 
+            // Clone data for measured filter analysis before moving into PlotSeries
+            let unfilt_data_for_analysis = if measure_filters {
+                Some(unfilt_series_data.clone())
+            } else {
+                None
+            };
+            let filt_data_for_analysis = if measure_filters {
+                Some(filt_series_data.clone())
+            } else {
+                None
+            };
+
             let mut unfilt_plot_series = vec![PlotSeries {
                 data: unfilt_series_data,
                 label: {
@@ -462,7 +476,8 @@ pub fn plot_gyro_spectrums(
                     }
                 }
             }
-            let filt_plot_series = vec![PlotSeries {
+
+            let mut filt_plot_series = vec![PlotSeries {
                 data: filt_series_data,
                 label: if let Some(ref results) = delay_comparison_results {
                     // Show comparison of both methods if available - NO AVERAGING
@@ -502,6 +517,69 @@ pub fn plot_gyro_spectrums(
                 color: *COLOR_GYRO_VS_UNFILT_FILT,
                 stroke_width: LINE_WIDTH_PLOT,
             }];
+
+            // Add measured filter response curve when measure_filters is enabled
+            if measure_filters {
+                if let (Some(unfilt_data), Some(filt_data)) =
+                    (&unfilt_data_for_analysis, &filt_data_for_analysis)
+                {
+                    // Attempt to measure actual filter response from the spectrum data
+                    // This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
+                    if let Ok(measured_response) =
+                        filter_response::measure_filter_response(unfilt_data, filt_data, sr_value)
+                    {
+                        // Generate measured filter curve for visualization
+                        let max_freq = sr_value / 2.0;
+                        let num_points = 1000;
+                        let freq_step = max_freq / num_points as f64;
+
+                        // Generate ideal filter response curve based on measured characteristics
+                        let mut measured_curve_data = Vec::new();
+                        for i in 0..num_points {
+                            let freq = i as f64 * freq_step;
+                            if freq > 0.0 && freq <= max_freq_val {
+                                // Generate filter response based on measured cutoff and order
+                                let normalized_freq = freq / measured_response.cutoff_hz;
+                                let response = match measured_response.filter_order as i32 {
+                                    1 => 1.0 / (1.0 + normalized_freq * normalized_freq).sqrt(), // PT1
+                                    _ => 1.0 / (1.0 + normalized_freq.powi(4)).sqrt(), // PT2 approximation (default)
+                                };
+                                measured_curve_data.push((freq, response));
+                            }
+                        }
+
+                        if !measured_curve_data.is_empty() {
+                            // Scale curve to overlay on spectrum
+                            let filter_curve_amplitude = overall_max_y_amplitude * 0.3; // 30% of max spectrum height
+                            let filter_curve_offset = overall_max_y_amplitude * 0.05; // Small offset from bottom
+
+                            let scaled_measured_curve: Vec<(f64, f64)> = measured_curve_data
+                                .iter()
+                                .map(|(freq, response)| {
+                                    let scaled_amplitude =
+                                        filter_curve_offset + (response * filter_curve_amplitude);
+                                    (*freq, scaled_amplitude)
+                                })
+                                .collect();
+
+                            filt_plot_series.push(PlotSeries {
+                                data: scaled_measured_curve,
+                                label: format!(
+                                    "MEASURED: {:.0}Hz {:.1} order ({:.0}% conf)",
+                                    measured_response.cutoff_hz,
+                                    measured_response.filter_order,
+                                    measured_response.confidence * 100.0
+                                ),
+                                color: RGBColor(50, 205, 50), // Lime green for measured response
+                                stroke_width: 2,              // Same thickness as red filter curves
+                            });
+                        }
+                    } else {
+                        // If measurement fails, add a note about it
+                        println!("      Unable to measure filter response for {} axis - insufficient data or analysis failed", AXIS_NAMES[axis_index]);
+                    }
+                }
+            }
 
             let unfiltered_plot_config = Some(PlotConfig {
                 title: format!("{} Unfiltered Gyro Spectrum", AXIS_NAMES[axis_index]),

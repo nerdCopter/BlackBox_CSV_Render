@@ -73,7 +73,7 @@ use crate::data_analysis::calc_step_response;
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("
-Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--debug]");
+Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--debug] [--measure-filters]");
     eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
     eprintln!("                 deg/s threshold value. Must be a positive number.");
@@ -83,6 +83,12 @@ Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] 
     );
     eprintln!("                         If omitted, plots are saved in the source folder (input file's directory).");
     eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
+    eprintln!(
+        "  --measure-filters: Optional. Analyzes actual filter response from flight data and"
+    );
+    eprintln!(
+        "                     overlays measured curves on spectrum plots. Works with all firmware."
+    );
     eprintln!("  --help: Show this help message and exit.");
     eprintln!("  --version: Show version information and exit.");
     eprintln!(
@@ -108,6 +114,7 @@ fn process_file(
     use_dir_prefix: bool,
     output_dir: Option<&Path>,
     debug_mode: bool,
+    measure_filters: bool,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -344,6 +351,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         &root_name_string,
         sample_rate,
         Some(&header_metadata),
+        measure_filters,
     )?;
     plot_d_term_psd(
         &all_log_data,
@@ -382,6 +390,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut dps_flag_present = false;
     let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
     let mut debug_mode = false;
+    let mut measure_filters = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -428,6 +437,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         } else if arg == "--debug" {
             debug_mode = true;
+        } else if arg == "--measure-filters" {
+            measure_filters = true;
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -482,6 +493,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             use_dir_prefix_for_root_name,
             actual_output_dir,
             debug_mode,
+            measure_filters,
         ) {
             eprintln!("An error occurred while processing {input_file_str}: {e}");
             overall_success = false;
