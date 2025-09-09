@@ -84,7 +84,7 @@ Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] 
     eprintln!("                         If omitted, plots are saved in the source folder (input file's directory).");
     eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
     eprintln!("  --measure: Optional. Analyzes actual filter response from flight data and");
-    eprintln!("             overlays measured curves on spectrum plots. Works with all firmware.");
+    eprintln!("             plots measured curves on spectrum plots. EXPERIMENTAL: Results may be inaccurate or invalid.");
     eprintln!("  --help: Show this help message and exit.");
     eprintln!("  --version: Show version information and exit.");
     eprintln!(
@@ -113,6 +113,9 @@ fn process_file(
     measure_filters: bool,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
+    if measure_filters {
+        println!("\nWARNING: The --measure option is EXPERIMENTAL. Results may be inaccurate or even invalid.\n");
+    }
     let input_path = Path::new(input_file_str);
     if !input_path.exists() {
         eprintln!("Error: Input file not found: {input_file_str}");
