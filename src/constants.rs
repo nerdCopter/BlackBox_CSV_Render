@@ -128,8 +128,11 @@ pub const GYRO_PSD_HEATMAP_MAX_DB: f64 = -10.0; // Maximum dB for gyro PSD heatm
 
 // Measured filter response analysis constants
 pub const MIN_SPECTRUM_POINTS_FOR_ANALYSIS: usize = 50; // Minimum frequency points for reliable filter analysis
-pub const FILTER_ANALYSIS_MIN_FREQ_HZ: f64 = 10.0; // Focus on filter-relevant frequencies above this
-pub const FILTER_ANALYSIS_MAX_FREQ_HZ: f64 = 500.0; // Focus on filter-relevant frequencies below this
+
+// Dynamic frequency band constants for filter analysis
+pub const FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ: f64 = 10.0; // Absolute minimum frequency when dynamic calculation fails
+pub const FILTER_ANALYSIS_MIN_FREQ_NYQUIST_RATIO: f64 = 0.02; // Minimum frequency as fraction of Nyquist (2%)
+pub const FILTER_ANALYSIS_MAX_FREQ_NYQUIST_RATIO: f64 = 0.6; // Maximum frequency as fraction of Nyquist (60%)
 pub const CUTOFF_MAGNITUDE_RATIO: f64 = 0.707; // -3dB cutoff frequency (magnitude ratio = 1/sqrt(2))
 pub const SLOPE_ANALYSIS_FREQ_MULTIPLIER: f64 = 1.2; // Start slope analysis 20% above cutoff
 pub const MIN_LOG_MAGNITUDE: f64 = 1e-6; // Avoid log(0) and very small values in regression

@@ -826,13 +826,42 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     config
 }
 
+/// Calculate dynamic frequency bounds for filter analysis based on Nyquist frequency
+/// This adapts the analysis band to different sample rates and gyro rates
+fn calculate_analysis_frequency_bounds(sample_rate: f64) -> (f64, f64) {
+    use crate::constants::{
+        FILTER_ANALYSIS_MAX_FREQ_NYQUIST_RATIO, FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ,
+        FILTER_ANALYSIS_MIN_FREQ_NYQUIST_RATIO,
+    };
+
+    if !sample_rate.is_finite() || sample_rate <= 0.0 {
+        // Fall back to safe defaults if sample rate is invalid
+        println!("      WARNING: Invalid sample rate, using fallback frequency bounds");
+        return (FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ, 500.0);
+    }
+
+    let nyquist_freq = sample_rate / 2.0;
+
+    // Calculate dynamic bounds: min(max(10Hz, 2% of Nyquist), max_bound)
+    let min_freq_dynamic = nyquist_freq * FILTER_ANALYSIS_MIN_FREQ_NYQUIST_RATIO;
+    let min_freq = FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ.max(min_freq_dynamic);
+
+    // Maximum frequency: 60% of Nyquist
+    let max_freq = nyquist_freq * FILTER_ANALYSIS_MAX_FREQ_NYQUIST_RATIO;
+
+    // Ensure min_freq doesn't exceed max_freq
+    let min_freq_final = min_freq.min(max_freq * 0.8); // Leave 20% headroom
+
+    (min_freq_final, max_freq)
+}
+
 /// Measure actual filter response from spectrum data (magnitude vs frequency)
 /// This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
 /// Returns measured filter characteristics extracted from real spectral data
 pub fn measure_filter_response(
     unfiltered_spectrum: &[(f64, f64)], // (frequency, magnitude) pairs
     filtered_spectrum: &[(f64, f64)],   // (frequency, magnitude) pairs
-    _sample_rate: f64,                  // Not needed since we have frequency data
+    sample_rate: f64,                   // Used to calculate dynamic frequency bounds
 ) -> Result<MeasuredFilterResponse, Box<dyn std::error::Error>> {
     // Validate input data
     if filtered_spectrum.len() != unfiltered_spectrum.len() {
@@ -846,6 +875,9 @@ pub fn measure_filter_response(
         .into());
     }
 
+    // Calculate dynamic frequency bounds based on sample rate
+    let (analysis_min_freq, analysis_max_freq) = calculate_analysis_frequency_bounds(sample_rate);
+
     // Pre-allocate transfer function vector for better performance
     let mut transfer_function = Vec::with_capacity(filtered_spectrum.len());
 
@@ -853,8 +885,8 @@ pub fn measure_filter_response(
         let (freq, filt_mag) = filtered_spectrum[i];
         let (_, unfilt_mag) = unfiltered_spectrum[i];
 
-        if freq > FILTER_ANALYSIS_MIN_FREQ_HZ
-            && freq < FILTER_ANALYSIS_MAX_FREQ_HZ
+        if freq > analysis_min_freq
+            && freq < analysis_max_freq
             && unfilt_mag > 0.0
             && freq.is_finite()
             && filt_mag.is_finite()
