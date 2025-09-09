@@ -3,7 +3,15 @@
 use std::collections::HashMap;
 
 use crate::axis_names::AXIS_NAMES;
-use crate::constants::*;
+use crate::constants::{
+    CONFIDENCE_MAX_POINTS, CONFIDENCE_MIN_BASE, CONFIDENCE_MIN_SMOOTHNESS, CONFIDENCE_POINT_WEIGHT,
+    CONFIDENCE_SIGNAL_MULTIPLIER, CONFIDENCE_SIGNAL_THRESHOLD, CUTOFF_MAGNITUDE_RATIO,
+    DEFAULT_FILTER_ORDER, DIVISION_BY_ZERO_THRESHOLD, FILTER_ANALYSIS_MAX_FREQ_NYQUIST_RATIO,
+    FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ, FILTER_ANALYSIS_MIN_FREQ_NYQUIST_RATIO,
+    FILTER_ORDER_CLAMP_MAX, FILTER_ORDER_CLAMP_MIN, FILTER_ORDER_ROUNDING_PRECISION,
+    MIN_LOG_MAGNITUDE, MIN_POINTS_FOR_SLOPE_ANALYSIS, MIN_SPECTRUM_POINTS_FOR_ANALYSIS,
+    SLOPE_ANALYSIS_FREQ_MULTIPLIER,
+};
 
 /// Filter types supported by flight controllers
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -829,11 +837,6 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
 /// Calculate dynamic frequency bounds for filter analysis based on Nyquist frequency
 /// This adapts the analysis band to different sample rates and gyro rates
 fn calculate_analysis_frequency_bounds(sample_rate: f64) -> (f64, f64) {
-    use crate::constants::{
-        FILTER_ANALYSIS_MAX_FREQ_NYQUIST_RATIO, FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ,
-        FILTER_ANALYSIS_MIN_FREQ_NYQUIST_RATIO,
-    };
-
     if !sample_rate.is_finite() || sample_rate <= 0.0 {
         // Fall back to safe defaults if sample rate is invalid
         println!("      WARNING: Invalid sample rate, using fallback frequency bounds");
@@ -882,12 +885,14 @@ pub fn measure_filter_response(
     let mut transfer_function = Vec::with_capacity(filtered_spectrum.len());
     let eps = 1e-12_f64;
 
+    let mut misaligned = 0usize;
     for i in 0..filtered_spectrum.len() {
         let (f_filt, filt_mag) = filtered_spectrum[i];
         let (f_unf, unfilt_mag) = unfiltered_spectrum[i];
 
         // Ensure aligned bins (defensive; current caller aligns them)
         if (f_filt - f_unf).abs() > 1e-6 {
+            misaligned += 1;
             continue;
         }
 
@@ -906,6 +911,10 @@ pub fn measure_filter_response(
         }
     }
 
+    // Bail out if too many bins were misaligned (>5%)
+    if misaligned > filtered_spectrum.len() / 20 {
+        return Err("Spectrum frequency bins are misaligned".into());
+    }
     if transfer_function.is_empty() {
         return Err("No valid transfer function data found".into());
     }
@@ -943,16 +952,14 @@ fn find_cutoff_frequency(
     if transfer_function.len() < 2 {
         return Err("Transfer function is empty".into());
     }
-    // Assume ascending frequency; find first crossing around target_ratio
+    // Assume ascending frequency; find first downward crossing around target_ratio
     for i in 1..transfer_function.len() {
         let (f1, r1) = transfer_function[i - 1];
         let (f2, r2) = transfer_function[i];
         if !(f1.is_finite() && f2.is_finite() && r1.is_finite() && r2.is_finite()) {
             continue;
         }
-        let crosses = (r1 >= target_ratio && r2 <= target_ratio)
-            || (r1 <= target_ratio && r2 >= target_ratio);
-        if crosses {
+        if r1 >= target_ratio && r2 <= target_ratio {
             let denom = r2 - r1;
             if denom.abs() < 1e-12 {
                 return Ok(f1.max(0.0));
@@ -1045,13 +1052,14 @@ fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
     confidence *= CONFIDENCE_MIN_BASE + (CONFIDENCE_POINT_WEIGHT * point_factor); // Scale from 30% to 100%
 
     // Factor 2: Smoothness of transfer function (less noise = higher confidence)
+    // Use log-domain to better track rolloff quality
     let mut smoothness_score = 1.0;
     if transfer_function.len() > 2 {
         let mut total_variation = 0.0;
         for i in 1..transfer_function.len() {
-            let prev_ratio = transfer_function[i - 1].1;
-            let curr_ratio = transfer_function[i].1;
-            total_variation += (curr_ratio - prev_ratio).abs();
+            let p = transfer_function[i - 1].1.max(1e-9).ln();
+            let c = transfer_function[i].1.max(1e-9).ln();
+            total_variation += (c - p).abs();
         }
         let avg_variation = total_variation / (transfer_function.len() - 1) as f64;
         // Less variation = higher smoothness score
