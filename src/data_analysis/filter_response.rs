@@ -880,22 +880,28 @@ pub fn measure_filter_response(
 
     // Pre-allocate transfer function vector for better performance
     let mut transfer_function = Vec::with_capacity(filtered_spectrum.len());
+    let eps = 1e-12_f64;
 
     for i in 0..filtered_spectrum.len() {
-        let (freq, filt_mag) = filtered_spectrum[i];
-        let (_, unfilt_mag) = unfiltered_spectrum[i];
+        let (f_filt, filt_mag) = filtered_spectrum[i];
+        let (f_unf, unfilt_mag) = unfiltered_spectrum[i];
 
-        if freq > analysis_min_freq
-            && freq < analysis_max_freq
-            && unfilt_mag > 0.0
-            && freq.is_finite()
+        // Ensure aligned bins (defensive; current caller aligns them)
+        if (f_filt - f_unf).abs() > 1e-6 {
+            continue;
+        }
+
+        if f_filt > analysis_min_freq
+            && f_filt < analysis_max_freq
+            && unfilt_mag > eps
+            && f_filt.is_finite()
             && filt_mag.is_finite()
             && unfilt_mag.is_finite()
         {
-            // Focus on filter-relevant frequencies with finite value validation
-            let magnitude_ratio = filt_mag / unfilt_mag;
-            if magnitude_ratio.is_finite() && magnitude_ratio > 0.0 {
-                transfer_function.push((freq, magnitude_ratio));
+            let mut ratio = (filt_mag / unfilt_mag).max(0.0);
+            if ratio.is_finite() {
+                ratio = ratio.min(1.0);
+                transfer_function.push((f_filt, ratio));
             }
         }
     }
@@ -934,28 +940,28 @@ fn find_cutoff_frequency(
     transfer_function: &[(f64, f64)],
     target_ratio: f64,
 ) -> Result<f64, Box<dyn std::error::Error>> {
-    if transfer_function.is_empty() {
+    if transfer_function.len() < 2 {
         return Err("Transfer function is empty".into());
     }
-
-    let mut best_freq = 0.0;
-    let mut best_diff = f64::INFINITY;
-
-    for &(freq, ratio) in transfer_function {
-        if freq.is_finite() && ratio.is_finite() {
-            let diff = (ratio - target_ratio).abs();
-            if diff < best_diff {
-                best_diff = diff;
-                best_freq = freq;
+    // Assume ascending frequency; find first crossing around target_ratio
+    for i in 1..transfer_function.len() {
+        let (f1, r1) = transfer_function[i - 1];
+        let (f2, r2) = transfer_function[i];
+        if !(f1.is_finite() && f2.is_finite() && r1.is_finite() && r2.is_finite()) {
+            continue;
+        }
+        let crosses = (r1 >= target_ratio && r2 <= target_ratio)
+            || (r1 <= target_ratio && r2 >= target_ratio);
+        if crosses {
+            let denom = r2 - r1;
+            if denom.abs() < 1e-12 {
+                return Ok(f1.max(0.0));
             }
+            let t = (target_ratio - r1) / denom;
+            return Ok(f1 + t * (f2 - f1));
         }
     }
-
-    if best_freq > 0.0 && best_freq.is_finite() {
-        Ok(best_freq)
-    } else {
-        Err("Could not find valid cutoff frequency".into())
-    }
+    Err("Could not find cutoff frequency crossing".into())
 }
 
 fn estimate_filter_order_from_transfer(
@@ -1066,66 +1072,6 @@ fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
 
     // Clamp to reasonable range
     confidence.clamp(0.1, 1.0)
-}
-
-/// Estimate filter order from measured response using slope analysis
-/// Returns estimated order and confidence (0.0-1.0)
-#[allow(dead_code)]
-pub fn estimate_filter_order(
-    measured_response: &[(f64, f64)],
-    cutoff_freq: f64,
-) -> Result<(u32, f64), Box<dyn std::error::Error>> {
-    if measured_response.len() < 10 {
-        return Err("Need at least 10 data points for order estimation".into());
-    }
-
-    // Find points above cutoff frequency for roll-off analysis
-    let rolloff_points: Vec<(f64, f64)> = measured_response
-        .iter()
-        .filter(|(freq, mag)| *freq > cutoff_freq && *freq < cutoff_freq * 5.0 && *mag > 0.0)
-        .map(|(freq, mag)| (*freq, mag.ln())) // Convert to log scale for slope analysis
-        .collect();
-
-    if rolloff_points.len() < 5 {
-        return Ok((2, 0.0)); // Default to PT2 with no confidence
-    }
-
-    // Calculate slope using linear regression on log-log scale
-    let n = rolloff_points.len() as f64;
-    let sum_x: f64 = rolloff_points.iter().map(|(freq, _)| freq.ln()).sum();
-    let sum_y: f64 = rolloff_points.iter().map(|(_, log_mag)| *log_mag).sum();
-    let sum_xy: f64 = rolloff_points
-        .iter()
-        .map(|(freq, log_mag)| freq.ln() * log_mag)
-        .sum();
-    let sum_x2: f64 = rolloff_points
-        .iter()
-        .map(|(freq, _)| freq.ln().powi(2))
-        .sum();
-
-    let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x.powi(2));
-
-    // Theoretical slopes for different filter orders (per decade):
-    // PT1: -20 dB/decade (20 dB/decade per order)
-    // PT2: -40 dB/decade (20 dB/decade per order)
-    // PT3: -60 dB/decade (20 dB/decade per order)
-    // PT4: -80 dB/decade (20 dB/decade per order)
-
-    let slope_per_decade = 20.0 * slope; // Convert d ln|H|/d ln f to dB/decade
-    let estimated_order = match slope_per_decade {
-        s if s > -30.0 => 1,
-        s if s > -50.0 => 2,
-        s if s > -70.0 => 3,
-        _ => 4,
-    };
-
-    // Calculate confidence based on how well the slope matches theoretical values
-    let theoretical_slopes = [-20.0, -40.0, -60.0, -80.0];
-    let closest_theoretical = theoretical_slopes[(estimated_order - 1) as usize];
-    let slope_error = (slope_per_decade - closest_theoretical).abs();
-    let confidence = (1.0 - (slope_error / 20.0)).clamp(0.0, 1.0);
-
-    Ok((estimated_order, confidence))
 }
 
 #[cfg(test)]

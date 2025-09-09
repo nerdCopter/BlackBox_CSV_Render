@@ -369,9 +369,8 @@ pub fn plot_gyro_spectrums(
                     sr_value,
                 ) {
                     // Generate measured filter curve for visualization
-                    let max_freq = sr_value / 2.0;
                     let num_points = MEASURED_CURVE_POINTS;
-                    let freq_step = max_freq / (num_points.saturating_sub(1).max(1) as f64);
+                    let freq_step = max_freq_val / (num_points.saturating_sub(1).max(1) as f64);
 
                     // Guard invalid or degenerate measurements
                     if measured_response.cutoff_hz.is_finite()
@@ -541,12 +540,14 @@ pub fn plot_gyro_spectrums(
                             )
                         };
 
-                        unfilt_plot_series.push(PlotSeries {
-                            data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
-                            label: format!("{}{}", cutoff_prefix, cutoff_hz), // Special prefix to avoid legend
-                            color: cutoff_color,
-                            stroke_width: 1,
-                        });
+                        if cutoff_hz <= max_freq_val {
+                            unfilt_plot_series.push(PlotSeries {
+                                data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
+                                label: format!("{}{}", cutoff_prefix, cutoff_hz), // Special prefix to avoid legend
+                                color: cutoff_color,
+                                stroke_width: 1,
+                            });
+                        }
                     }
                 }
             }
