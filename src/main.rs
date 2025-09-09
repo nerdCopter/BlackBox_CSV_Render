@@ -113,9 +113,6 @@ fn process_file(
     measure_filters: bool,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
-    if measure_filters {
-        println!("\nWARNING: The --measure option is EXPERIMENTAL. Results may be inaccurate or even invalid.\n");
-    }
     let input_path = Path::new(input_file_str);
     if !input_path.exists() {
         eprintln!("Error: Input file not found: {input_file_str}");
@@ -472,6 +469,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         if parent_dirs_set.len() > 1 {
             use_dir_prefix_for_root_name = true;
         }
+    }
+
+    if measure_filters {
+        println!("\nWARNING: The --measure option is EXPERIMENTAL. Results may be inaccurate or even invalid.\n");
     }
 
     let mut overall_success = true;
