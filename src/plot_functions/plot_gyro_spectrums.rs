@@ -359,14 +359,84 @@ pub fn plot_gyro_spectrums(
             let x_range = 0.0..max_freq_val * 1.05;
             let y_range_for_all_clone = 0.0..overall_max_y_amplitude;
 
-            // Clone data for measured filter analysis before moving into PlotSeries
-            let unfilt_data_for_analysis = if measure_filters {
-                Some(unfilt_series_data.clone())
-            } else {
-                None
-            };
-            let filt_data_for_analysis = if measure_filters {
-                Some(filt_series_data.clone())
+            // Perform measured filter analysis first to avoid cloning
+            let measured_overlay_series = if measure_filters {
+                // Attempt to measure actual filter response from the spectrum data
+                // This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
+                if let Ok(measured_response) = filter_response::measure_filter_response(
+                    &unfilt_series_data,
+                    &filt_series_data,
+                    sr_value,
+                ) {
+                    // Generate measured filter curve for visualization
+                    let max_freq = sr_value / 2.0;
+                    let num_points = MEASURED_CURVE_POINTS;
+                    let freq_step = max_freq / (num_points.saturating_sub(1).max(1) as f64);
+
+                    // Guard invalid or degenerate measurements
+                    if measured_response.cutoff_hz.is_finite()
+                        && measured_response.cutoff_hz > 0.0
+                        && measured_response.filter_order.is_finite()
+                        && measured_response.filter_order > 0.0
+                    {
+                        // Generate ideal filter response curve based on measured characteristics
+                        let mut measured_curve_data = Vec::with_capacity(num_points);
+                        for i in 0..num_points {
+                            let freq = i as f64 * freq_step; // includes Nyquist
+                            if freq >= 0.0 && freq <= max_freq_val {
+                                let normalized_freq = freq / measured_response.cutoff_hz;
+                                // |H(f)| = 1 / sqrt(1 + (f/fc)^(2*n))
+                                let response = 1.0
+                                    / (1.0
+                                        + normalized_freq
+                                            .powf(2.0 * measured_response.filter_order))
+                                    .sqrt();
+                                measured_curve_data.push((freq, response));
+                            }
+                        }
+                        if !measured_curve_data.is_empty() {
+                            // Scale curve to overlay on spectrum
+                            let filter_curve_amplitude =
+                                overall_max_y_amplitude * MEASURED_CURVE_AMPLITUDE_SCALE;
+                            let filter_curve_offset =
+                                overall_max_y_amplitude * MEASURED_CURVE_OFFSET_SCALE;
+
+                            let scaled_measured_curve: Vec<(f64, f64)> = measured_curve_data
+                                .iter()
+                                .map(|(freq, response)| {
+                                    let scaled_amplitude =
+                                        filter_curve_offset + (response * filter_curve_amplitude);
+                                    (*freq, scaled_amplitude)
+                                })
+                                .collect();
+
+                            // Calculate dB/decade rolloff rate: order * 20 dB/decade
+                            let db_per_decade = measured_response.filter_order * 20.0;
+
+                            Some((
+                                PlotSeries {
+                                    data: scaled_measured_curve,
+                                    label: format!(
+                                        "MEASURED: {:.0}Hz -{:.0}dB/decade rolloff (PT{:.1}) ({:.0}% conf)",
+                                        measured_response.cutoff_hz,
+                                        db_per_decade,
+                                        measured_response.filter_order,
+                                        measured_response.confidence * 100.0
+                                    ),
+                                    color: RGBColor(34, 139, 34), // Hunter green for measured response
+                                    stroke_width: 2,              // Same thickness as red filter curves
+                                },
+                                measured_response.cutoff_hz,
+                            ))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -420,8 +490,10 @@ pub fn plot_gyro_spectrums(
                     if !curve_data.is_empty() {
                         // Show filter response as a normalized curve overlaid on the spectrum
                         // Use a fixed amplitude scale that makes the cutoff frequency visible
-                        let filter_curve_amplitude = overall_max_y_amplitude * 0.3; // 30% of max spectrum height
-                        let filter_curve_offset = overall_max_y_amplitude * 0.05; // Offset from bottom
+                        let filter_curve_amplitude =
+                            overall_max_y_amplitude * MEASURED_CURVE_AMPLITUDE_SCALE;
+                        let filter_curve_offset =
+                            overall_max_y_amplitude * MEASURED_CURVE_OFFSET_SCALE;
 
                         let scaled_response: Vec<(f64, f64)> = curve_data
                             .iter()
@@ -520,101 +592,22 @@ pub fn plot_gyro_spectrums(
                 stroke_width: LINE_WIDTH_PLOT,
             }];
 
-            // Add measured filter response curve when measure_filters is enabled
-            if measure_filters {
-                if let (Some(unfilt_data), Some(filt_data)) =
-                    (&unfilt_data_for_analysis, &filt_data_for_analysis)
-                {
-                    // Attempt to measure actual filter response from the spectrum data
-                    // This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
-                    if let Ok(measured_response) =
-                        filter_response::measure_filter_response(unfilt_data, filt_data, sr_value)
-                    {
-                        // Generate measured filter curve for visualization
-                        let max_freq = sr_value / 2.0;
-                        let num_points = MEASURED_CURVE_POINTS;
-                        let freq_step = max_freq / (num_points.saturating_sub(1).max(1) as f64);
+            // Add measured filter response curve if analysis succeeded
+            if let Some((measured_series, cutoff_hz)) = measured_overlay_series {
+                filt_plot_series.push(measured_series);
 
-                        // Guard invalid or degenerate measurements
-                        if measured_response.cutoff_hz.is_finite()
-                            && measured_response.cutoff_hz > 0.0
-                            && measured_response.filter_order.is_finite()
-                            && measured_response.filter_order > 0.0
-                        {
-                            // Generate ideal filter response curve based on measured characteristics
-                            let mut measured_curve_data = Vec::with_capacity(num_points);
-                            for i in 0..num_points {
-                                let freq = i as f64 * freq_step; // includes Nyquist
-                                if freq >= 0.0 && freq <= max_freq_val {
-                                    let normalized_freq = freq / measured_response.cutoff_hz;
-                                    // |H(f)| = 1 / sqrt(1 + (f/fc)^(2*n))
-                                    let response = 1.0
-                                        / (1.0
-                                            + normalized_freq
-                                                .powf(2.0 * measured_response.filter_order))
-                                        .sqrt();
-                                    measured_curve_data.push((freq, response));
-                                }
-                            }
-                            if !measured_curve_data.is_empty() {
-                                // Scale curve to overlay on spectrum
-                                let filter_curve_amplitude =
-                                    overall_max_y_amplitude * MEASURED_CURVE_AMPLITUDE_SCALE; // 30% of max spectrum height
-                                let filter_curve_offset =
-                                    overall_max_y_amplitude * MEASURED_CURVE_OFFSET_SCALE; // Small offset from bottom
-
-                                let scaled_measured_curve: Vec<(f64, f64)> = measured_curve_data
-                                    .iter()
-                                    .map(|(freq, response)| {
-                                        let scaled_amplitude = filter_curve_offset
-                                            + (response * filter_curve_amplitude);
-                                        (*freq, scaled_amplitude)
-                                    })
-                                    .collect();
-
-                                // Calculate dB/decade rolloff rate: order * 20 dB/decade
-                                let db_per_decade = measured_response.filter_order * 20.0;
-
-                                filt_plot_series.push(PlotSeries {
-                                data: scaled_measured_curve,
-                                label: format!(
-                                    "MEASURED: {:.0}Hz -{:.0}dB/decade rolloff (PT{:.1}) ({:.0}% conf)",
-                                    measured_response.cutoff_hz,
-                                    db_per_decade,
-                                    measured_response.filter_order,
-                                    measured_response.confidence * 100.0
-                                ),
-                                color: RGBColor(34, 139, 34), // Hunter green for measured response
-                                stroke_width: 2,              // Same thickness as red filter curves
-                            });
-
-                                // Add vertical cutoff indicator line for measured filter (same color as curve)
-                                let cutoff_hz = measured_response.cutoff_hz;
-                                if cutoff_hz.is_finite() && cutoff_hz <= max_freq_val {
-                                    filt_plot_series.push(PlotSeries {
-                                        data: vec![
-                                            (cutoff_hz, 0.0),
-                                            (cutoff_hz, overall_max_y_amplitude),
-                                        ],
-                                        label: format!("{}{:.0}", CUTOFF_LINE_PREFIX, cutoff_hz),
-                                        color: RGBColor(34, 139, 34),
-                                        stroke_width: 1,
-                                    });
-                                }
-                            }
-                        } else {
-                            println!(
-                                "      Skipping measured overlay for {} axis: invalid cutoff/order (fc={:.3}, n={:.3}).",
-                                AXIS_NAMES[axis_index],
-                                measured_response.cutoff_hz,
-                                measured_response.filter_order
-                            );
-                        }
-                    } else {
-                        // If measurement fails, add a note about it
-                        println!("      Unable to measure filter response for {} axis - insufficient data or analysis failed", AXIS_NAMES[axis_index]);
-                    }
+                // Add vertical cutoff indicator line for measured filter (same color as curve)
+                if cutoff_hz.is_finite() && cutoff_hz <= max_freq_val {
+                    filt_plot_series.push(PlotSeries {
+                        data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
+                        label: format!("{}{:.0}", CUTOFF_LINE_PREFIX, cutoff_hz),
+                        color: RGBColor(34, 139, 34),
+                        stroke_width: 1,
+                    });
                 }
+            } else if measure_filters {
+                // If measurement was attempted but failed, add a note about it
+                println!("      Unable to measure filter response for {} axis - insufficient data or analysis failed", AXIS_NAMES[axis_index]);
             }
 
             let unfiltered_plot_config = Some(PlotConfig {
