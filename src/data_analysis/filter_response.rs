@@ -845,9 +845,9 @@ fn calculate_analysis_frequency_bounds(sample_rate: f64) -> (f64, f64) {
 
     let nyquist_freq = sample_rate / 2.0;
 
-    // Calculate dynamic bounds: min(max(10Hz, 2% of Nyquist), max_bound)
+    // Calculate dynamic bounds but ALWAYS use at least 50Hz to avoid Tukey windowing artifacts
     let min_freq_dynamic = nyquist_freq * FILTER_ANALYSIS_MIN_FREQ_NYQUIST_RATIO;
-    let min_freq = FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ.max(min_freq_dynamic);
+    let min_freq = 50.0_f64.max(min_freq_dynamic.max(FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ));
 
     // Maximum frequency: 60% of Nyquist
     let max_freq = nyquist_freq * FILTER_ANALYSIS_MAX_FREQ_NYQUIST_RATIO;
@@ -903,9 +903,9 @@ pub fn measure_filter_response(
             && filt_mag.is_finite()
             && unfilt_mag.is_finite()
         {
-            let mut ratio = (filt_mag / unfilt_mag).max(0.0);
-            if ratio.is_finite() {
-                ratio = ratio.min(1.0);
+            let ratio = (filt_mag / unfilt_mag).max(0.0);
+            if ratio.is_finite() && ratio < 5.0 {
+                // Allow > 1.0 but reject extreme outliers
                 transfer_function.push((f_filt, ratio));
             }
         }
