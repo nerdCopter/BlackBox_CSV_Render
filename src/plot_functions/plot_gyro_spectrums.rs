@@ -580,6 +580,20 @@ pub fn plot_gyro_spectrums(
                                 color: RGBColor(50, 205, 50), // Lime green for measured response
                                 stroke_width: 2,              // Same thickness as red filter curves
                             });
+
+                            // Add vertical cutoff indicator line for measured filter (same color as curve)
+                            filt_plot_series.push(PlotSeries {
+                                data: vec![
+                                    (measured_response.cutoff_hz, 0.0),
+                                    (measured_response.cutoff_hz, overall_max_y_amplitude),
+                                ],
+                                label: format!(
+                                    "{}{:.0}",
+                                    CUTOFF_LINE_PREFIX, measured_response.cutoff_hz
+                                ), // Special prefix to avoid legend
+                                color: RGBColor(50, 205, 50), // Same lime green as measured response curve
+                                stroke_width: 1,
+                            });
                         }
                     } else {
                         // If measurement fails, add a note about it
