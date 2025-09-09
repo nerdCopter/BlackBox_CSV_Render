@@ -139,6 +139,7 @@ pub const MIN_LOG_MAGNITUDE: f64 = 1e-6; // Avoid log(0) and very small values i
 pub const MIN_POINTS_FOR_SLOPE_ANALYSIS: usize = 3; // Minimum points needed for slope regression
 pub const DEFAULT_FILTER_ORDER: f64 = 1.5; // Default filter order when analysis fails
 pub const DIVISION_BY_ZERO_THRESHOLD: f64 = 1e-10; // Threshold to avoid division by zero in regression
+pub const SPECTRUM_DIV_EPS: f64 = 1e-12; // Division guard when forming |H(f)| = |F|/|U|
 pub const FILTER_ORDER_CLAMP_MIN: f64 = 0.5; // Minimum reasonable filter order
 pub const FILTER_ORDER_CLAMP_MAX: f64 = 4.0; // Maximum reasonable filter order
 pub const FILTER_ORDER_ROUNDING_PRECISION: f64 = 10.0; // Round to nearest 0.1 for display

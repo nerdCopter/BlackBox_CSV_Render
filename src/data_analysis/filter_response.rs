@@ -10,7 +10,7 @@ use crate::constants::{
     FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ, FILTER_ANALYSIS_MIN_FREQ_NYQUIST_RATIO,
     FILTER_ORDER_CLAMP_MAX, FILTER_ORDER_CLAMP_MIN, FILTER_ORDER_ROUNDING_PRECISION,
     MIN_LOG_MAGNITUDE, MIN_POINTS_FOR_SLOPE_ANALYSIS, MIN_SPECTRUM_POINTS_FOR_ANALYSIS,
-    SLOPE_ANALYSIS_FREQ_MULTIPLIER,
+    SLOPE_ANALYSIS_FREQ_MULTIPLIER, SPECTRUM_DIV_EPS,
 };
 
 /// Filter types supported by flight controllers
@@ -838,22 +838,17 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
 /// This adapts the analysis band to different sample rates and gyro rates
 fn calculate_analysis_frequency_bounds(sample_rate: f64) -> (f64, f64) {
     if !sample_rate.is_finite() || sample_rate <= 0.0 {
-        // Fall back to safe defaults if sample rate is invalid
-        println!("      WARNING: Invalid sample rate, using fallback frequency bounds");
         return (FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ, 500.0);
     }
 
     let nyquist_freq = sample_rate / 2.0;
-
-    // Calculate dynamic bounds but ALWAYS use at least 50Hz to avoid Tukey windowing artifacts
     let min_freq_dynamic = nyquist_freq * FILTER_ANALYSIS_MIN_FREQ_NYQUIST_RATIO;
-    let min_freq = 50.0_f64.max(min_freq_dynamic.max(FILTER_ANALYSIS_MIN_FREQ_FALLBACK_HZ));
 
-    // Maximum frequency: 60% of Nyquist
+    // Force minimum 50Hz to avoid Tukey windowing artifacts at low frequencies
+    let min_freq = 50.0_f64.max(min_freq_dynamic);
+
     let max_freq = nyquist_freq * FILTER_ANALYSIS_MAX_FREQ_NYQUIST_RATIO;
-
-    // Ensure min_freq doesn't exceed max_freq
-    let min_freq_final = min_freq.min(max_freq * 0.8); // Leave 20% headroom
+    let min_freq_final = min_freq.min(max_freq * 0.8);
 
     (min_freq_final, max_freq)
 }
@@ -883,7 +878,7 @@ pub fn measure_filter_response(
 
     // Pre-allocate transfer function vector for better performance
     let mut transfer_function = Vec::with_capacity(filtered_spectrum.len());
-    let eps = 1e-12_f64;
+    let eps = SPECTRUM_DIV_EPS;
 
     let mut misaligned = 0usize;
     for i in 0..filtered_spectrum.len() {
