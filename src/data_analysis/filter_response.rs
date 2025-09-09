@@ -872,6 +872,11 @@ pub fn measure_filter_response(
         return Err("No valid transfer function data found".into());
     }
 
+    // Ensure ascending frequency for downstream crossing detection and regression
+    transfer_function.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
     // Find -3dB cutoff frequency (magnitude ratio = 1/sqrt(2))
     let cutoff_hz = find_cutoff_frequency(&transfer_function, CUTOFF_MAGNITUDE_RATIO)?;
 
