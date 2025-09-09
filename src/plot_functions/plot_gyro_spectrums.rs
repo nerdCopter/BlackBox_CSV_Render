@@ -540,10 +540,13 @@ pub fn plot_gyro_spectrums(
                             if freq > 0.0 && freq <= max_freq_val {
                                 // Generate filter response based on measured cutoff and order
                                 let normalized_freq = freq / measured_response.cutoff_hz;
-                                let response = match measured_response.filter_order as i32 {
-                                    1 => 1.0 / (1.0 + normalized_freq * normalized_freq).sqrt(), // PT1
-                                    _ => 1.0 / (1.0 + normalized_freq.powi(4)).sqrt(), // PT2 approximation (default)
-                                };
+                                // Use generalized nth-order low-pass filter response for fractional orders
+                                // |H(f)| = 1 / sqrt(1 + (f/fc)^(2*n)) where n is the filter order
+                                let response = 1.0
+                                    / (1.0
+                                        + normalized_freq
+                                            .powf(2.0 * measured_response.filter_order))
+                                    .sqrt();
                                 measured_curve_data.push((freq, response));
                             }
                         }
@@ -562,11 +565,15 @@ pub fn plot_gyro_spectrums(
                                 })
                                 .collect();
 
+                            // Calculate dB/decade rolloff rate: order * 20 dB/decade
+                            let db_per_decade = measured_response.filter_order * 20.0;
+
                             filt_plot_series.push(PlotSeries {
                                 data: scaled_measured_curve,
                                 label: format!(
-                                    "MEASURED: {:.0}Hz {:.1} order ({:.0}% conf)",
+                                    "MEASURED: {:.0}Hz -{:.0}dB/decade rolloff (PT{:.1}) ({:.0}% conf)",
                                     measured_response.cutoff_hz,
+                                    db_per_decade,
                                     measured_response.filter_order,
                                     measured_response.confidence * 100.0
                                 ),
