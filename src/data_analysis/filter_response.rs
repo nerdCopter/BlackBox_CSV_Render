@@ -849,22 +849,29 @@ pub fn measure_filter_response(
     // Pre-allocate transfer function vector for better performance
     let mut transfer_function = Vec::with_capacity(filtered_spectrum.len());
 
+    let eps = 1e-12_f64;
+    let freq_tol = 1e-6_f64;
     for i in 0..filtered_spectrum.len() {
-        let (freq, filt_mag) = filtered_spectrum[i];
-        let (_, unfilt_mag) = unfiltered_spectrum[i];
-
-        if freq > FILTER_ANALYSIS_MIN_FREQ_HZ
-            && freq < FILTER_ANALYSIS_MAX_FREQ_HZ
-            && unfilt_mag > 0.0
-            && freq.is_finite()
-            && filt_mag.is_finite()
-            && unfilt_mag.is_finite()
+        let (f_filt, filt_mag) = filtered_spectrum[i];
+        let (f_unf, unfilt_mag) = unfiltered_spectrum[i];
+        if !f_filt.is_finite()
+            || !f_unf.is_finite()
+            || !filt_mag.is_finite()
+            || !unfilt_mag.is_finite()
         {
-            // Focus on filter-relevant frequencies with finite value validation
-            let magnitude_ratio = filt_mag / unfilt_mag;
-            if magnitude_ratio.is_finite() && magnitude_ratio > 0.0 {
-                transfer_function.push((freq, magnitude_ratio));
-            }
+            continue;
+        }
+        // Ensure bins align
+        if (f_filt - f_unf).abs() > freq_tol {
+            continue;
+        }
+        // Avoid divide-by-tiny and skip pathological ratios
+        if unfilt_mag.abs() <= eps {
+            continue;
+        }
+        let ratio = (filt_mag / unfilt_mag).abs();
+        if ratio.is_finite() && ratio > 0.0 && ratio < 10.0 {
+            transfer_function.push((f_filt, ratio));
         }
     }
 
