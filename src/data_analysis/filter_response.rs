@@ -878,11 +878,15 @@ pub fn measure_filter_response(
     // Find -3dB cutoff frequency (magnitude ratio = 1/sqrt(2))
     let cutoff_hz = find_cutoff_frequency(&transfer_function, CUTOFF_MAGNITUDE_RATIO)?;
 
-    // Estimate filter order from rolloff slope
-    let filter_order = estimate_filter_order_from_transfer(&transfer_function, cutoff_hz)?;
+    // Estimate filter order and get order-specific confidence from rolloff slope
+    let (filter_order, order_confidence) =
+        estimate_filter_order_from_transfer(&transfer_function, cutoff_hz)?;
 
-    // Calculate confidence based on data quality
-    let confidence = calculate_measurement_confidence(&transfer_function);
+    // Calculate general data quality confidence
+    let data_confidence = calculate_measurement_confidence(&transfer_function);
+
+    // Combine both confidence scores with order confidence weighted more heavily
+    let confidence = (order_confidence * 0.6 + data_confidence * 0.4).clamp(0.1, 1.0);
 
     Ok(MeasuredFilterResponse {
         cutoff_hz,
@@ -932,10 +936,11 @@ fn find_cutoff_frequency(
 fn estimate_filter_order_from_transfer(
     transfer_function: &[(f64, f64)],
     cutoff_hz: f64,
-) -> Result<f64, Box<dyn std::error::Error>> {
+) -> Result<(f64, f64), Box<dyn std::error::Error>> {
     // Analyze rolloff slope above cutoff frequency
     // -20dB/decade = PT1 (order 1.0)
     // -40dB/decade = PT2 (order 2.0)
+    // Returns (filter_order, confidence)
 
     // Validate cutoff frequency
     if !cutoff_hz.is_finite() || cutoff_hz <= 0.0 {
@@ -950,8 +955,8 @@ fn estimate_filter_order_from_transfer(
         .collect();
 
     if high_freq_points.len() < MIN_POINTS_FOR_SLOPE_ANALYSIS {
-        // Not enough data for slope analysis, return default
-        return Ok(DEFAULT_FILTER_ORDER);
+        // Not enough data for slope analysis, return default with low confidence
+        return Ok((DEFAULT_FILTER_ORDER, 0.3));
     }
 
     // Convert to log-log scale for linear regression
@@ -965,7 +970,7 @@ fn estimate_filter_order_from_transfer(
     }
 
     if log_points.len() < MIN_POINTS_FOR_SLOPE_ANALYSIS {
-        return Ok(DEFAULT_FILTER_ORDER);
+        return Ok((DEFAULT_FILTER_ORDER, 0.3));
     }
 
     // Linear regression: y = mx + b, where m is the slope
@@ -977,24 +982,37 @@ fn estimate_filter_order_from_transfer(
 
     let denominator = n * sum_x2 - sum_x * sum_x;
     if denominator.abs() < DIVISION_BY_ZERO_THRESHOLD {
-        return Ok(DEFAULT_FILTER_ORDER); // Avoid division by zero
+        return Ok((DEFAULT_FILTER_ORDER, 0.3)); // Avoid division by zero
     }
 
     let slope = (n * sum_xy - sum_x * sum_y) / denominator;
 
     // Convert slope to filter order
     // In a perfect filter: slope = -order (negative because magnitude decreases with frequency)
-    // Real filters may have different slopes, so we adjust
     let estimated_order = (-slope).abs();
 
-    // Clamp to reasonable range and round to common filter orders
-    let clamped_order = estimated_order.clamp(FILTER_ORDER_CLAMP_MIN, FILTER_ORDER_CLAMP_MAX);
+    // Calculate slope in dB/decade terms for confidence calculation
+    let slope_per_decade = 20.0 * slope; // Convert d ln|H|/d ln f to dB/decade
 
-    // Round to nearest 0.1 for cleaner display
+    // Calculate confidence based on how well the slope matches theoretical values
+    // Theoretical slopes: PT1=-20dB/decade, PT2=-40dB/decade, etc.
+    let closest_integer_order = estimated_order.round();
+    let theoretical_slope = -20.0 * closest_integer_order;
+    let slope_error = (slope_per_decade - theoretical_slope).abs();
+    let order_confidence = (1.0 - (slope_error / 20.0)).clamp(0.0, 1.0);
+
+    // Additional confidence factor based on number of points used
+    let points_confidence = (log_points.len() as f64 / 50.0).clamp(0.3, 1.0);
+
+    // Combined confidence
+    let confidence = (order_confidence * 0.7 + points_confidence * 0.3).clamp(0.1, 1.0);
+
+    // Clamp to reasonable range and round to nearest 0.1 for cleaner display
+    let clamped_order = estimated_order.clamp(FILTER_ORDER_CLAMP_MIN, FILTER_ORDER_CLAMP_MAX);
     let rounded_order =
         (clamped_order * FILTER_ORDER_ROUNDING_PRECISION).round() / FILTER_ORDER_ROUNDING_PRECISION;
 
-    Ok(rounded_order)
+    Ok((rounded_order, confidence))
 }
 
 fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
@@ -1037,66 +1055,6 @@ fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
 
     // Clamp to reasonable range
     confidence.clamp(0.1, 1.0)
-}
-
-/// Estimate filter order from measured response using slope analysis
-/// Returns estimated order and confidence (0.0-1.0)
-#[allow(dead_code)]
-pub fn estimate_filter_order(
-    measured_response: &[(f64, f64)],
-    cutoff_freq: f64,
-) -> Result<(u32, f64), Box<dyn std::error::Error>> {
-    if measured_response.len() < 10 {
-        return Err("Need at least 10 data points for order estimation".into());
-    }
-
-    // Find points above cutoff frequency for roll-off analysis
-    let rolloff_points: Vec<(f64, f64)> = measured_response
-        .iter()
-        .filter(|(freq, mag)| *freq > cutoff_freq && *freq < cutoff_freq * 5.0 && *mag > 0.0)
-        .map(|(freq, mag)| (*freq, mag.ln())) // Convert to log scale for slope analysis
-        .collect();
-
-    if rolloff_points.len() < 5 {
-        return Ok((2, 0.0)); // Default to PT2 with no confidence
-    }
-
-    // Calculate slope using linear regression on log-log scale
-    let n = rolloff_points.len() as f64;
-    let sum_x: f64 = rolloff_points.iter().map(|(freq, _)| freq.ln()).sum();
-    let sum_y: f64 = rolloff_points.iter().map(|(_, log_mag)| *log_mag).sum();
-    let sum_xy: f64 = rolloff_points
-        .iter()
-        .map(|(freq, log_mag)| freq.ln() * log_mag)
-        .sum();
-    let sum_x2: f64 = rolloff_points
-        .iter()
-        .map(|(freq, _)| freq.ln().powi(2))
-        .sum();
-
-    let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x.powi(2));
-
-    // Theoretical slopes for different filter orders (per decade):
-    // PT1: -20 dB/decade (20 dB/decade per order)
-    // PT2: -40 dB/decade (20 dB/decade per order)
-    // PT3: -60 dB/decade (20 dB/decade per order)
-    // PT4: -80 dB/decade (20 dB/decade per order)
-
-    let slope_per_decade = 20.0 * slope; // Convert d ln|H|/d ln f to dB/decade
-    let estimated_order = match slope_per_decade {
-        s if s > -30.0 => 1,
-        s if s > -50.0 => 2,
-        s if s > -70.0 => 3,
-        _ => 4,
-    };
-
-    // Calculate confidence based on how well the slope matches theoretical values
-    let theoretical_slopes = [-20.0, -40.0, -60.0, -80.0];
-    let closest_theoretical = theoretical_slopes[(estimated_order - 1) as usize];
-    let slope_error = (slope_per_decade - closest_theoretical).abs();
-    let confidence = (1.0 - (slope_error / 20.0)).clamp(0.0, 1.0);
-
-    Ok((estimated_order, confidence))
 }
 
 #[cfg(test)]
