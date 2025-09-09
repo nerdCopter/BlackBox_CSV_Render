@@ -126,4 +126,25 @@ pub const MIN_SAMPLES_FOR_D_TERM_CORR: usize = 50; // Lower sample requirement f
 // Gyro PSD heatmap scaling constants
 pub const GYRO_PSD_HEATMAP_MAX_DB: f64 = -10.0; // Maximum dB for gyro PSD heatmap color scaling
 
-// src/constants.rs
+// Measured filter response analysis constants
+pub const MIN_SPECTRUM_POINTS_FOR_ANALYSIS: usize = 50; // Minimum frequency points for reliable filter analysis
+pub const FILTER_ANALYSIS_MIN_FREQ_HZ: f64 = 10.0; // Focus on filter-relevant frequencies above this
+pub const FILTER_ANALYSIS_MAX_FREQ_HZ: f64 = 500.0; // Focus on filter-relevant frequencies below this
+pub const CUTOFF_MAGNITUDE_RATIO: f64 = 0.707; // -3dB cutoff frequency (magnitude ratio = 1/sqrt(2))
+pub const SLOPE_ANALYSIS_FREQ_MULTIPLIER: f64 = 1.2; // Start slope analysis 20% above cutoff
+pub const MIN_LOG_MAGNITUDE: f64 = 1e-6; // Avoid log(0) and very small values in regression
+pub const MIN_POINTS_FOR_SLOPE_ANALYSIS: usize = 3; // Minimum points needed for slope regression
+pub const DEFAULT_FILTER_ORDER: f64 = 1.5; // Default filter order when analysis fails
+pub const DIVISION_BY_ZERO_THRESHOLD: f64 = 1e-10; // Threshold to avoid division by zero in regression
+pub const FILTER_ORDER_CLAMP_MIN: f64 = 0.5; // Minimum reasonable filter order
+pub const FILTER_ORDER_CLAMP_MAX: f64 = 4.0; // Maximum reasonable filter order
+pub const FILTER_ORDER_ROUNDING_PRECISION: f64 = 10.0; // Round to nearest 0.1 for display
+pub const CONFIDENCE_MAX_POINTS: f64 = 100.0; // Max confidence at 100+ data points
+pub const CONFIDENCE_MIN_BASE: f64 = 0.3; // Minimum base confidence (30%)
+pub const CONFIDENCE_POINT_WEIGHT: f64 = 0.7; // Weight factor for point count in confidence
+pub const CONFIDENCE_MIN_SMOOTHNESS: f64 = 0.1; // Minimum smoothness score
+pub const CONFIDENCE_SIGNAL_THRESHOLD: f64 = 0.1; // Signal strength threshold for confidence
+pub const CONFIDENCE_SIGNAL_MULTIPLIER: f64 = 10.0; // Multiplier for low signal confidence
+pub const MEASURED_CURVE_POINTS: usize = 1000; // Number of points for generated measured curve
+pub const MEASURED_CURVE_AMPLITUDE_SCALE: f64 = 0.3; // 30% of max spectrum height for curve amplitude
+pub const MEASURED_CURVE_OFFSET_SCALE: f64 = 0.05; // Small offset from bottom for curve positioning

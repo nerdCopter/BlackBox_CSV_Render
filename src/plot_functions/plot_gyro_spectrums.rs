@@ -6,9 +6,11 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, ENABLE_WINDOW_PEAK_DETECTION,
-    FILTERED_GYRO_MIN_THRESHOLD, LINE_WIDTH_PLOT, MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ,
-    MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE,
-    SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
+    FILTERED_GYRO_MIN_THRESHOLD, LINE_WIDTH_PLOT, MAX_PEAKS_TO_LABEL,
+    MEASURED_CURVE_AMPLITUDE_SCALE, MEASURED_CURVE_OFFSET_SCALE, MEASURED_CURVE_POINTS,
+    MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS,
+    PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR,
+    SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
@@ -530,11 +532,11 @@ pub fn plot_gyro_spectrums(
                     {
                         // Generate measured filter curve for visualization
                         let max_freq = sr_value / 2.0;
-                        let num_points = 1000;
+                        let num_points = MEASURED_CURVE_POINTS;
                         let freq_step = max_freq / num_points as f64;
 
                         // Generate ideal filter response curve based on measured characteristics
-                        let mut measured_curve_data = Vec::new();
+                        let mut measured_curve_data = Vec::with_capacity(num_points);
                         for i in 0..num_points {
                             let freq = i as f64 * freq_step;
                             if freq > 0.0 && freq <= max_freq_val {
@@ -553,8 +555,10 @@ pub fn plot_gyro_spectrums(
 
                         if !measured_curve_data.is_empty() {
                             // Scale curve to overlay on spectrum
-                            let filter_curve_amplitude = overall_max_y_amplitude * 0.3; // 30% of max spectrum height
-                            let filter_curve_offset = overall_max_y_amplitude * 0.05; // Small offset from bottom
+                            let filter_curve_amplitude =
+                                overall_max_y_amplitude * MEASURED_CURVE_AMPLITUDE_SCALE; // 30% of max spectrum height
+                            let filter_curve_offset =
+                                overall_max_y_amplitude * MEASURED_CURVE_OFFSET_SCALE; // Small offset from bottom
 
                             let scaled_measured_curve: Vec<(f64, f64)> = measured_curve_data
                                 .iter()

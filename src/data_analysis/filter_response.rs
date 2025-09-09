@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::axis_names::AXIS_NAMES;
+use crate::constants::*;
 
 /// Filter types supported by flight controllers
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -837,21 +838,33 @@ pub fn measure_filter_response(
     if filtered_spectrum.len() != unfiltered_spectrum.len() {
         return Err("Filtered and unfiltered spectra must have same length".into());
     }
-    if filtered_spectrum.len() < 50 {
-        return Err("Need at least 50 frequency points for reliable analysis".into());
+    if filtered_spectrum.len() < MIN_SPECTRUM_POINTS_FOR_ANALYSIS {
+        return Err(format!(
+            "Need at least {} frequency points for reliable analysis",
+            MIN_SPECTRUM_POINTS_FOR_ANALYSIS
+        )
+        .into());
     }
 
-    // Calculate transfer function magnitude |H(f)| = |Filtered(f)| / |Unfiltered(f)|
-    let mut transfer_function = Vec::new();
+    // Pre-allocate transfer function vector for better performance
+    let mut transfer_function = Vec::with_capacity(filtered_spectrum.len());
 
     for i in 0..filtered_spectrum.len() {
         let (freq, filt_mag) = filtered_spectrum[i];
         let (_, unfilt_mag) = unfiltered_spectrum[i];
 
-        if freq > 10.0 && freq < 500.0 && unfilt_mag > 0.0 {
-            // Focus on filter-relevant frequencies
+        if freq > FILTER_ANALYSIS_MIN_FREQ_HZ
+            && freq < FILTER_ANALYSIS_MAX_FREQ_HZ
+            && unfilt_mag > 0.0
+            && freq.is_finite()
+            && filt_mag.is_finite()
+            && unfilt_mag.is_finite()
+        {
+            // Focus on filter-relevant frequencies with finite value validation
             let magnitude_ratio = filt_mag / unfilt_mag;
-            transfer_function.push((freq, magnitude_ratio));
+            if magnitude_ratio.is_finite() && magnitude_ratio > 0.0 {
+                transfer_function.push((freq, magnitude_ratio));
+            }
         }
     }
 
@@ -859,8 +872,8 @@ pub fn measure_filter_response(
         return Err("No valid transfer function data found".into());
     }
 
-    // Find -3dB cutoff frequency (magnitude ratio = 0.707)
-    let cutoff_hz = find_cutoff_frequency(&transfer_function, 0.707)?;
+    // Find -3dB cutoff frequency (magnitude ratio = 1/sqrt(2))
+    let cutoff_hz = find_cutoff_frequency(&transfer_function, CUTOFF_MAGNITUDE_RATIO)?;
 
     // Estimate filter order from rolloff slope
     let filter_order = estimate_filter_order_from_transfer(&transfer_function, cutoff_hz)?;
@@ -889,21 +902,27 @@ fn find_cutoff_frequency(
     transfer_function: &[(f64, f64)],
     target_ratio: f64,
 ) -> Result<f64, Box<dyn std::error::Error>> {
+    if transfer_function.is_empty() {
+        return Err("Transfer function is empty".into());
+    }
+
     let mut best_freq = 0.0;
     let mut best_diff = f64::INFINITY;
 
     for &(freq, ratio) in transfer_function {
-        let diff = (ratio - target_ratio).abs();
-        if diff < best_diff {
-            best_diff = diff;
-            best_freq = freq;
+        if freq.is_finite() && ratio.is_finite() {
+            let diff = (ratio - target_ratio).abs();
+            if diff < best_diff {
+                best_diff = diff;
+                best_freq = freq;
+            }
         }
     }
 
-    if best_freq > 0.0 {
+    if best_freq > 0.0 && best_freq.is_finite() {
         Ok(best_freq)
     } else {
-        Err("Could not find cutoff frequency".into())
+        Err("Could not find valid cutoff frequency".into())
     }
 }
 
@@ -915,30 +934,35 @@ fn estimate_filter_order_from_transfer(
     // -20dB/decade = PT1 (order 1.0)
     // -40dB/decade = PT2 (order 2.0)
 
+    // Validate cutoff frequency
+    if !cutoff_hz.is_finite() || cutoff_hz <= 0.0 {
+        return Err("Invalid cutoff frequency".into());
+    }
+
     // Find points above cutoff frequency for slope analysis
     let high_freq_points: Vec<(f64, f64)> = transfer_function
         .iter()
-        .filter(|(freq, _)| *freq > cutoff_hz * 1.2) // Start analysis 20% above cutoff
+        .filter(|(freq, _)| *freq > cutoff_hz * SLOPE_ANALYSIS_FREQ_MULTIPLIER) // Start analysis 20% above cutoff
         .map(|(freq, mag)| (*freq, *mag))
         .collect();
 
-    if high_freq_points.len() < 3 {
+    if high_freq_points.len() < MIN_POINTS_FOR_SLOPE_ANALYSIS {
         // Not enough data for slope analysis, return default
-        return Ok(1.5);
+        return Ok(DEFAULT_FILTER_ORDER);
     }
 
     // Convert to log-log scale for linear regression
     // log|H(f)| vs log(f) should give a straight line with slope = -order
-    let mut log_points = Vec::new();
+    let mut log_points = Vec::with_capacity(high_freq_points.len());
     for (freq, mag) in &high_freq_points {
-        if *freq > 0.0 && *mag > 1e-6 {
-            // Avoid log(0) and very small values
+        if *freq > 0.0 && *mag > MIN_LOG_MAGNITUDE && freq.is_finite() && mag.is_finite() {
+            // Avoid log(0) and very small values, ensure finite inputs
             log_points.push((freq.ln(), mag.ln()));
         }
     }
 
-    if log_points.len() < 3 {
-        return Ok(1.5);
+    if log_points.len() < MIN_POINTS_FOR_SLOPE_ANALYSIS {
+        return Ok(DEFAULT_FILTER_ORDER);
     }
 
     // Linear regression: y = mx + b, where m is the slope
@@ -949,8 +973,8 @@ fn estimate_filter_order_from_transfer(
     let sum_x2: f64 = log_points.iter().map(|(x, _)| x * x).sum();
 
     let denominator = n * sum_x2 - sum_x * sum_x;
-    if denominator.abs() < 1e-10 {
-        return Ok(1.5); // Avoid division by zero
+    if denominator.abs() < DIVISION_BY_ZERO_THRESHOLD {
+        return Ok(DEFAULT_FILTER_ORDER); // Avoid division by zero
     }
 
     let slope = (n * sum_xy - sum_x * sum_y) / denominator;
@@ -961,10 +985,11 @@ fn estimate_filter_order_from_transfer(
     let estimated_order = (-slope).abs();
 
     // Clamp to reasonable range and round to common filter orders
-    let clamped_order = estimated_order.clamp(0.5, 4.0);
+    let clamped_order = estimated_order.clamp(FILTER_ORDER_CLAMP_MIN, FILTER_ORDER_CLAMP_MAX);
 
     // Round to nearest 0.1 for cleaner display
-    let rounded_order = (clamped_order * 10.0).round() / 10.0;
+    let rounded_order =
+        (clamped_order * FILTER_ORDER_ROUNDING_PRECISION).round() / FILTER_ORDER_ROUNDING_PRECISION;
 
     Ok(rounded_order)
 }
@@ -978,8 +1003,8 @@ fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
 
     // Factor 1: Number of data points (more points = higher confidence)
     let num_points = transfer_function.len() as f64;
-    let point_factor = (num_points / 100.0).min(1.0); // Max confidence at 100+ points
-    confidence *= 0.3 + (0.7 * point_factor); // Scale from 30% to 100%
+    let point_factor = (num_points / CONFIDENCE_MAX_POINTS).min(1.0); // Max confidence at 100+ points
+    confidence *= CONFIDENCE_MIN_BASE + (CONFIDENCE_POINT_WEIGHT * point_factor); // Scale from 30% to 100%
 
     // Factor 2: Smoothness of transfer function (less noise = higher confidence)
     let mut smoothness_score = 1.0;
@@ -992,7 +1017,7 @@ fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
         }
         let avg_variation = total_variation / (transfer_function.len() - 1) as f64;
         // Less variation = higher smoothness score
-        smoothness_score = (1.0 - avg_variation.min(1.0)).max(0.1);
+        smoothness_score = (1.0 - avg_variation.min(1.0)).max(CONFIDENCE_MIN_SMOOTHNESS);
     }
     confidence *= smoothness_score;
 
@@ -1000,10 +1025,10 @@ fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
     let avg_magnitude: f64 =
         transfer_function.iter().map(|(_, mag)| *mag).sum::<f64>() / transfer_function.len() as f64;
 
-    let signal_factor = if avg_magnitude > 0.1 {
+    let signal_factor = if avg_magnitude > CONFIDENCE_SIGNAL_THRESHOLD {
         1.0
     } else {
-        avg_magnitude * 10.0
+        avg_magnitude * CONFIDENCE_SIGNAL_MULTIPLIER
     };
     confidence *= signal_factor;
 
