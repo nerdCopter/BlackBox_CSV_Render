@@ -1074,12 +1074,12 @@ pub fn estimate_filter_order(
     let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x.powi(2));
 
     // Theoretical slopes for different filter orders (per decade):
-    // PT1: -20 dB/decade = -6.02 per octave
-    // PT2: -40 dB/decade = -12.04 per octave
-    // PT3: -60 dB/decade = -18.06 per octave
-    // PT4: -80 dB/decade = -24.08 per octave
+    // PT1: -20 dB/decade (20 dB/decade per order)
+    // PT2: -40 dB/decade (20 dB/decade per order)
+    // PT3: -60 dB/decade (20 dB/decade per order)
+    // PT4: -80 dB/decade (20 dB/decade per order)
 
-    let slope_per_decade = slope * (10.0_f64.ln()); // Convert to per-decade slope
+    let slope_per_decade = 20.0 * slope; // Convert d ln|H|/d ln f to dB/decade
     let estimated_order = match slope_per_decade {
         s if s > -30.0 => 1,
         s if s > -50.0 => 2,
