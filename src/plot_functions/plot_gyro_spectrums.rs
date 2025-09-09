@@ -581,7 +581,7 @@ pub fn plot_gyro_spectrums(
                                     measured_response.filter_order,
                                     measured_response.confidence * 100.0
                                 ),
-                                color: RGBColor(50, 205, 50), // Lime green for measured response
+                                color: RGBColor(34, 139, 34), // Hunter green for measured response
                                 stroke_width: 2,              // Same thickness as red filter curves
                             });
 
@@ -595,7 +595,7 @@ pub fn plot_gyro_spectrums(
                                     "{}{:.0}",
                                     CUTOFF_LINE_PREFIX, measured_response.cutoff_hz
                                 ), // Special prefix to avoid legend
-                                color: RGBColor(50, 205, 50), // Same lime green as measured response curve
+                                color: RGBColor(34, 139, 34), // Same hunter green as measured response curve
                                 stroke_width: 1,
                             });
                         }
