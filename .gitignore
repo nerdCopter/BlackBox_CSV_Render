@@ -17,7 +17,8 @@ src/**
 
 # Include README and LICENSE files
 !Readme.md
-!LICENSE.txt
+!LICENSE
+!LICENSE_COMMERCIAL
 !Overview.md
 
 # Include gitignore

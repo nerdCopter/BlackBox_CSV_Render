@@ -93,9 +93,10 @@ cargo build --release
 
 The project enforces strict formatting and code quality standards.
 
-### Licensing still under consideration.
-- Some resources used for the AI prompting included the following, but only for inspiration.
-- No code was reused as reported by AI interrogation, and therefore do not require their associated licensing.
-- https://github.com/KoffeinFlummi/bucksaw/ with GPL v3.
-- https://github.com/Plasmatree/PID-Analyzer/ with Apache License 2.0 and "THE BEER-WARE LICENSE" (Revision 42).
-- https://github.com/bw1129/PIDtoolbox/ with GPL v3 and "THE BEER-WARE LICENSE" (Revision 42).
+## License
+
+This project is dual-licensed under the terms of the AGPL-3.0-or-later and a commercial license.
+
+- **AGPL-3.0-or-later:** You may use, distribute, and modify this software under the terms of the GNU Affero General Public License, version 3 or any later version. The full license text is available in the [LICENSE](LICENSE) file.
+
+- **Commercial License:** If you wish to use this software in a commercial product without being bound by the terms of the AGPL, you must purchase a commercial license. For more information, please see the [LICENSE_COMMERCIAL](LICENSE_COMMERCIAL) file.

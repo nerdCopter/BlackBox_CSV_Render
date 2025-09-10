@@ -3,10 +3,10 @@
 # Install this by copying to .git/hooks/pre-commit and making it executable
 #
 # This hook will:
-# 1. Run cargo fmt to format code
-# 2. Automatically stage any formatting changes (prevents unstaged changes after commit)
-# 3. Verify formatting compliance
-# 4. Run clippy to check for warnings
+# 1. Run clippy to check for warnings (must be fixed first)
+# 2. Run cargo fmt to format code
+# 3. Automatically stage any formatting changes (prevents unstaged changes after commit)
+# 4. Verify formatting compliance
 
 echo "🔍 Running pre-commit checks..."
 
@@ -16,7 +16,14 @@ if ! command -v cargo &> /dev/null; then
     exit 1
 fi
 
-# Run cargo fmt to format code
+# Run clippy for linting FIRST
+echo "🔍 Running clippy checks..."
+if ! cargo clippy --all-targets --all-features -- -D warnings; then
+    echo "❌ Clippy found issues that must be fixed!"
+    exit 1
+fi
+
+# Run cargo fmt to format code AFTER clippy passes
 echo "📝 Formatting code with cargo fmt..."
 if ! cargo fmt --all; then
     echo "❌ Code formatting failed!"
@@ -32,13 +39,6 @@ echo "✅ Checking formatting compliance..."
 if ! cargo fmt --all -- --check; then
     echo "❌ Code is not properly formatted after running cargo fmt!"
     echo "Please run 'cargo fmt --all' and try again."
-    exit 1
-fi
-
-# Run clippy for linting
-echo "🔍 Running clippy checks..."
-if ! cargo clippy --all-targets --all-features -- -D warnings; then
-    echo "❌ Clippy found issues that must be fixed!"
     exit 1
 fi
 
