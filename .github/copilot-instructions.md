@@ -2,9 +2,9 @@
 - Preserve comments unless related code changes
 - Add only functional comments, no AI/history notes
 - Ask before removing any debug console output
-- **ALWAYS** run `cargo fmt --all` after ANY code changes
-- **ALWAYS** run `cargo clippy --all-targets --all-features -- -D warnings` and fix ANY warnings
-- **NEVER** skip formatting or clippy checks
+- Run checks in this order:
+  1) `cargo clippy --all-targets --all-features -- -D warnings` — fix all warnings.
+  2) `cargo fmt --all` — only after clippy passes.
 
 ## Testing
 - **ALWAYS** prefer `cargo build --release` rather than `cargo run`
