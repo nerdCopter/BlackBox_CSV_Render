@@ -12,18 +12,24 @@ use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::d_term_delay;
 use crate::data_analysis::derivative::calculate_derivative;
 use crate::data_analysis::fft_utils; // For fft_forward
+use crate::data_analysis::filter_response;
 use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries};
+use crate::plot_framework::{
+    draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries, CUTOFF_LINE_DOTTED_PREFIX,
+    CUTOFF_LINE_PREFIX,
+};
 use crate::plot_functions::peak_detection::find_and_sort_peaks_with_threshold;
+use plotters::style::RGBColor;
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered D-term and Filtered D-term spectrums (linear amplitude).
+/// Now includes filter response curve overlays based on header metadata.
 /// Unfiltered D-term is calculated as the derivative of gyroUnfilt.
 /// Filtered D-term uses the flight controller's processed D-term output.
 pub fn plot_d_term_spectrums(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
-    _header_metadata: Option<&[(String, String)]>,
+    header_metadata: Option<&[(String, String)]>,
 ) -> Result<(), Box<dyn Error>> {
     // Input validation
     if log_data.is_empty() {
@@ -52,6 +58,11 @@ pub fn plot_d_term_spectrums(
     // This returns Vec<Option<DelayResult>> with per-axis alignment
     let delay_by_axis =
         d_term_delay::calculate_d_term_filtering_delay_comparison(log_data, sample_rate_value);
+
+    let filter_config = header_metadata.map(filter_response::parse_filter_config);
+
+    // Extract gyro rate once for proper Nyquist calculation
+    let gyro_rate_hz = filter_response::extract_gyro_rate(header_metadata).unwrap_or(8000.0); // Default 8kHz
 
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
@@ -279,20 +290,108 @@ pub fn plot_d_term_spectrums(
                 sample_rate_value / 2.0
             };
 
+            let mut unfilt_plot_series = vec![PlotSeries {
+                data: unfilt_series_data,
+                label: if delay_str.is_empty() {
+                    "Unfiltered D-term".to_string()
+                } else {
+                    format!("Unfiltered D-term | {}", delay_str)
+                },
+                color: *COLOR_D_TERM_UNFILT,
+                stroke_width: 2,
+            }];
+
+            // Add filter response curves to unfiltered plot if available
+            if let Some(ref config) = filter_config {
+                // Use gyro rate for Nyquist, not logging rate - filters operate at gyro frequency
+                let max_freq = gyro_rate_hz / 2.0; // Proper gyro Nyquist frequency
+                let num_points = 1000; // More points for smooth curves
+
+                // Generate individual filter response curves for this axis using D-term config
+                let filter_curves = filter_response::generate_individual_filter_curves(
+                    &config.dterm[axis_idx],
+                    max_freq,
+                    num_points,
+                );
+
+                // Add each filter curve as a separate series
+                let filter_colors = [
+                    RGBColor(220, 20, 60), // Crimson for first filter
+                    RGBColor(178, 34, 34), // Fire brick for second filter
+                    RGBColor(255, 69, 0),  // Red-orange for third filter
+                ];
+
+                for (curve_idx, (label, curve_data, cutoff_hz_ref)) in
+                    filter_curves.iter().enumerate()
+                {
+                    if !curve_data.is_empty() {
+                        // Show filter response as a normalized curve overlaid on the spectrum
+                        // Use a fixed amplitude scale that makes the cutoff frequency visible
+                        let overall_max_y_amplitude = global_max_y_unfilt.max(global_max_y_filt);
+                        let filter_curve_amplitude = overall_max_y_amplitude * 0.3; // 30% of max spectrum height
+                        let filter_curve_offset = overall_max_y_amplitude * 0.05; // Offset from bottom
+
+                        let scaled_response: Vec<(f64, f64)> = curve_data
+                            .iter()
+                            // Keep overlay within the plotted spectrum range
+                            .filter(|(freq, _)| *freq <= max_freq_display)
+                            .map(|(freq, response)| {
+                                // Scale response from [0,1] to [offset, offset + amplitude]
+                                let scaled_amplitude =
+                                    filter_curve_offset + (response * filter_curve_amplitude);
+                                (*freq, scaled_amplitude)
+                            })
+                            .collect();
+
+                        // Create filter response series - use gray for effective curves
+                        let curve_color = if label.contains("IMUF v256 Effective") {
+                            RGBColor(128, 128, 128) // Gray for calculated effective curves
+                        } else {
+                            filter_colors[curve_idx % filter_colors.len()] // Standard colors for user-configured curves
+                        };
+
+                        unfilt_plot_series.push(PlotSeries {
+                            data: scaled_response,
+                            label: label.clone(),
+                            color: curve_color,
+                            stroke_width: 2,
+                        });
+
+                        // Add vertical cutoff indicator line (no legend entry)
+                        let cutoff_hz = *cutoff_hz_ref;
+                        if !cutoff_hz.is_finite() {
+                            continue;
+                        }
+
+                        // Use dotted line and different color for IMUF effective cutoffs
+                        let (cutoff_prefix, cutoff_color) = if label.contains("IMUF v256 Effective")
+                        {
+                            // Effective cutoffs: dotted line with muted gray color to show they're calculated
+                            (CUTOFF_LINE_DOTTED_PREFIX, RGBColor(128, 128, 128))
+                        // Gray for calculated values
+                        } else {
+                            // Header cutoffs: solid line with filter color to show user configuration
+                            (
+                                CUTOFF_LINE_PREFIX,
+                                filter_colors[curve_idx % filter_colors.len()],
+                            )
+                        };
+
+                        unfilt_plot_series.push(PlotSeries {
+                            data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
+                            label: format!("{}{}", cutoff_prefix, cutoff_hz), // Special prefix to avoid legend
+                            color: cutoff_color,
+                            stroke_width: 1,
+                        });
+                    }
+                }
+            }
+
             Some(PlotConfig {
                 title: format!("{} Unfiltered D-term (derivative of gyroUnfilt)", axis_name),
                 x_range: 0.0..max_freq_display,
                 y_range: d_term_floor_unfilt..y_max_unfilt,
-                series: vec![PlotSeries {
-                    data: unfilt_series_data,
-                    label: if delay_str.is_empty() {
-                        "Unfiltered D-term".to_string()
-                    } else {
-                        format!("Unfiltered D-term | {}", delay_str)
-                    },
-                    color: *COLOR_D_TERM_UNFILT,
-                    stroke_width: 2,
-                }],
+                series: unfilt_plot_series,
                 x_label: "Frequency (Hz)".to_string(),
                 y_label: "Amplitude".to_string(),
                 peaks: unfilt_peaks,
