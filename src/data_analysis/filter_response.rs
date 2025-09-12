@@ -154,6 +154,7 @@ pub fn biquad_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
 
 /// Generate individual filter response curves (separate curve for each filter)
 /// Returns Vec<FilterCurveData> for multiple curves with cutoff markers
+/// Ensures LPF1 (static or dynamic) appears before LPF2 in legend order
 pub fn generate_individual_filter_curves(
     axis_config: &AxisFilterConfig,
     max_frequency_hz: f64,
@@ -161,34 +162,9 @@ pub fn generate_individual_filter_curves(
 ) -> Vec<FilterCurveData> {
     let mut filter_curves = Vec::new();
 
-    // Generate curve for LPF1 if enabled
-    if let Some(ref lpf1) = axis_config.lpf1 {
-        if lpf1.enabled && lpf1.cutoff_hz > 0.0 {
-            let curve = generate_single_filter_curve(lpf1, max_frequency_hz, num_points);
-            let label = format!(
-                "LPF1 ({} @ {:.0}Hz)",
-                lpf1.filter_type.name(),
-                lpf1.cutoff_hz
-            );
-            filter_curves.push((label, curve, lpf1.cutoff_hz));
-        }
-    }
-
-    // Generate curve for LPF2 if enabled
-    if let Some(ref lpf2) = axis_config.lpf2 {
-        if lpf2.enabled && lpf2.cutoff_hz > 0.0 {
-            let curve = generate_single_filter_curve(lpf2, max_frequency_hz, num_points);
-            let label = format!(
-                "LPF2 ({} @ {:.0}Hz)",
-                lpf2.filter_type.name(),
-                lpf2.cutoff_hz
-            );
-            filter_curves.push((label, curve, lpf2.cutoff_hz));
-        }
-    }
-
-    // Generate curve for Dynamic LPF1 if enabled
+    // Generate curve for LPF1 (static or dynamic - whichever is configured)
     if let Some(ref dyn_lpf1) = axis_config.dynamic_lpf1 {
+        // Dynamic LPF1 takes precedence
         if dyn_lpf1.enabled && dyn_lpf1.min_cutoff_hz > 0.0 {
             let static_filter = FilterConfig {
                 filter_type: dyn_lpf1.filter_type,
@@ -211,6 +187,30 @@ pub fn generate_individual_filter_curves(
                 )
             };
             filter_curves.push((label, curve, dyn_lpf1.min_cutoff_hz));
+        }
+    } else if let Some(ref lpf1) = axis_config.lpf1 {
+        // Static LPF1 fallback
+        if lpf1.enabled && lpf1.cutoff_hz > 0.0 {
+            let curve = generate_single_filter_curve(lpf1, max_frequency_hz, num_points);
+            let label = format!(
+                "LPF1 ({} @ {:.0}Hz)",
+                lpf1.filter_type.name(),
+                lpf1.cutoff_hz
+            );
+            filter_curves.push((label, curve, lpf1.cutoff_hz));
+        }
+    }
+
+    // Generate curve for LPF2 if enabled (always after LPF1)
+    if let Some(ref lpf2) = axis_config.lpf2 {
+        if lpf2.enabled && lpf2.cutoff_hz > 0.0 {
+            let curve = generate_single_filter_curve(lpf2, max_frequency_hz, num_points);
+            let label = format!(
+                "LPF2 ({} @ {:.0}Hz)",
+                lpf2.filter_type.name(),
+                lpf2.cutoff_hz
+            );
+            filter_curves.push((label, curve, lpf2.cutoff_hz));
         }
     }
 
@@ -519,22 +519,22 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     .and_then(|s| s.parse::<u32>().ok())
                     .unwrap_or(0);
 
-                // Apply to all axes
+                // Apply to all axes - prioritize dynamic over static when both are present
                 for axis_idx in 0..AXIS_NAMES.len() {
-                    if static_cutoff > 0.0 {
-                        // Static mode
-                        config.dterm[axis_idx].lpf1 = Some(FilterConfig {
-                            filter_type,
-                            cutoff_hz: static_cutoff,
-                            enabled: true,
-                        });
-                    } else if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
-                        // Dynamic mode
+                    if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
+                        // Dynamic mode takes precedence
                         config.dterm[axis_idx].dynamic_lpf1 = Some(DynamicFilterConfig {
                             filter_type,
                             min_cutoff_hz: dynamic_cutoffs.0,
                             max_cutoff_hz: dynamic_cutoffs.1,
                             expo,
+                            enabled: true,
+                        });
+                    } else if static_cutoff > 0.0 {
+                        // Static mode fallback
+                        config.dterm[axis_idx].lpf1 = Some(FilterConfig {
+                            filter_type,
+                            cutoff_hz: static_cutoff,
                             enabled: true,
                         });
                     }
@@ -585,18 +585,20 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     .unwrap_or(0);
 
                 for axis_idx in 0..AXIS_NAMES.len() {
-                    if static_cutoff > 0.0 {
-                        config.gyro[axis_idx].lpf1 = Some(FilterConfig {
-                            filter_type,
-                            cutoff_hz: static_cutoff,
-                            enabled: true,
-                        });
-                    } else if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
+                    if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
+                        // Dynamic mode takes precedence
                         config.gyro[axis_idx].dynamic_lpf1 = Some(DynamicFilterConfig {
                             filter_type,
                             min_cutoff_hz: dynamic_cutoffs.0,
                             max_cutoff_hz: dynamic_cutoffs.1,
                             expo,
+                            enabled: true,
+                        });
+                    } else if static_cutoff > 0.0 {
+                        // Static mode fallback
+                        config.gyro[axis_idx].lpf1 = Some(FilterConfig {
+                            filter_type,
+                            cutoff_hz: static_cutoff,
                             enabled: true,
                         });
                     }
