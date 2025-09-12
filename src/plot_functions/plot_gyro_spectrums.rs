@@ -363,57 +363,61 @@ pub fn plot_gyro_spectrums(
             let measured_overlay_series = if measure_filters {
                 // Attempt to measure actual filter response from the spectrum data
                 // This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
-                if let Ok(measured_response) = filter_response::measure_filter_response(
+                match filter_response::measure_filter_response(
                     &unfilt_series_data,
                     &filt_series_data,
                     sr_value,
                 ) {
-                    // Generate measured filter curve for visualization
-                    let max_freq = sr_value / 2.0;
-                    let num_points = MEASURED_CURVE_POINTS;
-                    let freq_step = max_freq / (num_points.saturating_sub(1).max(1) as f64);
+                    Ok(measured_response) => {
+                        println!("  {} Measured Filter Response: Cutoff={:.1} Hz, Order={:.1}, Confidence={:.0}%", 
+                                 AXIS_NAMES[axis_index], measured_response.cutoff_hz, measured_response.filter_order, measured_response.confidence * 100.0);
 
-                    // Guard invalid or degenerate measurements
-                    if measured_response.cutoff_hz.is_finite()
-                        && measured_response.cutoff_hz > 0.0
-                        && measured_response.filter_order.is_finite()
-                        && measured_response.filter_order > 0.0
-                    {
-                        // Generate ideal filter response curve based on measured characteristics
-                        let mut measured_curve_data = Vec::with_capacity(num_points);
-                        for i in 0..num_points {
-                            let freq = i as f64 * freq_step; // includes Nyquist
-                            if freq >= 0.0 && freq <= max_freq_val {
-                                let normalized_freq = freq / measured_response.cutoff_hz;
-                                // |H(f)| = 1 / sqrt(1 + (f/fc)^(2*n))
-                                let response = 1.0
-                                    / (1.0
-                                        + normalized_freq
-                                            .powf(2.0 * measured_response.filter_order))
-                                    .sqrt();
-                                measured_curve_data.push((freq, response));
+                        // Generate measured filter curve for visualization
+                        let max_freq = sr_value / 2.0;
+                        let num_points = MEASURED_CURVE_POINTS;
+                        let freq_step = max_freq / (num_points.saturating_sub(1).max(1) as f64);
+
+                        // Guard invalid or degenerate measurements
+                        if measured_response.cutoff_hz.is_finite()
+                            && measured_response.cutoff_hz > 0.0
+                            && measured_response.filter_order.is_finite()
+                            && measured_response.filter_order > 0.0
+                        {
+                            // Generate ideal filter response curve based on measured characteristics
+                            let mut measured_curve_data = Vec::with_capacity(num_points);
+                            for i in 0..num_points {
+                                let freq = i as f64 * freq_step; // includes Nyquist
+                                if freq >= 0.0 && freq <= max_freq_val {
+                                    let normalized_freq = freq / measured_response.cutoff_hz;
+                                    // |H(f)| = 1 / sqrt(1 + (f/fc)^(2*n))
+                                    let response = 1.0
+                                        / (1.0
+                                            + normalized_freq
+                                                .powf(2.0 * measured_response.filter_order))
+                                        .sqrt();
+                                    measured_curve_data.push((freq, response));
+                                }
                             }
-                        }
-                        if !measured_curve_data.is_empty() {
-                            // Scale curve to overlay on spectrum
-                            let filter_curve_amplitude =
-                                overall_max_y_amplitude * MEASURED_CURVE_AMPLITUDE_SCALE;
-                            let filter_curve_offset =
-                                overall_max_y_amplitude * MEASURED_CURVE_OFFSET_SCALE;
+                            if !measured_curve_data.is_empty() {
+                                // Scale curve to overlay on spectrum
+                                let filter_curve_amplitude =
+                                    overall_max_y_amplitude * MEASURED_CURVE_AMPLITUDE_SCALE;
+                                let filter_curve_offset =
+                                    overall_max_y_amplitude * MEASURED_CURVE_OFFSET_SCALE;
 
-                            let scaled_measured_curve: Vec<(f64, f64)> = measured_curve_data
-                                .iter()
-                                .map(|(freq, response)| {
-                                    let scaled_amplitude =
-                                        filter_curve_offset + (response * filter_curve_amplitude);
-                                    (*freq, scaled_amplitude)
-                                })
-                                .collect();
+                                let scaled_measured_curve: Vec<(f64, f64)> = measured_curve_data
+                                    .iter()
+                                    .map(|(freq, response)| {
+                                        let scaled_amplitude = filter_curve_offset
+                                            + (response * filter_curve_amplitude);
+                                        (*freq, scaled_amplitude)
+                                    })
+                                    .collect();
 
-                            // Calculate dB/decade rolloff rate: order * 20 dB/decade
-                            let db_per_decade = measured_response.filter_order * 20.0;
+                                // Calculate dB/decade rolloff rate: order * 20 dB/decade
+                                let db_per_decade = measured_response.filter_order * 20.0;
 
-                            Some((
+                                Some((
                                 PlotSeries {
                                     data: scaled_measured_curve,
                                     label: format!(
@@ -428,14 +432,14 @@ pub fn plot_gyro_spectrums(
                                 },
                                 measured_response.cutoff_hz,
                             ))
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
-                    } else {
-                        None
                     }
-                } else {
-                    None
+                    Err(_) => None,
                 }
             } else {
                 None

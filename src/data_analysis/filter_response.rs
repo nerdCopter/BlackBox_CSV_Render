@@ -3,13 +3,7 @@
 use std::collections::HashMap;
 
 use crate::axis_names::AXIS_NAMES;
-use crate::constants::{
-    CONFIDENCE_MAX_POINTS, CONFIDENCE_MIN_BASE, CONFIDENCE_MIN_SMOOTHNESS, CONFIDENCE_POINT_WEIGHT,
-    CUTOFF_MAGNITUDE_RATIO, DEFAULT_FILTER_ORDER, DIVISION_BY_ZERO_THRESHOLD,
-    FILTER_ORDER_CLAMP_MAX, FILTER_ORDER_CLAMP_MIN, FILTER_ORDER_ROUNDING_PRECISION,
-    MIN_LOG_MAGNITUDE, MIN_POINTS_FOR_SLOPE_ANALYSIS, MIN_SPECTRUM_POINTS_FOR_ANALYSIS,
-    SLOPE_ANALYSIS_FREQ_MULTIPLIER,
-};
+use crate::constants::MIN_SPECTRUM_POINTS_FOR_ANALYSIS;
 
 /// Filter types supported by flight controllers
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -854,8 +848,8 @@ pub fn measure_filter_response(
         .into());
     }
 
-    // Pre-allocate transfer function vector for better performance
-    let mut transfer_function = Vec::with_capacity(filtered_spectrum.len());
+    // Calculate attenuation (what the filter removed) instead of transfer function ratio
+    let mut attenuation_spectrum = Vec::with_capacity(filtered_spectrum.len());
 
     let eps = 1e-12_f64;
     let freq_tol = 1e-6_f64;
@@ -873,41 +867,42 @@ pub fn measure_filter_response(
         if (f_filt - f_unf).abs() > freq_tol {
             continue;
         }
-        // Avoid divide-by-tiny and skip pathological ratios
+        // Skip very low magnitude signals to avoid noise
         if unfilt_mag.abs() <= eps {
             continue;
         }
-        let ratio = (filt_mag / unfilt_mag).abs();
-        if ratio.is_finite() && ratio > 0.0 && ratio < 10.0 {
-            transfer_function.push((f_filt, ratio));
+
+        // Calculate attenuation: what the filter removed
+        let attenuation = (unfilt_mag - filt_mag).abs();
+
+        if attenuation.is_finite() && attenuation >= 0.0 {
+            attenuation_spectrum.push((f_filt, attenuation));
         }
     }
 
-    if transfer_function.is_empty() {
-        return Err("No valid transfer function data found".into());
+    if attenuation_spectrum.is_empty() {
+        return Err("No valid attenuation data found".into());
     }
 
-    // Ensure ascending frequency for downstream crossing detection and regression
-    transfer_function.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // Ensure ascending frequency for downstream analysis
+    attenuation_spectrum.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Find -3dB cutoff frequency (magnitude ratio = 1/sqrt(2))
-    let cutoff_hz = find_cutoff_frequency(&transfer_function, CUTOFF_MAGNITUDE_RATIO)?;
+    // Find cutoff frequency based on attenuation analysis
+    let cutoff_hz = find_cutoff_from_attenuation(&attenuation_spectrum)?;
 
-    // Estimate filter order and get order-specific confidence from rolloff slope
+    // Estimate filter order from attenuation slope
     let (filter_order, order_confidence) =
-        estimate_filter_order_from_transfer(&transfer_function, cutoff_hz)?;
+        estimate_filter_order_from_attenuation(&attenuation_spectrum, cutoff_hz)?;
 
-    // Calculate general data quality confidence
-    let data_confidence = calculate_measurement_confidence(&transfer_function);
-
-    // Combine both confidence scores with order confidence weighted more heavily
-    let confidence = (order_confidence * 0.6 + data_confidence * 0.4).clamp(0.1, 1.0);
+    // Calculate confidence based on data quality
+    let general_confidence = calculate_attenuation_confidence(&attenuation_spectrum);
+    let overall_confidence = (order_confidence * general_confidence).clamp(0.0, 1.0);
 
     Ok(MeasuredFilterResponse {
         cutoff_hz,
         filter_order,
-        confidence,
-        transfer_function,
+        confidence: overall_confidence,
+        transfer_function: attenuation_spectrum, // Store attenuation data instead
     })
 }
 
@@ -920,145 +915,142 @@ pub struct MeasuredFilterResponse {
     pub transfer_function: Vec<(f64, f64)>, // (freq, magnitude)
 }
 
-fn find_cutoff_frequency(
-    transfer_function: &[(f64, f64)],
-    target_ratio: f64,
+/// Find cutoff frequency from attenuation spectrum
+/// Looks for the frequency where attenuation reaches a significant level
+fn find_cutoff_from_attenuation(
+    attenuation_spectrum: &[(f64, f64)],
 ) -> Result<f64, Box<dyn std::error::Error>> {
-    if transfer_function.is_empty() {
-        return Err("Transfer function is empty".into());
+    if attenuation_spectrum.len() < 10 {
+        return Err("Insufficient points for attenuation-based cutoff detection".into());
     }
 
-    let mut best_freq = 0.0;
-    let mut best_diff = f64::INFINITY;
+    // Find the maximum attenuation to use as reference
+    let max_attenuation = attenuation_spectrum
+        .iter()
+        .map(|(_, atten)| *atten)
+        .fold(0.0, f64::max);
 
-    for &(freq, ratio) in transfer_function {
-        if freq.is_finite() && ratio.is_finite() {
-            let diff = (ratio - target_ratio).abs();
-            if diff < best_diff {
-                best_diff = diff;
-                best_freq = freq;
+    if max_attenuation <= 0.0 {
+        return Err("No significant attenuation found".into());
+    }
+
+    // Look for the frequency where attenuation reaches a significant fraction of max
+    // Find the FIRST ascending crossing (where filtering starts), not the peak
+    let target_attenuation = max_attenuation * 0.2; // 20% of max - earlier in the filter response
+
+    // Search in the valid frequency range (avoid low-freq noise and high-freq edge)
+    let start_idx = attenuation_spectrum.len() / 10;
+    let end_idx = (attenuation_spectrum.len() * 4) / 5;
+
+    for i in start_idx..(end_idx.min(attenuation_spectrum.len() - 1)) {
+        let (f1, a1) = attenuation_spectrum[i];
+        let (f2, a2) = attenuation_spectrum[i + 1];
+
+        // Skip unrealistic frequencies
+        if f1 < 40.0 || f2 > 800.0 {
+            continue;
+        }
+
+        // Look for ascending crossing: below target → above target
+        if a1 <= target_attenuation && a2 >= target_attenuation {
+            // Linear interpolation
+            let denom = a2 - a1;
+            if denom.abs() > 1e-12 {
+                let t = (target_attenuation - a1) / denom;
+                let fc = f1 + t * (f2 - f1);
+                if fc.is_finite() && (40.0..=800.0).contains(&fc) {
+                    return Ok(fc);
+                }
             }
         }
     }
 
-    if best_freq > 0.0 && best_freq.is_finite() {
-        Ok(best_freq)
-    } else {
-        Err("Could not find valid cutoff frequency".into())
-    }
+    Err("Could not find attenuation-based cutoff frequency".into())
 }
 
-fn estimate_filter_order_from_transfer(
-    transfer_function: &[(f64, f64)],
+/// Estimate filter order from attenuation spectrum slope analysis
+fn estimate_filter_order_from_attenuation(
+    attenuation_spectrum: &[(f64, f64)],
     cutoff_hz: f64,
 ) -> Result<(f64, f64), Box<dyn std::error::Error>> {
-    // Analyze rolloff slope above cutoff frequency
-    // -20dB/decade = PT1 (order 1.0)
-    // -40dB/decade = PT2 (order 2.0)
-    // Returns (filter_order, confidence)
-
-    // Validate cutoff frequency
-    if !cutoff_hz.is_finite() || cutoff_hz <= 0.0 {
-        return Err("Invalid cutoff frequency".into());
-    }
-
-    // Find points above cutoff frequency for slope analysis
-    let high_freq_points: Vec<(f64, f64)> = transfer_function
+    // Analyze the slope of attenuation above cutoff frequency
+    let analysis_points: Vec<(f64, f64)> = attenuation_spectrum
         .iter()
-        .filter(|(freq, _)| *freq > cutoff_hz * SLOPE_ANALYSIS_FREQ_MULTIPLIER) // Start analysis 20% above cutoff
-        .map(|(freq, mag)| (*freq, *mag))
+        .filter(|(freq, atten)| *freq > cutoff_hz * 1.2 && *freq < 800.0 && *atten > 0.0)
+        .map(|(freq, atten)| (freq.ln(), atten.ln()))
         .collect();
 
-    if high_freq_points.len() < MIN_POINTS_FOR_SLOPE_ANALYSIS {
-        // Not enough data for slope analysis, return default with low confidence
-        return Ok((DEFAULT_FILTER_ORDER, 0.3));
+    if analysis_points.len() < 5 {
+        // Fallback to default filter characteristics
+        return Ok((1.5, 0.3)); // Moderate order with low confidence
     }
 
-    // Convert to log-log scale for linear regression
-    // log|H(f)| vs log(f) should give a straight line with slope = -order
-    let mut log_points = Vec::with_capacity(high_freq_points.len());
-    for (freq, mag) in &high_freq_points {
-        if *freq > 0.0 && *mag > MIN_LOG_MAGNITUDE && freq.is_finite() && mag.is_finite() {
-            // Avoid log(0) and very small values, ensure finite inputs
-            log_points.push((freq.ln(), mag.ln()));
+    // Linear regression on log-log plot to find slope
+    let n = analysis_points.len() as f64;
+    let sum_x: f64 = analysis_points.iter().map(|(x, _)| *x).sum();
+    let sum_y: f64 = analysis_points.iter().map(|(_, y)| *y).sum();
+    let sum_xy: f64 = analysis_points.iter().map(|(x, y)| x * y).sum();
+    let sum_x2: f64 = analysis_points.iter().map(|(x, _)| x * x).sum();
+
+    let denom = n * sum_x2 - sum_x * sum_x;
+    if denom.abs() < 1e-12 {
+        return Ok((1.0, 0.2));
+    }
+
+    let slope = (n * sum_xy - sum_x * sum_y) / denom;
+
+    // For attenuation, positive slope indicates stronger filtering
+    let estimated_order = slope.abs().clamp(0.5, 4.0);
+
+    // Calculate confidence based on regression quality
+    let r_squared = {
+        let y_mean = sum_y / n;
+        let ss_tot: f64 = analysis_points
+            .iter()
+            .map(|(_, y)| (y - y_mean).powi(2))
+            .sum();
+        let ss_res: f64 = analysis_points
+            .iter()
+            .map(|(x, y)| {
+                let y_pred = (sum_y - slope * sum_x) / n + slope * x;
+                (y - y_pred).powi(2)
+            })
+            .sum();
+        if ss_tot > 1e-12 {
+            1.0 - ss_res / ss_tot
+        } else {
+            0.0
         }
-    }
+    };
 
-    if log_points.len() < MIN_POINTS_FOR_SLOPE_ANALYSIS {
-        return Ok((DEFAULT_FILTER_ORDER, 0.3));
-    }
+    let confidence = r_squared.clamp(0.1, 1.0);
 
-    // Linear regression: y = mx + b, where m is the slope
-    let n = log_points.len() as f64;
-    let sum_x: f64 = log_points.iter().map(|(x, _)| *x).sum();
-    let sum_y: f64 = log_points.iter().map(|(_, y)| *y).sum();
-    let sum_xy: f64 = log_points.iter().map(|(x, y)| x * y).sum();
-    let sum_x2: f64 = log_points.iter().map(|(x, _)| x * x).sum();
-
-    let denominator = n * sum_x2 - sum_x * sum_x;
-    if denominator.abs() < DIVISION_BY_ZERO_THRESHOLD {
-        return Ok((DEFAULT_FILTER_ORDER, 0.3)); // Avoid division by zero
-    }
-
-    let slope = (n * sum_xy - sum_x * sum_y) / denominator;
-
-    // Convert slope to filter order
-    // In a perfect filter: slope = -order (negative because magnitude decreases with frequency)
-    let estimated_order = (-slope).abs();
-
-    // Calculate slope in dB/decade terms for confidence calculation
-    let slope_per_decade = 20.0 * slope; // Convert d ln|H|/d ln f to dB/decade
-
-    // Calculate confidence based on how well the slope matches theoretical values
-    // Theoretical slopes: PT1=-20dB/decade, PT2=-40dB/decade, etc.
-    let closest_integer_order = estimated_order.round();
-    let theoretical_slope = -20.0 * closest_integer_order;
-    let slope_error = (slope_per_decade - theoretical_slope).abs();
-    let order_confidence = (1.0 - (slope_error / 20.0)).clamp(0.0, 1.0);
-
-    // Additional confidence factor based on number of points used
-    let points_confidence = (log_points.len() as f64 / 50.0).clamp(0.3, 1.0);
-
-    // Combined confidence
-    let confidence = (order_confidence * 0.7 + points_confidence * 0.3).clamp(0.1, 1.0);
-
-    // Clamp to reasonable range and round to nearest 0.1 for cleaner display
-    let clamped_order = estimated_order.clamp(FILTER_ORDER_CLAMP_MIN, FILTER_ORDER_CLAMP_MAX);
-    let rounded_order =
-        (clamped_order * FILTER_ORDER_ROUNDING_PRECISION).round() / FILTER_ORDER_ROUNDING_PRECISION;
-
-    Ok((rounded_order, confidence))
+    Ok((estimated_order, confidence))
 }
 
-fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
-    if transfer_function.is_empty() {
-        return 0.0;
+/// Calculate confidence score for attenuation-based measurement
+fn calculate_attenuation_confidence(attenuation_spectrum: &[(f64, f64)]) -> f64 {
+    if attenuation_spectrum.len() < 10 {
+        return 0.1;
     }
 
-    let mut confidence = 1.0;
+    // Factor 1: Sufficient data points
+    let points_factor = (attenuation_spectrum.len() as f64 / 100.0).clamp(0.3, 1.0);
 
-    // Factor 1: Number of data points (more points = higher confidence)
-    let num_points = transfer_function.len() as f64;
-    let point_factor = (num_points / CONFIDENCE_MAX_POINTS).min(1.0); // Max confidence at 100+ points
-    confidence *= CONFIDENCE_MIN_BASE + (CONFIDENCE_POINT_WEIGHT * point_factor); // Scale from 30% to 100%
+    // Factor 2: Signal-to-noise ratio in attenuation
+    let attenuations: Vec<f64> = attenuation_spectrum.iter().map(|(_, a)| *a).collect();
+    let max_atten = attenuations.iter().fold(0.0_f64, |a, &b| a.max(b));
+    let min_atten = attenuations.iter().fold(f64::INFINITY, |a, &b| a.min(b));
 
-    // Factor 2: Smoothness of transfer function (less noise = higher confidence)
-    let mut smoothness_score = 1.0;
-    if transfer_function.len() > 2 {
-        let mut total_variation = 0.0;
-        for i in 1..transfer_function.len() {
-            let prev_ratio = transfer_function[i - 1].1;
-            let curr_ratio = transfer_function[i].1;
-            total_variation += (curr_ratio - prev_ratio).abs();
-        }
-        let avg_variation = total_variation / (transfer_function.len() - 1) as f64;
-        // Less variation = higher smoothness score
-        smoothness_score = (1.0 - avg_variation.min(1.0)).max(CONFIDENCE_MIN_SMOOTHNESS);
-    }
-    confidence *= smoothness_score;
+    let dynamic_range = if max_atten > 0.0 {
+        (max_atten / (min_atten + 1e-12)).ln()
+    } else {
+        0.0
+    };
+    let snr_factor = (dynamic_range / 5.0).clamp(0.2, 1.0); // Expect ~5 orders of magnitude
 
-    // Clamp to reasonable range
-    confidence.clamp(0.1, 1.0)
+    // Combine factors
+    (points_factor * 0.6 + snr_factor * 0.4).clamp(0.1, 1.0)
 }
 
 #[cfg(test)]
