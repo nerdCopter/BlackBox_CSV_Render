@@ -3,7 +3,13 @@
 use std::collections::HashMap;
 
 use crate::axis_names::AXIS_NAMES;
-use crate::constants::*;
+use crate::constants::{
+    CONFIDENCE_MAX_POINTS, CONFIDENCE_MIN_BASE, CONFIDENCE_MIN_SMOOTHNESS, CONFIDENCE_POINT_WEIGHT,
+    CUTOFF_MAGNITUDE_RATIO, DEFAULT_FILTER_ORDER, DIVISION_BY_ZERO_THRESHOLD,
+    FILTER_ORDER_CLAMP_MAX, FILTER_ORDER_CLAMP_MIN, FILTER_ORDER_ROUNDING_PRECISION,
+    MIN_LOG_MAGNITUDE, MIN_POINTS_FOR_SLOPE_ANALYSIS, MIN_SPECTRUM_POINTS_FOR_ANALYSIS,
+    SLOPE_ANALYSIS_FREQ_MULTIPLIER,
+};
 
 /// Filter types supported by flight controllers
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1050,17 +1056,6 @@ fn calculate_measurement_confidence(transfer_function: &[(f64, f64)]) -> f64 {
         smoothness_score = (1.0 - avg_variation.min(1.0)).max(CONFIDENCE_MIN_SMOOTHNESS);
     }
     confidence *= smoothness_score;
-
-    // Factor 3: Signal strength (avoid low-signal measurements)
-    let avg_magnitude: f64 =
-        transfer_function.iter().map(|(_, mag)| *mag).sum::<f64>() / transfer_function.len() as f64;
-
-    let signal_factor = if avg_magnitude > CONFIDENCE_SIGNAL_THRESHOLD {
-        1.0
-    } else {
-        avg_magnitude * CONFIDENCE_SIGNAL_MULTIPLIER
-    };
-    confidence *= signal_factor;
 
     // Clamp to reasonable range
     confidence.clamp(0.1, 1.0)
