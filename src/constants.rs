@@ -126,4 +126,12 @@ pub const MIN_SAMPLES_FOR_D_TERM_CORR: usize = 50; // Lower sample requirement f
 // Gyro PSD heatmap scaling constants
 pub const GYRO_PSD_HEATMAP_MAX_DB: f64 = -10.0; // Maximum dB for gyro PSD heatmap color scaling
 
-// src/constants.rs
+// Measured filter response analysis constants
+pub const MIN_SPECTRUM_POINTS_FOR_ANALYSIS: usize = 50; // Minimum frequency points for reliable filter analysis
+#[allow(dead_code)]
+pub const FILTER_ANALYSIS_MIN_FREQ_HZ: f64 = 10.0; // Focus on filter-relevant frequencies above this (legacy)
+#[allow(dead_code)]
+pub const FILTER_ANALYSIS_MAX_FREQ_HZ: f64 = 500.0; // Focus on filter-relevant frequencies below this (legacy)
+pub const MEASURED_CURVE_POINTS: usize = 1000; // Number of points for generated measured curve
+pub const MEASURED_CURVE_AMPLITUDE_SCALE: f64 = 0.3; // 30% of max spectrum height for curve amplitude
+pub const MEASURED_CURVE_OFFSET_SCALE: f64 = 0.05; // Small offset from bottom for curve positioning

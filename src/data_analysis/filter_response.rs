@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::axis_names::AXIS_NAMES;
+use crate::constants::MIN_SPECTRUM_POINTS_FOR_ANALYSIS;
 
 /// Filter types supported by flight controllers
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -825,6 +826,231 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     }
 
     config
+}
+
+/// Measure actual filter response from spectrum data (magnitude vs frequency)
+/// This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
+/// Returns measured filter characteristics extracted from real spectral data
+pub fn measure_filter_response(
+    unfiltered_spectrum: &[(f64, f64)], // (frequency, magnitude) pairs
+    filtered_spectrum: &[(f64, f64)],   // (frequency, magnitude) pairs
+    _sample_rate: f64,                  // Not needed since we have frequency data
+) -> Result<MeasuredFilterResponse, Box<dyn std::error::Error>> {
+    // Validate input data
+    if filtered_spectrum.len() != unfiltered_spectrum.len() {
+        return Err("Filtered and unfiltered spectra must have same length".into());
+    }
+    if filtered_spectrum.len() < MIN_SPECTRUM_POINTS_FOR_ANALYSIS {
+        return Err(format!(
+            "Need at least {} frequency points for reliable analysis",
+            MIN_SPECTRUM_POINTS_FOR_ANALYSIS
+        )
+        .into());
+    }
+
+    // Calculate attenuation (what the filter removed) instead of transfer function ratio
+    let mut attenuation_spectrum = Vec::with_capacity(filtered_spectrum.len());
+
+    let eps = 1e-12_f64;
+    let freq_tol = 1e-6_f64;
+    for i in 0..filtered_spectrum.len() {
+        let (f_filt, filt_mag) = filtered_spectrum[i];
+        let (f_unf, unfilt_mag) = unfiltered_spectrum[i];
+        if !f_filt.is_finite()
+            || !f_unf.is_finite()
+            || !filt_mag.is_finite()
+            || !unfilt_mag.is_finite()
+        {
+            continue;
+        }
+        // Ensure bins align
+        if (f_filt - f_unf).abs() > freq_tol {
+            continue;
+        }
+        // Skip very low magnitude signals to avoid noise
+        if unfilt_mag.abs() <= eps {
+            continue;
+        }
+
+        // Calculate attenuation: what the filter removed
+        let attenuation = (unfilt_mag - filt_mag).abs();
+
+        if attenuation.is_finite() && attenuation >= 0.0 {
+            attenuation_spectrum.push((f_filt, attenuation));
+        }
+    }
+
+    if attenuation_spectrum.is_empty() {
+        return Err("No valid attenuation data found".into());
+    }
+
+    // Ensure ascending frequency for downstream analysis
+    attenuation_spectrum.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Find cutoff frequency based on attenuation analysis
+    let cutoff_hz = find_cutoff_from_attenuation(&attenuation_spectrum)?;
+
+    // Estimate filter order from attenuation slope
+    let (filter_order, order_confidence) =
+        estimate_filter_order_from_attenuation(&attenuation_spectrum, cutoff_hz)?;
+
+    // Calculate confidence based on data quality
+    let general_confidence = calculate_attenuation_confidence(&attenuation_spectrum);
+    let overall_confidence = (order_confidence * general_confidence).clamp(0.0, 1.0);
+
+    Ok(MeasuredFilterResponse {
+        cutoff_hz,
+        filter_order,
+        confidence: overall_confidence,
+        transfer_function: attenuation_spectrum, // Store attenuation data instead
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct MeasuredFilterResponse {
+    pub cutoff_hz: f64,
+    pub filter_order: f64, // 1.0 = PT1, 2.0 = PT2, etc.
+    pub confidence: f64,   // 0.0-1.0
+    #[allow(dead_code)]
+    pub transfer_function: Vec<(f64, f64)>, // (freq, magnitude)
+}
+
+/// Find cutoff frequency from attenuation spectrum
+/// Looks for the frequency where attenuation reaches a significant level
+fn find_cutoff_from_attenuation(
+    attenuation_spectrum: &[(f64, f64)],
+) -> Result<f64, Box<dyn std::error::Error>> {
+    if attenuation_spectrum.len() < 10 {
+        return Err("Insufficient points for attenuation-based cutoff detection".into());
+    }
+
+    // Find the maximum attenuation to use as reference
+    let max_attenuation = attenuation_spectrum
+        .iter()
+        .map(|(_, atten)| *atten)
+        .fold(0.0, f64::max);
+
+    if max_attenuation <= 0.0 {
+        return Err("No significant attenuation found".into());
+    }
+
+    // Look for the frequency where attenuation reaches a significant fraction of max
+    // Find the FIRST ascending crossing (where filtering starts), not the peak
+    let target_attenuation = max_attenuation * 0.2; // 20% of max - earlier in the filter response
+
+    // Search in the valid frequency range (avoid low-freq noise and high-freq edge)
+    let start_idx = attenuation_spectrum.len() / 10;
+    let end_idx = (attenuation_spectrum.len() * 4) / 5;
+
+    for i in start_idx..(end_idx.min(attenuation_spectrum.len() - 1)) {
+        let (f1, a1) = attenuation_spectrum[i];
+        let (f2, a2) = attenuation_spectrum[i + 1];
+
+        // Skip unrealistic frequencies
+        if f1 < 40.0 || f2 > 800.0 {
+            continue;
+        }
+
+        // Look for ascending crossing: below target → above target
+        if a1 <= target_attenuation && a2 >= target_attenuation {
+            // Linear interpolation
+            let denom = a2 - a1;
+            if denom.abs() > 1e-12 {
+                let t = (target_attenuation - a1) / denom;
+                let fc = f1 + t * (f2 - f1);
+                if fc.is_finite() && (40.0..=800.0).contains(&fc) {
+                    return Ok(fc);
+                }
+            }
+        }
+    }
+
+    Err("Could not find attenuation-based cutoff frequency".into())
+}
+
+/// Estimate filter order from attenuation spectrum slope analysis
+fn estimate_filter_order_from_attenuation(
+    attenuation_spectrum: &[(f64, f64)],
+    cutoff_hz: f64,
+) -> Result<(f64, f64), Box<dyn std::error::Error>> {
+    // Analyze the slope of attenuation above cutoff frequency
+    let analysis_points: Vec<(f64, f64)> = attenuation_spectrum
+        .iter()
+        .filter(|(freq, atten)| *freq > cutoff_hz * 1.2 && *freq < 800.0 && *atten > 0.0)
+        .map(|(freq, atten)| (freq.ln(), atten.ln()))
+        .collect();
+
+    if analysis_points.len() < 5 {
+        // Fallback to default filter characteristics
+        return Ok((1.5, 0.3)); // Moderate order with low confidence
+    }
+
+    // Linear regression on log-log plot to find slope
+    let n = analysis_points.len() as f64;
+    let sum_x: f64 = analysis_points.iter().map(|(x, _)| *x).sum();
+    let sum_y: f64 = analysis_points.iter().map(|(_, y)| *y).sum();
+    let sum_xy: f64 = analysis_points.iter().map(|(x, y)| x * y).sum();
+    let sum_x2: f64 = analysis_points.iter().map(|(x, _)| x * x).sum();
+
+    let denom = n * sum_x2 - sum_x * sum_x;
+    if denom.abs() < 1e-12 {
+        return Ok((1.0, 0.2));
+    }
+
+    let slope = (n * sum_xy - sum_x * sum_y) / denom;
+
+    // For attenuation, positive slope indicates stronger filtering
+    let estimated_order = slope.abs().clamp(0.5, 4.0);
+
+    // Calculate confidence based on regression quality
+    let r_squared = {
+        let y_mean = sum_y / n;
+        let ss_tot: f64 = analysis_points
+            .iter()
+            .map(|(_, y)| (y - y_mean).powi(2))
+            .sum();
+        let ss_res: f64 = analysis_points
+            .iter()
+            .map(|(x, y)| {
+                let y_pred = (sum_y - slope * sum_x) / n + slope * x;
+                (y - y_pred).powi(2)
+            })
+            .sum();
+        if ss_tot > 1e-12 {
+            1.0 - ss_res / ss_tot
+        } else {
+            0.0
+        }
+    };
+
+    let confidence = r_squared.clamp(0.1, 1.0);
+
+    Ok((estimated_order, confidence))
+}
+
+/// Calculate confidence score for attenuation-based measurement
+fn calculate_attenuation_confidence(attenuation_spectrum: &[(f64, f64)]) -> f64 {
+    if attenuation_spectrum.len() < 10 {
+        return 0.1;
+    }
+
+    // Factor 1: Sufficient data points
+    let points_factor = (attenuation_spectrum.len() as f64 / 100.0).clamp(0.3, 1.0);
+
+    // Factor 2: Signal-to-noise ratio in attenuation
+    let attenuations: Vec<f64> = attenuation_spectrum.iter().map(|(_, a)| *a).collect();
+    let max_atten = attenuations.iter().fold(0.0_f64, |a, &b| a.max(b));
+    let min_atten = attenuations.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+
+    let dynamic_range = if max_atten > 0.0 {
+        (max_atten / (min_atten + 1e-12)).ln()
+    } else {
+        0.0
+    };
+    let snr_factor = (dynamic_range / 5.0).clamp(0.2, 1.0); // Expect ~5 orders of magnitude
+
+    // Combine factors
+    (points_factor * 0.6 + snr_factor * 0.4).clamp(0.1, 1.0)
 }
 
 #[cfg(test)]
