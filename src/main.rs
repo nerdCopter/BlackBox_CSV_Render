@@ -466,6 +466,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut overall_success = true;
     for input_file_str in &input_files {
+        // Only process files with .csv extension (case-insensitive)
+        if !input_file_str.to_lowercase().ends_with(".csv") {
+            println!("Skipping non-CSV file: {input_file_str}");
+            continue;
+        }
         // Determine the actual output directory for this file
         let actual_output_dir = match &output_dir {
             None => {
