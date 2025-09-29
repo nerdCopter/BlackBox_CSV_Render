@@ -477,6 +477,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut overall_success = true;
     for input_file_str in &input_files {
+        // Only process files with .csv extension (case-insensitive)
+        let is_csv = Path::new(input_file_str)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("csv"))
+            .unwrap_or(false);
+        if !is_csv {
+            println!("Skipping non-CSV file: {input_file_str}");
+            continue;
+        }
         // Determine the actual output directory for this file
         let actual_output_dir = match &output_dir {
             None => {
