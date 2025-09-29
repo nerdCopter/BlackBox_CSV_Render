@@ -13,13 +13,16 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>]
+Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--debug] [--measure]
   <input_fileX.csv>: Path to one or more input CSV log files (required).
   --dps <value>: Optional. Enables detailed step response plots with the specified
                  deg/s threshold value. Must be a positive number.
                  If --dps is omitted, a general step-response is shown.
   --output-dir <directory>: Optional. Specifies the output directory for generated plots.
                          If omitted, plots are saved in the source folder (input file's directory).
+  --debug: Optional. Shows detailed metadata information during processing.
+  --measure: Optional. Analyzes actual filter response from flight data and
+             overlays measured curves on spectrum plots. Works with all firmware.
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.
 ```
@@ -32,6 +35,9 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 ```
 ```shell
 ./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --dps 360 --output-dir ./plots
+```
+```shell
+./target/release/BlackBox_CSV_Render path/to/EMUF_IMUF_Log.csv --measure --output-dir ./analysis
 ```
 
 ### Output
