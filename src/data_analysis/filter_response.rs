@@ -64,9 +64,10 @@ pub struct ImufFilterConfig {
     pub lowpass_cutoff_hz: f64, // Original configured cutoff from header
     pub ptn_order: u32,         // Filter order (1-4 -> PT1, PT2, PT3, PT4)
     pub q_factor: f64,          // Q-factor (scaled by 1000 in headers)
+    pub version: u32,           // IMUF version (256, 257, etc.)
 
     // Calculated values (accounting for IMU-F implementation)
-    pub effective_cutoff_hz: f64, // Cutoff after PTN scaling factors
+    pub effective_cutoff_hz: f64, // Cutoff after PTN scaling factors (v256 only)
 
     pub enabled: bool,
 }
@@ -214,7 +215,9 @@ pub fn generate_individual_filter_curves(
         }
     }
 
-    // Generate curves for IMUF filter if enabled - show both header and corrected values
+    // Generate curves for IMUF filter if enabled
+    // v256: show both header and effective cutoffs (with PTN scaling)
+    // v257+: show only configured cutoff (no PTN scaling needed)
     if let Some(ref imuf) = axis_config.imuf {
         if imuf.enabled && imuf.lowpass_cutoff_hz > 0.0 {
             let filter_type = match imuf.ptn_order {
@@ -225,36 +228,62 @@ pub fn generate_individual_filter_curves(
                 _ => FilterType::PT2, // Default fallback
             };
 
-            // Generate curve for header-configured cutoff (what user intended)
-            let header_filter = FilterConfig {
-                filter_type,
-                cutoff_hz: imuf.lowpass_cutoff_hz,
-                enabled: true,
-            };
-            let header_curve =
-                generate_single_filter_curve(&header_filter, max_frequency_hz, num_points);
-            let header_label = format!(
-                "IMUF v256 Header ({} @ {:.0}Hz)",
-                filter_type.name(),
-                imuf.lowpass_cutoff_hz
-            );
-            filter_curves.push((header_label, header_curve, imuf.lowpass_cutoff_hz));
+            if imuf.version == 256 {
+                // v256: Generate curves for both header and effective cutoffs
 
-            // Generate curve for effective cutoff (accounting for PTN scaling)
-            if (imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz).abs() > 1.0 {
-                let effective_filter = FilterConfig {
+                // Generate curve for header-configured cutoff (what user intended)
+                let header_filter = FilterConfig {
                     filter_type,
-                    cutoff_hz: imuf.effective_cutoff_hz,
+                    cutoff_hz: imuf.lowpass_cutoff_hz,
                     enabled: true,
                 };
-                let effective_curve =
-                    generate_single_filter_curve(&effective_filter, max_frequency_hz, num_points);
-                let effective_label = format!(
-                    "IMUF v256 Effective ({} @ {:.0}Hz, PTN scaled)",
+                let header_curve =
+                    generate_single_filter_curve(&header_filter, max_frequency_hz, num_points);
+                let header_label = format!(
+                    "IMUF v256 Header ({} @ {:.0}Hz)",
                     filter_type.name(),
-                    imuf.effective_cutoff_hz
+                    imuf.lowpass_cutoff_hz
                 );
-                filter_curves.push((effective_label, effective_curve, imuf.effective_cutoff_hz));
+                filter_curves.push((header_label, header_curve, imuf.lowpass_cutoff_hz));
+
+                // Generate curve for effective cutoff (accounting for PTN scaling)
+                if (imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz).abs() > 1.0 {
+                    let effective_filter = FilterConfig {
+                        filter_type,
+                        cutoff_hz: imuf.effective_cutoff_hz,
+                        enabled: true,
+                    };
+                    let effective_curve = generate_single_filter_curve(
+                        &effective_filter,
+                        max_frequency_hz,
+                        num_points,
+                    );
+                    let effective_label = format!(
+                        "IMUF v256 Effective ({} @ {:.0}Hz, PTN scaled)",
+                        filter_type.name(),
+                        imuf.effective_cutoff_hz
+                    );
+                    filter_curves.push((
+                        effective_label,
+                        effective_curve,
+                        imuf.effective_cutoff_hz,
+                    ));
+                }
+            } else {
+                // v257+: Generate only the configured cutoff (properly set by firmware)
+                let filter = FilterConfig {
+                    filter_type,
+                    cutoff_hz: imuf.lowpass_cutoff_hz,
+                    enabled: true,
+                };
+                let curve = generate_single_filter_curve(&filter, max_frequency_hz, num_points);
+                let label = format!(
+                    "IMUF v{} ({} @ {:.0}Hz)",
+                    imuf.version,
+                    filter_type.name(),
+                    imuf.lowpass_cutoff_hz
+                );
+                filter_curves.push((label, curve, imuf.lowpass_cutoff_hz));
             }
         }
     }
@@ -675,6 +704,12 @@ pub fn parse_imuf_filters_with_gyro_rate(
 
     let mut config = AllFilterConfigs::default();
 
+    // Parse IMUF version from IMUF_revision field
+    let version = header_map
+        .get("imuf_revision")
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(256); // Default to 256 if not specified
+
     // Parse IMUF parameters for each axis
     let axis_names = ["roll", "pitch", "yaw"];
     for (axis_idx, axis_name) in axis_names.iter().enumerate() {
@@ -701,13 +736,18 @@ pub fn parse_imuf_filters_with_gyro_rate(
 
         // Create IMUF filter config if we have valid parameters
         if lowpass_cutoff_hz > 0.0 {
-            // Calculate effective cutoff after PTN scaling
-            let effective_cutoff_hz = calculate_imuf_effective_cutoff(lowpass_cutoff_hz, ptn_order);
+            // Calculate effective cutoff after PTN scaling (v256 only)
+            let effective_cutoff_hz = if version == 256 {
+                calculate_imuf_effective_cutoff(lowpass_cutoff_hz, ptn_order)
+            } else {
+                lowpass_cutoff_hz // v257+ properly sets cutoff where configured
+            };
 
             config.gyro[axis_idx].imuf = Some(ImufFilterConfig {
                 lowpass_cutoff_hz,
                 ptn_order,
                 q_factor,
+                version,
                 effective_cutoff_hz,
                 enabled: true,
             });
@@ -752,11 +792,21 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
 
     // Check for IMUF configuration and merge it with existing config
     if has_imuf_pattern {
-        println!("Detected EmuFlight HELIOSPRING IMUF v256 filter configuration");
-
         // Extract gyro rate for sample rate correction calculations
         let gyro_rate_hz = extract_gyro_rate(Some(headers));
         let imuf_config = parse_imuf_filters_with_gyro_rate(headers, gyro_rate_hz);
+
+        // Get version from first axis with IMUF config
+        let imuf_version = imuf_config
+            .gyro
+            .iter()
+            .find_map(|axis| axis.imuf.as_ref().map(|imuf| imuf.version))
+            .unwrap_or(256);
+
+        println!(
+            "Detected EmuFlight HELIOSPRING IMUF v{} filter configuration",
+            imuf_version
+        );
 
         // Merge IMUF filters into the existing configuration
         for axis_idx in 0..3 {
@@ -799,19 +849,28 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
                 4 => "PT4",
                 _ => "PT2",
             };
-            println!(
-                "    IMUF v256: {} Header={:.0}Hz → Effective={:.0}Hz (Q={:.1})",
-                filter_type, imuf.lowpass_cutoff_hz, imuf.effective_cutoff_hz, imuf.q_factor
-            );
 
-            // Show warnings for significant differences
-            let ptn_scaling_diff = imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz;
-
-            if ptn_scaling_diff.abs() > 5.0 {
+            // For v256, show both header and effective cutoffs
+            // For v257+, only show configured cutoff (no PTN scaling applied)
+            if imuf.version == 256 {
                 println!(
-                    "      WARNING: PTN scaling increases cutoff by {:.0}Hz ({:.1}x multiplier)",
-                    ptn_scaling_diff,
-                    imuf.effective_cutoff_hz / imuf.lowpass_cutoff_hz
+                    "    IMUF v256: {} Header={:.0}Hz → Effective={:.0}Hz (Q={:.1})",
+                    filter_type, imuf.lowpass_cutoff_hz, imuf.effective_cutoff_hz, imuf.q_factor
+                );
+
+                // Show warnings for significant differences
+                let ptn_scaling_diff = imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz;
+                if ptn_scaling_diff.abs() > 5.0 {
+                    println!(
+                        "      WARNING: PTN scaling increases cutoff by {:.0}Hz ({:.1}x multiplier)",
+                        ptn_scaling_diff,
+                        imuf.effective_cutoff_hz / imuf.lowpass_cutoff_hz
+                    );
+                }
+            } else {
+                println!(
+                    "    IMUF v{}: {} Cutoff={:.0}Hz (Q={:.1})",
+                    imuf.version, filter_type, imuf.lowpass_cutoff_hz, imuf.q_factor
                 );
             }
         }
@@ -957,6 +1016,7 @@ mod tests {
             lowpass_cutoff_hz: 100.0,
             ptn_order: 2,
             q_factor: 8.0,
+            version: 256,
             effective_cutoff_hz: 155.4, // 100 * 1.553773974
             enabled: true,
         };
@@ -984,5 +1044,85 @@ mod tests {
             assert!(effective_label.contains("IMUF v256 Effective"));
             assert!(*effective_cutoff > 150.0); // Should be scaled up
         }
+    }
+
+    #[test]
+    fn test_imuf_v257_filter_curves() {
+        // v257 should only generate one curve (no effective curve)
+        let imuf_config = ImufFilterConfig {
+            lowpass_cutoff_hz: 100.0,
+            ptn_order: 2,
+            q_factor: 8.0,
+            version: 257,
+            effective_cutoff_hz: 100.0, // v257 doesn't need PTN scaling
+            enabled: true,
+        };
+
+        let axis_config = AxisFilterConfig {
+            lpf1: None,
+            lpf2: None,
+            dynamic_lpf1: None,
+            imuf: Some(imuf_config),
+        };
+
+        let curves = generate_individual_filter_curves(&axis_config, 1000.0, 100);
+
+        // v257 should only have one curve (configured cutoff, no separate effective curve)
+        assert_eq!(curves.len(), 1, "v257 should only generate one curve");
+
+        // Check the single curve
+        let (label, _curve_points, cutoff) = &curves[0];
+        assert!(label.contains("IMUF v257"), "Label should indicate v257");
+        assert!(label.contains("PT2"), "Label should show filter type");
+        assert!(
+            label.contains("100Hz"),
+            "Label should show cutoff frequency"
+        );
+        assert_eq!(*cutoff, 100.0, "Cutoff should be the configured value");
+
+        // Should NOT contain "Effective" or "Header" keywords
+        assert!(
+            !label.contains("Effective"),
+            "v257 should not have 'Effective' label"
+        );
+        assert!(
+            !label.contains("Header"),
+            "v257 should not have 'Header' label"
+        );
+    }
+
+    #[test]
+    fn test_imuf_version_parsing() {
+        // Test v256
+        let headers_v256 = vec![
+            ("IMUF_lowpass_roll".to_string(), "90".to_string()),
+            ("IMUF_ptn_order".to_string(), "2".to_string()),
+            ("IMUF_roll_q".to_string(), "8000".to_string()),
+            ("IMUF_revision".to_string(), "256".to_string()),
+        ];
+        let config_v256 = parse_imuf_filters_with_gyro_rate(&headers_v256, None);
+        assert!(config_v256.gyro[0].imuf.is_some());
+        let imuf_v256 = config_v256.gyro[0].imuf.as_ref().unwrap();
+        assert_eq!(imuf_v256.version, 256, "Should detect v256");
+        assert_ne!(
+            imuf_v256.effective_cutoff_hz, imuf_v256.lowpass_cutoff_hz,
+            "v256 should have different effective cutoff"
+        );
+
+        // Test v257
+        let headers_v257 = vec![
+            ("IMUF_lowpass_roll".to_string(), "90".to_string()),
+            ("IMUF_ptn_order".to_string(), "2".to_string()),
+            ("IMUF_roll_q".to_string(), "8000".to_string()),
+            ("IMUF_revision".to_string(), "257".to_string()),
+        ];
+        let config_v257 = parse_imuf_filters_with_gyro_rate(&headers_v257, None);
+        assert!(config_v257.gyro[0].imuf.is_some());
+        let imuf_v257 = config_v257.gyro[0].imuf.as_ref().unwrap();
+        assert_eq!(imuf_v257.version, 257, "Should detect v257");
+        assert_eq!(
+            imuf_v257.effective_cutoff_hz, imuf_v257.lowpass_cutoff_hz,
+            "v257 should have same effective cutoff"
+        );
     }
 }
