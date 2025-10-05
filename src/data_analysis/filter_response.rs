@@ -1108,15 +1108,16 @@ fn estimate_filter_order_from_attenuation(
     cutoff_hz: f64,
 ) -> Result<(f64, f64), Box<dyn std::error::Error>> {
     // Analyze the slope of attenuation above cutoff frequency
+    // Look at a wider range to get better slope estimation
     let analysis_points: Vec<(f64, f64)> = attenuation_spectrum
         .iter()
-        .filter(|(freq, atten)| *freq > cutoff_hz * 1.2 && *freq < 800.0 && *atten > 0.0)
+        .filter(|(freq, atten)| *freq > cutoff_hz * 1.1 && *freq < cutoff_hz * 10.0 && *atten > 0.0)
         .map(|(freq, atten)| (freq.ln(), atten.ln()))
         .collect();
 
     if analysis_points.len() < 5 {
-        // Fallback to default filter characteristics
-        return Ok((1.5, 0.3)); // Moderate order with low confidence
+        // Not enough data - default to PT1 with low confidence
+        return Ok((1.0, 0.3));
     }
 
     // Linear regression on log-log plot to find slope
@@ -1133,10 +1134,7 @@ fn estimate_filter_order_from_attenuation(
 
     let slope = (n * sum_xy - sum_x * sum_y) / denom;
 
-    // For attenuation, positive slope indicates stronger filtering
-    let estimated_order = slope.abs().clamp(0.5, 4.0);
-
-    // Calculate confidence based on regression quality
+    // Calculate R² for regression quality
     let r_squared = {
         let y_mean = sum_y / n;
         let ss_tot: f64 = analysis_points
@@ -1151,40 +1149,81 @@ fn estimate_filter_order_from_attenuation(
             })
             .sum();
         if ss_tot > 1e-12 {
-            1.0 - ss_res / ss_tot
+            (1.0 - ss_res / ss_tot).max(0.0)
         } else {
             0.0
         }
     };
 
-    let confidence = r_squared.clamp(0.1, 1.0);
+    // For attenuation spectrum: positive slope indicates stronger filtering
+    // In log-log space, attenuation slope relates to filter order
+    // Higher order filters have steeper rolloff (larger slope)
+    let raw_order = slope.abs().clamp(0.3, 5.0);
 
-    Ok((estimated_order, confidence))
+    // Quantize to known PT filter orders (PT1, PT2, PT3, PT4)
+    // Flight controllers only use these specific orders
+    let quantized_order = if raw_order < 1.4 {
+        1.0 // PT1
+    } else if raw_order < 2.4 {
+        2.0 // PT2
+    } else if raw_order < 3.4 {
+        3.0 // PT3
+    } else {
+        4.0 // PT4
+    };
+
+    // Confidence based on R² quality and how close to a known order
+    let quantization_error = (raw_order - quantized_order).abs();
+    let order_confidence = if quantization_error < 0.3 {
+        1.0 // Very close to a known order
+    } else if quantization_error < 0.5 {
+        0.8 // Reasonably close
+    } else {
+        0.6 // Further from known orders
+    };
+
+    // Combine R² with order confidence, weighted toward R²
+    let combined_confidence = (r_squared * 0.7 + order_confidence * 0.3).clamp(0.2, 1.0);
+
+    Ok((quantized_order, combined_confidence))
 }
 
 /// Calculate confidence score for attenuation-based measurement
 fn calculate_attenuation_confidence(attenuation_spectrum: &[(f64, f64)]) -> f64 {
     if attenuation_spectrum.len() < 10 {
-        return 0.1;
+        return 0.3; // Minimum 30% for very small datasets
     }
 
-    // Factor 1: Sufficient data points
-    let points_factor = (attenuation_spectrum.len() as f64 / 100.0).clamp(0.3, 1.0);
+    // Factor 1: Sufficient data points (more lenient curve)
+    let points_factor = if attenuation_spectrum.len() >= 200 {
+        1.0
+    } else if attenuation_spectrum.len() >= 100 {
+        0.9
+    } else if attenuation_spectrum.len() >= 50 {
+        0.7
+    } else {
+        0.5
+    };
 
     // Factor 2: Signal-to-noise ratio in attenuation
     let attenuations: Vec<f64> = attenuation_spectrum.iter().map(|(_, a)| *a).collect();
     let max_atten = attenuations.iter().fold(0.0_f64, |a, &b| a.max(b));
-    let min_atten = attenuations.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+    let min_atten = attenuations
+        .iter()
+        .filter(|&&a| a > 0.0)
+        .fold(f64::INFINITY, |a, &b| a.min(b));
 
-    let dynamic_range = if max_atten > 0.0 {
-        (max_atten / (min_atten + 1e-12)).ln()
+    let dynamic_range = if max_atten > 0.0 && min_atten < f64::INFINITY {
+        (max_atten / min_atten.max(1e-12)).ln()
     } else {
         0.0
     };
-    let snr_factor = (dynamic_range / 5.0).clamp(0.2, 1.0); // Expect ~5 orders of magnitude
 
-    // Combine factors
-    (points_factor * 0.6 + snr_factor * 0.4).clamp(0.1, 1.0)
+    // More lenient SNR expectations (3 orders of magnitude is good, not 5)
+    let snr_factor = (dynamic_range / 3.0).clamp(0.4, 1.0);
+
+    // Combine factors with higher minimum
+    (points_factor * 0.5 + snr_factor * 0.5).clamp(0.3, 1.0)
 }
 
 #[cfg(test)]
