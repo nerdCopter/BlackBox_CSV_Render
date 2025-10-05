@@ -55,6 +55,10 @@ pub fn plot_gyro_spectrums(
     // Extract gyro rate once for proper Nyquist calculation
     let gyro_rate_hz = filter_response::extract_gyro_rate(header_metadata).unwrap_or(8000.0); // Default 8kHz
 
+    // Extract filter metadata for display on plots
+    let filter_metadata =
+        filter_response::extract_filter_metadata_for_display(header_metadata, "gyro");
+
     let mut all_fft_raw_data: AllFFTData = Default::default();
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
@@ -515,6 +519,7 @@ pub fn plot_gyro_spectrums(
                 // MINIMAL CHANGE: Initialize new fields to Some for linear amplitude plots
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}".to_string()),
+                metadata_text: filter_metadata.clone(),
             });
 
             let filtered_plot_config = Some(PlotConfig {
@@ -528,6 +533,7 @@ pub fn plot_gyro_spectrums(
                 // MINIMAL CHANGE: Initialize new fields to Some for linear amplitude plots
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}".to_string()),
+                metadata_text: filter_metadata.clone(),
             });
 
             Some(AxisSpectrum {

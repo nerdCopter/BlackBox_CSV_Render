@@ -65,6 +65,10 @@ pub fn plot_d_term_spectrums(
     // Extract gyro rate once for proper Nyquist calculation
     let gyro_rate_hz = filter_response::extract_gyro_rate(header_metadata).unwrap_or(8000.0); // Default 8kHz
 
+    // Extract filter metadata for display on plots
+    let filter_metadata =
+        filter_response::extract_filter_metadata_for_display(header_metadata, "dterm");
+
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
 
@@ -399,6 +403,7 @@ pub fn plot_d_term_spectrums(
                 peaks: unfilt_peaks,
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}".to_string()),
+                metadata_text: filter_metadata.clone(),
             })
         } else {
             None
@@ -430,6 +435,7 @@ pub fn plot_d_term_spectrums(
                 peaks: filt_peaks,
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}".to_string()),
+                metadata_text: filter_metadata.clone(),
             })
         } else {
             None

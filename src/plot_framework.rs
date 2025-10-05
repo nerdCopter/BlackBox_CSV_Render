@@ -100,6 +100,7 @@ pub struct PlotConfig {
     pub peaks: Vec<(f64, f64)>,
     pub peak_label_threshold: Option<f64>,
     pub peak_label_format_string: Option<String>,
+    pub metadata_text: Option<Vec<String>>,
 }
 
 #[derive(Clone)]
@@ -330,6 +331,31 @@ fn draw_single_axis_chart_with_config(
             ))?;
         }
     }
+
+    // Render metadata text if provided
+    if let Some(metadata_lines) = &plot_config.metadata_text {
+        if !metadata_lines.is_empty() {
+            const METADATA_FONT_SIZE: i32 = 11;
+            const METADATA_LINE_HEIGHT: i32 = 14;
+            const METADATA_MARGIN: i32 = 10;
+
+            // Position metadata in the upper-left corner of the plot area
+            let start_x = METADATA_MARGIN;
+            let start_y = METADATA_MARGIN;
+
+            for (line_idx, line) in metadata_lines.iter().enumerate() {
+                let y_pos = start_y + (line_idx as i32 * METADATA_LINE_HEIGHT);
+                area.draw(&Text::new(
+                    line.as_str(),
+                    (start_x, y_pos),
+                    ("sans-serif", METADATA_FONT_SIZE)
+                        .into_font()
+                        .color(&RGBColor(40, 40, 40)),
+                ))?;
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -385,6 +411,7 @@ where
                         peaks: vec![],
                         peak_label_threshold: None,
                         peak_label_format_string: None,
+                        metadata_text: None,
                     };
                     draw_single_axis_chart_with_config(area, &temp_plot_config)?;
                     any_axis_plotted = true;

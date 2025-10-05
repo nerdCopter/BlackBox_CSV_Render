@@ -939,6 +939,116 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     config
 }
 
+/// Extract relevant filter metadata for display on spectrum plots
+/// Returns formatted strings for Betaflight and Emuflight configurations
+pub fn extract_filter_metadata_for_display(
+    header_metadata: Option<&[(String, String)]>,
+    plot_type: &str, // "gyro" or "dterm"
+) -> Option<Vec<String>> {
+    let metadata = header_metadata?;
+    let mut lines = Vec::new();
+
+    // Detect firmware type
+    let firmware = metadata
+        .iter()
+        .find(|(key, _)| key == "Firmware type")
+        .map(|(_, value)| value.as_str());
+
+    // Helper to get metadata value
+    let get_value = |key: &str| -> Option<String> {
+        metadata
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
+    };
+
+    match firmware {
+        Some("Betaflight") | Some("Cleanflight") => {
+            // RPM Filter metadata
+            if let Some(harmonics) = get_value("rpm_filter_harmonics") {
+                lines.push(format!("RPM Filter: {} harmonics", harmonics));
+
+                if let Some(weights) = get_value("rpm_filter_weights") {
+                    let weights_clean = weights.trim_matches('"').replace(',', ", ");
+                    lines.push(format!("  weights: {}", weights_clean));
+                }
+                if let Some(q) = get_value("rpm_filter_q") {
+                    lines.push(format!("  Q: {}", q));
+                }
+                if let Some(min_hz) = get_value("rpm_filter_min_hz") {
+                    lines.push(format!("  min: {}Hz", min_hz));
+                }
+                if let Some(fade) = get_value("rpm_filter_fade_range_hz") {
+                    lines.push(format!("  fade: {}Hz", fade));
+                }
+                if let Some(lpf) = get_value("rpm_filter_lpf_hz") {
+                    lines.push(format!("  LPF: {}Hz", lpf));
+                }
+            }
+
+            // Dynamic Notch metadata (for both gyro and dterm)
+            if plot_type == "gyro" {
+                if let Some(count) = get_value("dyn_notch_count") {
+                    if count != "0" {
+                        lines.push(format!("Dynamic Notch: {} notches", count));
+
+                        if let Some(q) = get_value("dyn_notch_q") {
+                            lines.push(format!("  Q: {}", q));
+                        }
+                        if let Some(min) = get_value("dyn_notch_min_hz") {
+                            if let Some(max) = get_value("dyn_notch_max_hz") {
+                                lines.push(format!("  range: {}-{}Hz", min, max));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Some("Emuflight") | Some("EmuFlight") => {
+            // Dynamic Gyro Notch metadata
+            if plot_type == "gyro" {
+                if let Some(count) = get_value("dynamic_gyro_notch_count") {
+                    if count != "0" {
+                        lines.push(format!("Dynamic Gyro Notch: {} notches", count));
+
+                        if let Some(q) = get_value("dynamic_gyro_notch_q") {
+                            lines.push(format!("  Q: {}", q));
+                        }
+                        if let Some(min) = get_value("dynamic_gyro_notch_min_hz") {
+                            if let Some(max) = get_value("dynamic_gyro_notch_max_hz") {
+                                lines.push(format!("  range: {}-{}Hz", min, max));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // D-term Dynamic Notch metadata
+            if plot_type == "dterm" {
+                if let Some(enable) = get_value("dterm_dyn_notch_enable") {
+                    if enable == "1" {
+                        lines.push("D-term Dynamic Notch: enabled".to_string());
+
+                        if let Some(q) = get_value("dterm_dyn_notch_q") {
+                            lines.push(format!("  Q: {}", q));
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            // Unknown firmware, don't show metadata
+            return None;
+        }
+    }
+
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
