@@ -139,9 +139,11 @@ pub const MEASURED_FILTER_MIN_CUTOFF_HZ: f64 = 40.0;
 pub const MEASURED_FILTER_MAX_CUTOFF_HZ: f64 = 800.0;
 
 /// Attenuation threshold for cutoff detection as fraction of max attenuation.
-/// 20% represents the point where filtering effect becomes significant while
-/// avoiding low-frequency noise and staying below the -3dB point.
-/// This detects where filtering starts, not the -3dB cutoff frequency.
+///
+/// **IMPORTANT**: This measures "filter onset" or "effective filtering frequency",
+/// NOT the strict -3dB cutoff. 20% represents the point where filtering effect
+/// becomes significant while avoiding low-frequency noise. This detects where
+/// filtering starts, which is typically below the configured -3dB cutoff frequency.
 pub const ATTENUATION_CUTOFF_THRESHOLD: f64 = 0.2;
 
 pub const MEASURED_CURVE_POINTS: usize = 1000; // Number of points for generated measured curve

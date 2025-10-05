@@ -945,7 +945,13 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
 
 /// Measure actual filter response from spectrum data (magnitude vs frequency)
 /// This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
-/// Returns measured filter characteristics extracted from real spectral data
+///
+/// **IMPORTANT**: This measures "filter onset" or "effective filtering frequency"
+/// (where filtering effect becomes significant), NOT the strict -3dB cutoff frequency.
+/// The measured frequency represents where the filter starts attenuating the signal,
+/// which is typically lower than the configured -3dB cutoff point.
+///
+/// Returns measured filter characteristics extracted from real spectral data.
 pub fn measure_filter_response(
     unfiltered_spectrum: &[(f64, f64)], // (frequency, magnitude) pairs
     filtered_spectrum: &[(f64, f64)],   // (frequency, magnitude) pairs
@@ -1023,6 +1029,9 @@ pub fn measure_filter_response(
 
 #[derive(Debug, Clone)]
 pub struct MeasuredFilterResponse {
+    /// Filter onset frequency (Hz) - where filtering effect becomes significant.
+    /// This represents "effective filtering frequency", NOT the strict -3dB cutoff.
+    /// Typically lower than the configured -3dB cutoff frequency.
     pub cutoff_hz: f64,
     pub filter_order: f64, // 1.0 = PT1, 2.0 = PT2, etc.
     pub confidence: f64,   // 0.0-1.0
@@ -1031,7 +1040,10 @@ pub struct MeasuredFilterResponse {
 }
 
 /// Find cutoff frequency from attenuation spectrum
-/// Looks for the frequency where attenuation reaches a significant level
+///
+/// **Note**: This detects "filter onset" (where filtering effect becomes significant),
+/// NOT the strict -3dB cutoff frequency. The measured frequency represents where the
+/// filter starts attenuating, which is typically below the configured cutoff point.
 fn find_cutoff_from_attenuation(
     attenuation_spectrum: &[(f64, f64)],
 ) -> Result<f64, Box<dyn std::error::Error>> {

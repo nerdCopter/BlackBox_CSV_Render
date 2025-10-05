@@ -370,8 +370,13 @@ pub fn plot_gyro_spectrums(
                     sr_value,
                 ) {
                     Ok(measured_response) => {
-                        println!("  {} Measured Filter Response: Cutoff={:.1} Hz, Order={:.1}, Confidence={:.0}%", 
-                                 AXIS_NAMES[axis_index], measured_response.cutoff_hz, measured_response.filter_order, measured_response.confidence * 100.0);
+                        println!(
+                            "  {} Measured Filter Onset: {:.1} Hz, Order={:.1}, Confidence={:.0}%",
+                            AXIS_NAMES[axis_index],
+                            measured_response.cutoff_hz,
+                            measured_response.filter_order,
+                            measured_response.confidence * 100.0
+                        );
 
                         // Generate measured filter curve for visualization
                         let max_freq = sr_value / 2.0;
@@ -422,7 +427,7 @@ pub fn plot_gyro_spectrums(
                                 PlotSeries {
                                     data: scaled_measured_curve,
                                     label: format!(
-                                        "MEASURED: {:.0}Hz -{:.0}dB/decade rolloff (PT{:.1}) ({:.0}% conf)",
+                                        "MEASURED ONSET: {:.0}Hz -{:.0}dB/decade rolloff (PT{:.1}) ({:.0}% conf)",
                                         measured_response.cutoff_hz,
                                         db_per_decade,
                                         measured_response.filter_order,
@@ -440,7 +445,13 @@ pub fn plot_gyro_spectrums(
                             None
                         }
                     }
-                    Err(_) => None,
+                    Err(err) => {
+                        println!(
+                            "  Unable to measure filter response for {} axis: {err}",
+                            AXIS_NAMES[axis_index]
+                        );
+                        None
+                    }
                 }
             } else {
                 None
