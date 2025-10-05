@@ -58,16 +58,17 @@ pub struct DynamicFilterConfig {
     pub enabled: bool,
 }
 
-/// IMUF filter configuration for HELIOSPRING flight controllers
+/// IMUF filter configuration with Butterworth correction (Betaflight/EmuFlight)
 #[derive(Debug, Clone)]
 pub struct ImufFilterConfig {
     // Header values (as configured)
-    pub lowpass_cutoff_hz: f64, // Original configured cutoff from header
+    pub lowpass_cutoff_hz: f64, // Configured combined cutoff from header (effective -3dB point)
     pub ptn_order: u32,         // Filter order (1-4 -> PT1, PT2, PT3, PT4)
     pub q_factor: f64,          // Q-factor (scaled by 1000 in headers)
+    pub revision: Option<u32>,  // IMUF revision from header (e.g., 256, 257)
 
-    // Calculated values (accounting for IMU-F implementation)
-    pub effective_cutoff_hz: f64, // Cutoff after PTN scaling factors
+    // Calculated values (Butterworth correction for cascaded stages)
+    pub effective_cutoff_hz: f64, // Per-stage PT1 cutoff (scaled up to achieve configured combined response)
 
     pub enabled: bool,
 }
@@ -89,6 +90,72 @@ pub struct AllFilterConfigs {
 
 /// Type alias for filter curve data: (label, curve_points, cutoff_hz)
 pub type FilterCurveData = (String, Vec<(f64, f64)>, f64);
+
+/// Helper function to add PTn filter curves with Butterworth correction
+/// Generates both the user-configured curve and the per-stage implementation curve
+fn add_ptn_filter_curves(
+    filter_curves: &mut Vec<FilterCurveData>,
+    filter_type: FilterType,
+    cutoff_hz: f64,
+    label_prefix: &str,
+    max_frequency_hz: f64,
+    num_points: usize,
+    show_butterworth: bool,
+) {
+    // Generate curve for user-configured cutoff (e.g., PT2 @ 90Hz)
+    let main_filter = FilterConfig {
+        filter_type,
+        cutoff_hz,
+        enabled: true,
+    };
+    let main_curve = generate_single_filter_curve(&main_filter, max_frequency_hz, num_points);
+    let main_label = format!(
+        "{} ({} @ {:.0}Hz)",
+        label_prefix,
+        filter_type.name(),
+        cutoff_hz
+    );
+    filter_curves.push((main_label, main_curve, cutoff_hz));
+
+    // Generate per-stage curve for PT2/PT3/PT4 (Butterworth correction) only if --butterworth flag is set
+    if !show_butterworth {
+        return;
+    }
+
+    let ptn_order = match filter_type {
+        FilterType::PT2 => 2,
+        FilterType::PT3 => 3,
+        FilterType::PT4 => 4,
+        _ => 0, // PT1 and BIQUAD don't need per-stage curves
+    };
+
+    if ptn_order > 1 {
+        let per_stage_cutoff = calculate_ptn_per_stage_cutoff(cutoff_hz, ptn_order);
+
+        // Only show per-stage if it's meaningfully different (> 1 Hz)
+        if (per_stage_cutoff - cutoff_hz).abs() > 1.0 {
+            let stage_count_text = match ptn_order {
+                2 => "Two PT1",
+                3 => "Three PT1",
+                4 => "Four PT1",
+                _ => "PT1",
+            };
+
+            let stage_filter = FilterConfig {
+                filter_type,
+                cutoff_hz: per_stage_cutoff,
+                enabled: true,
+            };
+            let stage_curve =
+                generate_single_filter_curve(&stage_filter, max_frequency_hz, num_points);
+            let stage_label = format!(
+                "≈ {} ({} @ {:.0}Hz per-stage)",
+                label_prefix, stage_count_text, per_stage_cutoff
+            );
+            filter_curves.push((stage_label, stage_curve, per_stage_cutoff));
+        }
+    }
+}
 
 /// Calculate frequency response magnitude for PT1 filter
 /// H(s) = 1 / (1 + s/ωc) where ωc = 2π * cutoff_hz
@@ -160,6 +227,7 @@ pub fn generate_individual_filter_curves(
     axis_config: &AxisFilterConfig,
     max_frequency_hz: f64,
     num_points: usize,
+    show_butterworth: bool,
 ) -> Vec<FilterCurveData> {
     let mut filter_curves = Vec::new();
 
@@ -167,51 +235,55 @@ pub fn generate_individual_filter_curves(
     if let Some(ref dyn_lpf1) = axis_config.dynamic_lpf1 {
         // Dynamic LPF1 takes precedence
         if dyn_lpf1.enabled && dyn_lpf1.min_cutoff_hz > 0.0 {
-            let static_filter = FilterConfig {
-                filter_type: dyn_lpf1.filter_type,
-                cutoff_hz: dyn_lpf1.min_cutoff_hz, // Use minimum cutoff
-                enabled: true,
-            };
-            let curve = generate_single_filter_curve(&static_filter, max_frequency_hz, num_points);
-            let label = if dyn_lpf1.max_cutoff_hz > dyn_lpf1.min_cutoff_hz {
+            let label_prefix = if dyn_lpf1.max_cutoff_hz > dyn_lpf1.min_cutoff_hz {
                 format!(
-                    "Dyn LPF1 ({} {:.0}-{:.0}Hz)",
-                    dyn_lpf1.filter_type.name(),
-                    dyn_lpf1.min_cutoff_hz,
-                    dyn_lpf1.max_cutoff_hz
+                    "Dyn LPF1 {:.0}-{:.0}Hz",
+                    dyn_lpf1.min_cutoff_hz, dyn_lpf1.max_cutoff_hz
                 )
             } else {
-                format!(
-                    "Dyn LPF1 ({} @ {:.0}Hz)",
-                    dyn_lpf1.filter_type.name(),
-                    dyn_lpf1.min_cutoff_hz
-                )
+                "Dyn LPF1".to_string()
             };
-            filter_curves.push((label, curve, dyn_lpf1.min_cutoff_hz));
+
+            // Use helper to add both main and per-stage curves for PTn filters
+            add_ptn_filter_curves(
+                &mut filter_curves,
+                dyn_lpf1.filter_type,
+                dyn_lpf1.min_cutoff_hz,
+                &label_prefix,
+                max_frequency_hz,
+                num_points,
+                show_butterworth,
+            );
         }
     } else if let Some(ref lpf1) = axis_config.lpf1 {
         // Static LPF1 fallback
         if lpf1.enabled && lpf1.cutoff_hz > 0.0 {
-            let curve = generate_single_filter_curve(lpf1, max_frequency_hz, num_points);
-            let label = format!(
-                "LPF1 ({} @ {:.0}Hz)",
-                lpf1.filter_type.name(),
-                lpf1.cutoff_hz
+            // Use helper to add both main and per-stage curves for PTn filters
+            add_ptn_filter_curves(
+                &mut filter_curves,
+                lpf1.filter_type,
+                lpf1.cutoff_hz,
+                "LPF1",
+                max_frequency_hz,
+                num_points,
+                show_butterworth,
             );
-            filter_curves.push((label, curve, lpf1.cutoff_hz));
         }
     }
 
     // Generate curve for LPF2 if enabled (always after LPF1)
     if let Some(ref lpf2) = axis_config.lpf2 {
         if lpf2.enabled && lpf2.cutoff_hz > 0.0 {
-            let curve = generate_single_filter_curve(lpf2, max_frequency_hz, num_points);
-            let label = format!(
-                "LPF2 ({} @ {:.0}Hz)",
-                lpf2.filter_type.name(),
-                lpf2.cutoff_hz
+            // Use helper to add both main and per-stage curves for PTn filters
+            add_ptn_filter_curves(
+                &mut filter_curves,
+                lpf2.filter_type,
+                lpf2.cutoff_hz,
+                "LPF2",
+                max_frequency_hz,
+                num_points,
+                show_butterworth,
             );
-            filter_curves.push((label, curve, lpf2.cutoff_hz));
         }
     }
 
@@ -226,7 +298,23 @@ pub fn generate_individual_filter_curves(
                 _ => FilterType::PT2, // Default fallback
             };
 
-            // Generate curve for header-configured cutoff (what user intended)
+            // Helper to get stage count text for per-stage labels
+            let stage_count_text = match imuf.ptn_order {
+                1 => "One PT1",
+                2 => "Two PT1",
+                3 => "Three PT1",
+                4 => "Four PT1",
+                _ => "Two PT1",
+            };
+
+            // Build version string
+            let version_str = if let Some(rev) = imuf.revision {
+                format!("IMUF v{}", rev)
+            } else {
+                "IMUF".to_string()
+            };
+
+            // Generate curve for header-configured cutoff (user sees PT2 @ 90Hz)
             let header_filter = FilterConfig {
                 filter_type,
                 cutoff_hz: imuf.lowpass_cutoff_hz,
@@ -235,27 +323,27 @@ pub fn generate_individual_filter_curves(
             let header_curve =
                 generate_single_filter_curve(&header_filter, max_frequency_hz, num_points);
             let header_label = format!(
-                "IMUF v256 Header ({} @ {:.0}Hz)",
+                "{} ({} @ {:.0}Hz)",
+                version_str,
                 filter_type.name(),
                 imuf.lowpass_cutoff_hz
             );
             filter_curves.push((header_label, header_curve, imuf.lowpass_cutoff_hz));
 
-            // Generate curve for effective cutoff (accounting for PTN scaling)
-            if (imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz).abs() > 1.0 {
-                let effective_filter = FilterConfig {
+            // Generate curve for per-stage PT1 cutoff (Butterworth correction - shows Two PT1 @ 140Hz) only if --butterworth flag is set
+            if show_butterworth && (imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz).abs() > 1.0 {
+                let stage_filter = FilterConfig {
                     filter_type,
                     cutoff_hz: imuf.effective_cutoff_hz,
                     enabled: true,
                 };
-                let effective_curve =
-                    generate_single_filter_curve(&effective_filter, max_frequency_hz, num_points);
-                let effective_label = format!(
-                    "IMUF v256 Effective ({} @ {:.0}Hz, PTN scaled)",
-                    filter_type.name(),
-                    imuf.effective_cutoff_hz
+                let stage_curve =
+                    generate_single_filter_curve(&stage_filter, max_frequency_hz, num_points);
+                let stage_label = format!(
+                    "≈ {} ({} @ {:.0}Hz per-stage)",
+                    version_str, stage_count_text, imuf.effective_cutoff_hz
                 );
-                filter_curves.push((effective_label, effective_curve, imuf.effective_cutoff_hz));
+                filter_curves.push((stage_label, stage_curve, imuf.effective_cutoff_hz));
             }
         }
     }
@@ -645,15 +733,21 @@ fn parse_dynamic_cutoffs(cutoff_str: &str) -> (f64, f64) {
     }
 }
 
-/// Calculate effective IMUF filter cutoff frequency accounting for PTN scaling factors
+/// Calculate per-stage PT1 cutoff frequency for IMUF filters
+/// Uses Butterworth correction factors to achieve proper combined response
 /// Based on IMU-F ptnFilter.c: Adj_f_cut = (float)f_cut * ScaleF[filter->order - 1]
-fn calculate_imuf_effective_cutoff(configured_cutoff_hz: f64, ptn_order: u32) -> f64 {
-    // PTN filter scaling factors from IMU-F source code
+///
+/// Example: For PT2 at 90 Hz combined:
+/// - Each PT1 stage runs at 90 * 1.554 = 140 Hz
+/// - Two stages at 140 Hz produce -3dB at 90 Hz combined
+fn calculate_ptn_per_stage_cutoff(configured_cutoff_hz: f64, ptn_order: u32) -> f64 {
+    // PTn cutoff correction factors from Betaflight/EmuFlight source
+    // Formula: 1 / sqrt(2^(1/n) - 1) where n is the filter order
     const PTN_SCALE_FACTORS: [f64; 4] = [
-        1.0,         // PT1 (order 1)
-        1.553773974, // PT2 (order 2)
-        1.961459177, // PT3 (order 3)
-        2.298959223, // PT4 (order 4)
+        1.0,         // PT1 (order 1) - no correction needed
+        1.553773974, // PT2 (order 2) - CUTOFF_CORRECTION_PT2
+        1.961459177, // PT3 (order 3) - CUTOFF_CORRECTION_PT3
+        2.298959223, // PT4 (order 4) - CUTOFF_CORRECTION_PT4
     ];
 
     let scale_factor = match ptn_order {
@@ -675,6 +769,11 @@ pub fn parse_imuf_filters_with_gyro_rate(
         .collect();
 
     let mut config = AllFilterConfigs::default();
+
+    // Parse IMUF revision (applies to all axes)
+    let imuf_revision = header_map
+        .get("imuf_revision")
+        .and_then(|s| s.parse::<u32>().ok());
 
     // Parse IMUF parameters for each axis
     let axis_names = ["roll", "pitch", "yaw"];
@@ -702,13 +801,14 @@ pub fn parse_imuf_filters_with_gyro_rate(
 
         // Create IMUF filter config if we have valid parameters
         if lowpass_cutoff_hz > 0.0 {
-            // Calculate effective cutoff after PTN scaling
-            let effective_cutoff_hz = calculate_imuf_effective_cutoff(lowpass_cutoff_hz, ptn_order);
+            // Calculate per-stage PT1 cutoff (Butterworth correction)
+            let effective_cutoff_hz = calculate_ptn_per_stage_cutoff(lowpass_cutoff_hz, ptn_order);
 
             config.gyro[axis_idx].imuf = Some(ImufFilterConfig {
                 lowpass_cutoff_hz,
                 ptn_order,
                 q_factor,
+                revision: imuf_revision,
                 effective_cutoff_hz,
                 enabled: true,
             });
@@ -726,11 +826,12 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
         .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_string()))
         .collect();
 
-    // Check for IMUF patterns (EmuFlight HELIOSPRING)
+    // Check for IMUF patterns (Betaflight/EmuFlight with PTn Butterworth correction)
     let has_imuf_pattern = header_map.contains_key("imuf_lowpass_roll")
         || header_map.contains_key("imuf_lowpass_pitch")
         || header_map.contains_key("imuf_lowpass_yaw")
-        || header_map.contains_key("imuf_ptn_order");
+        || header_map.contains_key("imuf_ptn_order")
+        || header_map.contains_key("imuf_revision");
 
     // Check for EmuFlight per-axis patterns
     let has_emuflight_pattern = header_map.contains_key("dterm_lowpass_hz_roll")
@@ -753,7 +854,7 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
 
     // Check for IMUF configuration and merge it with existing config
     if has_imuf_pattern {
-        println!("Detected EmuFlight HELIOSPRING IMUF v256 filter configuration");
+        println!("Detected PTn filters with Butterworth correction (IMUF)");
 
         // Extract gyro rate for sample rate correction calculations
         let gyro_rate_hz = extract_gyro_rate(Some(headers));
@@ -793,26 +894,37 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
             );
         }
         if let Some(ref imuf) = config.gyro[axis_idx].imuf {
-            let filter_type = match imuf.ptn_order {
-                1 => "PT1",
-                2 => "PT2",
-                3 => "PT3",
-                4 => "PT4",
-                _ => "PT2",
+            let stage_count_text = match imuf.ptn_order {
+                1 => "One PT1",
+                2 => "Two PT1",
+                3 => "Three PT1",
+                4 => "Four PT1",
+                _ => "Two PT1",
             };
+
+            let version_str = if let Some(rev) = imuf.revision {
+                format!("IMUF v{}", rev)
+            } else {
+                "IMUF".to_string()
+            };
+
             println!(
-                "    IMUF v256: {} Header={:.0}Hz → Effective={:.0}Hz (Q={:.1})",
-                filter_type, imuf.lowpass_cutoff_hz, imuf.effective_cutoff_hz, imuf.q_factor
+                "    {}: {} Combined={:.0}Hz → per-stage={:.0}Hz (Q={:.1})",
+                version_str,
+                stage_count_text,
+                imuf.lowpass_cutoff_hz,
+                imuf.effective_cutoff_hz,
+                imuf.q_factor
             );
 
-            // Show warnings for significant differences
+            // Show info about Butterworth correction
             let ptn_scaling_diff = imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz;
 
             if ptn_scaling_diff.abs() > 5.0 {
                 println!(
-                    "      WARNING: PTN scaling increases cutoff by {:.0}Hz ({:.1}x multiplier)",
-                    ptn_scaling_diff,
-                    imuf.effective_cutoff_hz / imuf.lowpass_cutoff_hz
+                    "      Note: Butterworth correction requires PT1 stages at {:.0}Hz to achieve {:.0}Hz combined response",
+                    imuf.effective_cutoff_hz,
+                    imuf.lowpass_cutoff_hz
                 );
             }
         }
@@ -1168,12 +1280,12 @@ mod tests {
     }
 
     #[test]
-    fn test_imuf_calculation_functions() {
+    fn test_ptn_calculation_functions() {
         // Test PTN scaling factors
-        assert_eq!(calculate_imuf_effective_cutoff(100.0, 1), 100.0); // PT1 no scaling
-        assert!((calculate_imuf_effective_cutoff(100.0, 2) - 155.377).abs() < 0.1); // PT2 scaling
-        assert!((calculate_imuf_effective_cutoff(100.0, 3) - 196.146).abs() < 0.1); // PT3 scaling
-        assert!((calculate_imuf_effective_cutoff(100.0, 4) - 229.896).abs() < 0.1);
+        assert_eq!(calculate_ptn_per_stage_cutoff(100.0, 1), 100.0); // PT1 no scaling
+        assert!((calculate_ptn_per_stage_cutoff(100.0, 2) - 155.377).abs() < 0.1); // PT2 scaling
+        assert!((calculate_ptn_per_stage_cutoff(100.0, 3) - 196.146).abs() < 0.1); // PT3 scaling
+        assert!((calculate_ptn_per_stage_cutoff(100.0, 4) - 229.896).abs() < 0.1);
         // PT4 scaling
     }
 
@@ -1183,7 +1295,8 @@ mod tests {
             lowpass_cutoff_hz: 100.0,
             ptn_order: 2,
             q_factor: 8.0,
-            effective_cutoff_hz: 155.4, // 100 * 1.553773974
+            revision: Some(256),
+            effective_cutoff_hz: 155.4, // Per-stage: 100 * 1.553773974
             enabled: true,
         };
 
@@ -1194,21 +1307,84 @@ mod tests {
             imuf: Some(imuf_config),
         };
 
-        let curves = generate_individual_filter_curves(&axis_config, 1000.0, 100);
-        assert!(!curves.is_empty()); // Should have at least header curve, possibly more
+        let curves = generate_individual_filter_curves(&axis_config, 1000.0, 100, true);
+        assert!(!curves.is_empty()); // Should have at least combined curve, possibly per-stage too
 
-        // Check header curve
-        let (header_label, _curve_points, header_cutoff) = &curves[0];
-        assert!(header_label.contains("IMUF v256 Header"));
-        assert!(header_label.contains("PT2"));
-        assert!(header_label.contains("100Hz"));
-        assert_eq!(*header_cutoff, 100.0);
+        // Check combined response curve (red line - shows user-configured PT2 @ 100Hz)
+        let (combined_label, _curve_points, combined_cutoff) = &curves[0];
+        assert!(combined_label.contains("IMUF v256"));
+        assert!(combined_label.contains("PT2")); // Should say "PT2" for user-configured filter
+        assert!(combined_label.contains("100Hz"));
+        assert!(!combined_label.contains("per-stage")); // Combined curve shouldn't have per-stage
+        assert_eq!(*combined_cutoff, 100.0);
 
-        // Check for effective curve if different enough
+        // Check for per-stage curve if different enough (gray line - shows Two PT1 @ 155Hz)
         if curves.len() > 1 {
-            let (effective_label, _, effective_cutoff) = &curves[1];
-            assert!(effective_label.contains("IMUF v256 Effective"));
-            assert!(*effective_cutoff > 150.0); // Should be scaled up
+            let (stage_label, _, stage_cutoff) = &curves[1];
+            assert!(stage_label.contains("IMUF v256"));
+            assert!(stage_label.contains("Two PT1")); // Should say "Two PT1" for per-stage breakdown
+            assert!(stage_label.contains("per-stage"));
+            assert!(*stage_cutoff > 150.0); // Should be scaled up for Butterworth correction
         }
+    }
+
+    #[test]
+    fn test_ptn_filter_curves_generation() {
+        // Test that PT2 generates both main and per-stage curves
+        let lpf1_pt2 = FilterConfig {
+            filter_type: FilterType::PT2,
+            cutoff_hz: 100.0,
+            enabled: true,
+        };
+
+        let axis_config_pt2 = AxisFilterConfig {
+            lpf1: Some(lpf1_pt2),
+            lpf2: None,
+            dynamic_lpf1: None,
+            imuf: None,
+        };
+
+        let curves = generate_individual_filter_curves(&axis_config_pt2, 1000.0, 100, true);
+        assert_eq!(
+            curves.len(),
+            2,
+            "PT2 should generate 2 curves (main + per-stage)"
+        );
+
+        let (main_label, _, main_cutoff) = &curves[0];
+        assert!(main_label.contains("LPF1"));
+        assert!(main_label.contains("PT2"));
+        assert!(main_label.contains("100Hz"));
+        assert!(!main_label.contains("per-stage"));
+        assert_eq!(*main_cutoff, 100.0);
+
+        let (stage_label, _, stage_cutoff) = &curves[1];
+        assert!(stage_label.contains("LPF1"));
+        assert!(stage_label.contains("Two PT1"));
+        assert!(stage_label.contains("per-stage"));
+        assert!(*stage_cutoff > 150.0);
+
+        // Test that PT1 generates only main curve
+        let lpf1_pt1 = FilterConfig {
+            filter_type: FilterType::PT1,
+            cutoff_hz: 100.0,
+            enabled: true,
+        };
+
+        let axis_config_pt1 = AxisFilterConfig {
+            lpf1: Some(lpf1_pt1),
+            lpf2: None,
+            dynamic_lpf1: None,
+            imuf: None,
+        };
+
+        let curves_pt1 = generate_individual_filter_curves(&axis_config_pt1, 1000.0, 100, false);
+        assert_eq!(
+            curves_pt1.len(),
+            1,
+            "PT1 should generate only 1 curve (no per-stage)"
+        );
+        assert!(curves_pt1[0].0.contains("PT1"));
+        assert!(!curves_pt1[0].0.contains("per-stage"));
     }
 }

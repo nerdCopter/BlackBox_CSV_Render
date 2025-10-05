@@ -73,7 +73,7 @@ use crate::data_analysis::calc_step_response;
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("
-Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--debug] [--measure]");
+Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--measure]");
     eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
     eprintln!("                 deg/s threshold value. Must be a positive number.");
@@ -82,6 +82,10 @@ Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] 
         "  --output-dir <directory>: Optional. Specifies the output directory for generated plots."
     );
     eprintln!("                         If omitted, plots are saved in the source folder (input file's directory).");
+    eprintln!(
+        "  --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters"
+    );
+    eprintln!("                 as gray curves/lines on gyro and D-term spectrum plots.");
     eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
     eprintln!("  --measure: Optional. Analyzes actual filter response from flight data and");
     eprintln!("             plots measured curves on spectrum plots. EXPERIMENTAL: Results may be inaccurate or invalid.");
@@ -103,6 +107,7 @@ fn print_version_and_exit() {
     std::process::exit(0);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_file(
     input_file_str: &str,
     setpoint_threshold: f64,
@@ -110,6 +115,7 @@ fn process_file(
     use_dir_prefix: bool,
     output_dir: Option<&Path>,
     debug_mode: bool,
+    show_butterworth: bool,
     measure_filters: bool,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
@@ -347,6 +353,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         &root_name_string,
         sample_rate,
         Some(&header_metadata),
+        show_butterworth,
         measure_filters,
     )?;
     plot_d_term_psd(
@@ -361,6 +368,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         &root_name_string,
         sample_rate,
         Some(&header_metadata),
+        show_butterworth,
     )?;
     plot_psd(&all_log_data, &root_name_string, sample_rate)?;
     plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
@@ -386,6 +394,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut dps_flag_present = false;
     let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
     let mut debug_mode = false;
+    let mut show_butterworth = false;
     let mut measure_filters = false;
 
     let mut i = 1;
@@ -433,6 +442,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         } else if arg == "--debug" {
             debug_mode = true;
+        } else if arg == "--butterworth" {
+            show_butterworth = true;
         } else if arg == "--measure" {
             measure_filters = true;
         } else if arg.starts_with("--") {
@@ -503,6 +514,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             use_dir_prefix_for_root_name,
             actual_output_dir,
             debug_mode,
+            show_butterworth,
             measure_filters,
         ) {
             eprintln!("An error occurred while processing {input_file_str}: {e}");
