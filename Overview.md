@@ -82,6 +82,14 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 **Filter Response Curves (`src/data_analysis/filter_response.rs`):**
 
 *   **Flight Firmware Integration:** Automatically detects and parses filter configurations from Betaflight, EmuFlight, and INAV blackbox headers including filter types (PT1, PT2, PT3, PT4, BIQUAD), cutoff frequencies, and dynamic filter ranges.
+*   **Butterworth Correction Visualization (Optional):** When enabled with the `--butterworth` command-line parameter, displays per-stage PT1 implementation details for PT2/PT3/PT4 filters on gyro and D-term spectrum plots:
+    *   PT2/PT3/PT4 filters are implemented as cascaded PT1 stages with Butterworth correction factors (PT2: 1.554×, PT3: 1.961×, PT4: 2.299×)
+    *   Main curves (colored) show user-configured filter response (e.g., "LPF1 (PT2 @ 90Hz)")
+    *   Per-stage curves (gray, prefixed with ≈) show actual PT1 implementation (e.g., "≈ LPF1 (Two PT1 @ 140Hz per-stage)")
+    *   Vertical cutoff lines: solid for configured cutoff, dotted for per-stage cutoff
+    *   Formula: per-stage cutoff = configured cutoff × correction factor
+    *   Applies to all firmware (Betaflight, EmuFlight, INAV) using PT2/PT3/PT4 filters
+    *   IMUF configurations include version information when available (e.g., "IMUF v256")
 *   **Gyro Rate Detection:** Comprehensive parsing of gyro sampling rates from various header formats (`gyroSampleRateHz`, `looptime`, `gyro_sync_denom`) with case-insensitive matching and proper division-based denominator calculation.
 *   **Mathematical Implementation:** 
     *   **PT1 (1st order)**: `H(s) = 1/(1 + s/ωc)` - Standard single-pole lowpass

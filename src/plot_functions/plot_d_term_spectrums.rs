@@ -30,6 +30,7 @@ pub fn plot_d_term_spectrums(
     root_name: &str,
     sample_rate: Option<f64>,
     header_metadata: Option<&[(String, String)]>,
+    show_butterworth: bool,
 ) -> Result<(), Box<dyn Error>> {
     // Input validation
     if log_data.is_empty() {
@@ -312,6 +313,7 @@ pub fn plot_d_term_spectrums(
                     &config.dterm[axis_idx],
                     max_freq,
                     num_points,
+                    show_butterworth,
                 );
 
                 // Add each filter curve as a separate series

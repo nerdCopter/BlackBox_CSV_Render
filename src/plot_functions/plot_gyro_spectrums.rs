@@ -29,6 +29,7 @@ pub fn plot_gyro_spectrums(
     root_name: &str,
     sample_rate: Option<f64>,
     header_metadata: Option<&[(String, String)]>,
+    show_butterworth: bool,
 ) -> Result<(), Box<dyn Error>> {
     let output_file = format!("{root_name}_Gyro_Spectrums_comparative.png");
     let plot_type_name = "Gyro Spectrums";
@@ -389,6 +390,7 @@ pub fn plot_gyro_spectrums(
                     &config.gyro[axis_index],
                     max_freq,
                     num_points,
+                    show_butterworth,
                 );
 
                 // Add each filter curve as a separate series
@@ -419,11 +421,11 @@ pub fn plot_gyro_spectrums(
                             })
                             .collect();
 
-                        // Create filter response series - use gray for effective curves
-                        let curve_color = if label.contains("IMUF v256 Effective") {
-                            RGBColor(128, 128, 128) // Gray for calculated effective curves
+                        // Create filter response series - use gray for per-stage curves
+                        let curve_color = if label.contains("per-stage") {
+                            RGBColor(128, 128, 128) // Gray for per-stage PT1 cutoffs
                         } else {
-                            filter_colors[curve_idx % filter_colors.len()] // Standard colors for user-configured curves
+                            filter_colors[curve_idx % filter_colors.len()] // Standard colors for combined response curves
                         };
 
                         unfilt_plot_series.push(PlotSeries {
@@ -439,14 +441,13 @@ pub fn plot_gyro_spectrums(
                             continue;
                         }
 
-                        // Use dotted line and different color for IMUF effective cutoffs
-                        let (cutoff_prefix, cutoff_color) = if label.contains("IMUF v256 Effective")
-                        {
-                            // Effective cutoffs: dotted line with muted gray color to show they're calculated
+                        // Use dotted line and different color for IMUF per-stage cutoffs
+                        let (cutoff_prefix, cutoff_color) = if label.contains("per-stage") {
+                            // Per-stage cutoffs: dotted line with muted gray color to show Butterworth correction
                             (CUTOFF_LINE_DOTTED_PREFIX, RGBColor(128, 128, 128))
-                        // Gray for calculated values
+                        // Gray for per-stage values
                         } else {
-                            // Header cutoffs: solid line with filter color to show user configuration
+                            // Combined cutoffs: solid line with filter color to show effective response
                             (
                                 CUTOFF_LINE_PREFIX,
                                 filter_colors[curve_idx % filter_colors.len()],
