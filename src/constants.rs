@@ -128,10 +128,22 @@ pub const GYRO_PSD_HEATMAP_MAX_DB: f64 = -10.0; // Maximum dB for gyro PSD heatm
 
 // Measured filter response analysis constants
 pub const MIN_SPECTRUM_POINTS_FOR_ANALYSIS: usize = 50; // Minimum frequency points for reliable filter analysis
-#[allow(dead_code)]
-pub const FILTER_ANALYSIS_MIN_FREQ_HZ: f64 = 10.0; // Focus on filter-relevant frequencies above this (legacy)
-#[allow(dead_code)]
-pub const FILTER_ANALYSIS_MAX_FREQ_HZ: f64 = 500.0; // Focus on filter-relevant frequencies below this (legacy)
+
+/// Minimum cutoff frequency for measured filter detection (Hz).
+/// Some filters might have legitimate cutoffs below this, but values below 40 Hz
+/// are typically low-frequency noise rather than intentional filter cutoffs.
+pub const MEASURED_FILTER_MIN_CUTOFF_HZ: f64 = 40.0;
+
+/// Maximum cutoff frequency for measured filter detection (Hz).
+/// High-performance setups might exceed this, but most FPV filters operate below 800 Hz.
+pub const MEASURED_FILTER_MAX_CUTOFF_HZ: f64 = 800.0;
+
+/// Attenuation threshold for cutoff detection as fraction of max attenuation.
+/// 20% represents the point where filtering effect becomes significant while
+/// avoiding low-frequency noise and staying below the -3dB point.
+/// This detects where filtering starts, not the -3dB cutoff frequency.
+pub const ATTENUATION_CUTOFF_THRESHOLD: f64 = 0.2;
+
 pub const MEASURED_CURVE_POINTS: usize = 1000; // Number of points for generated measured curve
 pub const MEASURED_CURVE_AMPLITUDE_SCALE: f64 = 0.3; // 30% of max spectrum height for measured curve amplitude
 pub const MEASURED_CURVE_OFFSET_SCALE: f64 = 0.05; // Small offset from bottom for measured curve positioning

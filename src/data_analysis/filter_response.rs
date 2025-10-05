@@ -3,7 +3,10 @@
 use std::collections::HashMap;
 
 use crate::axis_names::AXIS_NAMES;
-use crate::constants::MIN_SPECTRUM_POINTS_FOR_ANALYSIS;
+use crate::constants::{
+    ATTENUATION_CUTOFF_THRESHOLD, MEASURED_FILTER_MAX_CUTOFF_HZ, MEASURED_FILTER_MIN_CUTOFF_HZ,
+    MIN_SPECTRUM_POINTS_FOR_ANALYSIS,
+};
 
 /// Filter types supported by flight controllers
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1048,7 +1051,7 @@ fn find_cutoff_from_attenuation(
 
     // Look for the frequency where attenuation reaches a significant fraction of max
     // Find the FIRST ascending crossing (where filtering starts), not the peak
-    let target_attenuation = max_attenuation * 0.2; // 20% of max - earlier in the filter response
+    let target_attenuation = max_attenuation * ATTENUATION_CUTOFF_THRESHOLD;
 
     // Search in the valid frequency range (avoid low-freq noise and high-freq edge)
     let start_idx = attenuation_spectrum.len() / 10;
@@ -1059,7 +1062,7 @@ fn find_cutoff_from_attenuation(
         let (f2, a2) = attenuation_spectrum[i + 1];
 
         // Skip unrealistic frequencies
-        if f1 < 40.0 || f2 > 800.0 {
+        if f1 < MEASURED_FILTER_MIN_CUTOFF_HZ || f2 > MEASURED_FILTER_MAX_CUTOFF_HZ {
             continue;
         }
 
@@ -1070,7 +1073,9 @@ fn find_cutoff_from_attenuation(
             if denom.abs() > 1e-12 {
                 let t = (target_attenuation - a1) / denom;
                 let fc = f1 + t * (f2 - f1);
-                if fc.is_finite() && (40.0..=800.0).contains(&fc) {
+                if fc.is_finite()
+                    && (MEASURED_FILTER_MIN_CUTOFF_HZ..=MEASURED_FILTER_MAX_CUTOFF_HZ).contains(&fc)
+                {
                     return Ok(fc);
                 }
             }
