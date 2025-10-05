@@ -3,6 +3,7 @@
 The Rust program processes Betaflight Blackbox CSV logs to generate various plots. Here's a concise overview:
 
 **Configuration:**
+
 All analysis parameters, thresholds, plot dimensions, and algorithmic constants are centrally defined in `src/constants.rs`, making the implementation highly configurable for different analysis needs and flight controller characteristics.
 
 **Core Functionality:**
