@@ -364,14 +364,17 @@ pub fn plot_gyro_spectrums(
             let measured_overlay_series = if measure_filters {
                 // Attempt to measure actual filter response from the spectrum data
                 // This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
+                // Pass axis configuration to use configured filter type as constraint
+                let axis_filter_config = filter_config.as_ref().map(|fc| &fc.gyro[axis_index]);
                 match filter_response::measure_filter_response(
                     &unfilt_series_data,
                     &filt_series_data,
                     sr_value,
+                    axis_filter_config,
                 ) {
                     Ok(measured_response) => {
                         println!(
-                            "  {} Measured Filter Onset: {:.1} Hz, Order={:.1}, Confidence={:.0}%",
+                            "  {} Measured -3dB Cutoff: {:.1} Hz, Order={:.1}, Confidence={:.0}%",
                             AXIS_NAMES[axis_index],
                             measured_response.cutoff_hz,
                             measured_response.filter_order,
@@ -427,10 +430,10 @@ pub fn plot_gyro_spectrums(
                                 PlotSeries {
                                     data: scaled_measured_curve,
                                     label: format!(
-                                        "MEASURED ONSET: {:.0}Hz -{:.0}dB/decade rolloff (PT{:.1}) ({:.0}% conf)",
+                                        "MEASURED -3dB: {:.0}Hz (PT{:.1}) -{:.0}dB/decade ({:.0}% conf)",
                                         measured_response.cutoff_hz,
-                                        db_per_decade,
                                         measured_response.filter_order,
+                                        db_per_decade,
                                         measured_response.confidence * 100.0
                                     ),
                                     color: RGBColor(34, 139, 34), // Hunter green for measured response

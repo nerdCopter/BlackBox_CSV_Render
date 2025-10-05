@@ -4,8 +4,7 @@ use std::collections::HashMap;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    ATTENUATION_CUTOFF_THRESHOLD, MEASURED_FILTER_MAX_CUTOFF_HZ, MEASURED_FILTER_MIN_CUTOFF_HZ,
-    MIN_SPECTRUM_POINTS_FOR_ANALYSIS,
+    MEASURED_FILTER_MAX_CUTOFF_HZ, MEASURED_FILTER_MIN_CUTOFF_HZ, MIN_SPECTRUM_POINTS_FOR_ANALYSIS,
 };
 
 /// Filter types supported by flight controllers
@@ -946,16 +945,19 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
 /// Measure actual filter response from spectrum data (magnitude vs frequency)
 /// This works for ANY firmware - Betaflight, EmuFlight, IMUF, etc.
 ///
-/// **IMPORTANT**: This measures "filter onset" or "effective filtering frequency"
-/// (where filtering effect becomes significant), NOT the strict -3dB cutoff frequency.
-/// The measured frequency represents where the filter starts attenuating the signal,
-/// which is typically lower than the configured -3dB cutoff point.
+/// **Measures the actual -3dB cutoff frequency** where the transfer function ratio
+/// (filtered/unfiltered magnitude) drops to 0.707, which is the standard definition
+/// of filter cutoff frequency. This should closely match the configured cutoff.
+///
+/// If axis_config is provided, uses the configured filter type (PT1/PT2/PT3/PT4)
+/// directly and validates how well the measured -3dB cutoff matches expectations.
 ///
 /// Returns measured filter characteristics extracted from real spectral data.
 pub fn measure_filter_response(
     unfiltered_spectrum: &[(f64, f64)], // (frequency, magnitude) pairs
     filtered_spectrum: &[(f64, f64)],   // (frequency, magnitude) pairs
     _sample_rate: f64,                  // Not needed since we have frequency data
+    axis_config: Option<&AxisFilterConfig>, // Optional configured filter info for validation
 ) -> Result<MeasuredFilterResponse, Box<dyn std::error::Error>> {
     // Validate input data
     if filtered_spectrum.len() != unfiltered_spectrum.len() {
@@ -971,6 +973,8 @@ pub fn measure_filter_response(
 
     // Calculate attenuation (what the filter removed) instead of transfer function ratio
     let mut attenuation_spectrum = Vec::with_capacity(filtered_spectrum.len());
+    // Also calculate transfer function ratio for -3dB cutoff detection
+    let mut transfer_function = Vec::with_capacity(filtered_spectrum.len());
 
     let eps = 1e-12_f64;
     let freq_tol = 1e-6_f64;
@@ -995,9 +999,14 @@ pub fn measure_filter_response(
 
         // Calculate attenuation: what the filter removed
         let attenuation = (unfilt_mag - filt_mag).abs();
-
         if attenuation.is_finite() && attenuation >= 0.0 {
             attenuation_spectrum.push((f_filt, attenuation));
+        }
+
+        // Calculate transfer function ratio for -3dB detection
+        let ratio = (filt_mag / unfilt_mag).clamp(0.0, 10.0);
+        if ratio.is_finite() {
+            transfer_function.push((f_filt, ratio));
         }
     }
 
@@ -1007,13 +1016,58 @@ pub fn measure_filter_response(
 
     // Ensure ascending frequency for downstream analysis
     attenuation_spectrum.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    transfer_function.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Find cutoff frequency based on attenuation analysis
-    let cutoff_hz = find_cutoff_from_attenuation(&attenuation_spectrum)?;
+    // Find actual -3dB cutoff frequency (where transfer function = 0.707)
+    let cutoff_hz = find_3db_cutoff_from_transfer_function(&transfer_function)?;
 
-    // Estimate filter order from attenuation slope
+    // Extract expected filter order from configuration if available
+    let expected_order = axis_config.and_then(|config| {
+        // Check IMUF first (most specific)
+        if let Some(ref imuf) = config.imuf {
+            if imuf.enabled {
+                eprintln!("DEBUG: Using IMUF PT{}", imuf.ptn_order);
+                return Some(imuf.ptn_order as f64);
+            }
+        }
+        // Check LPF1 (primary filter)
+        if let Some(ref lpf1) = config.lpf1 {
+            if lpf1.enabled {
+                let order = match lpf1.filter_type {
+                    FilterType::PT1 => 1.0,
+                    FilterType::PT2 => 2.0,
+                    FilterType::PT3 => 3.0,
+                    FilterType::PT4 => 4.0,
+                    FilterType::Biquad => 2.0, // Biquad ~ PT2
+                };
+                eprintln!("DEBUG: Using LPF1 PT{:.0} @ {}Hz", order, lpf1.cutoff_hz);
+                return Some(order);
+            }
+        }
+        // Check dynamic LPF1
+        if let Some(ref dyn_lpf) = config.dynamic_lpf1 {
+            if dyn_lpf.enabled {
+                let order = match dyn_lpf.filter_type {
+                    FilterType::PT1 => 1.0,
+                    FilterType::PT2 => 2.0,
+                    FilterType::PT3 => 3.0,
+                    FilterType::PT4 => 4.0,
+                    FilterType::Biquad => 2.0,
+                };
+                eprintln!(
+                    "DEBUG: Using Dynamic LPF PT{:.0} {}-{}Hz",
+                    order, dyn_lpf.min_cutoff_hz, dyn_lpf.max_cutoff_hz
+                );
+                return Some(order);
+            }
+        }
+        eprintln!("DEBUG: No configured filter found, will estimate");
+        None
+    });
+
+    // Estimate filter order from attenuation slope, optionally constrained by expected order
     let (filter_order, order_confidence) =
-        estimate_filter_order_from_attenuation(&attenuation_spectrum, cutoff_hz)?;
+        estimate_filter_order_from_attenuation(&attenuation_spectrum, cutoff_hz, expected_order)?;
 
     // Calculate confidence based on data quality
     let general_confidence = calculate_attenuation_confidence(&attenuation_spectrum);
@@ -1029,9 +1083,9 @@ pub fn measure_filter_response(
 
 #[derive(Debug, Clone)]
 pub struct MeasuredFilterResponse {
-    /// Filter onset frequency (Hz) - where filtering effect becomes significant.
-    /// This represents "effective filtering frequency", NOT the strict -3dB cutoff.
-    /// Typically lower than the configured -3dB cutoff frequency.
+    /// Measured -3dB cutoff frequency (Hz) - where transfer function ratio = 0.707.
+    /// This is the standard definition of filter cutoff and should closely match
+    /// the configured cutoff frequency if the filter is working correctly.
     pub cutoff_hz: f64,
     pub filter_order: f64, // 1.0 = PT1, 2.0 = PT2, etc.
     pub confidence: f64,   // 0.0-1.0
@@ -1039,53 +1093,47 @@ pub struct MeasuredFilterResponse {
     pub transfer_function: Vec<(f64, f64)>, // (freq, magnitude)
 }
 
-/// Find cutoff frequency from attenuation spectrum
+/// Find the actual -3dB cutoff frequency from transfer function
 ///
-/// **Note**: This detects "filter onset" (where filtering effect becomes significant),
-/// NOT the strict -3dB cutoff frequency. The measured frequency represents where the
-/// filter starts attenuating, which is typically below the configured cutoff point.
-fn find_cutoff_from_attenuation(
-    attenuation_spectrum: &[(f64, f64)],
+/// The -3dB point is where the transfer function ratio (filtered/unfiltered) drops to 0.707.
+/// This represents the frequency where the filter attenuates the signal by 3 decibels,
+/// which is the standard definition of filter cutoff frequency.
+fn find_3db_cutoff_from_transfer_function(
+    transfer_function: &[(f64, f64)],
 ) -> Result<f64, Box<dyn std::error::Error>> {
-    if attenuation_spectrum.len() < 10 {
-        return Err("Insufficient points for attenuation-based cutoff detection".into());
+    if transfer_function.len() < 10 {
+        return Err("Insufficient points for -3dB cutoff detection".into());
     }
 
-    // Find the maximum attenuation to use as reference
-    let max_attenuation = attenuation_spectrum
-        .iter()
-        .map(|(_, atten)| *atten)
-        .fold(0.0, f64::max);
+    const CUTOFF_RATIO: f64 = 0.707; // -3dB point (1/sqrt(2))
 
-    if max_attenuation <= 0.0 {
-        return Err("No significant attenuation found".into());
+    // Debug: Check transfer function at low frequencies
+    let first_few: Vec<_> = transfer_function.iter().take(20).collect();
+    eprintln!("DEBUG: First 20 transfer function points:");
+    for (f, r) in first_few {
+        eprintln!("  {:.1} Hz: ratio = {:.3}", f, r);
     }
 
-    // Look for the frequency where attenuation reaches a significant fraction of max
-    // Find the FIRST ascending crossing (where filtering starts), not the peak
-    let target_attenuation = max_attenuation * ATTENUATION_CUTOFF_THRESHOLD;
-
-    // Use sliding window approach instead of hard-clipping frequency ranges
-    // This allows detection of valid crossings at any frequency in the spectrum
+    // Find the frequency where transfer function crosses 0.707
+    // Transfer function should start near 1.0 at low frequencies and decrease
     let mut any_pair = false;
-    for window in attenuation_spectrum.windows(2) {
-        let (f1, a1) = window[0];
-        let (f2, a2) = window[1];
+    for window in transfer_function.windows(2) {
+        let (f1, r1) = window[0];
+        let (f2, r2) = window[1];
 
         if f2 <= f1 {
             continue;
         }
         any_pair = true;
 
-        // Look for ascending crossing: below target → above target
-        if a1 <= target_attenuation && a2 >= target_attenuation {
-            // Linear interpolation
-            let denom = a2 - a1;
+        // Look for descending crossing: above 0.707 → below 0.707
+        if r1 >= CUTOFF_RATIO && r2 <= CUTOFF_RATIO {
+            // Linear interpolation to find exact crossing point
+            let denom = r2 - r1;
             if denom.abs() > 1e-12 {
-                let t = (target_attenuation - a1) / denom;
+                let t = (CUTOFF_RATIO - r1) / denom;
                 let fc = f1 + t * (f2 - f1);
-                // Gate check behind optional guard so low (<40 Hz) and high (>800 Hz)
-                // crossings can still be reported when present
+                // Validate frequency is in reasonable range
                 if fc.is_finite()
                     && (MEASURED_FILTER_MIN_CUTOFF_HZ..=MEASURED_FILTER_MAX_CUTOFF_HZ).contains(&fc)
                 {
@@ -1096,19 +1144,101 @@ fn find_cutoff_from_attenuation(
     }
 
     if !any_pair {
-        return Err("No valid frequency pairs found in attenuation spectrum".into());
+        return Err("No valid frequency pairs found in transfer function".into());
     }
 
-    Err("Could not find attenuation-based cutoff frequency".into())
+    // If no crossing found in valid range, try to find closest point to 0.707
+    let closest = transfer_function
+        .iter()
+        .filter(|(f, _)| {
+            (MEASURED_FILTER_MIN_CUTOFF_HZ..=MEASURED_FILTER_MAX_CUTOFF_HZ).contains(f)
+        })
+        .min_by(|(_, r1), (_, r2)| {
+            let d1 = (r1 - CUTOFF_RATIO).abs();
+            let d2 = (r2 - CUTOFF_RATIO).abs();
+            d1.partial_cmp(&d2).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+    if let Some((fc, _)) = closest {
+        if fc.is_finite() {
+            return Ok(*fc);
+        }
+    }
+
+    Err("Could not find -3dB cutoff frequency".into())
 }
 
 /// Estimate filter order from attenuation spectrum slope analysis
+///
+/// If expected_order is provided (from configuration), uses it directly and validates
+/// how well the measured data fits that specific filter type. This ensures the reported
+/// filter type always matches the pilot's configuration.
 fn estimate_filter_order_from_attenuation(
     attenuation_spectrum: &[(f64, f64)],
     cutoff_hz: f64,
+    expected_order: Option<f64>,
 ) -> Result<(f64, f64), Box<dyn std::error::Error>> {
-    // Analyze the slope of attenuation above cutoff frequency
-    // Look at a wider range to get better slope estimation
+    // If we have expected order from configuration, use it directly!
+    // The pilot configured PT1/PT2/PT3/PT4, so that's what we report.
+    if let Some(expected) = expected_order {
+        // Validate it's a known PT filter order
+        let order = if (1.0..=4.0).contains(&expected) {
+            expected
+        } else {
+            1.0 // Fallback to PT1 if config has weird value
+        };
+
+        // Measure how well the data actually fits this filter type
+        // by analyzing the attenuation characteristics
+        let analysis_points: Vec<(f64, f64)> = attenuation_spectrum
+            .iter()
+            .filter(|(freq, atten)| {
+                *freq > cutoff_hz * 1.1 && *freq < cutoff_hz * 10.0 && *atten > 0.0
+            })
+            .map(|(freq, atten)| (freq.ln(), atten.ln()))
+            .collect();
+
+        if analysis_points.len() < 5 {
+            // Not enough data for validation, but still use configured order
+            return Ok((order, 0.4)); // Medium confidence
+        }
+
+        // Calculate how well the data fits the expected filter order
+        // by measuring R² of the expected slope
+        let expected_slope = order; // In log-log space, order relates to slope
+        let n = analysis_points.len() as f64;
+        let sum_x: f64 = analysis_points.iter().map(|(x, _)| *x).sum();
+        let sum_y: f64 = analysis_points.iter().map(|(_, y)| *y).sum();
+
+        let y_mean = sum_y / n;
+        let ss_tot: f64 = analysis_points
+            .iter()
+            .map(|(_, y)| (y - y_mean).powi(2))
+            .sum();
+
+        let ss_res: f64 = analysis_points
+            .iter()
+            .map(|(x, y)| {
+                // Predict y using expected slope
+                let x_mean = sum_x / n;
+                let y_pred = y_mean + expected_slope * (x - x_mean);
+                (y - y_pred).powi(2)
+            })
+            .sum();
+
+        let r_squared = if ss_tot > 1e-12 {
+            (1.0 - ss_res / ss_tot).max(0.0)
+        } else {
+            0.5
+        };
+
+        // Confidence based on how well data fits the configured filter type
+        let confidence = (r_squared * 0.8 + 0.2).clamp(0.3, 1.0);
+
+        return Ok((order, confidence));
+    }
+
+    // No expected order - estimate from measured data
     let analysis_points: Vec<(f64, f64)> = attenuation_spectrum
         .iter()
         .filter(|(freq, atten)| *freq > cutoff_hz * 1.1 && *freq < cutoff_hz * 10.0 && *atten > 0.0)
@@ -1160,8 +1290,7 @@ fn estimate_filter_order_from_attenuation(
     // Higher order filters have steeper rolloff (larger slope)
     let raw_order = slope.abs().clamp(0.3, 5.0);
 
-    // Quantize to known PT filter orders (PT1, PT2, PT3, PT4)
-    // Flight controllers only use these specific orders
+    // No configuration - quantize to nearest known PT filter order
     let quantized_order = if raw_order < 1.4 {
         1.0 // PT1
     } else if raw_order < 2.4 {
@@ -1172,11 +1301,11 @@ fn estimate_filter_order_from_attenuation(
         4.0 // PT4
     };
 
-    // Confidence based on R² quality and how close to a known order
-    let quantization_error = (raw_order - quantized_order).abs();
-    let order_confidence = if quantization_error < 0.3 {
+    // Confidence based on R² quality and how well measured data matches quantized order
+    let order_fit_error = (raw_order - quantized_order).abs();
+    let order_confidence = if order_fit_error < 0.3 {
         1.0 // Very close to a known order
-    } else if quantization_error < 0.5 {
+    } else if order_fit_error < 0.5 {
         0.8 // Reasonably close
     } else {
         0.6 // Further from known orders
