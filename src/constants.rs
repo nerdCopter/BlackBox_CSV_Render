@@ -133,5 +133,9 @@ pub const FILTER_ANALYSIS_MIN_FREQ_HZ: f64 = 10.0; // Focus on filter-relevant f
 #[allow(dead_code)]
 pub const FILTER_ANALYSIS_MAX_FREQ_HZ: f64 = 500.0; // Focus on filter-relevant frequencies below this (legacy)
 pub const MEASURED_CURVE_POINTS: usize = 1000; // Number of points for generated measured curve
-pub const MEASURED_CURVE_AMPLITUDE_SCALE: f64 = 0.3; // 30% of max spectrum height for curve amplitude
-pub const MEASURED_CURVE_OFFSET_SCALE: f64 = 0.05; // Small offset from bottom for curve positioning
+pub const MEASURED_CURVE_AMPLITUDE_SCALE: f64 = 0.3; // 30% of max spectrum height for measured curve amplitude
+pub const MEASURED_CURVE_OFFSET_SCALE: f64 = 0.05; // Small offset from bottom for measured curve positioning
+
+// Header-based filter curve overlay scaling constants
+pub const HEADER_CURVE_AMPLITUDE_SCALE: f64 = 0.3; // 30% of max spectrum height for header curve amplitude
+pub const HEADER_CURVE_OFFSET_SCALE: f64 = 0.05; // Small offset from bottom for header curve positioning

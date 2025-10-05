@@ -6,11 +6,11 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, ENABLE_WINDOW_PEAK_DETECTION,
-    FILTERED_GYRO_MIN_THRESHOLD, LINE_WIDTH_PLOT, MAX_PEAKS_TO_LABEL,
-    MEASURED_CURVE_AMPLITUDE_SCALE, MEASURED_CURVE_OFFSET_SCALE, MEASURED_CURVE_POINTS,
-    MIN_PEAK_SEPARATION_HZ, MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS,
-    PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR,
-    SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
+    FILTERED_GYRO_MIN_THRESHOLD, HEADER_CURVE_AMPLITUDE_SCALE, HEADER_CURVE_OFFSET_SCALE,
+    LINE_WIDTH_PLOT, MAX_PEAKS_TO_LABEL, MEASURED_CURVE_AMPLITUDE_SCALE,
+    MEASURED_CURVE_OFFSET_SCALE, MEASURED_CURVE_POINTS, MIN_PEAK_SEPARATION_HZ,
+    MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE,
+    SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
@@ -495,9 +495,9 @@ pub fn plot_gyro_spectrums(
                         // Show filter response as a normalized curve overlaid on the spectrum
                         // Use a fixed amplitude scale that makes the cutoff frequency visible
                         let filter_curve_amplitude =
-                            overall_max_y_amplitude * MEASURED_CURVE_AMPLITUDE_SCALE;
+                            overall_max_y_amplitude * HEADER_CURVE_AMPLITUDE_SCALE;
                         let filter_curve_offset =
-                            overall_max_y_amplitude * MEASURED_CURVE_OFFSET_SCALE;
+                            overall_max_y_amplitude * HEADER_CURVE_OFFSET_SCALE;
 
                         let scaled_response: Vec<(f64, f64)> = curve_data
                             .iter()
