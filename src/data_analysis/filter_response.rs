@@ -1065,18 +1065,17 @@ fn find_cutoff_from_attenuation(
     // Find the FIRST ascending crossing (where filtering starts), not the peak
     let target_attenuation = max_attenuation * ATTENUATION_CUTOFF_THRESHOLD;
 
-    // Search in the valid frequency range (avoid low-freq noise and high-freq edge)
-    let start_idx = attenuation_spectrum.len() / 10;
-    let end_idx = (attenuation_spectrum.len() * 4) / 5;
+    // Use sliding window approach instead of hard-clipping frequency ranges
+    // This allows detection of valid crossings at any frequency in the spectrum
+    let mut any_pair = false;
+    for window in attenuation_spectrum.windows(2) {
+        let (f1, a1) = window[0];
+        let (f2, a2) = window[1];
 
-    for i in start_idx..(end_idx.min(attenuation_spectrum.len() - 1)) {
-        let (f1, a1) = attenuation_spectrum[i];
-        let (f2, a2) = attenuation_spectrum[i + 1];
-
-        // Skip unrealistic frequencies
-        if f1 < MEASURED_FILTER_MIN_CUTOFF_HZ || f2 > MEASURED_FILTER_MAX_CUTOFF_HZ {
+        if f2 <= f1 {
             continue;
         }
+        any_pair = true;
 
         // Look for ascending crossing: below target → above target
         if a1 <= target_attenuation && a2 >= target_attenuation {
@@ -1085,6 +1084,8 @@ fn find_cutoff_from_attenuation(
             if denom.abs() > 1e-12 {
                 let t = (target_attenuation - a1) / denom;
                 let fc = f1 + t * (f2 - f1);
+                // Gate check behind optional guard so low (<40 Hz) and high (>800 Hz)
+                // crossings can still be reported when present
                 if fc.is_finite()
                     && (MEASURED_FILTER_MIN_CUTOFF_HZ..=MEASURED_FILTER_MAX_CUTOFF_HZ).contains(&fc)
                 {
@@ -1092,6 +1093,10 @@ fn find_cutoff_from_attenuation(
                 }
             }
         }
+    }
+
+    if !any_pair {
+        return Err("No valid frequency pairs found in attenuation spectrum".into());
     }
 
     Err("Could not find attenuation-based cutoff frequency".into())
