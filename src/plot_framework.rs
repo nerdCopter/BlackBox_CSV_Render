@@ -226,27 +226,7 @@ fn draw_single_axis_chart_with_config(
 
     let mut legend_series_count = 0;
 
-    // Add frequency ranges to legend
-    if let Some(ranges) = &plot_config.frequency_ranges {
-        for range in ranges {
-            if !range.label.is_empty() {
-                // Create a dummy series for legend entry with the range color
-                let rect_color = range.color.mix(0.4);
-                // Draw an invisible point to create a legend entry
-                chart
-                    .draw_series(std::iter::once(PathElement::new(
-                        vec![(plot_config.x_range.start, plot_config.y_range.start)],
-                        rect_color.stroke_width(0),
-                    )))?
-                    .label(&range.label)
-                    .legend(move |(x, y)| {
-                        Rectangle::new([(x, y - 5), (x + 20, y + 5)], rect_color.filled())
-                    });
-                legend_series_count += 1;
-            }
-        }
-    }
-
+    // Add series to legend FIRST (so they appear before frequency ranges)
     for s in &plot_config.series {
         if !s.data.is_empty() {
             // Special handling for cutoff lines: label starts with __CUTOFF_LINE__
@@ -301,6 +281,30 @@ fn draw_single_axis_chart_with_config(
                         PathElement::new(
                             vec![(x, y), (x + 20, y)],
                             s.color.stroke_width(LINE_WIDTH_LEGEND),
+                        )
+                    });
+                legend_series_count += 1;
+            }
+        }
+    }
+
+    // Add frequency ranges to legend AFTER series (so they appear at the end of legend)
+    if let Some(ranges) = &plot_config.frequency_ranges {
+        for range in ranges {
+            if !range.label.is_empty() {
+                // Create a dummy series for legend entry with the range color
+                let rect_color = range.color.mix(0.4);
+                // Draw an invisible point to create a legend entry
+                chart
+                    .draw_series(std::iter::once(PathElement::new(
+                        vec![(plot_config.x_range.start, plot_config.y_range.start)],
+                        rect_color.stroke_width(0),
+                    )))?
+                    .label(&range.label)
+                    .legend(move |(x, y)| {
+                        PathElement::new(
+                            vec![(x, y), (x + 20, y)],
+                            rect_color.stroke_width(LINE_WIDTH_LEGEND),
                         )
                     });
                 legend_series_count += 1;

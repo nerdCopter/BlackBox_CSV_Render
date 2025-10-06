@@ -393,7 +393,6 @@ pub fn plot_gyro_spectrums(
             });
 
             // 2. Dynamic Notch (second in signal path - if configured)
-            // Add as a legend entry without actual data series (shading is drawn separately)
             // Check if dynamic notch applies to this axis (Emuflight can exclude Yaw)
             let show_dynamic_notch = if let Some(config) = dynamic_notch_range {
                 // axis_index: 0=Roll, 1=Pitch, 2=Yaw
@@ -405,29 +404,6 @@ pub fn plot_gyro_spectrums(
             } else {
                 false
             };
-
-            if show_dynamic_notch {
-                if let Some(config) = dynamic_notch_range {
-                    unfilt_plot_series.push(PlotSeries {
-                        data: vec![], // No data - just for legend with matching color
-                        label: format!(
-                            "Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
-                            config.notch_count,
-                            if config.notch_count > 1 { "es" } else { "" },
-                            config.q_factor,
-                            config.min_hz,
-                            config.max_hz,
-                            if !config.applies_to_yaw {
-                                " (RP only)"
-                            } else {
-                                ""
-                            }
-                        ),
-                        color: RGBColor(147, 112, 219), // Medium purple - matches shading
-                        stroke_width: 3,                // Thicker line for visibility
-                    });
-                }
-            }
 
             // 3. RPM Filter would go here (not yet implemented)
 
@@ -519,6 +495,32 @@ pub fn plot_gyro_spectrums(
                     }
                 }
             }
+
+            // Add dynamic notch legend entry AFTER filter curves (correct signal path order)
+            // Dynamic notch comes after unfiltered gyro but before LPF filters in the legend
+            if show_dynamic_notch {
+                if let Some(config) = dynamic_notch_range {
+                    unfilt_plot_series.push(PlotSeries {
+                        data: vec![], // No data - just for legend with matching color
+                        label: format!(
+                            "Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
+                            config.notch_count,
+                            if config.notch_count > 1 { "es" } else { "" },
+                            config.q_factor,
+                            config.min_hz,
+                            config.max_hz,
+                            if !config.applies_to_yaw {
+                                " (RP only)"
+                            } else {
+                                ""
+                            }
+                        ),
+                        color: RGBColor(147, 112, 219), // Medium purple - matches shading
+                        stroke_width: LINE_WIDTH_PLOT,  // Same as other series
+                    });
+                }
+            }
+
             let filt_plot_series = vec![PlotSeries {
                 data: filt_series_data,
                 label: if let Some(ref results) = delay_comparison_results {
