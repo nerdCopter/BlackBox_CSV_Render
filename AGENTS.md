@@ -6,6 +6,14 @@
   1) `cargo clippy --all-targets --all-features -- -D warnings` — fix all warnings.
   2) `cargo fmt --all` — only after clippy passes.
 
+## Firmware Detection
+- **ALWAYS** use `Firmware revision` header to detect firmware type
+- **NEVER** use `Firmware type` (unreliable - Emuflight reports as "Cleanflight")
+- Firmware revision patterns:
+  - Betaflight: `"Betaflight 4.x.x"` or `"Betaflight YYYY.MM"` or similar
+  - Emuflight: `"EmuFlight 0.x.x"` or similar  
+  - INAV: `"INAV x.x.x"` or similar
+
 ## Testing
 - **ALWAYS** prefer `cargo build --release` rather than `cargo run`
 - **ALWAYS** use `--output-dir` ./output/

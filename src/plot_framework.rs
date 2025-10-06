@@ -89,6 +89,16 @@ pub struct PlotSeries {
     pub stroke_width: u32,
 }
 
+/// Represents a frequency range to be shaded on the plot (e.g., dynamic notch range)
+#[derive(Clone)]
+pub struct FrequencyRange {
+    pub min_hz: f64,
+    pub max_hz: f64,
+    pub color: RGBColor,
+    pub opacity: f64, // 0.0 to 1.0
+    pub label: String,
+}
+
 #[derive(Clone)]
 pub struct PlotConfig {
     pub title: String,
@@ -100,7 +110,7 @@ pub struct PlotConfig {
     pub peaks: Vec<(f64, f64)>,
     pub peak_label_threshold: Option<f64>,
     pub peak_label_format_string: Option<String>,
-    pub metadata_text: Option<Vec<String>>,
+    pub frequency_ranges: Option<Vec<FrequencyRange>>,
 }
 
 #[derive(Clone)]
@@ -197,7 +207,46 @@ fn draw_single_axis_chart_with_config(
         .label_style(("sans-serif", 12))
         .draw()?;
 
+    // Draw frequency range shading BEFORE series (so data appears on top)
+    if let Some(ranges) = &plot_config.frequency_ranges {
+        for range in ranges {
+            // Create a semi-transparent shaded rectangle covering the frequency range
+            let rect_color = range.color.mix(range.opacity);
+
+            // Draw the shaded region from min to max frequency, covering full Y range
+            chart.draw_series(std::iter::once(Rectangle::new(
+                [
+                    (range.min_hz, plot_config.y_range.start),
+                    (range.max_hz, plot_config.y_range.end),
+                ],
+                rect_color.filled(),
+            )))?;
+        }
+    }
+
     let mut legend_series_count = 0;
+
+    // Add frequency ranges to legend
+    if let Some(ranges) = &plot_config.frequency_ranges {
+        for range in ranges {
+            if !range.label.is_empty() {
+                // Create a dummy series for legend entry with the range color
+                let rect_color = range.color.mix(0.4);
+                // Draw an invisible point to create a legend entry
+                chart
+                    .draw_series(std::iter::once(PathElement::new(
+                        vec![(plot_config.x_range.start, plot_config.y_range.start)],
+                        rect_color.stroke_width(0),
+                    )))?
+                    .label(&range.label)
+                    .legend(move |(x, y)| {
+                        Rectangle::new([(x, y - 5), (x + 20, y + 5)], rect_color.filled())
+                    });
+                legend_series_count += 1;
+            }
+        }
+    }
+
     for s in &plot_config.series {
         if !s.data.is_empty() {
             // Special handling for cutoff lines: label starts with __CUTOFF_LINE__
@@ -332,30 +381,6 @@ fn draw_single_axis_chart_with_config(
         }
     }
 
-    // Render metadata text if provided
-    if let Some(metadata_lines) = &plot_config.metadata_text {
-        if !metadata_lines.is_empty() {
-            const METADATA_FONT_SIZE: i32 = 11;
-            const METADATA_LINE_HEIGHT: i32 = 14;
-            const METADATA_MARGIN: i32 = 10;
-
-            // Position metadata in the upper-left corner of the plot area
-            let start_x = METADATA_MARGIN;
-            let start_y = METADATA_MARGIN;
-
-            for (line_idx, line) in metadata_lines.iter().enumerate() {
-                let y_pos = start_y + (line_idx as i32 * METADATA_LINE_HEIGHT);
-                area.draw(&Text::new(
-                    line.as_str(),
-                    (start_x, y_pos),
-                    ("sans-serif", METADATA_FONT_SIZE)
-                        .into_font()
-                        .color(&RGBColor(40, 40, 40)),
-                ))?;
-            }
-        }
-    }
-
     Ok(())
 }
 
@@ -411,7 +436,7 @@ where
                         peaks: vec![],
                         peak_label_threshold: None,
                         peak_label_format_string: None,
-                        metadata_text: None,
+                        frequency_ranges: None,
                     };
                     draw_single_axis_chart_with_config(area, &temp_plot_config)?;
                     any_axis_plotted = true;

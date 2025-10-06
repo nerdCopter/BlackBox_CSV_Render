@@ -408,7 +408,7 @@ pub fn plot_psd(
                 peaks: unfilt_peaks,
                 peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
                 peak_label_format_string: Some("{:.2} dB".to_string()),
-                metadata_text: None,
+                frequency_ranges: None,
             });
 
             let filtered_plot_config = Some(PlotConfig {
@@ -424,7 +424,7 @@ pub fn plot_psd(
                 peaks: filt_peaks,
                 peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
                 peak_label_format_string: Some("{:.2} dB".to_string()),
-                metadata_text: None,
+                frequency_ranges: None,
             });
 
             Some(AxisSpectrum {

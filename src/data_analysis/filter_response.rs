@@ -939,20 +939,31 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     config
 }
 
-/// Extract relevant filter metadata for display on spectrum plots
-/// Returns formatted strings for Betaflight and Emuflight configurations
-pub fn extract_filter_metadata_for_display(
-    header_metadata: Option<&[(String, String)]>,
-    plot_type: &str, // "gyro" or "dterm"
-) -> Option<Vec<String>> {
-    let metadata = header_metadata?;
-    let mut lines = Vec::new();
+/// Dynamic notch configuration including axis information
+#[derive(Debug, Clone, Copy)]
+pub struct DynamicNotchConfig {
+    pub min_hz: f64,
+    pub max_hz: f64,
+    pub q_factor: f64,
+    pub notch_count: u32,
+    pub applies_to_yaw: bool, // false = Roll/Pitch only, true = Roll/Pitch/Yaw
+}
 
-    // Detect firmware type
-    let firmware = metadata
+/// Extract dynamic notch frequency range for graphical visualization
+/// Returns DynamicNotchConfig if dynamic notch is configured
+/// Handles Betaflight, Emuflight, and INAV formats
+pub fn extract_dynamic_notch_range(
+    header_metadata: Option<&[(String, String)]>,
+) -> Option<DynamicNotchConfig> {
+    let metadata = header_metadata?;
+
+    // Detect firmware type from Firmware revision (reliable)
+    // Firmware type is unreliable (Emuflight reports as "Cleanflight")
+    let firmware_revision = metadata
         .iter()
-        .find(|(key, _)| key == "Firmware type")
-        .map(|(_, value)| value.as_str());
+        .find(|(key, _)| key == "Firmware revision")
+        .map(|(_, value)| value.as_str())
+        .unwrap_or("");
 
     // Helper to get metadata value
     let get_value = |key: &str| -> Option<String> {
@@ -962,91 +973,163 @@ pub fn extract_filter_metadata_for_display(
             .map(|(_, v)| v.clone())
     };
 
-    match firmware {
-        Some("Betaflight") | Some("Cleanflight") => {
-            // RPM Filter metadata
-            if let Some(harmonics) = get_value("rpm_filter_harmonics") {
-                lines.push(format!("RPM Filter: {} harmonics", harmonics));
+    // Check firmware type by looking at revision string
+    if firmware_revision.contains("Betaflight") {
+        // Betaflight dynamic notch (always applies to all axes)
+        if let Some(count_str) = get_value("dyn_notch_count") {
+            if let Ok(count) = count_str.parse::<u32>() {
+                if count > 0 {
+                    let min_hz = get_value("dyn_notch_min_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(90.0);
+                    let max_hz = get_value("dyn_notch_max_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(800.0);
+                    let q = get_value("dyn_notch_q")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(400.0);
 
-                if let Some(weights) = get_value("rpm_filter_weights") {
-                    let weights_clean = weights.trim_matches('"').replace(',', ", ");
-                    lines.push(format!("  weights: {}", weights_clean));
-                }
-                if let Some(q) = get_value("rpm_filter_q") {
-                    lines.push(format!("  Q: {}", q));
-                }
-                if let Some(min_hz) = get_value("rpm_filter_min_hz") {
-                    lines.push(format!("  min: {}Hz", min_hz));
-                }
-                if let Some(fade) = get_value("rpm_filter_fade_range_hz") {
-                    lines.push(format!("  fade: {}Hz", fade));
-                }
-                if let Some(lpf) = get_value("rpm_filter_lpf_hz") {
-                    lines.push(format!("  LPF: {}Hz", lpf));
-                }
-            }
-
-            // Dynamic Notch metadata (for both gyro and dterm)
-            if plot_type == "gyro" {
-                if let Some(count) = get_value("dyn_notch_count") {
-                    if count != "0" {
-                        lines.push(format!("Dynamic Notch: {} notches", count));
-
-                        if let Some(q) = get_value("dyn_notch_q") {
-                            lines.push(format!("  Q: {}", q));
-                        }
-                        if let Some(min) = get_value("dyn_notch_min_hz") {
-                            if let Some(max) = get_value("dyn_notch_max_hz") {
-                                lines.push(format!("  range: {}-{}Hz", min, max));
-                            }
-                        }
-                    }
+                    return Some(DynamicNotchConfig {
+                        min_hz,
+                        max_hz,
+                        q_factor: q,
+                        notch_count: count,
+                        applies_to_yaw: true, // Betaflight always applies to all axes
+                    });
                 }
             }
         }
-        Some("Emuflight") | Some("EmuFlight") => {
-            // Dynamic Gyro Notch metadata
-            if plot_type == "gyro" {
-                if let Some(count) = get_value("dynamic_gyro_notch_count") {
-                    if count != "0" {
-                        lines.push(format!("Dynamic Gyro Notch: {} notches", count));
+    } else if firmware_revision.contains("EmuFlight") || firmware_revision.contains("Emuflight") {
+        // Emuflight dynamic gyro notch with axis configuration
+        if let Some(count_str) = get_value("dynamic_gyro_notch_count") {
+            if let Ok(count) = count_str.parse::<u32>() {
+                if count > 0 {
+                    let min_hz = get_value("dynamic_gyro_notch_min_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(150.0);
+                    let max_hz = get_value("dynamic_gyro_notch_max_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(400.0);
+                    let q = get_value("dynamic_gyro_notch_q")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(500.0);
 
-                        if let Some(q) = get_value("dynamic_gyro_notch_q") {
-                            lines.push(format!("  Q: {}", q));
-                        }
-                        if let Some(min) = get_value("dynamic_gyro_notch_min_hz") {
-                            if let Some(max) = get_value("dynamic_gyro_notch_max_hz") {
-                                lines.push(format!("  range: {}-{}Hz", min, max));
-                            }
-                        }
-                    }
-                }
-            }
+                    // Check axis configuration: 0 = RP only, 1 = RPY (default if not present)
+                    let applies_to_yaw = get_value("dynamic_gyro_notch_axis")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .map(|axis| axis == 1) // 1 means RPY
+                        .unwrap_or(true); // Default to RPY if not specified
 
-            // D-term Dynamic Notch metadata
-            if plot_type == "dterm" {
-                if let Some(enable) = get_value("dterm_dyn_notch_enable") {
-                    if enable == "1" {
-                        lines.push("D-term Dynamic Notch: enabled".to_string());
-
-                        if let Some(q) = get_value("dterm_dyn_notch_q") {
-                            lines.push(format!("  Q: {}", q));
-                        }
-                    }
+                    return Some(DynamicNotchConfig {
+                        min_hz,
+                        max_hz,
+                        q_factor: q,
+                        notch_count: count,
+                        applies_to_yaw,
+                    });
                 }
             }
         }
-        _ => {
-            // Unknown firmware, don't show metadata
-            return None;
+    } else if firmware_revision.contains("INAV") {
+        // INAV dynamic gyro notch (limited configuration)
+        // Check for Q factor to determine if dynamic notch is enabled
+        if let Some(q_str) = get_value("dynamicGyroNotchQ") {
+            if let Ok(q) = q_str.parse::<f64>() {
+                if q > 0.0 {
+                    let min_hz = get_value("dynamicGyroNotchMinHz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(150.0);
+
+                    // INAV doesn't specify max_hz or count in headers
+                    // Use reasonable defaults based on INAV behavior
+                    let max_hz = 350.0; // INAV typical max
+                    let count = 1; // INAV typically uses 1 notch
+
+                    return Some(DynamicNotchConfig {
+                        min_hz,
+                        max_hz,
+                        q_factor: q,
+                        notch_count: count,
+                        applies_to_yaw: true, // INAV applies to all axes
+                    });
+                }
+            }
         }
     }
 
-    if lines.is_empty() {
-        None
-    } else {
-        Some(lines)
+    None
+}
+
+/// Extract D-term dynamic notch configuration for Emuflight
+/// Returns DynamicNotchConfig if D-term dynamic notch is enabled
+/// Only Emuflight has D-term dynamic notch feature
+/// Requires both dterm_dyn_notch_enable=1 AND dynamic_gyro_notch_count>0
+pub fn extract_dterm_dynamic_notch_range(
+    header_metadata: Option<&[(String, String)]>,
+) -> Option<DynamicNotchConfig> {
+    let metadata = header_metadata?;
+
+    // Detect firmware type from Firmware revision (reliable)
+    let firmware_revision = metadata
+        .iter()
+        .find(|(key, _)| key == "Firmware revision")
+        .map(|(_, value)| value.as_str())
+        .unwrap_or("");
+
+    // Helper to get metadata value
+    let get_value = |key: &str| -> Option<String> {
+        metadata
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
+    };
+
+    // Only Emuflight has D-term dynamic notch
+    if firmware_revision.contains("EmuFlight") || firmware_revision.contains("Emuflight") {
+        // Check if D-term dynamic notch is enabled
+        if let Some(enable_str) = get_value("dterm_dyn_notch_enable") {
+            if enable_str == "1" {
+                // D-term dynamic notch requires gyro dynamic notch to be enabled
+                if let Some(gyro_count_str) = get_value("dynamic_gyro_notch_count") {
+                    if let Ok(gyro_count) = gyro_count_str.parse::<u32>() {
+                        if gyro_count > 0 {
+                            // Get D-term dynamic notch Q factor
+                            let q = get_value("dterm_dyn_notch_q")
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .unwrap_or(400.0);
+
+                            // D-term dynamic notch uses same frequency range as gyro dynamic notch
+                            let min_hz = get_value("dynamic_gyro_notch_min_hz")
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .unwrap_or(150.0);
+                            let max_hz = get_value("dynamic_gyro_notch_max_hz")
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .unwrap_or(400.0);
+
+                            // D-term dynamic notch uses same count as gyro
+                            let count = gyro_count;
+
+                            // Check axis configuration (same as gyro)
+                            let applies_to_yaw = get_value("dynamic_gyro_notch_axis")
+                                .and_then(|s| s.parse::<u32>().ok())
+                                .map(|axis| axis == 1)
+                                .unwrap_or(true);
+
+                            return Some(DynamicNotchConfig {
+                                min_hz,
+                                max_hz,
+                                q_factor: q,
+                                notch_count: count,
+                                applies_to_yaw,
+                            });
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    None
 }
 
 #[cfg(test)]
