@@ -58,6 +58,17 @@ pub fn plot_gyro_spectrums(
     // Extract dynamic notch range for graphical visualization
     let dynamic_notch_range = filter_response::extract_dynamic_notch_range(header_metadata);
 
+    // Extract RPM filter configuration for Betaflight
+    let rpm_filter_config = filter_response::extract_rpm_filter_config(header_metadata);
+
+    // Debug output for RPM filter detection
+    if let Some(ref config) = rpm_filter_config {
+        println!(
+            "RPM Filter detected: {} harmonics, Q: {:.0}, min: {:.0}Hz",
+            config.harmonics, config.q_factor, config.min_hz
+        );
+    }
+
     let mut all_fft_raw_data: AllFFTData = Default::default();
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
@@ -406,7 +417,74 @@ pub fn plot_gyro_spectrums(
                 false
             };
 
-            // 3. RPM Filter would go here (not yet implemented)
+            // 3. RPM Filter (if configured - Betaflight only)
+            // RPM filters are applied in the signal path between dynamic notch and LPF filters
+            if let Some(ref rpm_config) = rpm_filter_config {
+                // Estimate motor base frequency from the unfiltered gyro spectrum data
+                // We'll use a reasonable range for typical 5" quads (100-500 Hz)
+                let motor_base_hz =
+                    if let Some((unfilt_data, _, _, _)) = all_fft_raw_data[axis_index].as_ref() {
+                        filter_response::estimate_motor_base_frequency(
+                            unfilt_data,
+                            rpm_config.min_hz,
+                            500.0, // Max search frequency for motor base
+                        )
+                        .unwrap_or(180.0) // Default to typical 5" quad motor frequency
+                    } else {
+                        180.0 // Fallback if no spectrum data
+                    };
+
+                // Generate RPM filter notch curves
+                let rpm_curves = filter_response::generate_rpm_filter_curves(
+                    rpm_config,
+                    motor_base_hz,
+                    max_freq_val,
+                    1000, // Number of points for smooth curves
+                );
+
+                // Add RPM filter curves to the plot (before LPF filters in signal path)
+                // Use green tones to distinguish from other filters
+                let rpm_filter_color = RGBColor(34, 139, 34); // Forest green
+
+                for (rpm_label, rpm_curve_data, _center_hz) in rpm_curves.iter() {
+                    if !rpm_curve_data.is_empty() {
+                        // Scale RPM filter response to overlay on spectrum
+                        let filter_curve_amplitude = overall_max_y_amplitude * 0.3;
+                        let filter_curve_offset = overall_max_y_amplitude * 0.05;
+
+                        let scaled_rpm_response: Vec<(f64, f64)> = rpm_curve_data
+                            .iter()
+                            .filter(|(freq, _)| *freq <= max_freq_val)
+                            .map(|(freq, response)| {
+                                let scaled_amplitude =
+                                    filter_curve_offset + (response * filter_curve_amplitude);
+                                (*freq, scaled_amplitude)
+                            })
+                            .collect();
+
+                        unfilt_plot_series.push(PlotSeries {
+                            data: scaled_rpm_response,
+                            label: rpm_label.clone(),
+                            color: rpm_filter_color,
+                            stroke_width: 2,
+                        });
+                    }
+                }
+
+                // Add RPM filter legend summary (after individual harmonics)
+                unfilt_plot_series.push(PlotSeries {
+                    data: vec![], // No data - just for legend
+                    label: format!(
+                        "RPM Filter: {} harmonic{}, Q: {:.0}, base: {:.0}Hz",
+                        rpm_config.harmonics,
+                        if rpm_config.harmonics > 1 { "s" } else { "" },
+                        rpm_config.q_factor,
+                        motor_base_hz
+                    ),
+                    color: rpm_filter_color,
+                    stroke_width: LINE_WIDTH_PLOT,
+                });
+            }
 
             // 4-6. Gyro LPF1, LPF2, IMUF filters
             // Add filter response curves to unfiltered plot if available
