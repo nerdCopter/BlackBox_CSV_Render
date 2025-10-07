@@ -418,7 +418,7 @@ pub fn plot_gyro_spectrums(
             };
 
             // 3. RPM Filter (if configured - Betaflight only)
-            // RPM filters are applied in the signal path between dynamic notch and LPF filters
+            // Signal path order: Dynamic Notch → RPM Filter → Gyro LPF1 → Gyro LPF2 → IMUF
             if let Some(ref rpm_config) = rpm_filter_config {
                 // Estimate motor base frequency from the unfiltered gyro spectrum data
                 // We'll use a reasonable range for typical 5" quads (100-500 Hz)
@@ -442,12 +442,18 @@ pub fn plot_gyro_spectrums(
                     1000, // Number of points for smooth curves
                 );
 
-                // Add RPM filter curves to the plot (before LPF filters in signal path)
-                // Use green tones to distinguish from other filters
-                let rpm_filter_color = RGBColor(34, 139, 34); // Forest green
+                // Use subtle blue color to distinguish from other filters
+                let rpm_filter_color = RGBColor(70, 130, 180); // Steel blue
 
-                for (rpm_label, rpm_curve_data, _center_hz) in rpm_curves.iter() {
+                // Draw individual RPM curves and collect harmonic info
+                let mut harmonic_info = Vec::new();
+                let mut has_curves = false;
+
+                for (harmonic_num, (_, rpm_curve_data, center_hz)) in rpm_curves.iter().enumerate()
+                {
                     if !rpm_curve_data.is_empty() {
+                        has_curves = true;
+
                         // Scale RPM filter response to overlay on spectrum
                         let filter_curve_amplitude = overall_max_y_amplitude * 0.3;
                         let filter_curve_offset = overall_max_y_amplitude * 0.05;
@@ -462,28 +468,41 @@ pub fn plot_gyro_spectrums(
                             })
                             .collect();
 
+                        // Add curve with empty label (won't appear in legend)
                         unfilt_plot_series.push(PlotSeries {
                             data: scaled_rpm_response,
-                            label: rpm_label.clone(),
+                            label: String::new(), // Empty label = no legend entry
                             color: rpm_filter_color,
-                            stroke_width: 2,
+                            stroke_width: 1,
                         });
+
+                        // Store harmonic info for legend
+                        harmonic_info.push(format!("H{}@{:.0}Hz", harmonic_num + 1, center_hz));
                     }
                 }
 
-                // Add RPM filter legend summary (after individual harmonics)
-                unfilt_plot_series.push(PlotSeries {
-                    data: vec![], // No data - just for legend
-                    label: format!(
-                        "RPM Filter: {} harmonic{}, Q: {:.0}, base: {:.0}Hz",
-                        rpm_config.harmonics,
-                        if rpm_config.harmonics > 1 { "s" } else { "" },
-                        rpm_config.q_factor,
-                        motor_base_hz
-                    ),
-                    color: rpm_filter_color,
-                    stroke_width: LINE_WIDTH_PLOT,
-                });
+                // Add single legend-only series (no data, just for legend)
+                if has_curves {
+                    // Format weights string - always show weights
+                    let weight_values: Vec<String> = rpm_config
+                        .weights
+                        .iter()
+                        .take(rpm_config.harmonics as usize)
+                        .map(|w| format!("{:.0}", w * 100.0))
+                        .collect();
+
+                    // Format: "RPM Filter W,W,W: H1@xxxHz, H2@xxxHz, H3@xxxHz"
+                    unfilt_plot_series.push(PlotSeries {
+                        data: vec![], // No data - just for legend
+                        label: format!(
+                            "RPM Filter {}: {}",
+                            weight_values.join(","),
+                            harmonic_info.join(", ")
+                        ),
+                        color: rpm_filter_color,
+                        stroke_width: 1,
+                    });
+                }
             }
 
             // 4-6. Gyro LPF1, LPF2, IMUF filters
@@ -572,31 +591,6 @@ pub fn plot_gyro_spectrums(
                             stroke_width: 1,
                         });
                     }
-                }
-            }
-
-            // Add dynamic notch legend entry AFTER filter curves (correct signal path order)
-            // Dynamic notch comes after unfiltered gyro but before LPF filters in the legend
-            if show_dynamic_notch {
-                if let Some(config) = dynamic_notch_config {
-                    unfilt_plot_series.push(PlotSeries {
-                        data: vec![], // No data - just for legend with matching color
-                        label: format!(
-                            "Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
-                            config.notch_count,
-                            if config.notch_count > 1 { "es" } else { "" },
-                            config.q_factor,
-                            config.min_hz,
-                            config.max_hz,
-                            if !config.applies_to_yaw {
-                                " (RP only)"
-                            } else {
-                                ""
-                            }
-                        ),
-                        color: RGBColor(147, 112, 219), // Medium purple - matches shading
-                        stroke_width: LINE_WIDTH_PLOT,  // Same as other series
-                    });
                 }
             }
 
