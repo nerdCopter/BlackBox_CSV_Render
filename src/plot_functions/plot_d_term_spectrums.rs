@@ -395,7 +395,8 @@ pub fn plot_d_term_spectrums(
 
             // Create dynamic notch frequency range visualization if configured (Emuflight only)
             // Only show on axes where dynamic notch applies (respect RP-only setting)
-            let show_dynamic_notch = if let Some(config) = dterm_dynamic_notch_range {
+            let dterm_dynamic_notch_config = dterm_dynamic_notch_range.as_ref();
+            let show_dynamic_notch = if let Some(config) = dterm_dynamic_notch_config {
                 // axis_idx: 0=Roll, 1=Pitch, 2=Yaw
                 if axis_idx == 2 && !config.applies_to_yaw {
                     false // Skip Yaw if dynamic notch is RP-only
@@ -407,7 +408,7 @@ pub fn plot_d_term_spectrums(
             };
 
             let frequency_ranges = if show_dynamic_notch {
-                if let Some(config) = dterm_dynamic_notch_range {
+                if let Some(config) = dterm_dynamic_notch_config {
                     use crate::plot_framework::FrequencyRange;
 
                     let label = format!(

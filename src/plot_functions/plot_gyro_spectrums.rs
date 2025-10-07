@@ -394,7 +394,8 @@ pub fn plot_gyro_spectrums(
 
             // 2. Dynamic Notch (second in signal path - if configured)
             // Check if dynamic notch applies to this axis (Emuflight can exclude Yaw)
-            let show_dynamic_notch = if let Some(config) = dynamic_notch_range {
+            let dynamic_notch_config = dynamic_notch_range.as_ref();
+            let show_dynamic_notch = if let Some(config) = dynamic_notch_config {
                 // axis_index: 0=Roll, 1=Pitch, 2=Yaw
                 if axis_index == 2 && !config.applies_to_yaw {
                     false // Skip Yaw if dynamic notch is RP-only
@@ -499,7 +500,7 @@ pub fn plot_gyro_spectrums(
             // Add dynamic notch legend entry AFTER filter curves (correct signal path order)
             // Dynamic notch comes after unfiltered gyro but before LPF filters in the legend
             if show_dynamic_notch {
-                if let Some(config) = dynamic_notch_range {
+                if let Some(config) = dynamic_notch_config {
                     unfilt_plot_series.push(PlotSeries {
                         data: vec![], // No data - just for legend with matching color
                         label: format!(
@@ -565,7 +566,7 @@ pub fn plot_gyro_spectrums(
             // Create dynamic notch frequency range visualization if configured
             // Only show on axes where dynamic notch applies (respect RP-only setting)
             let frequency_ranges = if show_dynamic_notch {
-                if let Some(config) = dynamic_notch_range {
+                if let Some(config) = dynamic_notch_config {
                     use crate::plot_framework::FrequencyRange;
                     use plotters::style::RGBColor;
 
