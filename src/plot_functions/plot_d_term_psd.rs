@@ -417,6 +417,7 @@ pub fn plot_d_term_psd(
                 peaks: unfilt_peaks,
                 peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
                 peak_label_format_string: Some("{:.0}dB".to_string()),
+                frequency_ranges: None,
             })
         } else {
             None
@@ -448,6 +449,7 @@ pub fn plot_d_term_psd(
                 peaks: filt_peaks,
                 peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
                 peak_label_format_string: Some("{:.0}dB".to_string()),
+                frequency_ranges: None,
             })
         } else {
             None

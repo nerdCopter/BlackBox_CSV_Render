@@ -65,6 +65,10 @@ pub fn plot_d_term_spectrums(
     // Extract gyro rate once for proper Nyquist calculation
     let gyro_rate_hz = filter_response::extract_gyro_rate(header_metadata).unwrap_or(8000.0); // Default 8kHz
 
+    // Extract D-term dynamic notch range for Emuflight (if enabled)
+    let dterm_dynamic_notch_range =
+        filter_response::extract_dterm_dynamic_notch_range(header_metadata);
+
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
 
@@ -389,6 +393,52 @@ pub fn plot_d_term_spectrums(
                 }
             }
 
+            // Create dynamic notch frequency range visualization if configured (Emuflight only)
+            // Only show on axes where dynamic notch applies (respect RP-only setting)
+            let dterm_dynamic_notch_config = dterm_dynamic_notch_range.as_ref();
+            let show_dynamic_notch = if let Some(config) = dterm_dynamic_notch_config {
+                // axis_idx: 0=Roll, 1=Pitch, 2=Yaw
+                if axis_idx == 2 && !config.applies_to_yaw {
+                    false // Skip Yaw if dynamic notch is RP-only
+                } else {
+                    true
+                }
+            } else {
+                false
+            };
+
+            let frequency_ranges = if show_dynamic_notch {
+                if let Some(config) = dterm_dynamic_notch_config {
+                    use crate::plot_framework::FrequencyRange;
+
+                    let label = format!(
+                        "D-term Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
+                        config.notch_count,
+                        if config.notch_count > 1 { "es" } else { "" },
+                        config.q_factor,
+                        config.min_hz,
+                        config.max_hz,
+                        if !config.applies_to_yaw {
+                            " (RP only)"
+                        } else {
+                            ""
+                        }
+                    );
+
+                    Some(vec![FrequencyRange {
+                        min_hz: config.min_hz,
+                        max_hz: config.max_hz,
+                        color: RGBColor(147, 112, 219), // Medium purple - matches gyro dynamic notch
+                        opacity: 0.15,                  // Semi-transparent
+                        label,
+                    }])
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             Some(PlotConfig {
                 title: format!("{} Unfiltered D-term (derivative of gyroUnfilt)", axis_name),
                 x_range: 0.0..max_freq_display,
@@ -399,6 +449,7 @@ pub fn plot_d_term_spectrums(
                 peaks: unfilt_peaks,
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}".to_string()),
+                frequency_ranges, // D-term dynamic notch only on unfiltered plot (Emuflight only)
             })
         } else {
             None
@@ -430,6 +481,7 @@ pub fn plot_d_term_spectrums(
                 peaks: filt_peaks,
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}".to_string()),
+                frequency_ranges: None,
             })
         } else {
             None

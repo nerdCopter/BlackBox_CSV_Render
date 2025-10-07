@@ -55,6 +55,9 @@ pub fn plot_gyro_spectrums(
     // Extract gyro rate once for proper Nyquist calculation
     let gyro_rate_hz = filter_response::extract_gyro_rate(header_metadata).unwrap_or(8000.0); // Default 8kHz
 
+    // Extract dynamic notch range for graphical visualization
+    let dynamic_notch_range = filter_response::extract_dynamic_notch_range(header_metadata);
+
     let mut all_fft_raw_data: AllFFTData = Default::default();
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
@@ -356,7 +359,17 @@ pub fn plot_gyro_spectrums(
             let x_range = 0.0..max_freq_val * 1.05;
             let y_range_for_all_clone = 0.0..overall_max_y_amplitude;
 
-            let mut unfilt_plot_series = vec![PlotSeries {
+            // Build series in Betaflight signal path order:
+            // 1. Unfiltered Gyro (raw)
+            // 2. Dynamic Notch (first applied filter)
+            // 3. RPM Filter (if configured - not yet implemented)
+            // 4. Gyro LPF1 (static or dynamic)
+            // 5. Gyro LPF2 (static)
+            // 6. IMUF (if configured)
+            let mut unfilt_plot_series = vec![];
+
+            // 1. Unfiltered Gyro (raw data)
+            unfilt_plot_series.push(PlotSeries {
                 data: unfilt_series_data,
                 label: {
                     // Check if dynamic LPF is being used to enhance the legend
@@ -377,8 +390,25 @@ pub fn plot_gyro_spectrums(
                 },
                 color: *COLOR_GYRO_VS_UNFILT_UNFILT,
                 stroke_width: LINE_WIDTH_PLOT,
-            }];
+            });
 
+            // 2. Dynamic Notch (second in signal path - if configured)
+            // Check if dynamic notch applies to this axis (Emuflight can exclude Yaw)
+            let dynamic_notch_config = dynamic_notch_range.as_ref();
+            let show_dynamic_notch = if let Some(config) = dynamic_notch_config {
+                // axis_index: 0=Roll, 1=Pitch, 2=Yaw
+                if axis_index == 2 && !config.applies_to_yaw {
+                    false // Skip Yaw if dynamic notch is RP-only
+                } else {
+                    true
+                }
+            } else {
+                false
+            };
+
+            // 3. RPM Filter would go here (not yet implemented)
+
+            // 4-6. Gyro LPF1, LPF2, IMUF filters
             // Add filter response curves to unfiltered plot if available
             if let Some(ref config) = filter_config {
                 // Use gyro rate for Nyquist, not logging rate - filters operate at gyro frequency
@@ -393,11 +423,14 @@ pub fn plot_gyro_spectrums(
                     show_butterworth,
                 );
 
-                // Add each filter curve as a separate series
+                // Filter colors matching Betaflight signal path order:
+                // LPF1 (4th filter) - Crimson/Red
+                // LPF2 (5th filter) - Orange
+                // IMUF (6th filter) - Brown/Dark Red
                 let filter_colors = [
-                    RGBColor(220, 20, 60), // Crimson for first filter
-                    RGBColor(178, 34, 34), // Fire brick for second filter
-                    RGBColor(255, 69, 0),  // Red-orange for third filter
+                    RGBColor(220, 20, 60), // Crimson for LPF1 (first in filter chain after notches)
+                    RGBColor(255, 140, 0), // Dark orange for LPF2
+                    RGBColor(139, 69, 19), // Saddle brown for IMUF
                 ];
 
                 for (curve_idx, (label, curve_data, cutoff_hz_ref)) in
@@ -463,6 +496,32 @@ pub fn plot_gyro_spectrums(
                     }
                 }
             }
+
+            // Add dynamic notch legend entry AFTER filter curves (correct signal path order)
+            // Dynamic notch comes after unfiltered gyro but before LPF filters in the legend
+            if show_dynamic_notch {
+                if let Some(config) = dynamic_notch_config {
+                    unfilt_plot_series.push(PlotSeries {
+                        data: vec![], // No data - just for legend with matching color
+                        label: format!(
+                            "Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
+                            config.notch_count,
+                            if config.notch_count > 1 { "es" } else { "" },
+                            config.q_factor,
+                            config.min_hz,
+                            config.max_hz,
+                            if !config.applies_to_yaw {
+                                " (RP only)"
+                            } else {
+                                ""
+                            }
+                        ),
+                        color: RGBColor(147, 112, 219), // Medium purple - matches shading
+                        stroke_width: LINE_WIDTH_PLOT,  // Same as other series
+                    });
+                }
+            }
+
             let filt_plot_series = vec![PlotSeries {
                 data: filt_series_data,
                 label: if let Some(ref results) = delay_comparison_results {
@@ -504,6 +563,41 @@ pub fn plot_gyro_spectrums(
                 stroke_width: LINE_WIDTH_PLOT,
             }];
 
+            // Create dynamic notch frequency range visualization if configured
+            // Only show on axes where dynamic notch applies (respect RP-only setting)
+            let frequency_ranges = if show_dynamic_notch {
+                if let Some(config) = dynamic_notch_config {
+                    use crate::plot_framework::FrequencyRange;
+                    use plotters::style::RGBColor;
+
+                    let label = format!(
+                        "Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
+                        config.notch_count,
+                        if config.notch_count > 1 { "es" } else { "" },
+                        config.q_factor,
+                        config.min_hz,
+                        config.max_hz,
+                        if !config.applies_to_yaw {
+                            " (RP only)"
+                        } else {
+                            ""
+                        }
+                    );
+
+                    Some(vec![FrequencyRange {
+                        min_hz: config.min_hz,
+                        max_hz: config.max_hz,
+                        color: RGBColor(147, 112, 219), // Medium purple
+                        opacity: 0.15,                  // Semi-transparent
+                        label,
+                    }])
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             let unfiltered_plot_config = Some(PlotConfig {
                 title: format!("{} Unfiltered Gyro Spectrum", AXIS_NAMES[axis_index]),
                 x_range: x_range.clone(),
@@ -515,6 +609,7 @@ pub fn plot_gyro_spectrums(
                 // MINIMAL CHANGE: Initialize new fields to Some for linear amplitude plots
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}".to_string()),
+                frequency_ranges, // Dynamic notch only on unfiltered plot
             });
 
             let filtered_plot_config = Some(PlotConfig {
@@ -528,6 +623,7 @@ pub fn plot_gyro_spectrums(
                 // MINIMAL CHANGE: Initialize new fields to Some for linear amplitude plots
                 peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
                 peak_label_format_string: Some("{:.0}".to_string()),
+                frequency_ranges: None, // No dynamic notch on filtered plot (already applied)
             });
 
             Some(AxisSpectrum {

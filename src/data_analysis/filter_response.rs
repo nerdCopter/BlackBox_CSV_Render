@@ -939,6 +939,199 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     config
 }
 
+/// Dynamic notch configuration including axis information
+#[derive(Debug, Clone, Copy)]
+pub struct DynamicNotchConfig {
+    pub min_hz: f64,
+    pub max_hz: f64,
+    pub q_factor: f64,
+    pub notch_count: u32,
+    pub applies_to_yaw: bool, // false = Roll/Pitch only, true = Roll/Pitch/Yaw
+}
+
+/// Extract dynamic notch frequency range for graphical visualization
+/// Returns DynamicNotchConfig if dynamic notch is configured
+/// Handles Betaflight, Emuflight, and INAV formats
+pub fn extract_dynamic_notch_range(
+    header_metadata: Option<&[(String, String)]>,
+) -> Option<DynamicNotchConfig> {
+    let metadata = header_metadata?;
+
+    // Detect firmware type from Firmware revision (reliable)
+    // Firmware type is unreliable (Emuflight reports as "Cleanflight")
+    let firmware_revision = metadata
+        .iter()
+        .find(|(key, _)| key == "Firmware revision")
+        .map(|(_, value)| value.as_str())
+        .unwrap_or("");
+
+    // Helper to get metadata value
+    let get_value = |key: &str| -> Option<String> {
+        metadata
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
+    };
+
+    // Check firmware type by looking at revision string
+    if firmware_revision.contains("Betaflight") {
+        // Betaflight dynamic notch (always applies to all axes)
+        if let Some(count_str) = get_value("dyn_notch_count") {
+            if let Ok(count) = count_str.parse::<u32>() {
+                if count > 0 {
+                    let min_hz = get_value("dyn_notch_min_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(90.0);
+                    let max_hz = get_value("dyn_notch_max_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(800.0);
+                    let q = get_value("dyn_notch_q")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(400.0);
+
+                    return Some(DynamicNotchConfig {
+                        min_hz,
+                        max_hz,
+                        q_factor: q,
+                        notch_count: count,
+                        applies_to_yaw: true, // Betaflight always applies to all axes
+                    });
+                }
+            }
+        }
+    } else if firmware_revision.contains("EmuFlight") || firmware_revision.contains("Emuflight") {
+        // Emuflight dynamic gyro notch with axis configuration
+        if let Some(count_str) = get_value("dynamic_gyro_notch_count") {
+            if let Ok(count) = count_str.parse::<u32>() {
+                if count > 0 {
+                    let min_hz = get_value("dynamic_gyro_notch_min_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(150.0);
+                    let max_hz = get_value("dynamic_gyro_notch_max_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(400.0);
+                    let q = get_value("dynamic_gyro_notch_q")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(500.0);
+
+                    // Check axis configuration: 0 = RP only, 1 = RPY (default if not present)
+                    let applies_to_yaw = get_value("dynamic_gyro_notch_axis")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .map(|axis| axis == 1) // 1 means RPY
+                        .unwrap_or(true); // Default to RPY if not specified
+
+                    return Some(DynamicNotchConfig {
+                        min_hz,
+                        max_hz,
+                        q_factor: q,
+                        notch_count: count,
+                        applies_to_yaw,
+                    });
+                }
+            }
+        }
+    } else if firmware_revision.contains("INAV") {
+        // INAV dynamic gyro notch (limited configuration)
+        // Check for Q factor to determine if dynamic notch is enabled
+        if let Some(q_str) = get_value("dynamicGyroNotchQ") {
+            if let Ok(q) = q_str.parse::<f64>() {
+                if q > 0.0 {
+                    let min_hz = get_value("dynamicGyroNotchMinHz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(150.0);
+
+                    // INAV doesn't specify max_hz or count in headers
+                    // Use reasonable defaults based on INAV behavior
+                    let max_hz = 350.0; // INAV typical max
+                    let count = 1; // INAV typically uses 1 notch
+
+                    return Some(DynamicNotchConfig {
+                        min_hz,
+                        max_hz,
+                        q_factor: q,
+                        notch_count: count,
+                        applies_to_yaw: true, // INAV applies to all axes
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Extract D-term dynamic notch configuration for Emuflight
+/// Returns DynamicNotchConfig if D-term dynamic notch is enabled
+/// Only Emuflight has D-term dynamic notch feature
+/// Requires both dterm_dyn_notch_enable=1 AND dynamic_gyro_notch_count>0
+pub fn extract_dterm_dynamic_notch_range(
+    header_metadata: Option<&[(String, String)]>,
+) -> Option<DynamicNotchConfig> {
+    let metadata = header_metadata?;
+
+    // Detect firmware type from Firmware revision (reliable)
+    let firmware_revision = metadata
+        .iter()
+        .find(|(key, _)| key == "Firmware revision")
+        .map(|(_, value)| value.as_str())
+        .unwrap_or("");
+
+    // Helper to get metadata value
+    let get_value = |key: &str| -> Option<String> {
+        metadata
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
+    };
+
+    // Only Emuflight has D-term dynamic notch
+    if firmware_revision.contains("EmuFlight") || firmware_revision.contains("Emuflight") {
+        // Check if D-term dynamic notch is enabled
+        if let Some(enable_str) = get_value("dterm_dyn_notch_enable") {
+            if enable_str == "1" {
+                // D-term dynamic notch requires gyro dynamic notch to be enabled
+                if let Some(gyro_count_str) = get_value("dynamic_gyro_notch_count") {
+                    if let Ok(gyro_count) = gyro_count_str.parse::<u32>() {
+                        if gyro_count > 0 {
+                            // Get D-term dynamic notch Q factor
+                            let q = get_value("dterm_dyn_notch_q")
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .unwrap_or(400.0);
+
+                            // D-term dynamic notch uses same frequency range as gyro dynamic notch
+                            let min_hz = get_value("dynamic_gyro_notch_min_hz")
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .unwrap_or(150.0);
+                            let max_hz = get_value("dynamic_gyro_notch_max_hz")
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .unwrap_or(400.0);
+
+                            // D-term dynamic notch uses same count as gyro
+                            let count = gyro_count;
+
+                            // Check axis configuration (same as gyro)
+                            let applies_to_yaw = get_value("dynamic_gyro_notch_axis")
+                                .and_then(|s| s.parse::<u32>().ok())
+                                .map(|axis| axis == 1)
+                                .unwrap_or(true);
+
+                            return Some(DynamicNotchConfig {
+                                min_hz,
+                                max_hz,
+                                q_factor: q,
+                                notch_count: count,
+                                applies_to_yaw,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
