@@ -469,12 +469,11 @@ pub fn plot_gyro_spectrums(
                 // Use subtle blue color to distinguish from other filters
                 let rpm_filter_color = RGBColor(70, 130, 180); // Steel blue
 
-                // Draw individual RPM curves and collect harmonic info
-                let mut harmonic_info = Vec::new();
+                // Draw individual RPM curves
                 let mut has_curves = false;
 
                 for item in rpm_curves.iter() {
-                    let (harmonic_num, _label, rpm_curve_data, center_hz) = item;
+                    let (_harmonic_num, _label, rpm_curve_data, _center_hz) = item;
                     if !rpm_curve_data.is_empty() {
                         has_curves = true;
 
@@ -499,9 +498,6 @@ pub fn plot_gyro_spectrums(
                             color: rpm_filter_color,
                             stroke_width: 1,
                         });
-
-                        // Store harmonic info for legend
-                        harmonic_info.push(format!("H{}@{:.0}Hz", harmonic_num, center_hz));
                     }
                 }
 
@@ -517,7 +513,7 @@ pub fn plot_gyro_spectrums(
                             .copied()
                             .unwrap_or(1.0)
                             * 100.0;
-                        legend_items.push(format!("{:.0}W @ {:.0}Hz", weight, center_hz));
+                        legend_items.push(format!("{:.0}% @ {:.0}Hz", weight, center_hz));
                     }
                     unfilt_plot_series.push(PlotSeries {
                         data: vec![], // No data - just for legend
