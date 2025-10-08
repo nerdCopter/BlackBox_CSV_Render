@@ -1322,6 +1322,11 @@ pub fn generate_rpm_filter_curves(
         return curves;
     }
 
+    // Calculate log spacing once (constant for all harmonics)
+    let log_start = min_plot_start.ln();
+    let log_end = max_frequency_hz.ln();
+    let log_step = (log_end - log_start) / (num_points - 1) as f64;
+
     // Generate curve for each harmonic
     for harmonic_num in 1..=config.harmonics {
         let harmonic_freq = motor_base_hz * harmonic_num as f64;
@@ -1345,11 +1350,6 @@ pub fn generate_rpm_filter_curves(
 
         // Generate curve points
         let mut curve_points = Vec::with_capacity(num_points);
-
-        // Use logarithmic spacing for smooth curves
-        let log_start = (config.min_hz * 0.5).max(1.0).ln();
-        let log_end = max_frequency_hz.ln();
-        let log_step = (log_end - log_start) / (num_points - 1) as f64;
 
         for i in 0..num_points {
             let freq = (log_start + i as f64 * log_step).exp();
