@@ -58,6 +58,17 @@ pub fn plot_gyro_spectrums(
     // Extract dynamic notch range for graphical visualization
     let dynamic_notch_range = filter_response::extract_dynamic_notch_range(header_metadata);
 
+    // Extract RPM filter configuration for Betaflight
+    let rpm_filter_config = filter_response::extract_rpm_filter_config(header_metadata);
+
+    // Debug output for RPM filter detection
+    if let Some(ref config) = rpm_filter_config {
+        println!(
+            "RPM Filter detected: {} harmonics, Q: {:.0}, min: {:.0}Hz",
+            config.harmonics, config.q_factor, config.min_hz
+        );
+    }
+
     let mut all_fft_raw_data: AllFFTData = Default::default();
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
@@ -406,7 +417,112 @@ pub fn plot_gyro_spectrums(
                 false
             };
 
-            // 3. RPM Filter would go here (not yet implemented)
+            // Add Dynamic Notch legend entry in correct signal path position (before RPM filter)
+            if show_dynamic_notch {
+                if let Some(config) = dynamic_notch_config {
+                    unfilt_plot_series.push(PlotSeries {
+                        data: vec![], // No data - just for legend
+                        label: format!(
+                            "Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
+                            config.notch_count,
+                            if config.notch_count > 1 { "es" } else { "" },
+                            config.q_factor,
+                            config.min_hz,
+                            config.max_hz,
+                            if !config.applies_to_yaw {
+                                " (RP only)"
+                            } else {
+                                ""
+                            }
+                        ),
+                        color: RGBColor(147, 112, 219), // Medium purple - matches shading
+                        stroke_width: 1,
+                    });
+                }
+            }
+
+            // 3. RPM Filter (if configured - Betaflight only)
+            // Signal path order: Dynamic Notch → RPM Filter → Gyro LPF1 → Gyro LPF2 → IMUF
+            if let Some(ref rpm_config) = rpm_filter_config {
+                // Estimate motor base frequency from the unfiltered gyro spectrum data
+                // We'll use a reasonable range for typical 5" quads (100-500 Hz)
+                let motor_base_hz =
+                    if let Some((unfilt_data, _, _, _)) = all_fft_raw_data[axis_index].as_ref() {
+                        filter_response::estimate_motor_base_frequency(
+                            unfilt_data,
+                            rpm_config.min_hz,
+                            500.0, // Max search frequency for motor base
+                        )
+                        .unwrap_or(180.0) // Default to typical 5" quad motor frequency
+                    } else {
+                        180.0 // Fallback if no spectrum data
+                    };
+
+                // Generate RPM filter notch curves
+                let rpm_curves = filter_response::generate_rpm_filter_curves(
+                    rpm_config,
+                    motor_base_hz,
+                    max_freq_val,
+                    1000, // Number of points for smooth curves
+                );
+
+                // Use subtle blue color to distinguish from other filters
+                let rpm_filter_color = RGBColor(70, 130, 180); // Steel blue
+
+                // Draw individual RPM curves
+                let mut has_curves = false;
+
+                for item in rpm_curves.iter() {
+                    let (_harmonic_num, _label, rpm_curve_data, _center_hz) = item;
+                    if !rpm_curve_data.is_empty() {
+                        has_curves = true;
+
+                        // Scale RPM filter response to overlay on spectrum
+                        let filter_curve_amplitude = overall_max_y_amplitude * 0.3;
+                        let filter_curve_offset = overall_max_y_amplitude * 0.05;
+
+                        let scaled_rpm_response: Vec<(f64, f64)> = rpm_curve_data
+                            .iter()
+                            .filter(|(freq, _)| *freq <= max_freq_val)
+                            .map(|(freq, response)| {
+                                let scaled_amplitude =
+                                    filter_curve_offset + (response * filter_curve_amplitude);
+                                (*freq, scaled_amplitude)
+                            })
+                            .collect();
+
+                        // Add curve with empty label (won't appear in legend)
+                        unfilt_plot_series.push(PlotSeries {
+                            data: scaled_rpm_response,
+                            label: String::new(), // Empty label = no legend entry
+                            color: rpm_filter_color,
+                            stroke_width: 1,
+                        });
+                    }
+                }
+
+                // Add single legend-only series (no data, just for legend)
+                if has_curves {
+                    // Format: "RPM Filter: W @ xxxHz, W @ xxxHz, ..."
+                    let mut legend_items = Vec::new();
+                    for item in rpm_curves.iter() {
+                        let (harmonic_num, _label, _curve_data, center_hz) = item;
+                        let weight = rpm_config
+                            .weights
+                            .get(*harmonic_num as usize - 1)
+                            .copied()
+                            .unwrap_or(1.0)
+                            * 100.0;
+                        legend_items.push(format!("{:.0}% @ {:.0}Hz", weight, center_hz));
+                    }
+                    unfilt_plot_series.push(PlotSeries {
+                        data: vec![], // No data - just for legend
+                        label: format!("RPM Filter: {}", legend_items.join(", ")),
+                        color: rpm_filter_color,
+                        stroke_width: 1,
+                    });
+                }
+            }
 
             // 4-6. Gyro LPF1, LPF2, IMUF filters
             // Add filter response curves to unfiltered plot if available
@@ -497,31 +613,6 @@ pub fn plot_gyro_spectrums(
                 }
             }
 
-            // Add dynamic notch legend entry AFTER filter curves (correct signal path order)
-            // Dynamic notch comes after unfiltered gyro but before LPF filters in the legend
-            if show_dynamic_notch {
-                if let Some(config) = dynamic_notch_config {
-                    unfilt_plot_series.push(PlotSeries {
-                        data: vec![], // No data - just for legend with matching color
-                        label: format!(
-                            "Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
-                            config.notch_count,
-                            if config.notch_count > 1 { "es" } else { "" },
-                            config.q_factor,
-                            config.min_hz,
-                            config.max_hz,
-                            if !config.applies_to_yaw {
-                                " (RP only)"
-                            } else {
-                                ""
-                            }
-                        ),
-                        color: RGBColor(147, 112, 219), // Medium purple - matches shading
-                        stroke_width: LINE_WIDTH_PLOT,  // Same as other series
-                    });
-                }
-            }
-
             let filt_plot_series = vec![PlotSeries {
                 data: filt_series_data,
                 label: if let Some(ref results) = delay_comparison_results {
@@ -565,31 +656,18 @@ pub fn plot_gyro_spectrums(
 
             // Create dynamic notch frequency range visualization if configured
             // Only show on axes where dynamic notch applies (respect RP-only setting)
+            // Note: Legend entry is added in series above, this only adds the shaded region
             let frequency_ranges = if show_dynamic_notch {
                 if let Some(config) = dynamic_notch_config {
                     use crate::plot_framework::FrequencyRange;
                     use plotters::style::RGBColor;
-
-                    let label = format!(
-                        "Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
-                        config.notch_count,
-                        if config.notch_count > 1 { "es" } else { "" },
-                        config.q_factor,
-                        config.min_hz,
-                        config.max_hz,
-                        if !config.applies_to_yaw {
-                            " (RP only)"
-                        } else {
-                            ""
-                        }
-                    );
 
                     Some(vec![FrequencyRange {
                         min_hz: config.min_hz,
                         max_hz: config.max_hz,
                         color: RGBColor(147, 112, 219), // Medium purple
                         opacity: 0.15,                  // Semi-transparent
-                        label,
+                        label: String::new(),           // Empty label - legend already added above
                     }])
                 } else {
                     None

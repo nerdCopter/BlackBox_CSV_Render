@@ -90,6 +90,9 @@ pub struct AllFilterConfigs {
 /// Type alias for filter curve data: (label, curve_points, cutoff_hz)
 pub type FilterCurveData = (String, Vec<(f64, f64)>, f64);
 
+/// Type alias for RPM filter curve data: (harmonic_num, label, curve_points, center_hz)
+pub type RpmFilterCurveData = (u32, String, Vec<(f64, f64)>, f64);
+
 /// Helper function to add PTn filter curves with Butterworth correction
 /// Generates both the user-configured curve and the per-stage implementation curve
 fn add_ptn_filter_curves(
@@ -1130,6 +1133,237 @@ pub fn extract_dterm_dynamic_notch_range(
     }
 
     None
+}
+
+/// RPM filter configuration (Betaflight only)
+#[derive(Debug, Clone)]
+pub struct RpmFilterConfig {
+    pub harmonics: u32,    // Number of harmonics (1-12)
+    pub min_hz: f64,       // Minimum frequency to filter
+    pub q_factor: f64,     // Q factor for notch width
+    pub weights: Vec<f64>, // Weight for each harmonic (0.0-1.0)
+    #[allow(dead_code)] // Reserved for future use
+    pub fade_range_hz: f64, // Fade-in range
+    #[allow(dead_code)] // Reserved for future use
+    pub lpf_hz: f64, // RPM signal LPF
+}
+
+/// Extract RPM filter configuration for Betaflight
+/// Returns RpmFilterConfig if RPM filter is enabled
+/// Only Betaflight has RPM filter feature
+#[allow(dead_code)] // Used in Phase 5 (visualization)
+pub fn extract_rpm_filter_config(
+    header_metadata: Option<&[(String, String)]>,
+) -> Option<RpmFilterConfig> {
+    let metadata = header_metadata?;
+
+    // Detect firmware type from Firmware revision (reliable)
+    let firmware_revision = metadata
+        .iter()
+        .find(|(key, _)| key == "Firmware revision")
+        .map(|(_, value)| value.as_str())
+        .unwrap_or("");
+
+    // Helper to get metadata value
+    let get_value = |key: &str| -> Option<String> {
+        metadata
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
+    };
+
+    // Only Betaflight has RPM filter
+    if firmware_revision.contains("Betaflight") {
+        // Check if RPM filter is enabled
+        if let Some(harmonics_str) = get_value("rpm_filter_harmonics") {
+            if let Ok(harmonics) = harmonics_str.parse::<u32>() {
+                if harmonics > 0 {
+                    // Enforce documented upper bound (Betaflight max is 12)
+                    let harmonics = harmonics.min(12);
+
+                    // Parse configuration
+                    let min_hz = get_value("rpm_filter_min_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(100.0);
+
+                    let q = get_value("rpm_filter_q")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(500.0);
+
+                    // Parse weights (comma-separated, e.g., "100,100,100")
+                    let mut weights = if let Some(weights_str) = get_value("rpm_filter_weights") {
+                        weights_str
+                            .split(',')
+                            .filter_map(|s| s.trim().parse::<f64>().ok())
+                            .map(|w| (w / 100.0).clamp(0.0, 1.0)) // Convert 0-100 to 0.0-1.0 and clamp
+                            .collect::<Vec<f64>>()
+                    } else {
+                        // Default: all harmonics have 100% weight
+                        vec![1.0; harmonics as usize]
+                    };
+
+                    // Normalize vector length to match harmonics
+                    match weights.len().cmp(&(harmonics as usize)) {
+                        std::cmp::Ordering::Less => weights.resize(harmonics as usize, 1.0),
+                        std::cmp::Ordering::Greater => weights.truncate(harmonics as usize),
+                        std::cmp::Ordering::Equal => {}
+                    }
+
+                    let fade_range_hz = get_value("rpm_filter_fade_range_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(50.0);
+
+                    let lpf_hz = get_value("rpm_filter_lpf_hz")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(150.0);
+
+                    return Some(RpmFilterConfig {
+                        harmonics,
+                        min_hz,
+                        q_factor: q / 100.0, // Betaflight stores Q × 100
+                        weights,
+                        fade_range_hz,
+                        lpf_hz,
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Estimate motor base frequency from gyro spectrum peaks
+/// Looks for primary peak in spectrum and estimates fundamental motor frequency
+#[allow(dead_code)] // Used in Phase 5 (visualization)
+pub fn estimate_motor_base_frequency(
+    gyro_spectrum_data: &[(f64, f64)], // (frequency, amplitude) pairs
+    min_hz: f64,
+    max_hz: f64,
+) -> Option<f64> {
+    if gyro_spectrum_data.is_empty() {
+        return None;
+    }
+
+    // Guard against invalid search window
+    if max_hz <= min_hz {
+        return None;
+    }
+
+    // Find primary peak above min_hz
+    let mut max_amplitude = 0.0;
+    let mut peak_frequency = 0.0;
+
+    for &(freq, amp) in gyro_spectrum_data {
+        if freq >= min_hz && freq <= max_hz && amp > max_amplitude {
+            max_amplitude = amp;
+            peak_frequency = freq;
+        }
+    }
+
+    if peak_frequency > min_hz {
+        Some(peak_frequency)
+    } else {
+        // Fallback to typical 5" quad motor frequency
+        Some(180.0)
+    }
+}
+
+/// Calculate RPM notch filter frequency response (S-curve)
+/// Transfer function: H(f) = 1 - depth * (1 / (1 + ((f - f0) / (f0 / Q))^2))
+/// Returns amplitude multiplication factor (0.0 = full attenuation, 1.0 = no filtering)
+#[allow(dead_code)] // Used in Phase 5 (visualization)
+pub fn rpm_notch_response(
+    frequency_hz: f64,
+    notch_center_hz: f64,
+    q_factor: f64,
+    depth: f64, // 0.0 to 1.0 (from weight)
+) -> f64 {
+    if q_factor <= 0.0 || notch_center_hz <= 0.0 {
+        return 1.0; // No filtering
+    }
+
+    // Clamp depth to valid range to avoid negative responses
+    let depth = depth.clamp(0.0, 1.0);
+
+    // Bandwidth = f0 / Q
+    let bandwidth = notch_center_hz / q_factor;
+
+    // Frequency difference from notch center
+    let delta_f = frequency_hz - notch_center_hz;
+
+    // Notch response (Lorentzian/Cauchy distribution)
+    // At center: returns 1 - depth
+    // Far from center: returns 1.0
+    let response = 1.0 / (1.0 + (delta_f / bandwidth).powi(2));
+
+    // Apply depth scaling
+    1.0 - (depth * response)
+}
+
+/// Generate RPM filter notch curves for all harmonics
+/// Returns vector of (harmonic_num, label, curve_points, center_hz) for each harmonic
+#[allow(dead_code)] // Used in Phase 5 (visualization)
+pub fn generate_rpm_filter_curves(
+    config: &RpmFilterConfig,
+    motor_base_hz: f64,
+    max_frequency_hz: f64,
+    num_points: usize,
+) -> Vec<RpmFilterCurveData> {
+    if num_points < 2 {
+        return Vec::new();
+    }
+
+    let mut curves = Vec::new();
+    let min_plot_start = (config.min_hz * 0.5).max(1.0);
+
+    // Early return if no valid frequency span
+    if max_frequency_hz <= min_plot_start {
+        return curves;
+    }
+
+    // Calculate log spacing once (constant for all harmonics)
+    let log_start = min_plot_start.ln();
+    let log_end = max_frequency_hz.ln();
+    let log_step = (log_end - log_start) / (num_points - 1) as f64;
+
+    // Generate curve for each harmonic
+    for harmonic_num in 1..=config.harmonics {
+        let harmonic_freq = motor_base_hz * harmonic_num as f64;
+
+        // Skip if below minimum or above display range
+        if harmonic_freq < config.min_hz || harmonic_freq > max_frequency_hz {
+            continue;
+        }
+
+        // Get weight for this harmonic (default to 1.0 if not specified)
+        let weight = config
+            .weights
+            .get((harmonic_num - 1) as usize)
+            .copied()
+            .unwrap_or(1.0);
+
+        // Skip if weight is zero (disabled harmonic)
+        if weight <= 0.0 {
+            continue;
+        }
+
+        // Generate curve points
+        let mut curve_points = Vec::with_capacity(num_points);
+
+        for i in 0..num_points {
+            let freq = (log_start + i as f64 * log_step).exp();
+            let response = rpm_notch_response(freq, harmonic_freq, config.q_factor, weight);
+            curve_points.push((freq, response));
+        }
+
+        // Create label
+        let label = format!("RPM H{} @ {:.0}Hz", harmonic_num, harmonic_freq);
+
+        curves.push((harmonic_num, label, curve_points, harmonic_freq));
+    }
+
+    curves
 }
 
 #[cfg(test)]

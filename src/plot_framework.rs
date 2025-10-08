@@ -3,6 +3,7 @@
 use plotters::backend::{BitMapBackend, DrawingBackend};
 use plotters::chart::{ChartBuilder, SeriesLabelPosition};
 use plotters::drawing::{DrawingArea, IntoDrawingArea};
+use plotters::element::Circle;
 use plotters::element::PathElement;
 use plotters::element::Rectangle;
 use plotters::element::Text;
@@ -228,6 +229,31 @@ fn draw_single_axis_chart_with_config(
 
     // Add series to legend FIRST (so they appear before frequency ranges)
     for s in &plot_config.series {
+        // Handle legend-only series (empty data but has label)
+        if s.data.is_empty() {
+            if !s.label.is_empty() {
+                // Create a dummy invisible point just for the legend entry
+                let dummy_x = plot_config.x_range.start;
+                let dummy_y = plot_config.y_range.start;
+                chart
+                    .draw_series(std::iter::once(Circle::new(
+                        (dummy_x, dummy_y),
+                        0, // Size 0 = invisible
+                        s.color.filled(),
+                    )))?
+                    .label(&s.label)
+                    .legend(move |(x, y)| {
+                        PathElement::new(
+                            vec![(x, y), (x + 20, y)],
+                            s.color.stroke_width(LINE_WIDTH_LEGEND),
+                        )
+                    });
+                legend_series_count += 1;
+            }
+            continue;
+        }
+
+        // Series has data - draw it
         if !s.data.is_empty() {
             // Special handling for cutoff lines: label starts with __CUTOFF_LINE__
             if (s.label.starts_with(CUTOFF_LINE_PREFIX)
@@ -270,20 +296,21 @@ fn draw_single_axis_chart_with_config(
                 }
                 // No legend entry for cutoff lines
             } else {
-                // Regular series with legend
-                chart
-                    .draw_series(LineSeries::new(
-                        s.data.iter().cloned(),
-                        s.color.stroke_width(s.stroke_width),
-                    ))?
-                    .label(&s.label)
-                    .legend(move |(x, y)| {
+                // Regular series - only add legend if label is not empty
+                let series = chart.draw_series(LineSeries::new(
+                    s.data.iter().cloned(),
+                    s.color.stroke_width(s.stroke_width),
+                ))?;
+
+                if !s.label.is_empty() {
+                    series.label(&s.label).legend(move |(x, y)| {
                         PathElement::new(
                             vec![(x, y), (x + 20, y)],
                             s.color.stroke_width(LINE_WIDTH_LEGEND),
                         )
                     });
-                legend_series_count += 1;
+                    legend_series_count += 1;
+                }
             }
         }
     }
