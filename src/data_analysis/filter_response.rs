@@ -1284,14 +1284,19 @@ pub fn rpm_notch_response(
 }
 
 /// Generate RPM filter notch curves for all harmonics
-/// Returns vector of (label, curve_points, center_hz) for each harmonic
+/// Returns vector of (harmonic_num, label, curve_points, center_hz) for each harmonic
 #[allow(dead_code)] // Used in Phase 5 (visualization)
+#[allow(clippy::type_complexity)]
 pub fn generate_rpm_filter_curves(
-    config: &RpmFilterConfig,
+    #[allow(clippy::type_complexity)] config: &RpmFilterConfig,
     motor_base_hz: f64,
     max_frequency_hz: f64,
     num_points: usize,
-) -> Vec<RpmFilterCurveData> {
+) -> Vec<(u32, String, Vec<(f64, f64)>, f64)> {
+    if num_points < 2 {
+        return Vec::new();
+    }
+
     let mut curves = Vec::new();
 
     // Generate curve for each harmonic
@@ -1332,7 +1337,7 @@ pub fn generate_rpm_filter_curves(
         // Create label
         let label = format!("RPM H{} @ {:.0}Hz", harmonic_num, harmonic_freq);
 
-        curves.push((label, curve_points, harmonic_freq));
+        curves.push((harmonic_num, label, curve_points, harmonic_freq));
     }
 
     curves
