@@ -5,8 +5,16 @@ use plotters::style::colors::full_palette::{AMBER, GREEN, LIGHTBLUE, ORANGE, PUR
 use plotters::style::RGBColor;
 
 // Plot dimensions.
-pub const PLOT_WIDTH: u32 = 1920;
-pub const PLOT_HEIGHT: u32 = 1080;
+pub const PLOT_WIDTH: u32 = 2560;
+pub const PLOT_HEIGHT: u32 = 1400;
+
+// Font sizes for plots and labels
+pub const FONT_SIZE_MAIN_TITLE: i32 = 24; // Main title at top of entire image
+pub const FONT_SIZE_CHART_TITLE: i32 = 20; // Individual chart/subplot titles
+pub const FONT_SIZE_AXIS_LABEL: i32 = 18; // X and Y axis labels and tick labels (increased to be clearly larger than legend)
+pub const FONT_SIZE_LEGEND: i32 = 18; // Legend labels
+pub const FONT_SIZE_PEAK_LABEL: i32 = 18; // Peak detection labels on spectrum plots
+pub const FONT_SIZE_MESSAGE: i32 = 20; // "Data Unavailable" and other info messages
 
 // Constants for the step response calculation method (mimicking PlasmaTree and PTB PTstepcalc.m)
 pub const FRAME_LENGTH_S: f64 = 2.0; // Length of each window in seconds (PTB uses 2s)
