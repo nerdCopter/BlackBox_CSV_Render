@@ -150,16 +150,42 @@ fn find_csv_files_in_dir_impl(
     }
     visited.insert(canonical_path);
 
-    let entries = fs::read_dir(dir_path)?;
+    let entries = match fs::read_dir(dir_path) {
+        Ok(entries) => entries,
+        Err(err) => {
+            eprintln!(
+                "Warning: Cannot read directory '{}': {}",
+                dir_path.display(),
+                err
+            );
+            return Ok(csv_files);
+        }
+    };
 
     for entry in entries {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                eprintln!(
+                    "Warning: Error reading directory entry in '{}': {}",
+                    dir_path.display(),
+                    err
+                );
+                continue;
+            }
+        };
         let path = entry.path();
 
         if path.is_dir() {
             // Recursively search subdirectories
-            let mut sub_csv_files = find_csv_files_in_dir_impl(&path, visited)?;
-            csv_files.append(&mut sub_csv_files);
+            match find_csv_files_in_dir_impl(&path, visited) {
+                Ok(mut sub_csv_files) => csv_files.append(&mut sub_csv_files),
+                Err(err) => eprintln!(
+                    "Warning: Error processing subdirectory '{}': {}",
+                    path.display(),
+                    err
+                ),
+            }
         } else if path.is_file() {
             // Check if it's a CSV file
             if let Some(extension) = path.extension() {
