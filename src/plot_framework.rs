@@ -15,8 +15,10 @@ use std::error::Error;
 use std::ops::Range;
 
 use crate::constants::{
-    FILTERED_D_TERM_MIN_THRESHOLD, HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE,
-    PLOT_HEIGHT, PLOT_WIDTH, PSD_PEAK_LABEL_MIN_VALUE_DB,
+    FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_AXIS_LABEL, FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND,
+    FONT_SIZE_MAIN_TITLE, FONT_SIZE_MESSAGE, FONT_SIZE_PEAK_LABEL, HEATMAP_MIN_PSD_DB,
+    LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH,
+    PSD_PEAK_LABEL_MIN_VALUE_DB,
 };
 
 /// Special prefix for cutoff line series to avoid showing them in legends
@@ -45,7 +47,6 @@ pub fn draw_unavailable_message(
     reason: &str,
 ) -> Result<(), Box<dyn Error>> {
     // Constants for text rendering
-    const DEFAULT_FONT_SIZE: i32 = 20;
     const CHAR_WIDTH_RATIO: f32 = 0.6; // Approximate character width relative to font size
     const LINE_HEIGHT_SPACING: i32 = 4; // Additional spacing between lines
 
@@ -64,8 +65,8 @@ pub fn draw_unavailable_message(
     let message = format!("{axis_name} {plot_type} Data Unavailable:\n{reason}");
 
     // Estimate text dimensions for better centering
-    let estimated_char_width = (DEFAULT_FONT_SIZE as f32 * CHAR_WIDTH_RATIO) as i32;
-    let estimated_line_height = DEFAULT_FONT_SIZE + LINE_HEIGHT_SPACING;
+    let estimated_char_width = (FONT_SIZE_MESSAGE as f32 * CHAR_WIDTH_RATIO) as i32;
+    let estimated_line_height = FONT_SIZE_MESSAGE + LINE_HEIGHT_SPACING;
 
     // Find the longest line to estimate width
     let lines: Vec<&str> = message.split('\n').collect();
@@ -77,7 +78,7 @@ pub fn draw_unavailable_message(
     let center_x = width as i32 / 2 - estimated_text_width / 2;
     let center_y = height as i32 / 2 - estimated_text_height / 2;
 
-    let text_style = ("sans-serif", DEFAULT_FONT_SIZE).into_font().color(&RED);
+    let text_style = ("sans-serif", FONT_SIZE_MESSAGE).into_font().color(&RED);
     area.draw(&Text::new(message, (center_x, center_y), text_style))?;
     Ok(())
 }
@@ -170,9 +171,9 @@ fn draw_single_axis_chart_with_config(
     plot_config: &PlotConfig,
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
-        .caption(&plot_config.title, ("sans-serif", 20))
+        .caption(&plot_config.title, ("sans-serif", FONT_SIZE_CHART_TITLE))
         .margin(5)
-        .x_label_area_size(30)
+        .x_label_area_size(50) // Increased for more space below horizontal axis label
         .y_label_area_size(50)
         .build_cartesian_2d(plot_config.x_range.clone(), plot_config.y_range.clone())?;
 
@@ -205,7 +206,7 @@ fn draw_single_axis_chart_with_config(
             }
         })
         .light_line_style(WHITE.mix(0.7))
-        .label_style(("sans-serif", 12))
+        .label_style(("sans-serif", FONT_SIZE_AXIS_LABEL))
         .draw()?;
 
     // Draw frequency range shading BEFORE series (so data appears on top)
@@ -345,7 +346,7 @@ fn draw_single_axis_chart_with_config(
             .position(SeriesLabelPosition::UpperRight)
             .background_style(WHITE.mix(0.8))
             .border_style(BLACK)
-            .label_font(("sans-serif", 12))
+            .label_font(("sans-serif", FONT_SIZE_LEGEND))
             .draw()?;
     }
 
@@ -407,7 +408,9 @@ fn draw_single_axis_chart_with_config(
             area.draw(&Text::new(
                 label_text,
                 (text_x, text_y),
-                ("sans-serif", 15).into_font().color(&BLACK),
+                ("sans-serif", FONT_SIZE_PEAK_LABEL)
+                    .into_font()
+                    .color(&BLACK),
             ))?;
         }
     }
@@ -443,7 +446,9 @@ where
     root_area.draw(&Text::new(
         root_name,
         (10, 10),
-        ("sans-serif", 24).into_font().color(&BLACK),
+        ("sans-serif", FONT_SIZE_MAIN_TITLE)
+            .into_font()
+            .color(&BLACK),
     ))?;
     let margined_root_area = root_area.margin(50, 5, 5, 5);
     let sub_plot_areas = margined_root_area.split_evenly((3, 1));
@@ -514,7 +519,9 @@ where
     root_area.draw(&Text::new(
         root_name,
         (10, 10),
-        ("sans-serif", 24).into_font().color(&BLACK),
+        ("sans-serif", FONT_SIZE_MAIN_TITLE)
+            .into_font()
+            .color(&BLACK),
     ))?;
     let margined_root_area = root_area.margin(50, 5, 5, 5);
     let sub_plot_areas = margined_root_area.split_evenly((3, 2));
@@ -579,9 +586,9 @@ fn draw_single_heatmap_chart(
     max_db: f64, // Use dynamic max_db instead of hardcoded value
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
-        .caption(chart_title, ("sans-serif", 20))
+        .caption(chart_title, ("sans-serif", FONT_SIZE_CHART_TITLE))
         .margin(5)
-        .x_label_area_size(30)
+        .x_label_area_size(50) // Increased for more space below horizontal axis label
         .y_label_area_size(50)
         .build_cartesian_2d(x_range.clone(), y_range.clone())?;
 
@@ -601,7 +608,7 @@ fn draw_single_heatmap_chart(
             }
         })
         .light_line_style(WHITE.mix(0.7))
-        .label_style(("sans-serif", 12))
+        .label_style(("sans-serif", FONT_SIZE_AXIS_LABEL))
         .draw()?;
 
     // Calculate bin widths for rectangle sizing
@@ -659,7 +666,9 @@ where
     root_area.draw(&Text::new(
         root_name,
         (10, 10),
-        ("sans-serif", 24).into_font().color(&BLACK),
+        ("sans-serif", FONT_SIZE_MAIN_TITLE)
+            .into_font()
+            .color(&BLACK),
     ))?;
     let margined_root_area = root_area.margin(50, 5, 5, 5);
     let sub_plot_areas = margined_root_area.split_evenly((3, 2));
