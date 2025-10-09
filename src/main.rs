@@ -73,7 +73,7 @@ use crate::pid_context::PidContext;
 use crate::data_analysis::calc_step_response;
 
 /// Expand input paths to a list of CSV files.
-/// If a path is a file, add it directly (will be filtered later for CSV extension).
+/// If a path is a file, validate CSV extension before adding.
 /// If a path is a directory, recursively find all CSV files within it.
 fn expand_input_paths(input_paths: &[String]) -> Result<Vec<String>, Box<dyn Error>> {
     let mut csv_files = Vec::new();
@@ -82,8 +82,19 @@ fn expand_input_paths(input_paths: &[String]) -> Result<Vec<String>, Box<dyn Err
         let input_path = Path::new(input_path_str);
 
         if input_path.is_file() {
-            // It's a file, add it directly
-            csv_files.push(input_path_str.clone());
+            // It's a file, validate CSV extension before adding
+            if let Some(extension) = input_path.extension() {
+                if extension.to_string_lossy().eq_ignore_ascii_case("csv") {
+                    csv_files.push(input_path_str.clone());
+                } else {
+                    eprintln!("Warning: Skipping non-CSV file: {}", input_path_str);
+                }
+            } else {
+                eprintln!(
+                    "Warning: Skipping file without extension: {}",
+                    input_path_str
+                );
+            }
         } else if input_path.is_dir() {
             // It's a directory, find all CSV files recursively
             let mut dir_csv_files = find_csv_files_in_dir(input_path)?;
