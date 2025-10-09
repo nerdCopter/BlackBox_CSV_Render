@@ -113,11 +113,42 @@ fn expand_input_paths(input_paths: &[String]) -> Result<Vec<String>, Box<dyn Err
 
 /// Recursively find all CSV files in a directory
 fn find_csv_files_in_dir(dir_path: &Path) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut visited = HashSet::new();
+    find_csv_files_in_dir_impl(dir_path, &mut visited)
+}
+
+/// Internal implementation with symlink loop protection
+fn find_csv_files_in_dir_impl(
+    dir_path: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<Vec<String>, Box<dyn Error>> {
     let mut csv_files = Vec::new();
 
     if !dir_path.is_dir() {
         return Ok(csv_files);
     }
+
+    // Canonicalize path to detect symlink loops
+    let canonical_path = match dir_path.canonicalize() {
+        Ok(path) => path,
+        Err(_) => {
+            eprintln!(
+                "Warning: Cannot canonicalize directory path: {}",
+                dir_path.display()
+            );
+            return Ok(csv_files);
+        }
+    };
+
+    // Check if we've already visited this directory (symlink loop detection)
+    if visited.contains(&canonical_path) {
+        eprintln!(
+            "Warning: Skipping directory due to symlink loop: {}",
+            dir_path.display()
+        );
+        return Ok(csv_files);
+    }
+    visited.insert(canonical_path);
 
     let entries = fs::read_dir(dir_path)?;
 
@@ -127,14 +158,18 @@ fn find_csv_files_in_dir(dir_path: &Path) -> Result<Vec<String>, Box<dyn Error>>
 
         if path.is_dir() {
             // Recursively search subdirectories
-            let mut sub_csv_files = find_csv_files_in_dir(&path)?;
+            let mut sub_csv_files = find_csv_files_in_dir_impl(&path, visited)?;
             csv_files.append(&mut sub_csv_files);
         } else if path.is_file() {
             // Check if it's a CSV file
             if let Some(extension) = path.extension() {
                 if extension.to_string_lossy().eq_ignore_ascii_case("csv") {
-                    if let Some(path_str) = path.to_str() {
-                        csv_files.push(path_str.to_string());
+                    match path.to_str() {
+                        Some(path_str) => csv_files.push(path_str.to_string()),
+                        None => eprintln!(
+                            "Warning: Skipping file with non-UTF-8 path: {}",
+                            path.display()
+                        ),
                     }
                 }
             }
