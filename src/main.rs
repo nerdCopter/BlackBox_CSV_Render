@@ -12,6 +12,7 @@ mod types;
 use std::collections::HashSet;
 use std::env;
 use std::error::Error;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use ndarray::Array1;
@@ -71,10 +72,74 @@ use crate::pid_context::PidContext;
 // Data analysis imports
 use crate::data_analysis::calc_step_response;
 
+/// Expand input paths to a list of CSV files.
+/// If a path is a file, add it directly (will be filtered later for CSV extension).
+/// If a path is a directory, recursively find all CSV files within it.
+fn expand_input_paths(input_paths: &[String]) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut csv_files = Vec::new();
+
+    for input_path_str in input_paths {
+        let input_path = Path::new(input_path_str);
+
+        if input_path.is_file() {
+            // It's a file, add it directly
+            csv_files.push(input_path_str.clone());
+        } else if input_path.is_dir() {
+            // It's a directory, find all CSV files recursively
+            let mut dir_csv_files = find_csv_files_in_dir(input_path)?;
+            csv_files.append(&mut dir_csv_files);
+        } else {
+            // Path doesn't exist or isn't accessible
+            eprintln!(
+                "Warning: Path not found or not accessible: {}",
+                input_path_str
+            );
+        }
+    }
+
+    Ok(csv_files)
+}
+
+/// Recursively find all CSV files in a directory
+fn find_csv_files_in_dir(dir_path: &Path) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut csv_files = Vec::new();
+
+    if !dir_path.is_dir() {
+        return Ok(csv_files);
+    }
+
+    let entries = fs::read_dir(dir_path)?;
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            // Recursively search subdirectories
+            let mut sub_csv_files = find_csv_files_in_dir(&path)?;
+            csv_files.append(&mut sub_csv_files);
+        } else if path.is_file() {
+            // Check if it's a CSV file
+            if let Some(extension) = path.extension() {
+                if extension.to_string_lossy().eq_ignore_ascii_case("csv") {
+                    if let Some(path_str) = path.to_str() {
+                        csv_files.push(path_str.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort the files for consistent ordering
+    csv_files.sort();
+    Ok(csv_files)
+}
+
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("
-Usage: {program_name} <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug]");
-    eprintln!("  <input_fileX.csv>: Path to one or more input CSV log files (required).");
+Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug]");
+    eprintln!("  <inputX>: Path to one or more input CSV log files or directories containing CSV files (required).");
+    eprintln!("            If a directory is specified, all CSV files within it (including subdirectories) will be processed.");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
     eprintln!("                 deg/s threshold value. Must be a positive number.");
     eprintln!("                 If --dps is omitted, a general step-response is shown.");
@@ -384,7 +449,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         print_usage_and_exit(program_name);
     }
 
-    let mut input_files: Vec<String> = Vec::new();
+    let mut input_paths: Vec<String> = Vec::new();
     let mut setpoint_threshold_override: Option<f64> = None;
     let mut dps_flag_present = false;
     let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
@@ -442,14 +507,28 @@ fn main() -> Result<(), Box<dyn Error>> {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
         } else {
-            input_files.push(arg.clone());
+            input_paths.push(arg.clone());
         }
         i += 1;
     }
 
-    if input_files.is_empty() {
-        eprintln!("Error: At least one input file is required.");
+    if input_paths.is_empty() {
+        eprintln!("Error: At least one input file or directory is required.");
         print_usage_and_exit(program_name);
+    }
+
+    // Expand input paths (files and directories) to a list of CSV files
+    let input_files = match expand_input_paths(&input_paths) {
+        Ok(files) => files,
+        Err(e) => {
+            eprintln!("Error expanding input paths: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    if input_files.is_empty() {
+        eprintln!("Error: No CSV files found in the specified input paths.");
+        std::process::exit(1);
     }
 
     let setpoint_threshold: f64;
@@ -476,16 +555,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut overall_success = true;
     for input_file_str in &input_files {
-        // Only process files with .csv extension (case-insensitive)
-        let is_csv = Path::new(input_file_str)
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("csv"))
-            .unwrap_or(false);
-        if !is_csv {
-            println!("Skipping non-CSV file: {input_file_str}");
-            continue;
-        }
         // Determine the actual output directory for this file
         let actual_output_dir = match &output_dir {
             None => {
