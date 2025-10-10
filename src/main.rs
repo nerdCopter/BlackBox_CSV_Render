@@ -75,7 +75,7 @@ use crate::data_analysis::calc_step_response;
 /// Expand input paths to a list of CSV files.
 /// If a path is a file, validate CSV extension before adding.
 /// If a path is a directory, recursively find all CSV files within it.
-fn expand_input_paths(input_paths: &[String]) -> Result<Vec<String>, Box<dyn Error>> {
+fn expand_input_paths(input_paths: &[String]) -> Vec<String> {
     let mut csv_files = Vec::new();
 
     for input_path_str in input_paths {
@@ -97,8 +97,13 @@ fn expand_input_paths(input_paths: &[String]) -> Result<Vec<String>, Box<dyn Err
             }
         } else if input_path.is_dir() {
             // It's a directory, find all CSV files recursively
-            let mut dir_csv_files = find_csv_files_in_dir(input_path)?;
-            csv_files.append(&mut dir_csv_files);
+            match find_csv_files_in_dir(input_path) {
+                Ok(mut dir_csv_files) => csv_files.append(&mut dir_csv_files),
+                Err(err) => eprintln!(
+                    "Warning: Error processing directory {}: {}",
+                    input_path_str, err
+                ),
+            }
         } else {
             // Path doesn't exist or isn't accessible
             eprintln!(
@@ -108,7 +113,7 @@ fn expand_input_paths(input_paths: &[String]) -> Result<Vec<String>, Box<dyn Err
         }
     }
 
-    Ok(csv_files)
+    csv_files
 }
 
 /// Recursively find all CSV files in a directory
@@ -590,13 +595,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Expand input paths (files and directories) to a list of CSV files
-    let input_files = match expand_input_paths(&input_paths) {
-        Ok(files) => files,
-        Err(e) => {
-            eprintln!("Error expanding input paths: {e}");
-            std::process::exit(1);
-        }
-    };
+    let input_files = expand_input_paths(&input_paths);
 
     if input_files.is_empty() {
         eprintln!("Error: No CSV files found in the specified input paths.");
