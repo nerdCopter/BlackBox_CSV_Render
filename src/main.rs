@@ -524,20 +524,33 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
                             if let Some(current_pd_ratio) = current_ratio {
                                 // Analyze overshoot/undershoot and calculate recommended ratio
+                                // Peak ranges: 1.05-1.10 = excellent, 1.11-1.15 = good but improvable, >1.15 = needs more D
                                 let (assessment, recommended_ratio) = if peak_value > 1.20 {
-                                    ("Significant overshoot", current_pd_ratio * 0.75)
-                                // Increase D by ~33%
-                                } else if peak_value > 1.05 {
-                                    ("Minor overshoot", current_pd_ratio * 0.90)
-                                // Increase D by ~11%
+                                    // Severe overshoot - conservative increase (don't jump all the way)
+                                    ("Significant overshoot", current_pd_ratio * 0.85)
+                                // Increase D by ~18%
+                                } else if peak_value > 1.15 {
+                                    // Moderate overshoot - small increase
+                                    ("Moderate overshoot", current_pd_ratio * 0.93)
+                                // Increase D by ~8%
+                                } else if peak_value > 1.10 {
+                                    // Minor overshoot - tiny adjustment
+                                    ("Minor overshoot", current_pd_ratio * 0.97)
+                                // Increase D by ~3%
+                                } else if peak_value >= 1.05 {
+                                    // Excellent range - no change needed
+                                    ("Excellent response", current_pd_ratio) // Perfect
                                 } else if peak_value >= 0.95 {
-                                    ("Well damped", current_pd_ratio) // Good as-is
-                                } else if peak_value >= 0.80 {
-                                    ("Minor undershoot", current_pd_ratio * 1.10)
-                                // Decrease D by ~9%
+                                    // Slight underdamping is acceptable
+                                    ("Good response", current_pd_ratio) // Still good
+                                } else if peak_value >= 0.85 {
+                                    // Minor undershoot - small decrease
+                                    ("Minor undershoot", current_pd_ratio * 1.05)
+                                // Decrease D by ~5%
                                 } else {
-                                    ("Significant undershoot", current_pd_ratio * 1.30)
-                                    // Decrease D by ~23%
+                                    // Significant undershoot - moderate decrease
+                                    ("Significant undershoot", current_pd_ratio * 1.15)
+                                    // Decrease D by ~13%
                                 };
                                 // store recommendation for later use in plots
                                 recommended_pd[axis_index] = Some(recommended_ratio);
@@ -572,9 +585,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         axis_pid.p,
                                         axis_pid.calculate_goal_d_for_ratio(recommended_ratio),
                                     ) {
-                                        println!("  Current P:D={current_pd_ratio:.2} → Recommended P:D={recommended_ratio:.2} (D≈{recommended_d} for P={p_val})");
+                                        println!("  Current P:D={current_pd_ratio:.2} → Conservative recommendation: P:D={recommended_ratio:.2} (D≈{recommended_d} for P={p_val})");
                                     } else {
-                                        println!("  Current P:D={current_pd_ratio:.2} → Recommended P:D={recommended_ratio:.2}");
+                                        println!("  Current P:D={current_pd_ratio:.2} → Conservative recommendation: P:D={recommended_ratio:.2}");
                                     }
                                 } else {
                                     println!("  Current P:D={current_pd_ratio:.2} seems fair");

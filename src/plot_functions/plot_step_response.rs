@@ -354,11 +354,14 @@ pub fn plot_step_response(
                             if let Some(rec_pd) = recommended_pd[axis_index] {
                                 if let Some(rec_d) = recommended_d[axis_index] {
                                     title.push_str(&format!(
-                                        " | Recommended P:D={:.2} (D≈{} )",
+                                        " | Conservative recommendation: P:D={:.2} (D≈{} )",
                                         rec_pd, rec_d
                                     ));
                                 } else {
-                                    title.push_str(&format!(" | Recommended P:D={:.2}", rec_pd));
+                                    title.push_str(&format!(
+                                        " | Conservative recommendation: P:D={:.2}",
+                                        rec_pd
+                                    ));
                                 }
                             }
                         }
