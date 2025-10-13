@@ -35,8 +35,62 @@ pub struct AxisPid {
 }
 
 impl AxisPid {
+    /// Calculate P:D ratio (P divided by D)
+    /// Returns None if P or D is missing, or if D is 0
+    /// Uses D-Min if available and non-zero, otherwise uses D
+    pub fn calculate_pd_ratio(&self) -> Option<f64> {
+        let p_val = self.p?;
+
+        // Determine which D value to use: prefer D-Min if available and non-zero, otherwise use D
+        let d_val = if let Some(d_min) = self.d_min {
+            if d_min > 0 {
+                d_min
+            } else if let Some(d) = self.d {
+                d
+            } else {
+                return None;
+            }
+        } else if let Some(d) = self.d {
+            d
+        } else {
+            return None;
+        };
+
+        if d_val == 0 {
+            return None; // Avoid division by zero
+        }
+
+        Some((p_val as f64) / (d_val as f64))
+    }
+
+    /// Calculate the recommended D value to achieve a target P:D ratio
+    /// Returns None if P is missing
+    /// Default target ratio is 1.4 (recommended for good damping)
+    pub fn calculate_goal_d_for_ratio(&self, target_ratio: f64) -> Option<u32> {
+        let p_val = self.p?;
+
+        if target_ratio <= 0.0 {
+            return None; // Invalid target ratio
+        }
+
+        // Calculate D = P / target_ratio
+        let recommended_d = (p_val as f64) / target_ratio;
+        Some(recommended_d.round() as u32)
+    }
+
     /// Format PID values for display with firmware-specific terminology
+    /// If show_pd_ratio is true and ratio can be calculated, appends P:D ratio
     pub fn format_for_title(&self, firmware_type: &FirmwareType) -> String {
+        self.format_for_title_with_ratio(firmware_type, false)
+    }
+
+    /// Format PID values for display with firmware-specific terminology and optional P:D ratio
+    /// If show_pd_ratio is true and ratio can be calculated, appends P:D ratio
+    pub fn format_for_title_with_ratio(
+        &self,
+        firmware_type: &FirmwareType,
+        show_pd_ratio: bool,
+    ) -> String {
         let mut parts = Vec::new();
 
         if let Some(p) = self.p {
@@ -75,6 +129,7 @@ impl AxisPid {
             _ => {}
         }
 
+        // Add FF before P:D ratio
         if let Some(ff) = self.ff {
             if ff > 0 {
                 let ff_label = match firmware_type {
@@ -82,6 +137,17 @@ impl AxisPid {
                     _ => "FF",
                 };
                 parts.push(format!("{ff_label}:{ff}"));
+            }
+        }
+
+        // Add P:D ratio if requested and calculable (separated by hyphen for readability)
+        if show_pd_ratio {
+            if let Some(pd_ratio) = self.calculate_pd_ratio() {
+                if parts.is_empty() {
+                    return format!(" - P:D={pd_ratio:.2}");
+                } else {
+                    return format!(" - {} - P:D={pd_ratio:.2}", parts.join(" "));
+                }
             }
         }
 
@@ -806,5 +872,182 @@ mod tests {
         assert_eq!(pid_data.roll.i, Some(56));
         assert_eq!(pid_data.roll.d, Some(21));
         assert_eq!(pid_data.roll.ff, Some(84));
+    }
+
+    #[test]
+    fn test_pd_ratio_calculation() {
+        // Test normal P:D ratio calculation
+        let axis_pid = AxisPid {
+            p: Some(54),
+            i: Some(60),
+            d: Some(32),
+            d_min: None,
+            d_max: None,
+            ff: None,
+        };
+        let ratio = axis_pid.calculate_pd_ratio().unwrap();
+        assert!((ratio - 1.6875).abs() < 0.001); // 54/32 = 1.6875
+
+        // Test with D-Min (should use D-Min preferentially)
+        let axis_pid_dmin = AxisPid {
+            p: Some(60),
+            i: Some(65),
+            d: Some(40),
+            d_min: Some(36),
+            d_max: Some(45),
+            ff: None,
+        };
+        let ratio_dmin = axis_pid_dmin.calculate_pd_ratio().unwrap();
+        assert!((ratio_dmin - 1.6667).abs() < 0.001); // 60/36 = 1.6667 (uses d_min)
+
+        // Test edge case: P is 0 (should still calculate, though unusual)
+        let axis_pid_p_zero = AxisPid {
+            p: Some(0),
+            i: Some(50),
+            d: Some(30),
+            d_min: None,
+            d_max: None,
+            ff: None,
+        };
+        let ratio_p_zero = axis_pid_p_zero.calculate_pd_ratio().unwrap();
+        assert_eq!(ratio_p_zero, 0.0);
+    }
+
+    #[test]
+    fn test_pd_ratio_none_cases() {
+        // Test when P is missing
+        let axis_pid_no_p = AxisPid {
+            p: None,
+            i: Some(60),
+            d: Some(32),
+            d_min: None,
+            d_max: None,
+            ff: None,
+        };
+        assert_eq!(axis_pid_no_p.calculate_pd_ratio(), None);
+
+        // Test when D is missing
+        let axis_pid_no_d = AxisPid {
+            p: Some(54),
+            i: Some(60),
+            d: None,
+            d_min: None,
+            d_max: None,
+            ff: None,
+        };
+        assert_eq!(axis_pid_no_d.calculate_pd_ratio(), None);
+
+        // Test when D is 0
+        let axis_pid_d_zero = AxisPid {
+            p: Some(54),
+            i: Some(60),
+            d: Some(0),
+            d_min: None,
+            d_max: None,
+            ff: None,
+        };
+        assert_eq!(axis_pid_d_zero.calculate_pd_ratio(), None);
+
+        // Test when D-Min is 0 but D is valid (should use D)
+        let axis_pid_dmin_zero = AxisPid {
+            p: Some(54),
+            i: Some(60),
+            d: Some(32),
+            d_min: Some(0),
+            d_max: None,
+            ff: None,
+        };
+        let ratio = axis_pid_dmin_zero.calculate_pd_ratio().unwrap();
+        assert!((ratio - 1.6875).abs() < 0.001); // Falls back to d=32
+    }
+
+    #[test]
+    fn test_goal_d_calculation() {
+        // Test calculation for target ratio of 1.4
+        let axis_pid = AxisPid {
+            p: Some(54),
+            i: Some(60),
+            d: Some(32),
+            d_min: None,
+            d_max: None,
+            ff: None,
+        };
+        let goal_d = axis_pid.calculate_goal_d_for_ratio(1.4).unwrap();
+        assert_eq!(goal_d, 39); // 54 / 1.4 = 38.57, rounds to 39
+
+        // Test with different P value
+        let axis_pid2 = AxisPid {
+            p: Some(60),
+            i: Some(65),
+            d: Some(36),
+            d_min: None,
+            d_max: None,
+            ff: None,
+        };
+        let goal_d2 = axis_pid2.calculate_goal_d_for_ratio(1.4).unwrap();
+        assert_eq!(goal_d2, 43); // 60 / 1.4 = 42.86, rounds to 43
+
+        // Test when P is None
+        let axis_pid_no_p = AxisPid {
+            p: None,
+            i: Some(60),
+            d: Some(32),
+            d_min: None,
+            d_max: None,
+            ff: None,
+        };
+        assert_eq!(axis_pid_no_p.calculate_goal_d_for_ratio(1.4), None);
+
+        // Test with invalid target ratio
+        assert_eq!(axis_pid.calculate_goal_d_for_ratio(0.0), None);
+        assert_eq!(axis_pid.calculate_goal_d_for_ratio(-1.0), None);
+    }
+
+    #[test]
+    fn test_format_with_pd_ratio() {
+        // Test formatting with P:D ratio included (separated by hyphen)
+        let axis_pid = AxisPid {
+            p: Some(54),
+            i: Some(60),
+            d: Some(32),
+            d_min: None,
+            d_max: None,
+            ff: Some(100),
+        };
+
+        // Without ratio
+        let formatted_no_ratio = axis_pid.format_for_title(&FirmwareType::Betaflight);
+        assert_eq!(formatted_no_ratio, " - P:54 I:60 D:32 FF:100");
+
+        // With ratio (note: hyphen separator before P:D ratio)
+        let formatted_with_ratio =
+            axis_pid.format_for_title_with_ratio(&FirmwareType::Betaflight, true);
+        assert_eq!(formatted_with_ratio, " - P:54 I:60 D:32 FF:100 - P:D=1.69");
+
+        // Test with D-Min/D-Max and ratio (hyphen separator)
+        let axis_pid_dmin = AxisPid {
+            p: Some(60),
+            i: Some(65),
+            d: Some(40),
+            d_min: Some(36),
+            d_max: Some(45),
+            ff: None,
+        };
+        let formatted_dmin_ratio =
+            axis_pid_dmin.format_for_title_with_ratio(&FirmwareType::Betaflight, true);
+        assert_eq!(formatted_dmin_ratio, " - P:60 I:65 D:36/45 - P:D=1.67");
+
+        // Test when ratio can't be calculated (no hyphen separator needed)
+        let axis_pid_no_d = AxisPid {
+            p: Some(54),
+            i: Some(60),
+            d: None,
+            d_min: None,
+            d_max: None,
+            ff: None,
+        };
+        let formatted_no_d =
+            axis_pid_no_d.format_for_title_with_ratio(&FirmwareType::Betaflight, true);
+        assert_eq!(formatted_no_d, " - P:54 I:60"); // No P:D ratio shown
     }
 }

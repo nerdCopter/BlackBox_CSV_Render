@@ -15,6 +15,7 @@ use crate::data_input::pid_metadata::PidMetadata;
 use crate::plot_framework::{calculate_range, draw_stacked_plot, PlotSeries};
 use crate::types::{AllStepResponsePlotData, StepResponseResults};
 
+#[allow(clippy::too_many_arguments)]
 /// Generates the Stacked Step Response Plot (Blue, Orange, Red)
 pub fn plot_step_response(
     step_response_results: &StepResponseResults,
@@ -24,8 +25,8 @@ pub fn plot_step_response(
     setpoint_threshold: f64,
     show_legend: bool,
     pid_metadata: &PidMetadata,
-    // Add axis_index_for_debug if you uncomment debug prints in process_response
-    // axis_index_for_debug: usize, // Uncomment if using debug prints
+    recommended_pd: &[Option<f64>; 3],
+    recommended_d: &[Option<u32>; 3],
 ) -> Result<(), Box<dyn Error>> {
     let step_response_plot_duration_s = RESPONSE_LENGTH_S;
     let steady_state_start_s_const = STEADY_STATE_START_S; // from constants
@@ -338,11 +339,28 @@ pub fn plot_step_response(
                     let mut title = format!("{} Step Response", AXIS_NAMES[axis_index]);
 
                     // Add PID information to the title using firmware-specific terminology
+                    // Include P:D ratio for Roll (0) and Pitch (1), but not for Yaw (2)
                     if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
                         let firmware_type = pid_metadata.get_firmware_type();
-                        let pid_info = axis_pid.format_for_title(firmware_type);
+                        let show_pd_ratio = axis_index < 2; // Show ratio for Roll and Pitch only
+                        let pid_info =
+                            axis_pid.format_for_title_with_ratio(firmware_type, show_pd_ratio);
                         if !pid_info.is_empty() {
                             title.push_str(&pid_info);
+                        }
+
+                        // Add recommended PD/D values for Roll/Pitch if available
+                        if axis_index < 2 {
+                            if let Some(rec_pd) = recommended_pd[axis_index] {
+                                if let Some(rec_d) = recommended_d[axis_index] {
+                                    title.push_str(&format!(
+                                        " | Recommended P:D={:.2} (D≈{} )",
+                                        rec_pd, rec_d
+                                    ));
+                                } else {
+                                    title.push_str(&format!(" | Recommended P:D={:.2}", rec_pd));
+                                }
+                            }
                         }
                     }
 

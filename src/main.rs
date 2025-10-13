@@ -322,6 +322,37 @@ fn process_file(
     // Parse PID metadata from headers
     let pid_metadata = parse_pid_metadata(&header_metadata);
 
+    // Display P:D ratios for tuning analysis (Roll and Pitch only)
+    // Note: Each aircraft may have different optimal P:D ratios depending on frame,
+    // motors, props, etc. Goal ratio should be determined from step response analysis.
+    println!("\n--- PID Tuning Analysis ---");
+
+    // Roll axis
+    if let Some(roll_ratio) = pid_metadata.roll.calculate_pd_ratio() {
+        println!("Roll P:D Ratio: {:.2}", roll_ratio);
+    } else {
+        println!("Roll P:D Ratio: N/A (insufficient PID data)");
+    }
+
+    // Pitch axis
+    if let Some(pitch_ratio) = pid_metadata.pitch.calculate_pd_ratio() {
+        println!("Pitch P:D Ratio: {:.2}", pitch_ratio);
+    } else {
+        println!("Pitch P:D Ratio: N/A (insufficient PID data)");
+    }
+
+    // Yaw axis (informational only - different tuning philosophy)
+    if let Some(yaw_ratio) = pid_metadata.yaw.calculate_pd_ratio() {
+        println!(
+            "Yaw P:D Ratio: {:.2} (informational - yaw tuning differs from roll/pitch)",
+            yaw_ratio
+        );
+    } else {
+        println!("Yaw P:D Ratio: N/A (yaw often uses minimal or no D-term)");
+    }
+    println!("Note: Optimal P:D ratio varies per aircraft. Check step response for overshoot/undershoot.");
+    println!();
+
     let mut has_nonzero_f_term_data = [false; 3];
     for axis in 0..crate::axis_names::AXIS_NAMES.len() {
         if f_term_header_found[axis]
@@ -413,6 +444,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     );
     let mut step_response_calculation_results: StepResponseResults = [None, None, None];
 
+    // Recommended P:D ratio and D values computed from step response analysis
+    let mut recommended_pd: [Option<f64>; 3] = [None, None, None];
+    let mut recommended_d: [Option<u32>; 3] = [None, None, None];
+
     if let Some(sr) = sample_rate {
         for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
@@ -457,6 +492,102 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         println!("    ... No sample rate available. Skipping step response calculations.");
     }
 
+    // Analyze step response and provide P:D ratio recommendations based on overshoot/undershoot
+    if sample_rate.is_some() {
+        println!("\n--- Step Response Analysis & P:D Ratio Recommendations ---");
+        for axis_index in 0..2 {
+            // Only Roll (0) and Pitch (1)
+            let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
+
+            if let Some((response_time, valid_stacked_responses, _valid_window_max_setpoints)) =
+                &step_response_calculation_results[axis_index]
+            {
+                if valid_stacked_responses.shape()[0] > 0 && !response_time.is_empty() {
+                    // Calculate average response to analyze
+                    let num_windows = valid_stacked_responses.shape()[0];
+                    let response_length = response_time.len();
+                    let mask = Array1::ones(num_windows);
+
+                    if let Ok(avg_response) = calc_step_response::average_responses(
+                        valid_stacked_responses,
+                        &mask,
+                        response_length,
+                    ) {
+                        // Find peak value
+                        if let Some(peak_value) = calc_step_response::find_peak_value(&avg_response)
+                        {
+                            let current_ratio = if axis_index == 0 {
+                                pid_metadata.roll.calculate_pd_ratio()
+                            } else {
+                                pid_metadata.pitch.calculate_pd_ratio()
+                            };
+
+                            if let Some(current_pd_ratio) = current_ratio {
+                                // Analyze overshoot/undershoot and calculate recommended ratio
+                                let (assessment, recommended_ratio) = if peak_value > 1.20 {
+                                    ("Significant overshoot", current_pd_ratio * 0.75)
+                                // Increase D by ~33%
+                                } else if peak_value > 1.05 {
+                                    ("Minor overshoot", current_pd_ratio * 0.90)
+                                // Increase D by ~11%
+                                } else if peak_value >= 0.95 {
+                                    ("Well damped", current_pd_ratio) // Good as-is
+                                } else if peak_value >= 0.80 {
+                                    ("Minor undershoot", current_pd_ratio * 1.10)
+                                // Decrease D by ~9%
+                                } else {
+                                    ("Significant undershoot", current_pd_ratio * 1.30)
+                                    // Decrease D by ~23%
+                                };
+                                // store recommendation for later use in plots
+                                recommended_pd[axis_index] = Some(recommended_ratio);
+                                if let Some(_axis_pid_p) = if axis_index == 0 {
+                                    pid_metadata.roll.p
+                                } else {
+                                    pid_metadata.pitch.p
+                                } {
+                                    // calculate recommended D for the recommended ratio
+                                    if let Some(rec_d) = if axis_index == 0 {
+                                        pid_metadata
+                                            .roll
+                                            .calculate_goal_d_for_ratio(recommended_ratio)
+                                    } else {
+                                        pid_metadata
+                                            .pitch
+                                            .calculate_goal_d_for_ratio(recommended_ratio)
+                                    } {
+                                        recommended_d[axis_index] = Some(rec_d);
+                                    }
+                                }
+
+                                println!("{axis_name}: Peak={peak_value:.3} → {assessment}");
+                                if (recommended_ratio - current_pd_ratio).abs() > 0.05 {
+                                    let axis_pid = if axis_index == 0 {
+                                        &pid_metadata.roll
+                                    } else {
+                                        &pid_metadata.pitch
+                                    };
+
+                                    if let (Some(p_val), Some(recommended_d)) = (
+                                        axis_pid.p,
+                                        axis_pid.calculate_goal_d_for_ratio(recommended_ratio),
+                                    ) {
+                                        println!("  Current P:D={current_pd_ratio:.2} → Recommended P:D={recommended_ratio:.2} (D≈{recommended_d} for P={p_val})");
+                                    } else {
+                                        println!("  Current P:D={current_pd_ratio:.2} → Recommended P:D={recommended_ratio:.2}");
+                                    }
+                                } else {
+                                    println!("  Current P:D={current_pd_ratio:.2} seems fair");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        println!();
+    }
+
     // Create RAII guard BEFORE changing directory if needed
     let _cwd_guard = if let Some(output_dir) = output_dir {
         // Create guard to save current directory BEFORE changing it
@@ -485,6 +616,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         setpoint_threshold,
         show_legend,
         &pid_context.pid_metadata,
+        &recommended_pd,
+        &recommended_d,
     )?;
     plot_gyro_spectrums(
         &all_log_data,
