@@ -57,9 +57,9 @@ impl AxisPid {
                 Some(format!("D:{}", d.unwrap_or(min)))
             }
             // Only D-Min present (no D-Max)
-            // If base D exists and differs, show base/mini (base first), otherwise just show D-Min
+            // If base D exists and differs, show min/base (min first to maintain min/max ordering)
             (Some(min), None) if min > 0 => match d {
-                Some(base) if base != min => Some(format!("D:{}/{}", base, min)),
+                Some(base) if base != min => Some(format!("D:{min}/{base}")),
                 _ => Some(format!("D:{min}")),
             },
             // Only D-Max present and base D is missing - show D-Max directly
