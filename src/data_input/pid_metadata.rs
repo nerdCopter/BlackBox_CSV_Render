@@ -37,24 +37,15 @@ pub struct AxisPid {
 impl AxisPid {
     /// Calculate P:D ratio (P divided by D)
     /// Returns None if P or D is missing, or if D is 0
-    /// Uses D-Min if available and non-zero, otherwise uses D
+    /// Uses base D value (not D-Min) when D-Min/D-Max is configured
+    /// This represents the "setpoint" D value that D-Min/D-Max modulates around
     pub fn calculate_pd_ratio(&self) -> Option<f64> {
         let p_val = self.p?;
 
-        // Determine which D value to use: prefer D-Min if available and non-zero, otherwise use D
-        let d_val = if let Some(d_min) = self.d_min {
-            if d_min > 0 {
-                d_min
-            } else if let Some(d) = self.d {
-                d
-            } else {
-                return None;
-            }
-        } else if let Some(d) = self.d {
-            d
-        } else {
-            return None;
-        };
+        // Use base D value - this is what the user sets and what D-Min/D-Max modulate around
+        // When D-Min/D-Max are disabled (both 0 or one is 0), base D is the actual D
+        // When D-Min/D-Max are enabled, base D is still the reference value for tuning
+        let d_val = self.d?;
 
         if d_val == 0 {
             return None; // Avoid division by zero
