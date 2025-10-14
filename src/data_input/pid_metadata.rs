@@ -149,9 +149,8 @@ impl PidMetadata {
     }
 
     /// Check if D-Min/D-Max dynamic D is enabled
-    /// Returns true if either gain, advance, or simplified gain is non-zero
-    /// Per Betaflight docs: "Either Gain, or Advance, must be set above about 20,
-    /// or D will not increase as it should. Setting both to zero will lock D at the base value."
+    /// Returns true if any control parameter (gain, advance, or simplified gain) is non-zero (system not locked at base D).
+    /// Note: Betaflight docs suggest values above ~20 for effective D boost; lower non-zero values technically enable the system but may not provide meaningful boost.
     pub fn is_dmax_enabled(&self) -> bool {
         self.d_max_gain.is_some_and(|g| g > 0)
             || self.d_max_advance.is_some_and(|a| a > 0)
