@@ -35,6 +35,36 @@ pub struct AxisPid {
 }
 
 impl AxisPid {
+    /// Format D term with dynamic range support (D-Min/D-Max)
+    ///
+    /// Decision tree when D-Max system is enabled:
+    /// 1. If D-Min != D-Max and both non-zero → show "D:min/max" range
+    /// 2. If only D-Min or D-Max is non-zero → show that single value
+    /// 3. If D-Min == D-Max and both non-zero → show base D value (or D-Min if D is missing)
+    /// 4. Fallback to base D value if available
+    fn format_d_term(d: Option<u32>, d_min: Option<u32>, d_max: Option<u32>) -> Option<String> {
+        match (d_min, d_max) {
+            // Both D-Min and D-Max available and different - show range
+            (Some(min), Some(max)) if min != max && min > 0 && max > 0 => {
+                Some(format!("D:{min}/{max}"))
+            }
+            // D-Min non-zero but D-Max is zero - show only D-Min
+            (Some(min), Some(0)) if min > 0 => Some(format!("D:{min}")),
+            // D-Max non-zero but D-Min is zero - show only D-Max
+            (Some(0), Some(max)) if max > 0 => Some(format!("D:{max}")),
+            // D-Min and D-Max are equal and non-zero - prefer base D, fallback to D-Min
+            (Some(min), Some(max)) if min == max && min > 0 => {
+                Some(format!("D:{}", d.unwrap_or(min)))
+            }
+            // Only D-Max available (no D-Min) and different from base D
+            (None, Some(max)) if d.is_some() && d != Some(max) && max > 0 => {
+                Some(format!("D:{}/{max}", d.unwrap()))
+            }
+            // Fallback to base D value
+            _ => d.map(|v| format!("D:{v}")),
+        }
+    }
+
     /// Format PID values for display with firmware-specific terminology
     /// dmax_enabled: Set to true only if D-Min/D-Max system is actively enabled
     /// (i.e., at least one of d_max_gain, d_max_advance, or simplified_d_max_gain is > 0)
@@ -49,38 +79,9 @@ impl AxisPid {
         }
 
         // Handle D, D-Min, and D-Max formatting
-        // Only show D:min/max format if D-Max system is actively enabled
         if dmax_enabled {
-            match (self.d, self.d_min, self.d_max) {
-                (None, Some(d_min), Some(d_max)) if d_min == d_max && d_min > 0 => {
-                    // Show D:XX format when D is missing but D-Min and D-Max are equal and non-zero
-                    parts.push(format!("D:{d_min}"));
-                }
-                (_, Some(d_min), Some(d_max)) if d_min != d_max && d_min > 0 && d_max > 0 => {
-                    // Show D:min/max format when D-Min and D-Max are different and both non-zero
-                    parts.push(format!("D:{d_min}/{d_max}"));
-                }
-                (_, Some(d_min), Some(d_max)) if d_min != d_max && d_min > 0 && d_max == 0 => {
-                    // Show D:min format when D-Max is zero (don't show /0)
-                    parts.push(format!("D:{d_min}"));
-                }
-                (_, Some(d_min), Some(d_max)) if d_min != d_max && d_min == 0 && d_max > 0 => {
-                    // Show D:max format when D-Min is zero (don't show 0/)
-                    parts.push(format!("D:{d_max}"));
-                }
-                (Some(d), Some(_d_min), Some(_d_max)) => {
-                    // Show D:XX format when D-Min and D-Max are the same (use actual D value)
-                    parts.push(format!("D:{d}"));
-                }
-                (Some(d), None, Some(d_max)) if d != d_max && d_max > 0 => {
-                    // Show D:XX/XX format when only D-Max is available, different from D, and non-zero
-                    parts.push(format!("D:{d}/{d_max}"));
-                }
-                (Some(d), _, _) => {
-                    // Fallback to simple D:XX
-                    parts.push(format!("D:{d}"));
-                }
-                _ => {}
+            if let Some(d_str) = Self::format_d_term(self.d, self.d_min, self.d_max) {
+                parts.push(d_str);
             }
         } else {
             // D-Max system disabled - show only base D value
