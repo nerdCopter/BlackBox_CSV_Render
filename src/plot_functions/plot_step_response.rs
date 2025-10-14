@@ -334,39 +334,50 @@ pub fn plot_step_response(
             let x_range = 0f64..step_response_plot_duration_s * 1.05; // Add a little padding to x-axis
             let y_range = final_resp_min..final_resp_max;
 
+            // Add current and recommended P:D ratio as legend entries for Roll/Pitch
+            if axis_index < 2 {
+                // Current P:D ratio from pid_metadata
+                if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
+                    if let Some(current_pd) = axis_pid.calculate_pd_ratio() {
+                        let current_label = format!("Current P:D={:.2}", current_pd);
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: current_label,
+                            color: RGBColor(60, 60, 60), // Darker gray for current
+                            stroke_width: 0,             // Invisible legend line
+                        });
+                    }
+                }
+                // Conservative recommendation
+                if let Some(rec_pd) = recommended_pd[axis_index] {
+                    let recommendation_label = if let Some(rec_d) = recommended_d[axis_index] {
+                        format!(
+                            "Conservative recommendation: P:D={:.2} (D≈{})",
+                            rec_pd, rec_d
+                        )
+                    } else {
+                        format!("Conservative recommendation: P:D={:.2}", rec_pd)
+                    };
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: recommendation_label,
+                        color: RGBColor(120, 120, 120), // Gray color for recommendation text
+                        stroke_width: 0,                // Invisible legend line
+                    });
+                }
+            }
+
             plot_data_per_axis[axis_index] = Some((
                 {
                     let mut title = format!("{} Step Response", AXIS_NAMES[axis_index]);
-
-                    // Add PID information to the title using firmware-specific terminology
-                    // Include P:D ratio for Roll (0) and Pitch (1), but not for Yaw (2)
+                    // Add PID information to the title using firmware-specific terminology (no P:D ratio)
                     if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
                         let firmware_type = pid_metadata.get_firmware_type();
-                        let show_pd_ratio = axis_index < 2; // Show ratio for Roll and Pitch only
-                        let pid_info =
-                            axis_pid.format_for_title_with_ratio(firmware_type, show_pd_ratio);
+                        let pid_info = axis_pid.format_for_title(firmware_type);
                         if !pid_info.is_empty() {
                             title.push_str(&pid_info);
                         }
-
-                        // Add recommended PD/D values for Roll/Pitch if available
-                        if axis_index < 2 {
-                            if let Some(rec_pd) = recommended_pd[axis_index] {
-                                if let Some(rec_d) = recommended_d[axis_index] {
-                                    title.push_str(&format!(
-                                        " | Conservative recommendation: P:D={:.2} (D≈{} )",
-                                        rec_pd, rec_d
-                                    ));
-                                } else {
-                                    title.push_str(&format!(
-                                        " | Conservative recommendation: P:D={:.2}",
-                                        rec_pd
-                                    ));
-                                }
-                            }
-                        }
                     }
-
                     // Keep original invalidity logic from master - same for all firmware types
                     if has_nonzero_f_term_data[axis_index] {
                         title.push_str(" - Invalid due to Feed-Forward");
