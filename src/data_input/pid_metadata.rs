@@ -868,6 +868,31 @@ mod tests {
     }
 
     #[test]
+    fn test_format_d_term_edge_cases() {
+        // Only D-Min present, base D differs
+        let axis_only_dmin = AxisPid {
+            d: Some(50),
+            d_min: Some(30),
+            d_max: None,
+            ..Default::default()
+        };
+        assert!(axis_only_dmin
+            .format_for_title(&FirmwareType::Betaflight, true)
+            .contains("D:30/50"));
+
+        // Only D-Max present, no base D
+        let axis_only_dmax_no_base = AxisPid {
+            d: None,
+            d_min: None,
+            d_max: Some(80),
+            ..Default::default()
+        };
+        assert!(axis_only_dmax_no_base
+            .format_for_title(&FirmwareType::Betaflight, true)
+            .contains("D:80"));
+    }
+
+    #[test]
     fn test_is_dmax_enabled() {
         // Test D-Max disabled when all parameters are zero
         let pid_data_disabled = PidMetadata {
