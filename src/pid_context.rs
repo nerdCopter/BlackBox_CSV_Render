@@ -49,7 +49,8 @@ impl PidContext {
 
         if let Some(axis_pid) = self.pid_metadata.get_axis(axis_index) {
             let firmware_type = self.pid_metadata.get_firmware_type();
-            let pid_info = axis_pid.format_for_title(firmware_type);
+            let dmax_enabled = self.pid_metadata.is_dmax_enabled();
+            let pid_info = axis_pid.format_for_title(firmware_type, dmax_enabled);
 
             if pid_info.is_empty() {
                 axis_name.to_string()

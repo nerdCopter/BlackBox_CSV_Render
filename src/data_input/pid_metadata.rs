@@ -35,8 +35,48 @@ pub struct AxisPid {
 }
 
 impl AxisPid {
+    /// Format D term with dynamic range support (D-Min/D-Max)
+    ///
+    /// Decision tree when D-Max system is enabled:
+    /// 1. If D-Min != D-Max and both non-zero → show "D:min/max" range
+    /// 2. If only D-Min or D-Max is non-zero → show that single value
+    /// 3. If D-Min == D-Max and both non-zero → show base D value (or D-Min if D is missing)
+    /// 4. Fallback to base D value if available
+    fn format_d_term(d: Option<u32>, d_min: Option<u32>, d_max: Option<u32>) -> Option<String> {
+        match (d_min, d_max) {
+            // Both D-Min and D-Max available and different - show range
+            (Some(min), Some(max)) if min != max && min > 0 && max > 0 => {
+                Some(format!("D:{min}/{max}"))
+            }
+            // D-Min non-zero but D-Max is zero - show only D-Min
+            (Some(min), Some(0)) if min > 0 => Some(format!("D:{min}")),
+            // D-Max non-zero but D-Min is zero - show only D-Max
+            (Some(0), Some(max)) if max > 0 => Some(format!("D:{max}")),
+            // D-Min and D-Max are equal and non-zero - prefer base D, fallback to D-Min
+            (Some(min), Some(max)) if min == max && min > 0 => {
+                Some(format!("D:{}", d.unwrap_or(min)))
+            }
+            // Only D-Min present (no D-Max)
+            // If base D exists and differs, show min/base (min first to maintain min/max ordering)
+            (Some(min), None) if min > 0 => match d {
+                Some(base) if base != min => Some(format!("D:{min}/{base}")),
+                _ => Some(format!("D:{min}")),
+            },
+            // Only D-Max present and base D is missing - show D-Max directly
+            (None, Some(max)) if d.is_none() && max > 0 => Some(format!("D:{max}")),
+            // Only D-Max available (no D-Min) and different from base D
+            (None, Some(max)) if d.is_some() && d != Some(max) && max > 0 => {
+                Some(format!("D:{}/{max}", d.unwrap()))
+            }
+            // Fallback to base D value
+            _ => d.map(|v| format!("D:{v}")),
+        }
+    }
+
     /// Format PID values for display with firmware-specific terminology
-    pub fn format_for_title(&self, firmware_type: &FirmwareType) -> String {
+    /// dmax_enabled: Set to true only if D-Min/D-Max system is actively enabled
+    /// (i.e., at least one of d_max_gain, d_max_advance, or simplified_d_max_gain is > 0)
+    pub fn format_for_title(&self, firmware_type: &FirmwareType, dmax_enabled: bool) -> String {
         let mut parts = Vec::new();
 
         if let Some(p) = self.p {
@@ -47,32 +87,15 @@ impl AxisPid {
         }
 
         // Handle D, D-Min, and D-Max formatting
-        match (self.d, self.d_min, self.d_max) {
-            (_, Some(d_min), Some(d_max)) if d_min != d_max && d_min > 0 && d_max > 0 => {
-                // Show D:min/max format when D-Min and D-Max are different and both non-zero
-                parts.push(format!("D:{d_min}/{d_max}"));
+        if dmax_enabled {
+            if let Some(d_str) = Self::format_d_term(self.d, self.d_min, self.d_max) {
+                parts.push(d_str);
             }
-            (_, Some(d_min), Some(d_max)) if d_min != d_max && d_min > 0 && d_max == 0 => {
-                // Show D:min format when D-Max is zero (don't show /0)
-                parts.push(format!("D:{d_min}"));
-            }
-            (_, Some(d_min), Some(d_max)) if d_min != d_max && d_min == 0 && d_max > 0 => {
-                // Show D:max format when D-Min is zero (don't show 0/)
-                parts.push(format!("D:{d_max}"));
-            }
-            (Some(d), Some(_d_min), Some(_d_max)) => {
-                // Show D:XX format when D-Min and D-Max are the same (use actual D value)
+        } else {
+            // D-Max system disabled - show only base D value
+            if let Some(d) = self.d {
                 parts.push(format!("D:{d}"));
             }
-            (Some(d), None, Some(d_max)) if d != d_max && d_max > 0 => {
-                // Show D:XX/XX format when only D-Max is available, different from D, and non-zero
-                parts.push(format!("D:{d}/{d_max}"));
-            }
-            (Some(d), _, _) => {
-                // Show simple D:XX when no D-Min/D-Max, they're the same as D, or involve zeros
-                parts.push(format!("D:{d}"));
-            }
-            _ => {}
         }
 
         if let Some(ff) = self.ff {
@@ -100,6 +123,10 @@ pub struct PidMetadata {
     pub pitch: AxisPid, // Axis 1
     pub yaw: AxisPid,   // Axis 2
     pub firmware_type: FirmwareType,
+    // D-Min/D-Max control parameters - used to determine if dynamic D is enabled
+    pub d_max_gain: Option<u32>, // BF 4.5+: Controls gyro-based D boost sensitivity
+    pub d_max_advance: Option<u32>, // BF 4.5+: Controls setpoint-based D boost sensitivity
+    pub simplified_d_max_gain: Option<u32>, // BF 4.6+: Simplified tuning D-Max gain
 }
 
 impl PidMetadata {
@@ -119,6 +146,15 @@ impl PidMetadata {
     #[allow(dead_code)]
     pub fn get_firmware_type(&self) -> &FirmwareType {
         &self.firmware_type
+    }
+
+    /// Check if D-Min/D-Max dynamic D is enabled
+    /// Returns true if any control parameter (gain, advance, or simplified gain) is non-zero (system not locked at base D).
+    /// Note: Betaflight docs suggest values above ~20 for effective D boost; lower non-zero values technically enable the system but may not provide meaningful boost.
+    pub fn is_dmax_enabled(&self) -> bool {
+        self.d_max_gain.is_some_and(|g| g > 0)
+            || self.d_max_advance.is_some_and(|a| a > 0)
+            || self.simplified_d_max_gain.is_some_and(|sg| sg > 0)
     }
 }
 
@@ -343,6 +379,19 @@ pub fn parse_pid_metadata(header_metadata: &[(String, String)]) -> PidMetadata {
         pid_data.yaw.d_max = Some(value);
     }
 
+    // Parse D-Max control parameters (BF 4.5+)
+    // These determine if the D-Min/D-Max dynamic D system is actively enabled
+    if let Some(gain_str) = header_map.get("d_max_gain") {
+        pid_data.d_max_gain = gain_str.parse::<u32>().ok();
+    }
+    if let Some(advance_str) = header_map.get("d_max_advance") {
+        pid_data.d_max_advance = advance_str.parse::<u32>().ok();
+    }
+    // Simplified tuning D-Max gain (BF 4.6+)
+    if let Some(simplified_gain_str) = header_map.get("simplified_dmax_gain") {
+        pid_data.simplified_d_max_gain = simplified_gain_str.parse::<u32>().ok();
+    }
+
     pid_data
 }
 
@@ -535,12 +584,16 @@ mod tests {
         assert_eq!(pid_data.yaw.d_min, Some(0));
         assert_eq!(pid_data.yaw.d_max, Some(0));
 
-        // VERIFY D:XX/XX FORMATTING IS WORKING
-        let roll_formatted = pid_data.roll.format_for_title(&FirmwareType::Betaflight);
-        assert_eq!(roll_formatted, " - P:57 I:66 D:39/80 FF:206");
+        // VERIFY D:XX FORMATTING (D-Max disabled since no gain/advance values)
+        let roll_formatted = pid_data
+            .roll
+            .format_for_title(&FirmwareType::Betaflight, false);
+        assert_eq!(roll_formatted, " - P:57 I:66 D:58 FF:206");
 
-        let pitch_formatted = pid_data.pitch.format_for_title(&FirmwareType::Betaflight);
-        assert_eq!(pitch_formatted, " - P:59 I:69 D:44/90 FF:215");
+        let pitch_formatted = pid_data
+            .pitch
+            .format_for_title(&FirmwareType::Betaflight, false);
+        assert_eq!(pitch_formatted, " - P:59 I:69 D:72 FF:215");
     }
 
     #[test]
@@ -555,13 +608,13 @@ mod tests {
 
         // Test Betaflight formatting
         assert_eq!(
-            axis_pid.format_for_title(&FirmwareType::Betaflight),
+            axis_pid.format_for_title(&FirmwareType::Betaflight, false),
             " - P:31 I:56 D:21 FF:84"
         );
 
         // Test EmuFlight formatting
         assert_eq!(
-            axis_pid.format_for_title(&FirmwareType::EmuFlight),
+            axis_pid.format_for_title(&FirmwareType::EmuFlight, false),
             " - P:31 I:56 D:21 DF:84"
         );
 
@@ -574,7 +627,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            axis_pid_zero_ff.format_for_title(&FirmwareType::Betaflight),
+            axis_pid_zero_ff.format_for_title(&FirmwareType::Betaflight, false),
             " - P:31 I:56 D:21"
         );
 
@@ -587,11 +640,11 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            axis_pid_no_ff.format_for_title(&FirmwareType::Betaflight),
+            axis_pid_no_ff.format_for_title(&FirmwareType::Betaflight, false),
             " - P:31 I:56 D:21"
         );
 
-        // Test D:XX/XX format when D and D-Max are different
+        // Test D:XX/XX format when D and D-Max are different (with dmax_enabled=true)
         let axis_pid_diff_dmax = AxisPid {
             p: Some(31),
             i: Some(56),
@@ -601,7 +654,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            axis_pid_diff_dmax.format_for_title(&FirmwareType::Betaflight),
+            axis_pid_diff_dmax.format_for_title(&FirmwareType::Betaflight, true),
             " - P:31 I:56 D:21/35"
         );
 
@@ -615,7 +668,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            axis_pid_same_dmax.format_for_title(&FirmwareType::Betaflight),
+            axis_pid_same_dmax.format_for_title(&FirmwareType::Betaflight, false),
             " - P:31 I:56 D:21"
         );
 
@@ -629,11 +682,11 @@ mod tests {
             ff: None,
         };
         assert_eq!(
-            axis_pid_dmin_dmax.format_for_title(&FirmwareType::Betaflight),
+            axis_pid_dmin_dmax.format_for_title(&FirmwareType::Betaflight, true),
             " - P:31 I:56 D:15/35"
         );
 
-        // Test D:min/max format with FF
+        // Test D:min/max format with FF (with dmax_enabled=true)
         let axis_pid_dmin_dmax_ff = AxisPid {
             p: Some(31),
             i: Some(56),
@@ -643,14 +696,14 @@ mod tests {
             ff: Some(84),
         };
         assert_eq!(
-            axis_pid_dmin_dmax_ff.format_for_title(&FirmwareType::Betaflight),
+            axis_pid_dmin_dmax_ff.format_for_title(&FirmwareType::Betaflight, true),
             " - P:31 I:56 D:15/35 FF:84"
         );
     }
 
     #[test]
     fn test_format_for_title_zero_handling() {
-        // Test D:XX/0 should become D:XX (don't show /0)
+        // Test D:XX/0 should become D:XX (don't show /0) - with dmax_enabled=true
         let axis_pid_dmax_zero = AxisPid {
             p: Some(31),
             i: Some(56),
@@ -660,11 +713,11 @@ mod tests {
             ff: None,
         };
         assert_eq!(
-            axis_pid_dmax_zero.format_for_title(&FirmwareType::Betaflight),
+            axis_pid_dmax_zero.format_for_title(&FirmwareType::Betaflight, true),
             " - P:31 I:56 D:15"
         );
 
-        // Test 0/XX should become D:XX (don't show 0/)
+        // Test 0/XX should become D:XX (don't show 0/) - with dmax_enabled=true
         let axis_pid_dmin_zero = AxisPid {
             p: Some(31),
             i: Some(56),
@@ -674,11 +727,11 @@ mod tests {
             ff: None,
         };
         assert_eq!(
-            axis_pid_dmin_zero.format_for_title(&FirmwareType::Betaflight),
+            axis_pid_dmin_zero.format_for_title(&FirmwareType::Betaflight, true),
             " - P:31 I:56 D:35"
         );
 
-        // Test D:XX/0 with only D-Max (no D-Min) should become D:XX
+        // Test D:XX/0 with only D-Max (no D-Min) should become D:XX - with dmax_enabled=true
         let axis_pid_only_dmax_zero = AxisPid {
             p: Some(31),
             i: Some(56),
@@ -688,11 +741,11 @@ mod tests {
             ff: None,
         };
         assert_eq!(
-            axis_pid_only_dmax_zero.format_for_title(&FirmwareType::Betaflight),
+            axis_pid_only_dmax_zero.format_for_title(&FirmwareType::Betaflight, true),
             " - P:31 I:56 D:21"
         );
 
-        // Test normal case still works (both non-zero and different)
+        // Test normal case still works (both non-zero and different) - with dmax_enabled=true
         let axis_pid_normal = AxisPid {
             p: Some(31),
             i: Some(56),
@@ -702,7 +755,7 @@ mod tests {
             ff: None,
         };
         assert_eq!(
-            axis_pid_normal.format_for_title(&FirmwareType::Betaflight),
+            axis_pid_normal.format_for_title(&FirmwareType::Betaflight, true),
             " - P:31 I:56 D:15/35"
         );
     }
@@ -719,7 +772,12 @@ mod tests {
         assert_eq!(pid_data.roll.ff, None);
 
         // Title should be empty
-        assert_eq!(pid_data.roll.format_for_title(&FirmwareType::Unknown), "");
+        assert_eq!(
+            pid_data
+                .roll
+                .format_for_title(&FirmwareType::Unknown, false),
+            ""
+        );
     }
 
     #[test]
@@ -806,5 +864,96 @@ mod tests {
         assert_eq!(pid_data.roll.i, Some(56));
         assert_eq!(pid_data.roll.d, Some(21));
         assert_eq!(pid_data.roll.ff, Some(84));
+    }
+
+    #[test]
+    fn test_format_d_term_edge_cases() {
+        // Only D-Min present, base D differs
+        let axis_only_dmin = AxisPid {
+            d: Some(50),
+            d_min: Some(30),
+            d_max: None,
+            ..Default::default()
+        };
+        assert!(axis_only_dmin
+            .format_for_title(&FirmwareType::Betaflight, true)
+            .contains("D:30/50"));
+
+        // Only D-Max present, no base D
+        let axis_only_dmax_no_base = AxisPid {
+            d: None,
+            d_min: None,
+            d_max: Some(80),
+            ..Default::default()
+        };
+        assert!(axis_only_dmax_no_base
+            .format_for_title(&FirmwareType::Betaflight, true)
+            .contains("D:80"));
+    }
+
+    #[test]
+    fn test_is_dmax_enabled() {
+        // Test D-Max disabled when all parameters are zero
+        let pid_data_disabled = PidMetadata {
+            d_max_gain: Some(0),
+            d_max_advance: Some(0),
+            simplified_d_max_gain: Some(0),
+            ..Default::default()
+        };
+        assert!(!pid_data_disabled.is_dmax_enabled());
+
+        // Test D-Max disabled when all parameters are None
+        let pid_data_none = PidMetadata {
+            d_max_gain: None,
+            d_max_advance: None,
+            simplified_d_max_gain: None,
+            ..Default::default()
+        };
+        assert!(!pid_data_none.is_dmax_enabled());
+
+        // Test D-Max enabled when d_max_gain > 0
+        let pid_data_gain = PidMetadata {
+            d_max_gain: Some(100),
+            d_max_advance: Some(0),
+            simplified_d_max_gain: Some(0),
+            ..Default::default()
+        };
+        assert!(pid_data_gain.is_dmax_enabled());
+
+        // Test D-Max enabled when d_max_advance > 0
+        let pid_data_advance = PidMetadata {
+            d_max_gain: Some(0),
+            d_max_advance: Some(50),
+            simplified_d_max_gain: Some(0),
+            ..Default::default()
+        };
+        assert!(pid_data_advance.is_dmax_enabled());
+
+        // Test D-Max enabled when simplified_d_max_gain > 0
+        let pid_data_simplified = PidMetadata {
+            d_max_gain: Some(0),
+            d_max_advance: Some(0),
+            simplified_d_max_gain: Some(75),
+            ..Default::default()
+        };
+        assert!(pid_data_simplified.is_dmax_enabled());
+
+        // Test D-Max enabled when multiple parameters > 0
+        let pid_data_multiple = PidMetadata {
+            d_max_gain: Some(100),
+            d_max_advance: Some(50),
+            simplified_d_max_gain: Some(75),
+            ..Default::default()
+        };
+        assert!(pid_data_multiple.is_dmax_enabled());
+
+        // Test D-Max enabled when only one parameter > 0 and others are None
+        let pid_data_mixed = PidMetadata {
+            d_max_gain: None,
+            d_max_advance: Some(50),
+            simplified_d_max_gain: None,
+            ..Default::default()
+        };
+        assert!(pid_data_mixed.is_dmax_enabled());
     }
 }
