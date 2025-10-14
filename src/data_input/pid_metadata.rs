@@ -52,6 +52,10 @@ impl AxisPid {
         // Only show D:min/max format if D-Max system is actively enabled
         if dmax_enabled {
             match (self.d, self.d_min, self.d_max) {
+                (None, Some(d_min), Some(d_max)) if d_min == d_max && d_min > 0 => {
+                    // Show D:XX format when D is missing but D-Min and D-Max are equal and non-zero
+                    parts.push(format!("D:{d_min}"));
+                }
                 (_, Some(d_min), Some(d_max)) if d_min != d_max && d_min > 0 && d_max > 0 => {
                     // Show D:min/max format when D-Min and D-Max are different and both non-zero
                     parts.push(format!("D:{d_min}/{d_max}"));
@@ -376,7 +380,7 @@ pub fn parse_pid_metadata(header_metadata: &[(String, String)]) -> PidMetadata {
         pid_data.d_max_advance = advance_str.parse::<u32>().ok();
     }
     // Simplified tuning D-Max gain (BF 4.6+)
-    if let Some(simplified_gain_str) = header_map.get("simplified_d_max_gain") {
+    if let Some(simplified_gain_str) = header_map.get("simplified_dmax_gain") {
         pid_data.simplified_d_max_gain = simplified_gain_str.parse::<u32>().ok();
     }
 
@@ -852,5 +856,71 @@ mod tests {
         assert_eq!(pid_data.roll.i, Some(56));
         assert_eq!(pid_data.roll.d, Some(21));
         assert_eq!(pid_data.roll.ff, Some(84));
+    }
+
+    #[test]
+    fn test_is_dmax_enabled() {
+        // Test D-Max disabled when all parameters are zero
+        let pid_data_disabled = PidMetadata {
+            d_max_gain: Some(0),
+            d_max_advance: Some(0),
+            simplified_d_max_gain: Some(0),
+            ..Default::default()
+        };
+        assert!(!pid_data_disabled.is_dmax_enabled());
+
+        // Test D-Max disabled when all parameters are None
+        let pid_data_none = PidMetadata {
+            d_max_gain: None,
+            d_max_advance: None,
+            simplified_d_max_gain: None,
+            ..Default::default()
+        };
+        assert!(!pid_data_none.is_dmax_enabled());
+
+        // Test D-Max enabled when d_max_gain > 0
+        let pid_data_gain = PidMetadata {
+            d_max_gain: Some(100),
+            d_max_advance: Some(0),
+            simplified_d_max_gain: Some(0),
+            ..Default::default()
+        };
+        assert!(pid_data_gain.is_dmax_enabled());
+
+        // Test D-Max enabled when d_max_advance > 0
+        let pid_data_advance = PidMetadata {
+            d_max_gain: Some(0),
+            d_max_advance: Some(50),
+            simplified_d_max_gain: Some(0),
+            ..Default::default()
+        };
+        assert!(pid_data_advance.is_dmax_enabled());
+
+        // Test D-Max enabled when simplified_d_max_gain > 0
+        let pid_data_simplified = PidMetadata {
+            d_max_gain: Some(0),
+            d_max_advance: Some(0),
+            simplified_d_max_gain: Some(75),
+            ..Default::default()
+        };
+        assert!(pid_data_simplified.is_dmax_enabled());
+
+        // Test D-Max enabled when multiple parameters > 0
+        let pid_data_multiple = PidMetadata {
+            d_max_gain: Some(100),
+            d_max_advance: Some(50),
+            simplified_d_max_gain: Some(75),
+            ..Default::default()
+        };
+        assert!(pid_data_multiple.is_dmax_enabled());
+
+        // Test D-Max enabled when only one parameter > 0 and others are None
+        let pid_data_mixed = PidMetadata {
+            d_max_gain: None,
+            d_max_advance: Some(50),
+            simplified_d_max_gain: None,
+            ..Default::default()
+        };
+        assert!(pid_data_mixed.is_dmax_enabled());
     }
 }

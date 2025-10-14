@@ -57,6 +57,9 @@ pub fn plot_step_response(
         ),
     );
 
+    // Compute dmax_enabled once to avoid redundant calls in the axis loop
+    let dmax_enabled = pid_metadata.is_dmax_enabled();
+
     for axis_index in 0..axis_count {
         if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) =
             &step_response_results[axis_index]
@@ -340,7 +343,6 @@ pub fn plot_step_response(
                     // Add PID information to the title using firmware-specific terminology (no P:D ratio)
                     if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
                         let firmware_type = pid_metadata.get_firmware_type();
-                        let dmax_enabled = pid_metadata.is_dmax_enabled();
                         let pid_info = axis_pid.format_for_title(firmware_type, dmax_enabled);
                         if !pid_info.is_empty() {
                             title.push_str(&pid_info);
