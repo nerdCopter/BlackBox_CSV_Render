@@ -134,4 +134,7 @@ pub const MIN_SAMPLES_FOR_D_TERM_CORR: usize = 50; // Lower sample requirement f
 // Gyro PSD heatmap scaling constants
 pub const GYRO_PSD_HEATMAP_MAX_DB: f64 = -10.0; // Maximum dB for gyro PSD heatmap color scaling
 
+// P:D Ratio Recommendation Constants
+pub const PD_RATIO_MIN_CHANGE_THRESHOLD: f64 = 0.05; // Minimum P:D ratio change to warrant a recommendation (5%)
+
 // src/constants.rs

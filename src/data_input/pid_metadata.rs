@@ -69,6 +69,51 @@ impl AxisPid {
         Some(recommended_d.round() as u32)
     }
 
+    /// Calculate recommended D, D-Min, and D-Max values to achieve a target P:D ratio
+    /// Maintains the same proportional relationship between base D, D-Min, and D-Max
+    /// Returns (base_d, d_min, d_max) tuple - any value can be None if not calculable
+    pub fn calculate_goal_d_with_range(
+        &self,
+        target_ratio: f64,
+    ) -> (Option<u32>, Option<u32>, Option<u32>) {
+        let recommended_base_d = self.calculate_goal_d_for_ratio(target_ratio);
+
+        // If we can't calculate base D or don't have current D, return early
+        let Some(rec_base) = recommended_base_d else {
+            return (None, None, None);
+        };
+        let Some(current_base) = self.d else {
+            return (recommended_base_d, None, None);
+        };
+
+        if current_base == 0 {
+            return (recommended_base_d, None, None);
+        }
+
+        // Calculate the scaling factor
+        let scale_factor = (rec_base as f64) / (current_base as f64);
+
+        // Calculate recommended D-Min if present
+        let rec_d_min = self.d_min.map(|current_min| {
+            if current_min > 0 {
+                ((current_min as f64) * scale_factor).round() as u32
+            } else {
+                0
+            }
+        });
+
+        // Calculate recommended D-Max if present
+        let rec_d_max = self.d_max.map(|current_max| {
+            if current_max > 0 {
+                ((current_max as f64) * scale_factor).round() as u32
+            } else {
+                0
+            }
+        });
+
+        (recommended_base_d, rec_d_min, rec_d_max)
+    }
+
     /// Format D term with dynamic range support (D-Min/D-Max)
     ///
     /// Decision tree when D-Max system is enabled:
