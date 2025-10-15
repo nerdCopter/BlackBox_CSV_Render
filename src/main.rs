@@ -632,34 +632,33 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         println!("  Current P:D={current_pd_ratio:.2}");
 
                                         // Show conservative recommendation
-                                        if let Some(recommended_d) = rec_d {
-                                            if dmax_enabled
-                                                && (rec_d_min.is_some() || rec_d_max.is_some())
-                                            {
-                                                let d_min_str = rec_d_min
-                                                    .map_or("N/A".to_string(), |v| v.to_string());
-                                                let d_max_str = rec_d_max
-                                                    .map_or("N/A".to_string(), |v| v.to_string());
-                                                println!("    Conservative: P:D={recommended_ratio:.2} → D≈{recommended_d}, D-Min≈{d_min_str}, D-Max≈{d_max_str} (P={p_val})");
-                                            } else {
-                                                println!("    Conservative: P:D={recommended_ratio:.2} → D≈{recommended_d} (P={p_val})");
-                                            }
+                                        if dmax_enabled
+                                            && (rec_d_min.is_some() || rec_d_max.is_some())
+                                        {
+                                            // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
+                                            let d_min_str = rec_d_min
+                                                .map_or("N/A".to_string(), |v| v.to_string());
+                                            let d_max_str = rec_d_max
+                                                .map_or("N/A".to_string(), |v| v.to_string());
+                                            println!("    Conservative: P:D={recommended_ratio:.2} → D-Min≈{d_min_str}, D-Max≈{d_max_str} (P={p_val})");
+                                        } else if let Some(recommended_d) = rec_d {
+                                            // D-Min/D-Max disabled: show only base D
+                                            println!("    Conservative: P:D={recommended_ratio:.2} → D≈{recommended_d} (P={p_val})");
                                         }
 
                                         // Show aggressive recommendation
-                                        if let Some(recommended_d_agg) = rec_d_agg {
-                                            if dmax_enabled
-                                                && (rec_d_min_agg.is_some()
-                                                    || rec_d_max_agg.is_some())
-                                            {
-                                                let d_min_str = rec_d_min_agg
-                                                    .map_or("N/A".to_string(), |v| v.to_string());
-                                                let d_max_str = rec_d_max_agg
-                                                    .map_or("N/A".to_string(), |v| v.to_string());
-                                                println!("    Aggressive:   P:D={aggressive_ratio:.2} → D≈{recommended_d_agg}, D-Min≈{d_min_str}, D-Max≈{d_max_str} (P={p_val})");
-                                            } else {
-                                                println!("    Aggressive:   P:D={aggressive_ratio:.2} → D≈{recommended_d_agg} (P={p_val})");
-                                            }
+                                        if dmax_enabled
+                                            && (rec_d_min_agg.is_some() || rec_d_max_agg.is_some())
+                                        {
+                                            // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
+                                            let d_min_str = rec_d_min_agg
+                                                .map_or("N/A".to_string(), |v| v.to_string());
+                                            let d_max_str = rec_d_max_agg
+                                                .map_or("N/A".to_string(), |v| v.to_string());
+                                            println!("    Aggressive:   P:D={aggressive_ratio:.2} → D-Min≈{d_min_str}, D-Max≈{d_max_str} (P={p_val})");
+                                        } else if let Some(recommended_d_agg) = rec_d_agg {
+                                            // D-Min/D-Max disabled: show only base D
+                                            println!("    Aggressive:   P:D={aggressive_ratio:.2} → D≈{recommended_d_agg} (P={p_val})");
                                         }
                                     } else {
                                         println!("  Current P:D={current_pd_ratio:.2} → Recommendations available but P value missing");

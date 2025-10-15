@@ -72,6 +72,9 @@ impl AxisPid {
     /// Calculate recommended D, D-Min, and D-Max values to achieve a target P:D ratio
     /// Maintains the same proportional relationship between base D, D-Min, and D-Max
     /// Returns (base_d, d_min, d_max) tuple - any value can be None if not calculable
+    ///
+    /// Note: For Betaflight < 4.6, base D = D-Max (maximum). For BF >= 4.6, base D = D-Min (minimum).
+    /// This function calculates proportionally regardless of firmware version.
     pub fn calculate_goal_d_with_range(
         &self,
         target_ratio: f64,
@@ -102,14 +105,22 @@ impl AxisPid {
             }
         });
 
-        // Calculate recommended D-Max if present
-        let rec_d_max = self.d_max.map(|current_max| {
-            if current_max > 0 {
+        // Calculate recommended D-Max
+        let rec_d_max = if let Some(current_max) = self.d_max {
+            // D-Max field exists (BF 4.6+)
+            Some(if current_max > 0 {
                 ((current_max as f64) * scale_factor).round() as u32
             } else {
                 0
-            }
-        });
+            })
+        } else if self.d_min.is_some() {
+            // D-Max field missing but D-Min exists (older firmware < 4.6)
+            // In old firmware, base D IS the D-Max, so use recommended base D as D-Max
+            recommended_base_d // Base D = D-Max in old firmware
+        } else {
+            // No D-Min/D-Max system at all
+            None
+        };
 
         (recommended_base_d, rec_d_min, rec_d_max)
     }
