@@ -503,6 +503,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     // Analyze step response and provide P:D ratio recommendations based on overshoot/undershoot
     if sample_rate.is_some() {
         println!("\n--- Step Response Analysis & P:D Ratio Recommendations ---");
+        println!("NOTE: These are STARTING POINTS based on step response analysis.");
+        println!("      Always test in a safe environment. Conservative = safer first step.");
+        println!("      Aggressive = faster tuning for experienced pilots.");
+        println!();
         for axis_index in 0..2 {
             // Only Roll (0) and Pitch (1)
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
@@ -630,6 +634,33 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         let dmax_enabled = pid_metadata.is_dmax_enabled();
 
                                         println!("  Current P:D={current_pd_ratio:.2}");
+
+                                        // Check for extreme overshoot (may indicate deeper issues)
+                                        if peak_value > crate::constants::SEVERE_OVERSHOOT_THRESHOLD
+                                        {
+                                            println!("  ⚠️  WARNING: Severe overshoot (Peak={peak_value:.2}) may indicate:");
+                                            println!(
+                                                "      - P value too high, or mechanical issues"
+                                            );
+                                            println!(
+                                                "      - Check for bent props, loose hardware, or damaged motors"
+                                            );
+                                        }
+
+                                        // Check for unreasonable P:D ratios
+                                        if recommended_ratio
+                                            < crate::constants::MIN_REASONABLE_PD_RATIO
+                                        {
+                                            println!("  ⚠️  WARNING: Recommended P:D ratio ({recommended_ratio:.2}) is very low");
+                                            println!(
+                                                "      Consider increasing P instead of only adding D"
+                                            );
+                                        } else if recommended_ratio
+                                            > crate::constants::MAX_REASONABLE_PD_RATIO
+                                        {
+                                            println!("  ⚠️  WARNING: Recommended P:D ratio ({recommended_ratio:.2}) is very high");
+                                            println!("      Consider decreasing P or checking for overdamped response");
+                                        }
 
                                         // Show conservative recommendation
                                         if dmax_enabled
