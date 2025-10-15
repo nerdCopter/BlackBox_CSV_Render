@@ -56,8 +56,8 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * Peak > 1.20: Significant overshoot (>20%) → Conservative P:D×0.85 (increase D by ~18%)
                     * Peak 1.16-1.20: Moderate overshoot (16-20%) → Conservative P:D×0.93 (increase D by ~8%)
                     * Peak 1.11-1.15: Minor overshoot (11-15%) → Conservative P:D×0.97 (increase D by ~3%)
-                    * Peak 1.05-1.10: Optimal response (5-10% overshoot) → No change recommended (ideal damping)
-                    * Peak 0.95-1.04: Acceptable response (0-5% overshoot/undershoot) → No change recommended
+                    * Peak 1.05-1.10: Acceptable response (5-10% overshoot) → No change recommended (good but not perfect)
+                    * Peak 0.95-1.04: Optimal response (0-5% overshoot/undershoot) → No change recommended (ideal damping)
                     * Peak 0.85-0.94: Minor undershoot (6-15%) → Conservative P:D×1.05 (decrease D by ~5%)
                     * Peak < 0.85: Significant undershoot (>15%) → Conservative P:D×1.15 (decrease D by ~13%)
                 * **Dual Recommendations:**
@@ -72,7 +72,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * Warnings for severe overshoot (Peak > 1.5) suggesting mechanical issues
                     * Warnings for unreasonable P:D ratios (< 0.3 or > 3.0)
                     * Only displays recommendations when change exceeds PD_RATIO_MIN_CHANGE_THRESHOLD (5%)
-                    * Only recommends when response needs improvement (skips optimal Peak 1.05-1.10 or acceptable Peak 0.95-1.04)
+                    * Only recommends when response needs improvement (skips optimal peak 0.95–1.04 or acceptable peak 1.05–1.10)
                     * Clear disclaimers that recommendations are starting points, not absolute values
                     * Works for all aircraft sizes including 10"+ where D > P (P:D < 1.0)
                 * Recommendations appear in both console output and step response plot legends

@@ -25,6 +25,9 @@ pub fn plot_step_response(
     setpoint_threshold: f64,
     show_legend: bool,
     pid_metadata: &PidMetadata,
+    peak_values: &[Option<f64>; 3],
+    current_pd_ratios: &[Option<f64>; 3],
+    assessments: &[Option<&str>; 3],
     recommended_pd_conservative: &[Option<f64>; 3],
     recommended_d_conservative: &[Option<u32>; 3],
     recommended_d_min_conservative: &[Option<u32>; 3],
@@ -343,19 +346,28 @@ pub fn plot_step_response(
             let x_range = 0f64..step_response_plot_duration_s * 1.05; // Add a little padding to x-axis
             let y_range = final_resp_min..final_resp_max;
 
-            // Add current and recommended P:D ratio as legend entries for Roll/Pitch
+            // Add current P:D ratio with quality assessment as legend entries for Roll/Pitch
             if axis_index < 2 {
-                // Current P:D ratio from pid_metadata
-                if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
-                    if let Some(current_pd) = axis_pid.calculate_pd_ratio() {
-                        let current_label = format!("Current P:D={:.2}", current_pd);
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: current_label,
-                            color: RGBColor(60, 60, 60), // Darker gray for current
-                            stroke_width: 0,             // Invisible legend line
-                        });
-                    }
+                // Current P:D ratio and assessment
+                if let Some(current_pd) = current_pd_ratios[axis_index] {
+                    let current_label = if let Some(assessment) = assessments[axis_index] {
+                        if let Some(peak) = peak_values[axis_index] {
+                            format!(
+                                "Current P:D={:.2} (Peak={:.2}, {})",
+                                current_pd, peak, assessment
+                            )
+                        } else {
+                            format!("Current P:D={:.2} ({})", current_pd, assessment)
+                        }
+                    } else {
+                        format!("Current P:D={:.2}", current_pd)
+                    };
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: current_label,
+                        color: RGBColor(60, 60, 60), // Darker gray for current
+                        stroke_width: 0,             // Invisible legend line
+                    });
                 }
 
                 // Conservative recommendation (uses dmax_enabled computed at function start)
