@@ -578,15 +578,20 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 } else {
                                     pid_metadata.pitch.p
                                 } {
+                                    // Check if D-Min/D-Max system is enabled
+                                    let dmax_enabled = pid_metadata.is_dmax_enabled();
+
                                     // calculate recommended D (and D-Min/D-Max if applicable) for conservative ratio
                                     let (rec_d, rec_d_min, rec_d_max) = if axis_index == 0 {
-                                        pid_metadata
-                                            .roll
-                                            .calculate_goal_d_with_range(recommended_ratio)
+                                        pid_metadata.roll.calculate_goal_d_with_range(
+                                            recommended_ratio,
+                                            dmax_enabled,
+                                        )
                                     } else {
-                                        pid_metadata
-                                            .pitch
-                                            .calculate_goal_d_with_range(recommended_ratio)
+                                        pid_metadata.pitch.calculate_goal_d_with_range(
+                                            recommended_ratio,
+                                            dmax_enabled,
+                                        )
                                     };
                                     recommended_d_conservative[axis_index] = rec_d;
                                     recommended_d_min_conservative[axis_index] = rec_d_min;
@@ -595,13 +600,15 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     // calculate recommended D (and D-Min/D-Max if applicable) for aggressive ratio
                                     let (rec_d_agg, rec_d_min_agg, rec_d_max_agg) =
                                         if axis_index == 0 {
-                                            pid_metadata
-                                                .roll
-                                                .calculate_goal_d_with_range(aggressive_ratio)
+                                            pid_metadata.roll.calculate_goal_d_with_range(
+                                                aggressive_ratio,
+                                                dmax_enabled,
+                                            )
                                         } else {
-                                            pid_metadata
-                                                .pitch
-                                                .calculate_goal_d_with_range(aggressive_ratio)
+                                            pid_metadata.pitch.calculate_goal_d_with_range(
+                                                aggressive_ratio,
+                                                dmax_enabled,
+                                            )
                                         };
                                     recommended_d_aggressive[axis_index] = rec_d_agg;
                                     recommended_d_min_aggressive[axis_index] = rec_d_min_agg;
@@ -619,19 +626,25 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     };
 
                                     if let Some(p_val) = axis_pid.p {
+                                        // Check if D-Min/D-Max is enabled
+                                        let dmax_enabled = pid_metadata.is_dmax_enabled();
+
                                         // Conservative recommendation
-                                        let (rec_d, rec_d_min, rec_d_max) =
-                                            axis_pid.calculate_goal_d_with_range(recommended_ratio);
+                                        let (rec_d, rec_d_min, rec_d_max) = axis_pid
+                                            .calculate_goal_d_with_range(
+                                                recommended_ratio,
+                                                dmax_enabled,
+                                            );
 
                                         // Aggressive recommendation
                                         let aggressive_ratio = recommended_ratio
                                             * crate::constants::PD_RATIO_AGGRESSIVE_MULTIPLIER
                                             / crate::constants::PD_RATIO_CONSERVATIVE_MULTIPLIER;
-                                        let (rec_d_agg, rec_d_min_agg, rec_d_max_agg) =
-                                            axis_pid.calculate_goal_d_with_range(aggressive_ratio);
-
-                                        // Check if D-Min/D-Max is enabled
-                                        let dmax_enabled = pid_metadata.is_dmax_enabled();
+                                        let (rec_d_agg, rec_d_min_agg, rec_d_max_agg) = axis_pid
+                                            .calculate_goal_d_with_range(
+                                                aggressive_ratio,
+                                                dmax_enabled,
+                                            );
 
                                         println!("  Current P:D={current_pd_ratio:.2}");
 

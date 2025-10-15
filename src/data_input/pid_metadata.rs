@@ -75,9 +75,12 @@ impl AxisPid {
     ///
     /// Note: For Betaflight < 4.6, base D = D-Max (maximum). For BF >= 4.6, base D = D-Min (minimum).
     /// This function calculates proportionally regardless of firmware version.
+    ///
+    /// When dmax_enabled is false, returns (base_d, None, None) regardless of d_min/d_max field presence.
     pub fn calculate_goal_d_with_range(
         &self,
         target_ratio: f64,
+        dmax_enabled: bool,
     ) -> (Option<u32>, Option<u32>, Option<u32>) {
         let recommended_base_d = self.calculate_goal_d_for_ratio(target_ratio);
 
@@ -90,6 +93,11 @@ impl AxisPid {
         };
 
         if current_base == 0 {
+            return (recommended_base_d, None, None);
+        }
+
+        // If D-Min/D-Max system is disabled, only return base D
+        if !dmax_enabled {
             return (recommended_base_d, None, None);
         }
 
