@@ -270,12 +270,56 @@ impl PidMetadata {
     }
 
     /// Check if D-Min/D-Max dynamic D is enabled
-    /// Returns true if any control parameter (gain, advance, or simplified gain) is non-zero (system not locked at base D).
-    /// Note: Betaflight docs suggest values above ~20 for effective D boost; lower non-zero values technically enable the system but may not provide meaningful boost.
+    /// Returns true if any control parameter (gain, advance, or simplified gain) is non-zero
+    /// AND there's actual dynamic range on roll/pitch axes.
+    ///
+    /// Dynamic range checks:
+    /// - BF 4.6+ (d_max field exists): D-Min ≠ D-Max
+    /// - BF <4.6 (no d_max field): D ≠ D-Min (where D is the max)
+    ///
+    /// When values are equal, there's no dynamic range and system is effectively disabled.
     pub fn is_dmax_enabled(&self) -> bool {
-        self.d_max_gain.is_some_and(|g| g > 0)
+        // Check if control parameters are non-zero
+        let has_active_params = self.d_max_gain.is_some_and(|g| g > 0)
             || self.d_max_advance.is_some_and(|a| a > 0)
-            || self.simplified_d_max_gain.is_some_and(|sg| sg > 0)
+            || self.simplified_d_max_gain.is_some_and(|sg| sg > 0);
+
+        if !has_active_params {
+            return false;
+        }
+
+        // Check roll axis for dynamic range
+        let roll_has_range = if self.roll.d_max.is_some() {
+            // BF 4.6+: Check if D-Min ≠ D-Max
+            self.roll
+                .d_min
+                .and_then(|dmin| self.roll.d_max.map(|dmax| dmin != dmax))
+                .unwrap_or(false)
+        } else {
+            // BF <4.6: Check if D ≠ D-Min (D is the max in old firmware)
+            self.roll
+                .d
+                .and_then(|d| self.roll.d_min.map(|dmin| d != dmin))
+                .unwrap_or(false)
+        };
+
+        // Check pitch axis for dynamic range
+        let pitch_has_range = if self.pitch.d_max.is_some() {
+            // BF 4.6+: Check if D-Min ≠ D-Max
+            self.pitch
+                .d_min
+                .and_then(|dmin| self.pitch.d_max.map(|dmax| dmin != dmax))
+                .unwrap_or(false)
+        } else {
+            // BF <4.6: Check if D ≠ D-Min (D is the max in old firmware)
+            self.pitch
+                .d
+                .and_then(|d| self.pitch.d_min.map(|dmin| d != dmin))
+                .unwrap_or(false)
+        };
+
+        // System is enabled if either roll or pitch has dynamic range
+        roll_has_range || pitch_has_range
     }
 }
 

@@ -363,10 +363,7 @@ pub fn plot_step_response(
 
                 // Conservative recommendation
                 if let Some(rec_pd) = recommended_pd_conservative[axis_index] {
-                    let recommendation_label = if dmax_enabled
-                        && (recommended_d_min_conservative[axis_index].is_some()
-                            || recommended_d_max_conservative[axis_index].is_some())
-                    {
+                    let recommendation_label = if dmax_enabled {
                         // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
                         let d_min_str = recommended_d_min_conservative[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
@@ -392,10 +389,7 @@ pub fn plot_step_response(
 
                 // Aggressive recommendation
                 if let Some(rec_pd) = recommended_pd_aggressive[axis_index] {
-                    let recommendation_label = if dmax_enabled
-                        && (recommended_d_min_aggressive[axis_index].is_some()
-                            || recommended_d_max_aggressive[axis_index].is_some())
-                    {
+                    let recommendation_label = if dmax_enabled {
                         // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
                         let d_min_str = recommended_d_min_aggressive[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
