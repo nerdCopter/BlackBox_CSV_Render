@@ -50,6 +50,30 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                 * Calculates peak value and delay time (Td) for each plotted average response using `calc_step_response::find_peak_value` and `calc_step_response::calculate_delay_time`.
                     * **Delay Time (Td) Calculation:** The delay time is calculated as the time for the step response to reach 50% of its final value. Linear interpolation is used for precise determination of the 50% threshold crossing. A fixed offset of -1ms is applied to the calculated time (in milliseconds) before converting to seconds, and the result is constrained to be non-negative.
                 * Generates and saves the step response plot.
+        * **P:D Ratio Recommendations (`src/main.rs`):**
+            * Based on step response peak analysis, the system provides tuning recommendations:
+                * **Peak Analysis Ranges:**
+                    * Peak > 1.20: Significant overshoot → Conservative P:D×0.85 (increase D by ~18%)
+                    * Peak 1.16-1.20: Moderate overshoot → Conservative P:D×0.93 (increase D by ~8%)
+                    * Peak 1.11-1.15: Minor overshoot → Conservative P:D×0.97 (increase D by ~3%)
+                    * Peak 1.05-1.10: Excellent response → No change recommended
+                    * Peak 0.95-1.04: Good response → No change recommended
+                    * Peak 0.85-0.94: Minor undershoot → Conservative P:D×1.05 (decrease D by ~5%)
+                    * Peak < 0.85: Significant undershoot → Conservative P:D×1.15 (decrease D by ~13%)
+                * **Dual Recommendations:**
+                    * **Conservative** (PD_RATIO_CONSERVATIVE_MULTIPLIER = 0.85): Reduces P:D ratio by 15%, increasing D by ~18%. Safe for most pilots.
+                    * **Aggressive** (PD_RATIO_AGGRESSIVE_MULTIPLIER = 0.70): Reduces P:D ratio by 30%, increasing D by ~43%. For experienced pilots seeking faster convergence.
+                * **D-Min/D-Max Support:**
+                    * Automatically detects if D-Min/D-Max system is enabled (Betaflight 4.0+)
+                    * When enabled: Recommends proportional D-Min and D-Max values maintaining current ratio relationships
+                    * When disabled: Recommends only base D value
+                    * Handles firmware differences (BF <4.6: D=max, D-Min=min; BF 4.6+: D=min, D-Max=max)
+                * **Safety Features:**
+                    * Warnings for severe overshoot (Peak > 1.5) suggesting mechanical issues
+                    * Warnings for unreasonable P:D ratios (< 0.5 or > 3.0)
+                    * Only displays recommendations when change exceeds PD_RATIO_MIN_CHANGE_THRESHOLD (5%)
+                    * Clear disclaimers that recommendations are starting points, not absolute values
+                * Recommendations appear in both console output and step response plot legends
             * **Other plots generated (`src/plot_functions/`):**
                 * `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.
                 * `plot_setpoint_vs_gyro`: Setpoint and filtered gyro time-domain comparison for each axis.
