@@ -564,61 +564,69 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     ("Significant undershoot", current_pd_ratio * 1.15)
                                     // Decrease D by ~13%
                                 };
-                                // store conservative recommendation for later use in plots
-                                recommended_pd_conservative[axis_index] = Some(recommended_ratio);
 
-                                // Calculate moderate recommendation (more damping for experienced pilots)
-                                let moderate_ratio = recommended_ratio
-                                    * crate::constants::PD_RATIO_MODERATE_MULTIPLIER
-                                    / crate::constants::PD_RATIO_CONSERVATIVE_MULTIPLIER;
-                                recommended_pd_aggressive[axis_index] = Some(moderate_ratio);
+                                // Only store recommendations if change exceeds threshold
+                                // (to avoid showing recommendations for already-good responses)
+                                if (recommended_ratio - current_pd_ratio).abs()
+                                    > crate::constants::PD_RATIO_MIN_CHANGE_THRESHOLD
+                                {
+                                    // store conservative recommendation for later use in plots
+                                    recommended_pd_conservative[axis_index] =
+                                        Some(recommended_ratio);
 
-                                if let Some(_axis_pid_p) = if axis_index == 0 {
-                                    pid_metadata.roll.p
-                                } else {
-                                    pid_metadata.pitch.p
-                                } {
-                                    // Check if D-Min/D-Max system is enabled
-                                    let dmax_enabled = pid_metadata.is_dmax_enabled();
+                                    // Calculate moderate recommendation (more damping for experienced pilots)
+                                    let moderate_ratio = recommended_ratio
+                                        * crate::constants::PD_RATIO_MODERATE_MULTIPLIER
+                                        / crate::constants::PD_RATIO_CONSERVATIVE_MULTIPLIER;
+                                    recommended_pd_aggressive[axis_index] = Some(moderate_ratio);
 
-                                    // calculate recommended D (and D-Min/D-Max if applicable) for conservative ratio
-                                    let (rec_d, rec_d_min, rec_d_max) = if axis_index == 0 {
-                                        pid_metadata.roll.calculate_goal_d_with_range(
-                                            recommended_ratio,
-                                            dmax_enabled,
-                                        )
+                                    if let Some(_axis_pid_p) = if axis_index == 0 {
+                                        pid_metadata.roll.p
                                     } else {
-                                        pid_metadata.pitch.calculate_goal_d_with_range(
-                                            recommended_ratio,
-                                            dmax_enabled,
-                                        )
-                                    };
-                                    recommended_d_conservative[axis_index] = rec_d;
-                                    recommended_d_min_conservative[axis_index] = rec_d_min;
-                                    recommended_d_max_conservative[axis_index] = rec_d_max;
+                                        pid_metadata.pitch.p
+                                    } {
+                                        // Check if D-Min/D-Max system is enabled
+                                        let dmax_enabled = pid_metadata.is_dmax_enabled();
 
-                                    // calculate recommended D (and D-Min/D-Max if applicable) for moderate ratio
-                                    let (rec_d_agg, rec_d_min_agg, rec_d_max_agg) =
-                                        if axis_index == 0 {
+                                        // calculate recommended D (and D-Min/D-Max if applicable) for conservative ratio
+                                        let (rec_d, rec_d_min, rec_d_max) = if axis_index == 0 {
                                             pid_metadata.roll.calculate_goal_d_with_range(
-                                                moderate_ratio,
+                                                recommended_ratio,
                                                 dmax_enabled,
                                             )
                                         } else {
                                             pid_metadata.pitch.calculate_goal_d_with_range(
-                                                moderate_ratio,
+                                                recommended_ratio,
                                                 dmax_enabled,
                                             )
                                         };
-                                    recommended_d_aggressive[axis_index] = rec_d_agg;
-                                    recommended_d_min_aggressive[axis_index] = rec_d_min_agg;
-                                    recommended_d_max_aggressive[axis_index] = rec_d_max_agg;
+                                        recommended_d_conservative[axis_index] = rec_d;
+                                        recommended_d_min_conservative[axis_index] = rec_d_min;
+                                        recommended_d_max_conservative[axis_index] = rec_d_max;
+
+                                        // calculate recommended D (and D-Min/D-Max if applicable) for moderate ratio
+                                        let (rec_d_agg, rec_d_min_agg, rec_d_max_agg) =
+                                            if axis_index == 0 {
+                                                pid_metadata.roll.calculate_goal_d_with_range(
+                                                    moderate_ratio,
+                                                    dmax_enabled,
+                                                )
+                                            } else {
+                                                pid_metadata.pitch.calculate_goal_d_with_range(
+                                                    moderate_ratio,
+                                                    dmax_enabled,
+                                                )
+                                            };
+                                        recommended_d_aggressive[axis_index] = rec_d_agg;
+                                        recommended_d_min_aggressive[axis_index] = rec_d_min_agg;
+                                        recommended_d_max_aggressive[axis_index] = rec_d_max_agg;
+                                    }
                                 }
 
                                 println!("{axis_name}: Peak={peak_value:.3} → {assessment}");
-                                if (recommended_ratio - current_pd_ratio).abs()
-                                    > crate::constants::PD_RATIO_MIN_CHANGE_THRESHOLD
-                                {
+
+                                // Show recommendations only if they were computed (threshold exceeded)
+                                if recommended_pd_conservative[axis_index].is_some() {
                                     let axis_pid = if axis_index == 0 {
                                         &pid_metadata.roll
                                     } else {
@@ -626,26 +634,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     };
 
                                     if let Some(p_val) = axis_pid.p {
-                                        // Check if D-Min/D-Max is enabled
-                                        let dmax_enabled = pid_metadata.is_dmax_enabled();
-
-                                        // Conservative recommendation
-                                        let (rec_d, rec_d_min, rec_d_max) = axis_pid
-                                            .calculate_goal_d_with_range(
-                                                recommended_ratio,
-                                                dmax_enabled,
-                                            );
-
-                                        // Moderate recommendation (for experienced pilots)
-                                        let moderate_ratio = recommended_ratio
-                                            * crate::constants::PD_RATIO_MODERATE_MULTIPLIER
-                                            / crate::constants::PD_RATIO_CONSERVATIVE_MULTIPLIER;
-                                        let (rec_d_mod, rec_d_min_mod, rec_d_max_mod) = axis_pid
-                                            .calculate_goal_d_with_range(
-                                                moderate_ratio,
-                                                dmax_enabled,
-                                            );
-
                                         println!("  Current P:D={current_pd_ratio:.2}");
 
                                         // Check for extreme overshoot (may indicate deeper issues)
@@ -661,48 +649,78 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         }
 
                                         // Check for unreasonable P:D ratios
-                                        if recommended_ratio
-                                            < crate::constants::MIN_REASONABLE_PD_RATIO
-                                        {
-                                            println!("  ⚠️  WARNING: Recommended P:D ratio ({recommended_ratio:.2}) is very low");
+                                        let rec_ratio =
+                                            recommended_pd_conservative[axis_index].unwrap();
+                                        if rec_ratio < crate::constants::MIN_REASONABLE_PD_RATIO {
+                                            println!("  ⚠️  WARNING: Recommended P:D ratio ({rec_ratio:.2}) is very low");
                                             println!(
                                                 "      Consider increasing P instead of only adding D"
                                             );
-                                        } else if recommended_ratio
+                                        } else if rec_ratio
                                             > crate::constants::MAX_REASONABLE_PD_RATIO
                                         {
-                                            println!("  ⚠️  WARNING: Recommended P:D ratio ({recommended_ratio:.2}) is very high");
+                                            println!("  ⚠️  WARNING: Recommended P:D ratio ({rec_ratio:.2}) is very high");
                                             println!("      Consider decreasing P or checking for overdamped response");
                                         }
 
+                                        // Check if D-Min/D-Max is enabled
+                                        let dmax_enabled = pid_metadata.is_dmax_enabled();
+
                                         // Show conservative recommendation
                                         if dmax_enabled
-                                            && (rec_d_min.is_some() || rec_d_max.is_some())
+                                            && (recommended_d_min_conservative[axis_index]
+                                                .is_some()
+                                                || recommended_d_max_conservative[axis_index]
+                                                    .is_some())
                                         {
                                             // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
-                                            let d_min_str = rec_d_min
+                                            let d_min_str = recommended_d_min_conservative
+                                                [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            let d_max_str = rec_d_max
+                                            let d_max_str = recommended_d_max_conservative
+                                                [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("    Conservative: P:D={recommended_ratio:.2} → D-Min≈{d_min_str}, D-Max≈{d_max_str} (P={p_val})");
-                                        } else if let Some(recommended_d) = rec_d {
+                                            println!("    Conservative: P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                                recommended_pd_conservative[axis_index].unwrap(),
+                                                d_min_str, d_max_str, p_val);
+                                        } else if let Some(recommended_d) =
+                                            recommended_d_conservative[axis_index]
+                                        {
                                             // D-Min/D-Max disabled: show only base D
-                                            println!("    Conservative: P:D={recommended_ratio:.2} → D≈{recommended_d} (P={p_val})");
+                                            println!(
+                                                "    Conservative: P:D={:.2} → D≈{} (P={})",
+                                                recommended_pd_conservative[axis_index].unwrap(),
+                                                recommended_d,
+                                                p_val
+                                            );
                                         }
 
                                         // Show moderate recommendation
                                         if dmax_enabled
-                                            && (rec_d_min_mod.is_some() || rec_d_max_mod.is_some())
+                                            && (recommended_d_min_aggressive[axis_index].is_some()
+                                                || recommended_d_max_aggressive[axis_index]
+                                                    .is_some())
                                         {
                                             // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
-                                            let d_min_str = rec_d_min_mod
+                                            let d_min_str = recommended_d_min_aggressive
+                                                [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            let d_max_str = rec_d_max_mod
+                                            let d_max_str = recommended_d_max_aggressive
+                                                [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("    Moderate:     P:D={moderate_ratio:.2} → D-Min≈{d_min_str}, D-Max≈{d_max_str} (P={p_val})");
-                                        } else if let Some(recommended_d_mod) = rec_d_mod {
+                                            println!("    Moderate:     P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                                recommended_pd_aggressive[axis_index].unwrap(),
+                                                d_min_str, d_max_str, p_val);
+                                        } else if let Some(recommended_d_mod) =
+                                            recommended_d_aggressive[axis_index]
+                                        {
                                             // D-Min/D-Max disabled: show only base D
-                                            println!("    Moderate:     P:D={moderate_ratio:.2} → D≈{recommended_d_mod} (P={p_val})");
+                                            println!(
+                                                "    Moderate:     P:D={:.2} → D≈{} (P={})",
+                                                recommended_pd_aggressive[axis_index].unwrap(),
+                                                recommended_d_mod,
+                                                p_val
+                                            );
                                         }
                                     } else {
                                         println!("  Current P:D={current_pd_ratio:.2} → Recommendations available but P value missing");
