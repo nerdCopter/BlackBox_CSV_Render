@@ -358,10 +358,7 @@ pub fn plot_step_response(
                     }
                 }
 
-                // Check if D-Min/D-Max is enabled
-                let dmax_enabled = pid_metadata.is_dmax_enabled();
-
-                // Conservative recommendation
+                // Conservative recommendation (uses dmax_enabled computed at function start)
                 if let Some(rec_pd) = recommended_pd_conservative[axis_index] {
                     let recommendation_label = if dmax_enabled {
                         // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
