@@ -137,4 +137,8 @@ pub const GYRO_PSD_HEATMAP_MAX_DB: f64 = -10.0; // Maximum dB for gyro PSD heatm
 // P:D Ratio Recommendation Constants
 pub const PD_RATIO_MIN_CHANGE_THRESHOLD: f64 = 0.05; // Minimum P:D ratio change to warrant a recommendation (5%)
 
+// P:D Ratio adjustment multipliers for different recommendation styles
+pub const PD_RATIO_CONSERVATIVE_MULTIPLIER: f64 = 0.85; // Conservative: reduce P:D by 15% (increase D by ~18%)
+pub const PD_RATIO_AGGRESSIVE_MULTIPLIER: f64 = 0.70; // Aggressive: reduce P:D by 30% (increase D by ~43%)
+
 // src/constants.rs

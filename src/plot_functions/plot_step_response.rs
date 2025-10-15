@@ -25,10 +25,14 @@ pub fn plot_step_response(
     setpoint_threshold: f64,
     show_legend: bool,
     pid_metadata: &PidMetadata,
-    recommended_pd: &[Option<f64>; 3],
-    recommended_d: &[Option<u32>; 3],
-    recommended_d_min: &[Option<u32>; 3],
-    recommended_d_max: &[Option<u32>; 3],
+    recommended_pd_conservative: &[Option<f64>; 3],
+    recommended_d_conservative: &[Option<u32>; 3],
+    recommended_d_min_conservative: &[Option<u32>; 3],
+    recommended_d_max_conservative: &[Option<u32>; 3],
+    recommended_pd_aggressive: &[Option<f64>; 3],
+    recommended_d_aggressive: &[Option<u32>; 3],
+    recommended_d_min_aggressive: &[Option<u32>; 3],
+    recommended_d_max_aggressive: &[Option<u32>; 3],
 ) -> Result<(), Box<dyn Error>> {
     let step_response_plot_duration_s = RESPONSE_LENGTH_S;
     let steady_state_start_s_const = STEADY_STATE_START_S; // from constants
@@ -353,40 +357,71 @@ pub fn plot_step_response(
                         });
                     }
                 }
-                // Conservative recommendation
-                if let Some(rec_pd) = recommended_pd[axis_index] {
-                    // Check if D-Min/D-Max is enabled
-                    let dmax_enabled = pid_metadata.is_dmax_enabled();
 
-                    let recommendation_label = if let Some(rec_d) = recommended_d[axis_index] {
-                        if dmax_enabled
-                            && (recommended_d_min[axis_index].is_some()
-                                || recommended_d_max[axis_index].is_some())
-                        {
-                            // Show D, D-Min, and D-Max recommendations
-                            let d_min_str = recommended_d_min[axis_index]
-                                .map_or("N/A".to_string(), |v| v.to_string());
-                            let d_max_str = recommended_d_max[axis_index]
-                                .map_or("N/A".to_string(), |v| v.to_string());
-                            format!(
-                                "Conservative: P:D={:.2} (D≈{}, D-Min≈{}, D-Max≈{})",
-                                rec_pd, rec_d, d_min_str, d_max_str
-                            )
+                // Check if D-Min/D-Max is enabled
+                let dmax_enabled = pid_metadata.is_dmax_enabled();
+
+                // Conservative recommendation
+                if let Some(rec_pd) = recommended_pd_conservative[axis_index] {
+                    let recommendation_label =
+                        if let Some(rec_d) = recommended_d_conservative[axis_index] {
+                            if dmax_enabled
+                                && (recommended_d_min_conservative[axis_index].is_some()
+                                    || recommended_d_max_conservative[axis_index].is_some())
+                            {
+                                // Show D, D-Min, and D-Max recommendations
+                                let d_min_str = recommended_d_min_conservative[axis_index]
+                                    .map_or("N/A".to_string(), |v| v.to_string());
+                                let d_max_str = recommended_d_max_conservative[axis_index]
+                                    .map_or("N/A".to_string(), |v| v.to_string());
+                                format!(
+                                    "Conservative: P:D={:.2} (D≈{}, D-Min≈{}, D-Max≈{})",
+                                    rec_pd, rec_d, d_min_str, d_max_str
+                                )
+                            } else {
+                                // Simple case - no D-Min/D-Max
+                                format!("Conservative: P:D={:.2} (D≈{})", rec_pd, rec_d)
+                            }
                         } else {
-                            // Simple case - no D-Min/D-Max
-                            format!(
-                                "Conservative recommendation: P:D={:.2} (D≈{})",
-                                rec_pd, rec_d
-                            )
-                        }
-                    } else {
-                        format!("Conservative recommendation: P:D={:.2}", rec_pd)
-                    };
+                            format!("Conservative: P:D={:.2}", rec_pd)
+                        };
                     series.push(PlotSeries {
                         data: vec![],
                         label: recommendation_label,
-                        color: RGBColor(120, 120, 120), // Gray color for recommendation text
+                        color: RGBColor(100, 100, 100), // Medium gray for conservative
                         stroke_width: 0,                // Invisible legend line
+                    });
+                }
+
+                // Aggressive recommendation
+                if let Some(rec_pd) = recommended_pd_aggressive[axis_index] {
+                    let recommendation_label =
+                        if let Some(rec_d) = recommended_d_aggressive[axis_index] {
+                            if dmax_enabled
+                                && (recommended_d_min_aggressive[axis_index].is_some()
+                                    || recommended_d_max_aggressive[axis_index].is_some())
+                            {
+                                // Show D, D-Min, and D-Max recommendations
+                                let d_min_str = recommended_d_min_aggressive[axis_index]
+                                    .map_or("N/A".to_string(), |v| v.to_string());
+                                let d_max_str = recommended_d_max_aggressive[axis_index]
+                                    .map_or("N/A".to_string(), |v| v.to_string());
+                                format!(
+                                    "Aggressive:   P:D={:.2} (D≈{}, D-Min≈{}, D-Max≈{})",
+                                    rec_pd, rec_d, d_min_str, d_max_str
+                                )
+                            } else {
+                                // Simple case - no D-Min/D-Max
+                                format!("Aggressive:   P:D={:.2} (D≈{})", rec_pd, rec_d)
+                            }
+                        } else {
+                            format!("Aggressive:   P:D={:.2}", rec_pd)
+                        };
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: recommendation_label,
+                        color: RGBColor(70, 70, 70), // Darker gray for aggressive
+                        stroke_width: 0,             // Invisible legend line
                     });
                 }
             }
