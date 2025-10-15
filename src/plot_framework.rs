@@ -244,10 +244,14 @@ fn draw_single_axis_chart_with_config(
                     )))?
                     .label(&s.label)
                     .legend(move |(x, y)| {
-                        PathElement::new(
-                            vec![(x, y), (x + 20, y)],
-                            s.color.stroke_width(LINE_WIDTH_LEGEND),
-                        )
+                        if s.stroke_width == 0 {
+                            PathElement::new(vec![], s.color.stroke_width(0))
+                        } else {
+                            PathElement::new(
+                                vec![(x, y), (x + 20, y)],
+                                s.color.stroke_width(LINE_WIDTH_LEGEND),
+                            )
+                        }
                     });
                 legend_series_count += 1;
             }

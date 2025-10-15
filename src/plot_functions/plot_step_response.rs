@@ -15,6 +15,7 @@ use crate::data_input::pid_metadata::PidMetadata;
 use crate::plot_framework::{calculate_range, draw_stacked_plot, PlotSeries};
 use crate::types::{AllStepResponsePlotData, StepResponseResults};
 
+#[allow(clippy::too_many_arguments)]
 /// Generates the Stacked Step Response Plot (Blue, Orange, Red)
 pub fn plot_step_response(
     step_response_results: &StepResponseResults,
@@ -24,8 +25,8 @@ pub fn plot_step_response(
     setpoint_threshold: f64,
     show_legend: bool,
     pid_metadata: &PidMetadata,
-    // Add axis_index_for_debug if you uncomment debug prints in process_response
-    // axis_index_for_debug: usize, // Uncomment if using debug prints
+    recommended_pd: &[Option<f64>; 3],
+    recommended_d: &[Option<u32>; 3],
 ) -> Result<(), Box<dyn Error>> {
     let step_response_plot_duration_s = RESPONSE_LENGTH_S;
     let steady_state_start_s_const = STEADY_STATE_START_S; // from constants
@@ -56,6 +57,9 @@ pub fn plot_step_response(
             usize::min(has_nonzero_f_term_data.len(), plot_data_per_axis.len()),
         ),
     );
+
+    // Compute dmax_enabled once to avoid redundant calls in the axis loop
+    let dmax_enabled = pid_metadata.is_dmax_enabled();
 
     for axis_index in 0..axis_count {
         if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) =
@@ -333,19 +337,51 @@ pub fn plot_step_response(
             let x_range = 0f64..step_response_plot_duration_s * 1.05; // Add a little padding to x-axis
             let y_range = final_resp_min..final_resp_max;
 
+            // Add current and recommended P:D ratio as legend entries for Roll/Pitch
+            if axis_index < 2 {
+                // Current P:D ratio from pid_metadata
+                if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
+                    if let Some(current_pd) = axis_pid.calculate_pd_ratio() {
+                        let current_label = format!("Current P:D={:.2}", current_pd);
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: current_label,
+                            color: RGBColor(60, 60, 60), // Darker gray for current
+                            stroke_width: 0,             // Invisible legend line
+                        });
+                    }
+                }
+                // Conservative recommendation
+                if let Some(rec_pd) = recommended_pd[axis_index] {
+                    let recommendation_label = if let Some(rec_d) = recommended_d[axis_index] {
+                        format!(
+                            "Conservative recommendation: P:D={:.2} (D≈{})",
+                            rec_pd, rec_d
+                        )
+                    } else {
+                        format!("Conservative recommendation: P:D={:.2}", rec_pd)
+                    };
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: recommendation_label,
+                        color: RGBColor(120, 120, 120), // Gray color for recommendation text
+                        stroke_width: 0,                // Invisible legend line
+                    });
+                }
+            }
+
             plot_data_per_axis[axis_index] = Some((
                 {
                     let mut title = format!("{} Step Response", AXIS_NAMES[axis_index]);
 
-                    // Add PID information to the title using firmware-specific terminology
+                    // Add PID information to the title using firmware-specific terminology (no P:D ratio)
                     if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
                         let firmware_type = pid_metadata.get_firmware_type();
-                        let pid_info = axis_pid.format_for_title(firmware_type);
+                        let pid_info = axis_pid.format_for_title(firmware_type, dmax_enabled);
                         if !pid_info.is_empty() {
                             title.push_str(&pid_info);
                         }
                     }
-
                     // Keep original invalidity logic from master - same for all firmware types
                     if has_nonzero_f_term_data[axis_index] {
                         title.push_str(" - Invalid due to Feed-Forward");
