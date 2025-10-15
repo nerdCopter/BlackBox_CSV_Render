@@ -40,11 +40,13 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 ### Output
 - PNG files are generated in the source folder (input file's directory), unless specified by the `--output-dir` parameter.
 - Console output provides P:D ratio recommendations based on step response analysis:
-  - **Conservative recommendations** (+~18% D): Safe incremental tuning improvements
-  - **Aggressive recommendations** (+~43% D): Faster tuning for experienced pilots
+  - **Conservative recommendations** (+~18% D): Safe incremental tuning improvements, 2-3 iterations to optimal
+  - **Moderate recommendations** (+~33% D): Balanced approach for experienced pilots, 1-2 iterations to optimal
   - Automatically handles D-Min/D-Max systems (Betaflight 4.0+)
   - Shows only base D when D-Min/D-Max is disabled
+  - Works for all aircraft sizes including 10"+ where D > P
   - Includes warnings for severe overshoot or unreasonable ratios
+  - Only recommends when step response is not already excellent (Peak 1.05-1.10)
 
 ### Code Overview
 

@@ -387,7 +387,7 @@ pub fn plot_step_response(
                     });
                 }
 
-                // Aggressive recommendation
+                // Moderate recommendation
                 if let Some(rec_pd) = recommended_pd_aggressive[axis_index] {
                     let recommendation_label = if dmax_enabled {
                         // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
@@ -396,19 +396,19 @@ pub fn plot_step_response(
                         let d_max_str = recommended_d_max_aggressive[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Aggressive:   P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "Moderate:     P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
                     } else if let Some(rec_d) = recommended_d_aggressive[axis_index] {
                         // D-Min/D-Max disabled: show only base D
-                        format!("Aggressive:   P:D={:.2} (D≈{})", rec_pd, rec_d)
+                        format!("Moderate:     P:D={:.2} (D≈{})", rec_pd, rec_d)
                     } else {
-                        format!("Aggressive:   P:D={:.2}", rec_pd)
+                        format!("Moderate:     P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
                         label: recommendation_label,
-                        color: RGBColor(70, 70, 70), // Darker gray for aggressive
+                        color: RGBColor(70, 70, 70), // Darker gray for moderate
                         stroke_width: 0,             // Invisible legend line
                     });
                 }

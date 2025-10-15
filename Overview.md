@@ -61,8 +61,8 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * Peak 0.85-0.94: Minor undershoot → Conservative P:D×1.05 (decrease D by ~5%)
                     * Peak < 0.85: Significant undershoot → Conservative P:D×1.15 (decrease D by ~13%)
                 * **Dual Recommendations:**
-                    * **Conservative** (PD_RATIO_CONSERVATIVE_MULTIPLIER = 0.85): Reduces P:D ratio by 15%, increasing D by ~18%. Safe for most pilots.
-                    * **Aggressive** (PD_RATIO_AGGRESSIVE_MULTIPLIER = 0.70): Reduces P:D ratio by 30%, increasing D by ~43%. For experienced pilots seeking faster convergence.
+                    * **Conservative** (PD_RATIO_CONSERVATIVE_MULTIPLIER = 0.85): Reduces P:D ratio by 15%, increasing D by ~18%. Safe for most pilots, 2-3 iterations to optimal.
+                    * **Moderate** (PD_RATIO_MODERATE_MULTIPLIER = 0.75): Reduces P:D ratio by 25%, increasing D by ~33%. For experienced pilots, 1-2 iterations to optimal.
                 * **D-Min/D-Max Support:**
                     * Automatically detects if D-Min/D-Max system is enabled (Betaflight 4.0+)
                     * When enabled: Recommends proportional D-Min and D-Max values maintaining current ratio relationships
@@ -70,9 +70,11 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * Handles firmware differences (BF <4.6: D=max, D-Min=min; BF 4.6+: D=min, D-Max=max)
                 * **Safety Features:**
                     * Warnings for severe overshoot (Peak > 1.5) suggesting mechanical issues
-                    * Warnings for unreasonable P:D ratios (< 0.5 or > 3.0)
+                    * Warnings for unreasonable P:D ratios (< 0.3 or > 3.0)
                     * Only displays recommendations when change exceeds PD_RATIO_MIN_CHANGE_THRESHOLD (5%)
+                    * Only recommends when response needs improvement (skips if Peak is 1.05-1.10, "Excellent")
                     * Clear disclaimers that recommendations are starting points, not absolute values
+                    * Works for all aircraft sizes including 10"+ where D > P (P:D < 1.0)
                 * Recommendations appear in both console output and step response plot legends
             * **Other plots generated (`src/plot_functions/`):**
                 * `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.

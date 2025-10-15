@@ -139,13 +139,15 @@ pub const PD_RATIO_MIN_CHANGE_THRESHOLD: f64 = 0.05; // Minimum P:D ratio change
 
 // P:D Ratio adjustment multipliers for different recommendation styles
 // Based on control theory and step response analysis:
-// - Conservative (+18% D): Safe incremental improvement for most pilots
-// - Aggressive (+43% D): Faster tuning for experienced pilots
+// - Conservative (+18% D): Safe incremental improvement, 2-3 iterations to optimal
+// - Moderate (+33% D): Balanced approach for experienced pilots, 1-2 iterations to optimal
+// Note: Works for all aircraft sizes including 10"+ where D > P (P:D < 1.0)
 pub const PD_RATIO_CONSERVATIVE_MULTIPLIER: f64 = 0.85; // Conservative: reduce P:D by 15% (increase D by ~18%)
-pub const PD_RATIO_AGGRESSIVE_MULTIPLIER: f64 = 0.70; // Aggressive: reduce P:D by 30% (increase D by ~43%)
+pub const PD_RATIO_MODERATE_MULTIPLIER: f64 = 0.75; // Moderate: reduce P:D by 25% (increase D by ~33%)
 
 // Sanity check limits for P:D ratio recommendations
-pub const MIN_REASONABLE_PD_RATIO: f64 = 0.5; // Don't recommend D > 2× P
+// Note: MIN_REASONABLE_PD_RATIO of 0.5 accommodates large aircraft where D > P
+pub const MIN_REASONABLE_PD_RATIO: f64 = 0.3; // Don't recommend D > 3.3× P (was 0.5, adjusted for 10"+ aircraft)
 pub const MAX_REASONABLE_PD_RATIO: f64 = 3.0; // Don't recommend D < P/3
 pub const SEVERE_OVERSHOOT_THRESHOLD: f64 = 1.5; // Peak > 1.5 suggests deeper issues than just D tuning
 
