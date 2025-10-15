@@ -52,14 +52,14 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                 * Generates and saves the step response plot.
         * **P:D Ratio Recommendations (`src/main.rs`):**
             * Based on step response peak analysis, the system provides tuning recommendations:
-                * **Peak Analysis Ranges:**
-                    * Peak > 1.20: Significant overshoot → Conservative P:D×0.85 (increase D by ~18%)
-                    * Peak 1.16-1.20: Moderate overshoot → Conservative P:D×0.93 (increase D by ~8%)
-                    * Peak 1.11-1.15: Minor overshoot → Conservative P:D×0.97 (increase D by ~3%)
-                    * Peak 1.05-1.10: Excellent response → No change recommended
-                    * Peak 0.95-1.04: Good response → No change recommended
-                    * Peak 0.85-0.94: Minor undershoot → Conservative P:D×1.05 (decrease D by ~5%)
-                    * Peak < 0.85: Significant undershoot → Conservative P:D×1.15 (decrease D by ~13%)
+                * **Peak Analysis Ranges (based on step response overshoot/undershoot):**
+                    * Peak > 1.20: Significant overshoot (>20%) → Conservative P:D×0.85 (increase D by ~18%)
+                    * Peak 1.16-1.20: Moderate overshoot (16-20%) → Conservative P:D×0.93 (increase D by ~8%)
+                    * Peak 1.11-1.15: Minor overshoot (11-15%) → Conservative P:D×0.97 (increase D by ~3%)
+                    * Peak 1.05-1.10: Optimal response (5-10% overshoot) → No change recommended (ideal damping)
+                    * Peak 0.95-1.04: Acceptable response (0-5% overshoot/undershoot) → No change recommended
+                    * Peak 0.85-0.94: Minor undershoot (6-15%) → Conservative P:D×1.05 (decrease D by ~5%)
+                    * Peak < 0.85: Significant undershoot (>15%) → Conservative P:D×1.15 (decrease D by ~13%)
                 * **Dual Recommendations:**
                     * **Conservative** (PD_RATIO_CONSERVATIVE_MULTIPLIER = 0.85): Reduces P:D ratio by 15%, increasing D by ~18%. Safe for most pilots, 2-3 iterations to optimal.
                     * **Moderate** (PD_RATIO_MODERATE_MULTIPLIER = 0.75): Reduces P:D ratio by 25%, increasing D by ~33%. For experienced pilots, 1-2 iterations to optimal.
@@ -72,7 +72,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * Warnings for severe overshoot (Peak > 1.5) suggesting mechanical issues
                     * Warnings for unreasonable P:D ratios (< 0.3 or > 3.0)
                     * Only displays recommendations when change exceeds PD_RATIO_MIN_CHANGE_THRESHOLD (5%)
-                    * Only recommends when response needs improvement (skips if Peak is 1.05-1.10, "Excellent")
+                    * Only recommends when response needs improvement (skips optimal Peak 1.05-1.10 or acceptable Peak 0.95-1.04)
                     * Clear disclaimers that recommendations are starting points, not absolute values
                     * Works for all aircraft sizes including 10"+ where D > P (P:D < 1.0)
                 * Recommendations appear in both console output and step response plot legends

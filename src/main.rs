@@ -535,8 +535,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             };
 
                             if let Some(current_pd_ratio) = current_ratio {
-                                // Analyze overshoot/undershoot and calculate recommended ratio
-                                // Peak ranges: 1.05-1.10 = excellent, 1.11-1.15 = good but improvable, >1.15 = needs more D
+                                // Analyze overshoot/undershoot based on peak response and calculate recommended ratio
+                                // Peak ranges: 1.05-1.10 = optimal (5-10% overshoot), 1.11-1.15 = acceptable but improvable, >1.15 = needs more D
                                 let (assessment, recommended_ratio) = if peak_value > 1.20 {
                                     // Severe overshoot - conservative increase (don't jump all the way)
                                     ("Significant overshoot", current_pd_ratio * 0.85)
@@ -550,11 +550,11 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     ("Minor overshoot", current_pd_ratio * 0.97)
                                 // Increase D by ~3%
                                 } else if peak_value >= 1.05 {
-                                    // Excellent range - no change needed
-                                    ("Excellent response", current_pd_ratio) // Perfect
+                                    // Optimal range (5-10% overshoot) - no change needed
+                                    ("Optimal response", current_pd_ratio) // Ideal damping
                                 } else if peak_value >= 0.95 {
-                                    // Slight underdamping is acceptable
-                                    ("Good response", current_pd_ratio) // Still good
+                                    // Slight underdamping is acceptable (0-5% overshoot)
+                                    ("Acceptable response", current_pd_ratio) // Still acceptable
                                 } else if peak_value >= 0.85 {
                                     // Minor undershoot - small decrease
                                     ("Minor undershoot", current_pd_ratio * 1.05)

@@ -46,7 +46,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
   - Shows only base D when D-Min/D-Max is disabled
   - Works for all aircraft sizes including 10"+ where D > P
   - Includes warnings for severe overshoot or unreasonable ratios
-  - Only recommends when step response is not already excellent (Peak 1.05-1.10)
+  - Only recommends when step response needs improvement (skips optimal Peak 1.05-1.10 or acceptable Peak 0.95-1.04)
 
 ### Code Overview
 
