@@ -1253,8 +1253,22 @@ mod tests {
         };
         assert!(!pid_data_none.is_dmax_enabled());
 
-        // Test D-Max enabled when d_max_gain > 0
+        // Test D-Max enabled when d_max_gain > 0 AND has dynamic range
         let pid_data_gain = PidMetadata {
+            roll: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(30), // D ≠ D-Min, has dynamic range
+                d_max: None,
+                ..Default::default()
+            },
+            pitch: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(30), // D ≠ D-Min, has dynamic range
+                d_max: None,
+                ..Default::default()
+            },
             d_max_gain: Some(100),
             d_max_advance: Some(0),
             simplified_d_max_gain: Some(0),
@@ -1262,8 +1276,22 @@ mod tests {
         };
         assert!(pid_data_gain.is_dmax_enabled());
 
-        // Test D-Max enabled when d_max_advance > 0
+        // Test D-Max enabled when d_max_advance > 0 AND has dynamic range
         let pid_data_advance = PidMetadata {
+            roll: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(30), // D ≠ D-Min, has dynamic range
+                d_max: None,
+                ..Default::default()
+            },
+            pitch: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(30), // D ≠ D-Min, has dynamic range
+                d_max: None,
+                ..Default::default()
+            },
             d_max_gain: Some(0),
             d_max_advance: Some(50),
             simplified_d_max_gain: Some(0),
@@ -1271,8 +1299,22 @@ mod tests {
         };
         assert!(pid_data_advance.is_dmax_enabled());
 
-        // Test D-Max enabled when simplified_d_max_gain > 0
+        // Test D-Max enabled when simplified_d_max_gain > 0 AND has dynamic range
         let pid_data_simplified = PidMetadata {
+            roll: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(30), // D ≠ D-Min, has dynamic range
+                d_max: None,
+                ..Default::default()
+            },
+            pitch: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(30), // D ≠ D-Min, has dynamic range
+                d_max: None,
+                ..Default::default()
+            },
             d_max_gain: Some(0),
             d_max_advance: Some(0),
             simplified_d_max_gain: Some(75),
@@ -1280,8 +1322,91 @@ mod tests {
         };
         assert!(pid_data_simplified.is_dmax_enabled());
 
-        // Test D-Max enabled when multiple parameters > 0
+        // Test D-Max disabled when d_max_gain > 0 BUT no dynamic range (D = D-Min)
+        let pid_data_no_range = PidMetadata {
+            roll: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(50), // D = D-Min, NO dynamic range
+                d_max: None,
+                ..Default::default()
+            },
+            pitch: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(50), // D = D-Min, NO dynamic range
+                d_max: None,
+                ..Default::default()
+            },
+            d_max_gain: Some(100),
+            d_max_advance: Some(50),
+            simplified_d_max_gain: Some(0),
+            ..Default::default()
+        };
+        assert!(!pid_data_no_range.is_dmax_enabled());
+
+        // Test D-Max enabled with BF 4.6+ (d_max field exists, D-Min ≠ D-Max)
+        let pid_data_bf46 = PidMetadata {
+            roll: AxisPid {
+                p: Some(40),
+                d: Some(30),
+                d_min: Some(30),
+                d_max: Some(50), // D-Min ≠ D-Max, has dynamic range
+                ..Default::default()
+            },
+            pitch: AxisPid {
+                p: Some(40),
+                d: Some(30),
+                d_min: Some(30),
+                d_max: Some(50), // D-Min ≠ D-Max, has dynamic range
+                ..Default::default()
+            },
+            d_max_gain: Some(100),
+            d_max_advance: Some(50),
+            simplified_d_max_gain: Some(0),
+            ..Default::default()
+        };
+        assert!(pid_data_bf46.is_dmax_enabled());
+
+        // Test D-Max disabled with BF 4.6+ when D-Min = D-Max (no dynamic range)
+        let pid_data_bf46_no_range = PidMetadata {
+            roll: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(50),
+                d_max: Some(50), // D-Min = D-Max, NO dynamic range
+                ..Default::default()
+            },
+            pitch: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(50),
+                d_max: Some(50), // D-Min = D-Max, NO dynamic range
+                ..Default::default()
+            },
+            d_max_gain: Some(100),
+            d_max_advance: Some(50),
+            simplified_d_max_gain: Some(0),
+            ..Default::default()
+        };
+        assert!(!pid_data_bf46_no_range.is_dmax_enabled());
+
+        // Test D-Max enabled when multiple parameters > 0 AND has dynamic range
         let pid_data_multiple = PidMetadata {
+            roll: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(30), // D ≠ D-Min, has dynamic range
+                d_max: None,
+                ..Default::default()
+            },
+            pitch: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(30), // D ≠ D-Min, has dynamic range
+                d_max: None,
+                ..Default::default()
+            },
             d_max_gain: Some(100),
             d_max_advance: Some(50),
             simplified_d_max_gain: Some(75),
@@ -1289,8 +1414,22 @@ mod tests {
         };
         assert!(pid_data_multiple.is_dmax_enabled());
 
-        // Test D-Max enabled when only one parameter > 0 and others are None
+        // Test D-Max enabled when only one parameter > 0 and others are None AND has dynamic range
         let pid_data_mixed = PidMetadata {
+            roll: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(30), // D ≠ D-Min, has dynamic range
+                d_max: None,
+                ..Default::default()
+            },
+            pitch: AxisPid {
+                p: Some(40),
+                d: Some(50),
+                d_min: Some(30), // D ≠ D-Min, has dynamic range
+                d_max: None,
+                ..Default::default()
+            },
             d_max_gain: None,
             d_max_advance: Some(50),
             simplified_d_max_gain: None,
