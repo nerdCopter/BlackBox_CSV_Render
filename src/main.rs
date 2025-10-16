@@ -552,12 +552,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 // Increase D by ~8%
                                 } else if peak_value > 1.10 {
                                     // Minor overshoot - conservative recommendation only
-                                    ("Minor overshoot", current_pd_ratio * 0.95)
-                                // Increase D by ~5%
+                                    ("Minor overshoot", current_pd_ratio * 0.94)
+                                // Increase D by ~6% (exceeds 5% threshold)
                                 } else if peak_value >= 1.05 {
                                     // Acceptable range (5-10% overshoot) - conservative recommendation only
-                                    ("Acceptable response", current_pd_ratio * 0.95)
-                                // Increase D by ~5% to reach optimal range
+                                    ("Acceptable response", current_pd_ratio * 0.94)
+                                // Increase D by ~6% to reach optimal range (exceeds 5% threshold)
                                 } else if peak_value >= 0.95 {
                                     // Optimal range (0-5% overshoot/undershoot) - ideal damping
                                     ("Optimal response", current_pd_ratio) // Near-perfect response
