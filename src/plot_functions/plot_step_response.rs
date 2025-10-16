@@ -15,6 +15,7 @@ use crate::data_input::pid_metadata::PidMetadata;
 use crate::plot_framework::{calculate_range, draw_stacked_plot, PlotSeries};
 use crate::types::{AllStepResponsePlotData, StepResponseResults};
 
+#[allow(clippy::too_many_arguments)]
 /// Generates the Stacked Step Response Plot (Blue, Orange, Red)
 pub fn plot_step_response(
     step_response_results: &StepResponseResults,
@@ -24,8 +25,17 @@ pub fn plot_step_response(
     setpoint_threshold: f64,
     show_legend: bool,
     pid_metadata: &PidMetadata,
-    // Add axis_index_for_debug if you uncomment debug prints in process_response
-    // axis_index_for_debug: usize, // Uncomment if using debug prints
+    peak_values: &[Option<f64>; 3],
+    current_pd_ratios: &[Option<f64>; 3],
+    assessments: &[Option<&str>; 3],
+    recommended_pd_conservative: &[Option<f64>; 3],
+    recommended_d_conservative: &[Option<u32>; 3],
+    recommended_d_min_conservative: &[Option<u32>; 3],
+    recommended_d_max_conservative: &[Option<u32>; 3],
+    recommended_pd_aggressive: &[Option<f64>; 3],
+    recommended_d_aggressive: &[Option<u32>; 3],
+    recommended_d_min_aggressive: &[Option<u32>; 3],
+    recommended_d_max_aggressive: &[Option<u32>; 3],
 ) -> Result<(), Box<dyn Error>> {
     let step_response_plot_duration_s = RESPONSE_LENGTH_S;
     let steady_state_start_s_const = STEADY_STATE_START_S; // from constants
@@ -336,6 +346,83 @@ pub fn plot_step_response(
             let x_range = 0f64..step_response_plot_duration_s * 1.05; // Add a little padding to x-axis
             let y_range = final_resp_min..final_resp_max;
 
+            // Add current P:D ratio with quality assessment as legend entries for Roll/Pitch
+            if axis_index < 2 {
+                // Current P:D ratio and assessment
+                if let Some(current_pd) = current_pd_ratios[axis_index] {
+                    let current_label = if let Some(assessment) = assessments[axis_index] {
+                        if let Some(peak) = peak_values[axis_index] {
+                            format!(
+                                "Current P:D={:.2} (Peak={:.2}, {})",
+                                current_pd, peak, assessment
+                            )
+                        } else {
+                            format!("Current P:D={:.2} ({})", current_pd, assessment)
+                        }
+                    } else {
+                        format!("Current P:D={:.2}", current_pd)
+                    };
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: current_label,
+                        color: RGBColor(60, 60, 60), // Darker gray for current
+                        stroke_width: 0,             // Invisible legend line
+                    });
+                }
+
+                // Conservative recommendation (uses dmax_enabled computed at function start)
+                if let Some(rec_pd) = recommended_pd_conservative[axis_index] {
+                    let recommendation_label = if dmax_enabled {
+                        // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
+                        let d_min_str = recommended_d_min_conservative[axis_index]
+                            .map_or("N/A".to_string(), |v| v.to_string());
+                        let d_max_str = recommended_d_max_conservative[axis_index]
+                            .map_or("N/A".to_string(), |v| v.to_string());
+                        format!(
+                            "Conservative: P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            rec_pd, d_min_str, d_max_str
+                        )
+                    } else if let Some(rec_d) = recommended_d_conservative[axis_index] {
+                        // D-Min/D-Max disabled: show only base D
+                        format!("Conservative: P:D={:.2} (D≈{})", rec_pd, rec_d)
+                    } else {
+                        format!("Conservative: P:D={:.2}", rec_pd)
+                    };
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: recommendation_label,
+                        color: RGBColor(100, 100, 100), // Medium gray for conservative
+                        stroke_width: 0,                // Invisible legend line
+                    });
+                }
+
+                // Moderate recommendation
+                if let Some(rec_pd) = recommended_pd_aggressive[axis_index] {
+                    let recommendation_label = if dmax_enabled {
+                        // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
+                        let d_min_str = recommended_d_min_aggressive[axis_index]
+                            .map_or("N/A".to_string(), |v| v.to_string());
+                        let d_max_str = recommended_d_max_aggressive[axis_index]
+                            .map_or("N/A".to_string(), |v| v.to_string());
+                        format!(
+                            "Moderate:     P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            rec_pd, d_min_str, d_max_str
+                        )
+                    } else if let Some(rec_d) = recommended_d_aggressive[axis_index] {
+                        // D-Min/D-Max disabled: show only base D
+                        format!("Moderate:     P:D={:.2} (D≈{})", rec_pd, rec_d)
+                    } else {
+                        format!("Moderate:     P:D={:.2}", rec_pd)
+                    };
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: recommendation_label,
+                        color: RGBColor(70, 70, 70), // Darker gray for moderate
+                        stroke_width: 0,             // Invisible legend line
+                    });
+                }
+            }
+
             plot_data_per_axis[axis_index] = Some((
                 {
                     let mut title = format!("{} Step Response", AXIS_NAMES[axis_index]);
@@ -348,7 +435,6 @@ pub fn plot_step_response(
                             title.push_str(&pid_info);
                         }
                     }
-
                     // Keep original invalidity logic from master - same for all firmware types
                     if has_nonzero_f_term_data[axis_index] {
                         title.push_str(" - Invalid due to Feed-Forward");

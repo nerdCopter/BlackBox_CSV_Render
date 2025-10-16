@@ -39,6 +39,15 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 
 ### Output
 - PNG files are generated in the source folder (input file's directory), unless specified by the `--output-dir` parameter.
+- Console output provides P:D ratio recommendations based on step-response analysis:
+  - **Conservative recommendations** (+≈18% D): Safe incremental steps; 2–3 iterations to optimal
+  - **Moderate recommendations** (+≈33% D): For experienced pilots; 1–2 iterations to optimal
+  - Automatically handles D-Min/D-Max systems (Betaflight 4.0+)
+  - Shows only base D when D-Min/D-Max is disabled
+  - Works for all aircraft sizes, including 10+ inch, where D can exceed P
+  - Includes warnings for severe overshoot or unreasonable P:D ratios
+  - Shows recommendations only when the step response needs improvement (skips optimal peak 0.95–1.04)
+  - **Note:** Peak value measures the first maximum after crossing the setpoint; the initial transient dip is normal system behavior
 
 ### Code Overview
 
