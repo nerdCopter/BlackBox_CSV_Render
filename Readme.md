@@ -13,7 +13,7 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug]
+Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step]
   <input_fileX.csv>: Path to one or more input CSV log files (required).
   --dps <value>: Optional. Enables detailed step response plots with the specified
                  deg/s threshold value. Must be a positive number.
@@ -23,6 +23,7 @@ Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <v
   --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters
                  as gray curves/lines on gyro and D-term spectrum plots.
   --debug: Optional. Shows detailed metadata information during processing.
+  --step: Optional. Generate only step response plots, skipping all other graphs.
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.
 ```
@@ -35,6 +36,9 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 ```
 ```shell
 ./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --dps 360 --output-dir ./plots --butterworth
+```
+```shell
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --output-dir ./step-only
 ```
 
 ### Output
