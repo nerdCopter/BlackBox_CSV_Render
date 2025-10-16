@@ -20,7 +20,7 @@ use ndarray::Array1;
 use crate::types::StepResponseResults;
 
 // Plot configuration struct
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct PlotConfig {
     pub step_response: bool,
     pub pidsum_error_setpoint: bool,
@@ -309,7 +309,7 @@ fn process_file(
     output_dir: Option<&Path>,
     debug_mode: bool,
     show_butterworth: bool,
-    plot_config: &PlotConfig,
+    plot_config: PlotConfig,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -1068,7 +1068,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             actual_output_dir,
             debug_mode,
             show_butterworth,
-            &plot_config,
+            plot_config,
         ) {
             eprintln!("An error occurred while processing {input_file_str}: {e}");
             overall_success = false;
