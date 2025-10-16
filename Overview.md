@@ -9,7 +9,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 **Core Functionality:**
 
 1.  **Argument Parsing (`src/main.rs`):**
-    * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), and an optional `--output-dir` for specifying the output directory.
+    * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and an optional `--step` flag to generate only step response plots.
     * Additional options include `--help` and `--version` for user assistance.
     * The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     * Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
@@ -77,7 +77,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * Clear disclaimers that recommendations are starting points, not absolute values
                     * Works for all aircraft sizes including 10"+ where D > P (P:D < 1.0)
                 * Recommendations appear in both console output and step response plot legends
-            * **Other plots generated (`src/plot_functions/`):**
+            * **Other plots generated (`src/plot_functions/`):** When the `--step` flag is not used, the following additional plots are generated. These per-plot gates are controlled by the `PlotConfig` struct (defaults to all enabled; `PlotConfig::step_only()` when `--step` is specified):
                 * `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.
                 * `plot_setpoint_vs_gyro`: Setpoint and filtered gyro time-domain comparison for each axis.
                 * `plot_gyro_vs_unfilt`: Filtered vs. unfiltered gyro time-domain comparison for each axis. Includes enhanced cross-correlation filtering delay calculation.

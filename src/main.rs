@@ -19,6 +19,58 @@ use ndarray::Array1;
 
 use crate::types::StepResponseResults;
 
+// Plot configuration struct
+#[derive(Debug, Clone, Copy)]
+struct PlotConfig {
+    pub step_response: bool,
+    pub pidsum_error_setpoint: bool,
+    pub setpoint_vs_gyro: bool,
+    pub gyro_vs_unfilt: bool,
+    pub gyro_spectrums: bool,
+    pub d_term_psd: bool,
+    pub d_term_spectrums: bool,
+    pub psd: bool,
+    pub psd_db_heatmap: bool,
+    pub throttle_freq_heatmap: bool,
+    pub d_term_heatmap: bool,
+}
+
+impl Default for PlotConfig {
+    fn default() -> Self {
+        Self {
+            step_response: true,
+            pidsum_error_setpoint: true,
+            setpoint_vs_gyro: true,
+            gyro_vs_unfilt: true,
+            gyro_spectrums: true,
+            d_term_psd: true,
+            d_term_spectrums: true,
+            psd: true,
+            psd_db_heatmap: true,
+            throttle_freq_heatmap: true,
+            d_term_heatmap: true,
+        }
+    }
+}
+
+impl PlotConfig {
+    fn step_only() -> Self {
+        Self {
+            step_response: true,
+            pidsum_error_setpoint: false,
+            setpoint_vs_gyro: false,
+            gyro_vs_unfilt: false,
+            gyro_spectrums: false,
+            d_term_psd: false,
+            d_term_spectrums: false,
+            psd: false,
+            psd_db_heatmap: false,
+            throttle_freq_heatmap: false,
+            d_term_heatmap: false,
+        }
+    }
+}
+
 use crate::constants::{
     DEFAULT_SETPOINT_THRESHOLD, EXCLUDE_END_S, EXCLUDE_START_S, FRAME_LENGTH_S,
 };
@@ -214,7 +266,7 @@ fn find_csv_files_in_dir_impl(
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug]");
+Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step]");
     eprintln!("  <inputX>: Path to one or more input CSV log files or directories containing CSV files (required).");
     eprintln!("            If a directory is specified, all CSV files within it (including subdirectories) will be processed.");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
@@ -229,6 +281,7 @@ Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <dir
     );
     eprintln!("                 as gray curves/lines on gyro and D-term spectrum plots.");
     eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
+    eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
     eprintln!("  --help: Show this help message and exit.");
     eprintln!("  --version: Show version information and exit.");
     eprintln!(
@@ -247,6 +300,7 @@ fn print_version_and_exit() {
     std::process::exit(0);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_file(
     input_file_str: &str,
     setpoint_threshold: f64,
@@ -255,6 +309,7 @@ fn process_file(
     output_dir: Option<&Path>,
     debug_mode: bool,
     show_butterworth: bool,
+    plot_config: PlotConfig,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -798,54 +853,86 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     // Create PID context for centralized PID metadata and related parameters
     let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
 
-    plot_pidsum_error_setpoint(&all_log_data, &root_name_string)?;
-    plot_setpoint_vs_gyro(&all_log_data, &root_name_string, sample_rate)?;
-    plot_gyro_vs_unfilt(&all_log_data, &root_name_string, sample_rate)?;
-    plot_step_response(
-        &step_response_calculation_results,
-        &root_name_string,
-        sample_rate,
-        &has_nonzero_f_term_data,
-        setpoint_threshold,
-        show_legend,
-        &pid_context.pid_metadata,
-        &peak_values,
-        &current_pd_ratios,
-        &assessments,
-        &recommended_pd_conservative,
-        &recommended_d_conservative,
-        &recommended_d_min_conservative,
-        &recommended_d_max_conservative,
-        &recommended_pd_aggressive,
-        &recommended_d_aggressive,
-        &recommended_d_min_aggressive,
-        &recommended_d_max_aggressive,
-    )?;
-    plot_gyro_spectrums(
-        &all_log_data,
-        &root_name_string,
-        sample_rate,
-        Some(&header_metadata),
-        show_butterworth,
-    )?;
-    plot_d_term_psd(
-        &all_log_data,
-        &root_name_string,
-        sample_rate,
-        Some(&header_metadata),
-        debug_mode,
-    )?;
-    plot_d_term_spectrums(
-        &all_log_data,
-        &root_name_string,
-        sample_rate,
-        Some(&header_metadata),
-        show_butterworth,
-    )?;
-    plot_psd(&all_log_data, &root_name_string, sample_rate)?;
-    plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
-    plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
-    plot_d_term_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+    if plot_config.step_response {
+        plot_step_response(
+            &step_response_calculation_results,
+            &root_name_string,
+            sample_rate,
+            &has_nonzero_f_term_data,
+            setpoint_threshold,
+            show_legend,
+            &pid_context.pid_metadata,
+            &peak_values,
+            &current_pd_ratios,
+            &assessments,
+            &recommended_pd_conservative,
+            &recommended_d_conservative,
+            &recommended_d_min_conservative,
+            &recommended_d_max_conservative,
+            &recommended_pd_aggressive,
+            &recommended_d_aggressive,
+            &recommended_d_min_aggressive,
+            &recommended_d_max_aggressive,
+        )?;
+    }
+
+    if plot_config.pidsum_error_setpoint {
+        plot_pidsum_error_setpoint(&all_log_data, &root_name_string)?;
+    }
+
+    if plot_config.setpoint_vs_gyro {
+        plot_setpoint_vs_gyro(&all_log_data, &root_name_string, sample_rate)?;
+    }
+
+    if plot_config.gyro_vs_unfilt {
+        plot_gyro_vs_unfilt(&all_log_data, &root_name_string, sample_rate)?;
+    }
+
+    if plot_config.gyro_spectrums {
+        plot_gyro_spectrums(
+            &all_log_data,
+            &root_name_string,
+            sample_rate,
+            Some(&header_metadata),
+            show_butterworth,
+        )?;
+    }
+
+    if plot_config.d_term_psd {
+        plot_d_term_psd(
+            &all_log_data,
+            &root_name_string,
+            sample_rate,
+            Some(&header_metadata),
+            debug_mode,
+        )?;
+    }
+
+    if plot_config.d_term_spectrums {
+        plot_d_term_spectrums(
+            &all_log_data,
+            &root_name_string,
+            sample_rate,
+            Some(&header_metadata),
+            show_butterworth,
+        )?;
+    }
+
+    if plot_config.psd {
+        plot_psd(&all_log_data, &root_name_string, sample_rate)?;
+    }
+
+    if plot_config.psd_db_heatmap {
+        plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+    }
+
+    if plot_config.throttle_freq_heatmap {
+        plot_throttle_freq_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+    }
+
+    if plot_config.d_term_heatmap {
+        plot_d_term_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+    }
 
     // CWD restoration happens automatically when _cwd_guard goes out of scope
     println!("--- Finished processing file: {input_file_str} ---");
@@ -867,6 +954,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
     let mut debug_mode = false;
     let mut show_butterworth = false;
+    let mut plot_config = PlotConfig::default();
 
     let mut i = 1;
     while i < args.len() {
@@ -915,6 +1003,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             debug_mode = true;
         } else if arg == "--butterworth" {
             show_butterworth = true;
+        } else if arg == "--step" {
+            plot_config = PlotConfig::step_only();
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -978,6 +1068,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             actual_output_dir,
             debug_mode,
             show_butterworth,
+            plot_config,
         ) {
             eprintln!("An error occurred while processing {input_file_str}: {e}");
             overall_success = false;
