@@ -586,7 +586,9 @@ fn parse_axis_pid(pid_str: &str) -> AxisPid {
             }
         }
         5 => {
-            // Betaflight 4.6+ style: P,I,D,D-Max,FF
+            // Betaflight 4.6+ style: P,I,D(base=D-Min),D-Max,FF
+            // In BF 4.6+, base D IS the minimum (floor), not the maximum
+            axis_pid.d_min = Some(values[2]); // Base D is D-Min in BF 4.6+
             axis_pid.d_max = Some(values[3]);
             if values[4] > 0 {
                 axis_pid.ff = Some(values[4]);
@@ -694,7 +696,8 @@ mod tests {
 
     #[test]
     fn test_betaflight_5_value_parsing() {
-        // Test Betaflight 4.6+ format: P,I,D,D-Max,FF
+        // Test Betaflight 4.6+ format: P,I,D(base=D-Min),D-Max,FF
+        // In BF 4.6+, base D is the minimum value, not the maximum
         let metadata = vec![
             ("rollPID".to_string(), "57,66,58,58,206".to_string()),
             ("pitchPID".to_string(), "59,69,72,72,215".to_string()),
@@ -706,18 +709,21 @@ mod tests {
         assert_eq!(pid_data.roll.p, Some(57));
         assert_eq!(pid_data.roll.i, Some(66));
         assert_eq!(pid_data.roll.d, Some(58));
+        assert_eq!(pid_data.roll.d_min, Some(58)); // Base D is D-Min in BF 4.6+
         assert_eq!(pid_data.roll.d_max, Some(58));
         assert_eq!(pid_data.roll.ff, Some(206));
 
         assert_eq!(pid_data.pitch.p, Some(59));
         assert_eq!(pid_data.pitch.i, Some(69));
         assert_eq!(pid_data.pitch.d, Some(72));
+        assert_eq!(pid_data.pitch.d_min, Some(72)); // Base D is D-Min in BF 4.6+
         assert_eq!(pid_data.pitch.d_max, Some(72));
         assert_eq!(pid_data.pitch.ff, Some(215));
 
         assert_eq!(pid_data.yaw.p, Some(57));
         assert_eq!(pid_data.yaw.i, Some(66));
         assert_eq!(pid_data.yaw.d, Some(0));
+        assert_eq!(pid_data.yaw.d_min, Some(0)); // Base D is D-Min in BF 4.6+
         assert_eq!(pid_data.yaw.d_max, Some(0));
         assert_eq!(pid_data.yaw.ff, Some(206));
     }
