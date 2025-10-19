@@ -270,6 +270,8 @@ fn betaflight_46x_debug_modes() -> HashMap<u32, &'static str> {
     map.insert(95, "WING_SETPOINT");
     map.insert(96, "AUTOPILOT_POSITION");
     map.insert(97, "CHIRP");
+    map.insert(98, "FLASH_TEST_PRBS");
+    map.insert(99, "MAVLINK_TELEMETRY");
     map
 }
 
