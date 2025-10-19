@@ -163,8 +163,6 @@ fn betaflight_44x_debug_modes() -> HashMap<u32, &'static str> {
 fn betaflight_45x_debug_modes() -> HashMap<u32, &'static str> {
     let mut map = betaflight_44x_debug_modes();
     // Add new modes introduced in 4.5.x
-    map.insert(47, "D_MIN"); // Changed from D_MIN in 4.4.x
-    map.insert(56, "GPS_RESCUE_THROTTLE_PID"); // Same position but naming might differ
     map.insert(80, "MAG_CALIB");
     map.insert(81, "MAG_TASK_RATE");
     map.insert(82, "EZLANDING");
