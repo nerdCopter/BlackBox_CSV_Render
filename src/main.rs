@@ -913,7 +913,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             using_debug_fallback,
-            debug_mode_label.as_deref(),
+            debug_mode_label,
         )?;
     }
 
@@ -925,7 +925,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             Some(&header_metadata),
             show_butterworth,
             using_debug_fallback,
-            debug_mode_label.as_deref(),
+            debug_mode_label,
         )?;
     }
 
@@ -937,7 +937,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             Some(&header_metadata),
             debug_mode,
             using_debug_fallback,
-            debug_mode_label.as_deref(),
+            debug_mode_label,
         )?;
     }
 
@@ -949,7 +949,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             Some(&header_metadata),
             show_butterworth,
             using_debug_fallback,
-            debug_mode_label.as_deref(),
+            debug_mode_label,
         )?;
     }
 
@@ -959,7 +959,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             using_debug_fallback,
-            debug_mode_label.as_deref(),
+            debug_mode_label,
         )?;
     }
 
@@ -969,7 +969,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             using_debug_fallback,
-            debug_mode_label.as_deref(),
+            debug_mode_label,
         )?;
     }
 
@@ -983,7 +983,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             using_debug_fallback,
-            debug_mode_label.as_deref(),
+            debug_mode_label,
         )?;
     }
 

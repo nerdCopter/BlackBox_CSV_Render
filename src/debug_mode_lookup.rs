@@ -368,9 +368,15 @@ fn parse_firmware_revision(firmware_revision: &str) -> (&str, u32, u32) {
         if let Some(paren_pos) = firmware_revision.find(") ") {
             let after_paren = &firmware_revision[paren_pos + 2..]; // Skip ") "
 
-            // Check for new date-based versioning (2025.xx.x maps to 4.6+)
-            if after_paren.starts_with("2025") || after_paren.starts_with("2026") {
-                return ("Betaflight", 4, 6); // 2025.xx = 4.6.x
+            // Check for new date-based versioning (YYYY.mm.x[-suffix]) → treat YYYY >= 2025 as 4.6+
+            if let Some(ver_token) = after_paren.split_whitespace().next() {
+                if let Some(year_part) = ver_token.split('.').next() {
+                    if let Ok(year) = year_part.parse::<u32>() {
+                        if year >= 2025 {
+                            return ("Betaflight", 4, 6);
+                        }
+                    }
+                }
             }
 
             // Old numeric versioning (4.x.x)
@@ -396,7 +402,7 @@ fn parse_firmware_revision(firmware_revision: &str) -> (&str, u32, u32) {
 
 /// Lookup debug mode name from integer value
 /// Returns the debug mode name string, or None if not found
-pub fn lookup_debug_mode(firmware_revision: &str, debug_mode_value: u32) -> Option<String> {
+pub fn lookup_debug_mode(firmware_revision: &str, debug_mode_value: u32) -> Option<&'static str> {
     let (fw_type, major, minor) = parse_firmware_revision(firmware_revision);
 
     let mode_map = match fw_type {
@@ -435,7 +441,7 @@ pub fn lookup_debug_mode(firmware_revision: &str, debug_mode_value: u32) -> Opti
         _ => return None, // Unknown firmware
     };
 
-    mode_map.get(&debug_mode_value).map(|s| s.to_string())
+    mode_map.get(&debug_mode_value).copied()
 }
 
 #[cfg(test)]
@@ -476,7 +482,7 @@ mod tests {
         let fw =
             "EmuFlight / HELIOSPRING (HESP) 0.4.3 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
         let mode = lookup_debug_mode(fw, 6);
-        assert_eq!(mode, Some("GYRO_SCALED".to_string()));
+        assert_eq!(mode, Some("GYRO_SCALED"));
     }
 
     #[test]
@@ -484,7 +490,7 @@ mod tests {
         let fw =
             "EmuFlight / HELIOSPRING (HESP) 0.3.5 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
         let mode = lookup_debug_mode(fw, 45);
-        assert_eq!(mode, Some("SMART_SMOOTHING".to_string()));
+        assert_eq!(mode, Some("SMART_SMOOTHING"));
     }
 
     #[test]
@@ -500,7 +506,7 @@ mod tests {
         let fw =
             "EmuFlight / HELIOSPRING (HESP) 0.4.3 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
         let mode = lookup_debug_mode(fw, 45);
-        assert_eq!(mode, Some("ANGLE".to_string()));
+        assert_eq!(mode, Some("ANGLE"));
     }
 
     #[test]
@@ -508,14 +514,14 @@ mod tests {
         let fw =
             "EmuFlight / HELIOSPRING (HESP) 0.4.3 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
         let mode = lookup_debug_mode(fw, 46);
-        assert_eq!(mode, Some("HORIZON".to_string()));
+        assert_eq!(mode, Some("HORIZON"));
     }
 
     #[test]
     fn test_betaflight_multi_gyro_diff() {
         let fw = "Betaflight / STM32F7X2 (S7X2) 2025.12.0-beta Sep 13 2025 / 15:33:21 (aafd969ec) MSP API: 1.47";
         let mode = lookup_debug_mode(fw, 21);
-        assert_eq!(mode, Some("MULTI_GYRO_DIFF".to_string()));
+        assert_eq!(mode, Some("MULTI_GYRO_DIFF"));
     }
 
     #[test]
@@ -540,27 +546,27 @@ mod tests {
     fn test_inav_7x_agl() {
         let fw = "INAV 7.1.2 (4e1e59eb) FOXEERF722V4";
         let mode = lookup_debug_mode(fw, 1);
-        assert_eq!(mode, Some("AGL".to_string()));
+        assert_eq!(mode, Some("AGL"));
     }
 
     #[test]
     fn test_inav_7x_pos_est() {
         let fw = "INAV 7.1.2 (4e1e59eb) FOXEERF722V4";
         let mode = lookup_debug_mode(fw, 20);
-        assert_eq!(mode, Some("POS_EST".to_string()));
+        assert_eq!(mode, Some("POS_EST"));
     }
 
     #[test]
     fn test_inav_8x_sbus2() {
         let fw = "INAV 8.0.0 (ec2106af) FLYWOOF745";
         let mode = lookup_debug_mode(fw, 25);
-        assert_eq!(mode, Some("SBUS2".to_string()));
+        assert_eq!(mode, Some("SBUS2"));
     }
 
     #[test]
     fn test_inav_8x_adaptive_filter() {
         let fw = "INAV 8.0.0 (ec2106af) FLYWOOF745";
         let mode = lookup_debug_mode(fw, 21);
-        assert_eq!(mode, Some("ADAPTIVE_FILTER".to_string()));
+        assert_eq!(mode, Some("ADAPTIVE_FILTER"));
     }
 }
