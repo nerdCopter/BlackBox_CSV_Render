@@ -5,9 +5,8 @@
 
 use std::collections::HashMap;
 
-/// Debug mode lookup for EmuFlight firmware
-/// Versions 0.3.5, 0.4.2, and 0.4.3 use the same debug mode mapping
-fn emuflight_debug_modes() -> HashMap<u32, &'static str> {
+/// Common debug modes for EmuFlight 0-44 (shared across all versions)
+fn emuflight_common_debug_modes() -> HashMap<u32, &'static str> {
     let mut map = HashMap::new();
     map.insert(0, "NONE");
     map.insert(1, "CYCLETIME");
@@ -54,10 +53,22 @@ fn emuflight_debug_modes() -> HashMap<u32, &'static str> {
     map.insert(42, "RC_SMOOTHING_RATE");
     map.insert(43, "IMU");
     map.insert(44, "KALMAN");
-    // Version-specific last items
-    // 0.3.5: SMART_SMOOTHING (45)
-    // 0.4.2, 0.4.3: ANGLE (45), HORIZON (46)
-    map.insert(45, "ANGLE"); // or SMART_SMOOTHING for 0.3.5
+    map
+}
+
+/// Debug mode lookup for EmuFlight 0.3.5
+/// Has SMART_SMOOTHING at mode 45, no mode 46
+fn emuflight_035_debug_modes() -> HashMap<u32, &'static str> {
+    let mut map = emuflight_common_debug_modes();
+    map.insert(45, "SMART_SMOOTHING");
+    map
+}
+
+/// Debug mode lookup for EmuFlight 0.4.x (0.4.2, 0.4.3, etc.)
+/// Has ANGLE at mode 45 and HORIZON at mode 46
+fn emuflight_04x_debug_modes() -> HashMap<u32, &'static str> {
+    let mut map = emuflight_common_debug_modes();
+    map.insert(45, "ANGLE");
     map.insert(46, "HORIZON");
     map
 }
@@ -391,7 +402,16 @@ pub fn lookup_debug_mode(firmware_revision: &str, debug_mode_value: u32) -> Opti
     let (fw_type, major, minor) = parse_firmware_revision(firmware_revision);
 
     let mode_map = match fw_type {
-        "EmuFlight" => emuflight_debug_modes(),
+        "EmuFlight" => {
+            // Version-aware selection for EmuFlight
+            if major == 0 && minor <= 3 {
+                // EmuFlight 0.3.5 and earlier use SMART_SMOOTHING at 45
+                emuflight_035_debug_modes()
+            } else {
+                // EmuFlight 0.4.x and later use ANGLE at 45, HORIZON at 46
+                emuflight_04x_debug_modes()
+            }
+        }
         "Betaflight" => {
             if major == 4 && minor >= 6 {
                 betaflight_46x_debug_modes()
@@ -459,6 +479,38 @@ mod tests {
             "EmuFlight / HELIOSPRING (HESP) 0.4.3 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
         let mode = lookup_debug_mode(fw, 6);
         assert_eq!(mode, Some("GYRO_SCALED".to_string()));
+    }
+
+    #[test]
+    fn test_emuflight_035_smart_smoothing() {
+        let fw =
+            "EmuFlight / HELIOSPRING (HESP) 0.3.5 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
+        let mode = lookup_debug_mode(fw, 45);
+        assert_eq!(mode, Some("SMART_SMOOTHING".to_string()));
+    }
+
+    #[test]
+    fn test_emuflight_035_no_mode_46() {
+        let fw =
+            "EmuFlight / HELIOSPRING (HESP) 0.3.5 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
+        let mode = lookup_debug_mode(fw, 46);
+        assert_eq!(mode, None);
+    }
+
+    #[test]
+    fn test_emuflight_04x_angle() {
+        let fw =
+            "EmuFlight / HELIOSPRING (HESP) 0.4.3 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
+        let mode = lookup_debug_mode(fw, 45);
+        assert_eq!(mode, Some("ANGLE".to_string()));
+    }
+
+    #[test]
+    fn test_emuflight_04x_horizon() {
+        let fw =
+            "EmuFlight / HELIOSPRING (HESP) 0.4.3 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
+        let mode = lookup_debug_mode(fw, 46);
+        assert_eq!(mode, Some("HORIZON".to_string()));
     }
 
     #[test]
