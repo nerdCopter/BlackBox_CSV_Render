@@ -29,11 +29,9 @@ pub fn plot_psd_db_heatmap(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
-    using_debug_fallback: bool,
-    debug_mode_name: Option<&str>,
+    _using_debug_fallback: bool,
+    _debug_mode_name: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
-    // Clone debug mode name to move into closures
-    let debug_mode_name_owned = debug_mode_name.map(|s| s.to_string());
     let output_file = format!("{root_name}_Gyro_PSD_Spectrogram_comparative.png");
     let plot_type_name = "Gyro PSD Spectrogram";
 
@@ -219,18 +217,7 @@ pub fn plot_psd_db_heatmap(
         };
 
         let unfiltered_heatmap_config = HeatmapPlotConfig {
-            title: {
-                let title_base = format!("{axis_name} Unfiltered Gyro PSD Spectrogram");
-                if using_debug_fallback {
-                    if let Some(ref mode_name) = debug_mode_name_owned {
-                        format!("{} [Debug={}]", title_base, mode_name)
-                    } else {
-                        format!("{} [Debug]", title_base)
-                    }
-                } else {
-                    title_base
-                }
-            },
+            title: format!("{axis_name} Unfiltered Gyro PSD Spectrogram"),
             x_range: x_range_plot.clone(),
             y_range: y_range_plot.clone(),
             heatmap_data: HeatmapData {

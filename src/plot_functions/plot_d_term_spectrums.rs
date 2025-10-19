@@ -455,18 +455,7 @@ pub fn plot_d_term_spectrums(
             };
 
             Some(PlotConfig {
-                title: {
-                    let title_base = format!("{} Unfiltered D-term (derivative of gyro", axis_name);
-                    if using_debug_fallback {
-                        if let Some(ref mode_name) = debug_mode_name_owned {
-                            format!("{}Unfilt [Debug={}])", title_base, mode_name)
-                        } else {
-                            format!("{}Unfilt [Debug])", title_base)
-                        }
-                    } else {
-                        format!("{}Unfilt)", title_base)
-                    }
-                },
+                title: format!("{} Unfiltered D-term (derivative of gyroUnfilt)", axis_name),
                 x_range: 0.0..max_freq_display,
                 y_range: d_term_floor_unfilt..y_max_unfilt,
                 series: unfilt_plot_series,

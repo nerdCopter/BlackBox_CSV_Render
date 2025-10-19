@@ -411,21 +411,10 @@ pub fn plot_psd(
             }];
 
             let unfiltered_plot_config = Some(PlotConfig {
-                title: {
-                    let title_base = format!(
-                        "{} Unfiltered Gyro Power Spectral Density",
-                        AXIS_NAMES.get(axis_index).unwrap_or(&"Unknown")
-                    );
-                    if using_debug_fallback {
-                        if let Some(ref mode_name) = debug_mode_name_owned {
-                            format!("{} [Debug={}]", title_base, mode_name)
-                        } else {
-                            format!("{} [Debug]", title_base)
-                        }
-                    } else {
-                        title_base
-                    }
-                },
+                title: format!(
+                    "{} Unfiltered Gyro Power Spectral Density",
+                    AXIS_NAMES.get(axis_index).unwrap_or(&"Unknown")
+                ),
                 x_range: x_range.clone(),
                 y_range: y_range_for_all_clone.clone(),
                 series: unfilt_plot_series,
