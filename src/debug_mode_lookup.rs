@@ -338,17 +338,14 @@ fn parse_firmware_revision(firmware_revision: &str) -> (&str, u32, u32) {
         return ("INAV", 0, 0);
     }
 
-    // EmuFlight format: "EmuFlight / <TARGET> (<CODE>) 0.4.3 <DATE> / <TIME> (<HASH>) MSP API: <VERSION>"
-    if firmware_revision.contains("EmuFlight") || firmware_revision.contains("Emuflight") {
-        // Extract version number like "0.4.3"
-        if let Some(version_start) = firmware_revision.find(|c: char| c.is_ascii_digit()) {
-            let version_str = &firmware_revision[version_start..];
-            let version_parts: Vec<&str> = version_str
-                .split_whitespace()
-                .next()
-                .unwrap_or("0.0.0")
-                .split('.')
-                .collect();
+    // EmuFlight format from header metadata: "EmuFlight VERSION (HASH) TARGET"
+    // Example: "EmuFlight 0.4.3 (784cd2b6b) HELIOSPRING"
+    // Check EmuFlight first before others (case-insensitive)
+    if let Some(after_emuflight) = firmware_revision.strip_prefix("EmuFlight ") {
+        // Extract version directly after "EmuFlight "
+        if let Some(space_pos) = after_emuflight.find(char::is_whitespace) {
+            let version_str = &after_emuflight[..space_pos];
+            let version_parts: Vec<&str> = version_str.split('.').collect();
             let major = version_parts
                 .first()
                 .and_then(|s| s.parse().ok())
@@ -362,39 +359,54 @@ fn parse_firmware_revision(firmware_revision: &str) -> (&str, u32, u32) {
         return ("EmuFlight", 0, 0);
     }
 
-    // Betaflight format can be:
-    // Old: "Betaflight / <TARGET> (<CODE>) 4.5.2 <DATE> / <TIME> (<HASH>) MSP API: <VERSION>"
-    // New: "Betaflight / <TARGET> (<CODE>) 2025.12.0-beta <DATE> / <TIME> (<HASH>) MSP API: <VERSION>"
-    if firmware_revision.contains("Betaflight") {
-        // Find the closing parenthesis after the target code, version comes after that
-        if let Some(paren_pos) = firmware_revision.find(") ") {
-            let after_paren = &firmware_revision[paren_pos + 2..]; // Skip ") "
+    // Fallback for case variations (Emuflight with lowercase)
+    if let Some(after_emuflight) = firmware_revision.strip_prefix("Emuflight ") {
+        // Extract version directly after "Emuflight "
+        if let Some(space_pos) = after_emuflight.find(char::is_whitespace) {
+            let version_str = &after_emuflight[..space_pos];
+            let version_parts: Vec<&str> = version_str.split('.').collect();
+            let major = version_parts
+                .first()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let minor = version_parts
+                .get(1)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            return ("EmuFlight", major, minor);
+        }
+        return ("EmuFlight", 0, 0);
+    }
+
+    // Betaflight format from header metadata: "Betaflight VERSION (HASH) TARGET"
+    // Examples:
+    //   Old: "Betaflight 4.5.2 (024f8e13d) STM32F7X2"
+    //   New: "Betaflight 2025.12.0-beta (aafd969ec) STM32F7X2"
+    if let Some(after_betaflight) = firmware_revision.strip_prefix("Betaflight ") {
+        // Extract version directly after "Betaflight "
+        if let Some(space_pos) = after_betaflight.find(char::is_whitespace) {
+            let version_str = &after_betaflight[..space_pos];
 
             // Check for new date-based versioning (YYYY.mm.x[-suffix]) → treat YYYY >= 2025 as 4.6+
-            if let Some(ver_token) = after_paren.split_whitespace().next() {
-                if let Some(year_part) = ver_token.split('.').next() {
-                    if let Ok(year) = year_part.parse::<u32>() {
-                        if year >= 2025 {
-                            return ("Betaflight", 4, 6);
-                        }
+            if let Some(year_part) = version_str.split('.').next() {
+                if let Ok(year) = year_part.parse::<u32>() {
+                    if year >= 2025 {
+                        return ("Betaflight", 4, 6);
                     }
                 }
             }
 
             // Old numeric versioning (4.x.x)
-            if let Some(space_pos) = after_paren.find(char::is_whitespace) {
-                let version_str = &after_paren[..space_pos];
-                let version_parts: Vec<&str> = version_str.split('.').collect();
-                let major = version_parts
-                    .first()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(0);
-                let minor = version_parts
-                    .get(1)
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(0);
-                return ("Betaflight", major, minor);
-            }
+            let version_parts: Vec<&str> = version_str.split('.').collect();
+            let major = version_parts
+                .first()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let minor = version_parts
+                .get(1)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            return ("Betaflight", major, minor);
         }
         return ("Betaflight", 0, 0);
     }
@@ -452,8 +464,7 @@ mod tests {
 
     #[test]
     fn test_emuflight_parse() {
-        let fw =
-            "EmuFlight / HELIOSPRING (HESP) 0.4.3 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
+        let fw = "EmuFlight 0.4.3 (784cd2b6b) HELIOSPRING";
         let (fw_type, major, minor) = parse_firmware_revision(fw);
         assert_eq!(fw_type, "EmuFlight");
         assert_eq!(major, 0);
@@ -462,8 +473,7 @@ mod tests {
 
     #[test]
     fn test_betaflight_old_parse() {
-        let fw =
-            "Betaflight / STM32F7X2 (S7X2) 4.5.2 Jun 10 2025 / 09:47:40 (024f8e13d) MSP API: 1.46";
+        let fw = "Betaflight 4.5.2 (024f8e13d) STM32F7X2";
         let (fw_type, major, minor) = parse_firmware_revision(fw);
         assert_eq!(fw_type, "Betaflight");
         assert_eq!(major, 4);
@@ -472,7 +482,7 @@ mod tests {
 
     #[test]
     fn test_betaflight_new_parse() {
-        let fw = "Betaflight / STM32F7X2 (S7X2) 2025.12.0-beta Sep 13 2025 / 15:33:21 (aafd969ec) MSP API: 1.47";
+        let fw = "Betaflight 2025.12.0-beta (aafd969ec) STM32F7X2";
         let (fw_type, major, minor) = parse_firmware_revision(fw);
         assert_eq!(fw_type, "Betaflight");
         assert_eq!(major, 4);
@@ -481,47 +491,42 @@ mod tests {
 
     #[test]
     fn test_emuflight_gyro_scaled() {
-        let fw =
-            "EmuFlight / HELIOSPRING (HESP) 0.4.3 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
+        let fw = "EmuFlight 0.4.3 (784cd2b6b) HELIOSPRING";
         let mode = lookup_debug_mode(fw, 6);
         assert_eq!(mode, Some("GYRO_SCALED"));
     }
 
     #[test]
     fn test_emuflight_035_smart_smoothing() {
-        let fw =
-            "EmuFlight / HELIOSPRING (HESP) 0.3.5 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
+        let fw = "EmuFlight 0.3.5 (784cd2b6b) HELIOSPRING";
         let mode = lookup_debug_mode(fw, 45);
         assert_eq!(mode, Some("SMART_SMOOTHING"));
     }
 
     #[test]
     fn test_emuflight_035_no_mode_46() {
-        let fw =
-            "EmuFlight / HELIOSPRING (HESP) 0.3.5 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
+        let fw = "EmuFlight 0.3.5 (784cd2b6b) HELIOSPRING";
         let mode = lookup_debug_mode(fw, 46);
         assert_eq!(mode, None);
     }
 
     #[test]
     fn test_emuflight_04x_angle() {
-        let fw =
-            "EmuFlight / HELIOSPRING (HESP) 0.4.3 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
+        let fw = "EmuFlight 0.4.3 (784cd2b6b) HELIOSPRING";
         let mode = lookup_debug_mode(fw, 45);
         assert_eq!(mode, Some("ANGLE"));
     }
 
     #[test]
     fn test_emuflight_04x_horizon() {
-        let fw =
-            "EmuFlight / HELIOSPRING (HESP) 0.4.3 Jul 12 2024 / 17:13:23 (179c0bb86) MSP API: 1.54";
+        let fw = "EmuFlight 0.4.3 (784cd2b6b) HELIOSPRING";
         let mode = lookup_debug_mode(fw, 46);
         assert_eq!(mode, Some("HORIZON"));
     }
 
     #[test]
     fn test_betaflight_multi_gyro_diff() {
-        let fw = "Betaflight / STM32F7X2 (S7X2) 2025.12.0-beta Sep 13 2025 / 15:33:21 (aafd969ec) MSP API: 1.47";
+        let fw = "Betaflight 2025.12.0-beta (aafd969ec) STM32F7X2";
         let mode = lookup_debug_mode(fw, 21);
         assert_eq!(mode, Some("MULTI_GYRO_DIFF"));
     }
