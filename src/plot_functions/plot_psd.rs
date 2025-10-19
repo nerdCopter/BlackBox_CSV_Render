@@ -168,7 +168,11 @@ pub fn plot_psd(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
+    using_debug_fallback: bool,
+    debug_mode_name: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
+    // Clone debug mode name to move into closures
+    let debug_mode_name_owned = debug_mode_name.map(|s| s.to_string());
     let output_file = format!("{root_name}_Gyro_PSD_comparative.png");
     let plot_type_name = "Gyro PSD";
 
@@ -350,7 +354,18 @@ pub fn plot_psd(
 
             let unfilt_plot_series = vec![PlotSeries {
                 data: unfilt_psd_data,
-                label: "Unfiltered Gyro PSD".to_string(),
+                label: {
+                    let base_label = "Unfiltered Gyro PSD".to_string();
+                    if using_debug_fallback {
+                        if let Some(ref mode_name) = debug_mode_name_owned {
+                            format!("{} [Debug={}]", base_label, mode_name)
+                        } else {
+                            format!("{} [Debug]", base_label)
+                        }
+                    } else {
+                        base_label
+                    }
+                },
                 color: *COLOR_GYRO_VS_UNFILT_UNFILT,
                 stroke_width: LINE_WIDTH_PLOT,
             }];
@@ -396,10 +411,21 @@ pub fn plot_psd(
             }];
 
             let unfiltered_plot_config = Some(PlotConfig {
-                title: format!(
-                    "{} Unfiltered Gyro Power Spectral Density",
-                    AXIS_NAMES.get(axis_index).unwrap_or(&"Unknown")
-                ),
+                title: {
+                    let title_base = format!(
+                        "{} Unfiltered Gyro Power Spectral Density",
+                        AXIS_NAMES.get(axis_index).unwrap_or(&"Unknown")
+                    );
+                    if using_debug_fallback {
+                        if let Some(ref mode_name) = debug_mode_name_owned {
+                            format!("{} [Debug={}]", title_base, mode_name)
+                        } else {
+                            format!("{} [Debug]", title_base)
+                        }
+                    } else {
+                        title_base
+                    }
+                },
                 x_range: x_range.clone(),
                 y_range: y_range_for_all_clone.clone(),
                 series: unfilt_plot_series,
