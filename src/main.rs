@@ -898,7 +898,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             .and_then(|debug_value| {
                 header_metadata
                     .iter()
-                    .find(|(key, _)| key == "Firmware revision")
+                    .find(|(key, _)| key.eq_ignore_ascii_case("Firmware revision"))
                     .and_then(|(_, fw_revision)| {
                         crate::debug_mode_lookup::lookup_debug_mode(fw_revision, debug_value)
                     })
