@@ -893,7 +893,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let debug_mode_label = if using_debug_fallback {
         header_metadata
             .iter()
-            .find(|(key, _)| key == "debug_mode")
+            .find(|(key, _)| key.eq_ignore_ascii_case("debug_mode"))
             .and_then(|(_, value)| value.parse::<u32>().ok())
             .and_then(|debug_value| {
                 header_metadata
