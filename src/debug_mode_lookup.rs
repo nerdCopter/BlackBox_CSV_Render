@@ -576,4 +576,36 @@ mod tests {
         let mode = lookup_debug_mode(fw, 21);
         assert_eq!(mode, Some("ADAPTIVE_FILTER"));
     }
+
+    #[test]
+    fn test_unknown_firmware() {
+        let fw = "SomethingElse 1.0.0 (a1b2c3d4e) TARGET";
+        let (fw_type, major, minor) = parse_firmware_revision(fw);
+        assert_eq!(fw_type, "Unknown");
+        assert_eq!(major, 0);
+        assert_eq!(minor, 0);
+    }
+
+    #[test]
+    fn test_empty_firmware_string() {
+        let result = lookup_debug_mode("", 0);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_unknown_debug_mode_value() {
+        let fw = "Betaflight 4.5.0 (f7e8d9c6b) TARGET";
+        let result = lookup_debug_mode(fw, 9999);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_betaflight_future_calver() {
+        // Betaflight uses YYYY.MM.PP format (patch level, not day)
+        let fw = "Betaflight 2027.06.15 (a1b2c3d4e) TARGET";
+        let (fw_type, major, minor) = parse_firmware_revision(fw);
+        assert_eq!(fw_type, "Betaflight");
+        assert_eq!(major, 4);
+        assert_eq!(minor, 6);
+    }
 }
