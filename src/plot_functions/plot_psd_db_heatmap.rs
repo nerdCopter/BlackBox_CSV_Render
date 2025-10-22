@@ -29,6 +29,8 @@ pub fn plot_psd_db_heatmap(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
+    _using_debug_fallback: bool,
+    _debug_mode_name: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     let output_file = format!("{root_name}_Gyro_PSD_Spectrogram_comparative.png");
     let plot_type_name = "Gyro PSD Spectrogram";

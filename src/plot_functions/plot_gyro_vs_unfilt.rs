@@ -16,9 +16,14 @@ pub fn plot_gyro_vs_unfilt(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
+    using_debug_fallback: bool,
+    debug_mode_name: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     let output_file_gyro = format!("{root_name}_GyroVsUnfilt_stacked.png");
     let plot_type_name = "Gyro/UnfiltGyro";
+
+    // Clone debug mode name to move into closure
+    let debug_mode_name_owned = debug_mode_name.map(|s| s.to_string());
 
     // Calculate filtering delay using enhanced cross-correlation
     let delay_analysis = if let Some(sr) = sample_rate {
@@ -99,9 +104,20 @@ pub fn plot_gyro_vs_unfilt(
 
             let mut series = Vec::new();
             if !unfilt_series_data.is_empty() {
+                // Create label with debug mode annotation if using debug fallback
+                let unfilt_label = if using_debug_fallback {
+                    if let Some(ref mode_name) = debug_mode_name_owned {
+                        format!("Unfiltered Gyro [Debug={}]", mode_name)
+                    } else {
+                        "Unfiltered Gyro [Debug]".to_string()
+                    }
+                } else {
+                    "Unfiltered Gyro (gyroUnfilt)".to_string()
+                };
+
                 series.push(PlotSeries {
                     data: unfilt_series_data,
-                    label: "Unfiltered Gyro (gyroUnfilt/debug)".to_string(),
+                    label: unfilt_label,
                     color: color_gyro_unfilt,
                     stroke_width: line_stroke_plot,
                 });

@@ -25,7 +25,11 @@ pub fn plot_d_term_psd(
     sample_rate: Option<f64>,
     _header_metadata: Option<&[(String, String)]>,
     debug_mode: bool,
+    using_debug_fallback: bool,
+    debug_mode_name: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
+    // Clone debug mode name to move into closures
+    let debug_mode_name_owned = debug_mode_name.map(|s| s.to_string());
     // Input validation
     if log_data.is_empty() {
         return Ok(()); // No data to process
@@ -404,10 +408,21 @@ pub fn plot_d_term_psd(
                 y_range: min_y_db..max_y_db,
                 series: vec![PlotSeries {
                     data: unfilt_series_data,
-                    label: if delay_str.is_empty() {
-                        "Unfiltered D-term".to_string()
-                    } else {
-                        format!("Unfiltered D-term | {}", delay_str)
+                    label: {
+                        let label_base = if delay_str.is_empty() {
+                            "Unfiltered D-term".to_string()
+                        } else {
+                            format!("Unfiltered D-term | {}", delay_str)
+                        };
+                        if using_debug_fallback {
+                            if let Some(ref mode_name) = debug_mode_name_owned {
+                                format!("{} [Debug={}]", label_base, mode_name)
+                            } else {
+                                format!("{} [Debug]", label_base)
+                            }
+                        } else {
+                            label_base
+                        }
                     },
                     color: *COLOR_D_TERM_UNFILT,
                     stroke_width: 2,

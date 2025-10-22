@@ -4,6 +4,7 @@ mod axis_names;
 mod constants;
 mod data_analysis;
 mod data_input;
+mod debug_mode_lookup;
 mod pid_context;
 mod plot_framework;
 mod plot_functions;
@@ -358,8 +359,8 @@ fn process_file(
         f_term_header_found,
         setpoint_header_found,
         gyro_header_found,
-        _gyro_unfilt_header_found,
-        _debug_header_found,
+        gyro_unfilt_header_found,
+        debug_header_found,
         header_metadata,
     ) = match parse_log_file(input_path, debug_mode) {
         Ok(data) => data,
@@ -884,8 +885,36 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         plot_setpoint_vs_gyro(&all_log_data, &root_name_string, sample_rate)?;
     }
 
+    // Determine if debug fallback is being used for gyroUnfilt
+    let using_debug_fallback = !gyro_unfilt_header_found.iter().any(|&found| found)
+        && debug_header_found.iter().take(3).any(|&found| found);
+
+    // Get debug mode name if available
+    let debug_mode_label = if using_debug_fallback {
+        header_metadata
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("debug_mode"))
+            .and_then(|(_, value)| value.parse::<u32>().ok())
+            .and_then(|debug_value| {
+                header_metadata
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case("Firmware revision"))
+                    .and_then(|(_, fw_revision)| {
+                        crate::debug_mode_lookup::lookup_debug_mode(fw_revision, debug_value)
+                    })
+            })
+    } else {
+        None
+    };
+
     if plot_config.gyro_vs_unfilt {
-        plot_gyro_vs_unfilt(&all_log_data, &root_name_string, sample_rate)?;
+        plot_gyro_vs_unfilt(
+            &all_log_data,
+            &root_name_string,
+            sample_rate,
+            using_debug_fallback,
+            debug_mode_label,
+        )?;
     }
 
     if plot_config.gyro_spectrums {
@@ -895,6 +924,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             sample_rate,
             Some(&header_metadata),
             show_butterworth,
+            using_debug_fallback,
+            debug_mode_label,
         )?;
     }
 
@@ -905,6 +936,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             sample_rate,
             Some(&header_metadata),
             debug_mode,
+            using_debug_fallback,
+            debug_mode_label,
         )?;
     }
 
@@ -915,15 +948,29 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             sample_rate,
             Some(&header_metadata),
             show_butterworth,
+            using_debug_fallback,
+            debug_mode_label,
         )?;
     }
 
     if plot_config.psd {
-        plot_psd(&all_log_data, &root_name_string, sample_rate)?;
+        plot_psd(
+            &all_log_data,
+            &root_name_string,
+            sample_rate,
+            using_debug_fallback,
+            debug_mode_label,
+        )?;
     }
 
     if plot_config.psd_db_heatmap {
-        plot_psd_db_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+        plot_psd_db_heatmap(
+            &all_log_data,
+            &root_name_string,
+            sample_rate,
+            using_debug_fallback,
+            debug_mode_label,
+        )?;
     }
 
     if plot_config.throttle_freq_heatmap {
@@ -931,7 +978,13 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     }
 
     if plot_config.d_term_heatmap {
-        plot_d_term_heatmap(&all_log_data, &root_name_string, sample_rate)?;
+        plot_d_term_heatmap(
+            &all_log_data,
+            &root_name_string,
+            sample_rate,
+            using_debug_fallback,
+            debug_mode_label,
+        )?;
     }
 
     // CWD restoration happens automatically when _cwd_guard goes out of scope

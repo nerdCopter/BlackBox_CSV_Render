@@ -38,6 +38,8 @@ pub fn plot_d_term_heatmap(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
+    _using_debug_fallback: bool,
+    _debug_mode_name: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     let output_file = format!("{root_name}_D_Term_Heatmap_comparative.png");
     let plot_type_name = "D-Term Throttle-Frequency Heatmap";
