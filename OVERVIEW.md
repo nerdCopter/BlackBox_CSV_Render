@@ -141,7 +141,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
     * **PT1 (1st order)**: $H(s) = 1/(1 + s/\omega_c)$ - Standard single-pole lowpass
     * **PT2 (2nd order)**: $H(s) = 1/(1 + \sqrt{2}\cdot s/\omega_c + (s/\omega_c)^2)$ - Butterworth response yielding -3dB at cutoff
     * **PT3 (3rd order)**: $|H(j\omega)| = 1/\sqrt{1 + (\omega/\omega_c)^6}$ - Simplified 3rd order approximation maintaining -3dB at cutoff
-    * **PT4 (4th order)**: $|H(j\omega)| = 1/\sqrt{1 + (\omega/\omega_c)^8}$ - 4th-order approximation maintaining -3dB at cutoff
+    * **PT4 (4th order)**: $|H(j\omega)| = 1/\sqrt{1 + (\omega/\omega_c)^8}$ - Simplified 4th order approximation maintaining -3dB at cutoff
     * **BIQUAD (2nd order)**: Currently implemented as PT2 Butterworth response (Q=0.707). Ready for Q-factor enhancement with $H(s) = \omega_0^2/(s^2 + (\omega_0/Q)\cdot s + \omega_0^2)$ where $\omega_0 = 2\pi\cdot f_c$
     * Note: $\omega_c$ represents angular cutoff frequency ($\omega_c = 2\pi\cdot f_c$ where $f_c$ is cutoff in Hz)
 * **Curve Generation:** Logarithmic frequency spacing from 10% of cutoff frequency to gyro Nyquist frequency (gyro\_rate/2) with 1000 points for smooth visualization. Includes division-by-zero protection and edge case handling.
