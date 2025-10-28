@@ -1,17 +1,30 @@
 ## This is an experimental RUST program, mostly created via A.I., to read Betaflight Blackbox CSV and produce meaningful graphs.
 
-### Prerequisites
+## Table of Contents
+- [Prerequisites](#prerequisites)
+- [Build](#build)
+- [Usage](#usage)
+- [Example execution commands](#example-execution-commands)
+- [Output](#output)
+- [Code Overview](#code-overview)
+- [Development](#development)
+  - [Setting Up Development Environment](#setting-up-development-environment)
+  - [Required Commands Before Committing](#required-commands-before-committing)
+  - [CI Requirements](#ci-requirements)
+- [License](#license)
+
+### Prerequisites {#prerequisites}
 
 1. https://www.rust-lang.org/tools/install
 2. [blackbox_decode](https://github.com/betaflight/blackbox-tools) your BBL to CSV (`--save-headers`, `--index <num>`, and `--limits` parameters may be useful)
 
-### Build
+### Build {#build}
 
 ```shell
 cargo build --release
 ```
 
-### Usage
+### Usage {#usage}
 ```shell
 Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step]
   <input_fileX.csv>: Path to one or more input CSV log files (required).
@@ -27,7 +40,7 @@ Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <v
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.
 ```
-### Example execution commands
+### Example execution commands {#example-execution-commands}
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv
 ```
@@ -41,7 +54,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --output-dir ./step-only
 ```
 
-### Output
+### Output {#output}
 - PNG files are generated in the source folder (input file's directory), unless specified by the `--output-dir` parameter.
 - Console output provides P:D ratio recommendations based on step-response analysis:
   - **Conservative recommendations** (+≈18% D): Safe incremental steps; 2–3 iterations to optimal
@@ -53,13 +66,13 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
   - Shows recommendations only when the step response needs improvement (skips optimal peak 0.95–1.04)
   - **Note:** Peak value measures the first maximum after crossing the setpoint; the initial transient dip is normal system behavior
 
-### Code Overview
+### Code Overview {#code-overview}
 
 For a detailed explanation of the program's functionality, especially the step-response calculation and comparison with other tools like PIDtoolbox (Matlab) and PlasmaTree PID-Analyzer (Python), please see [Overview.md](Overview.md).
 
-## Development
+## Development {#development}
 
-### Setting Up Development Environment
+### Setting Up Development Environment {#setting-up-development-environment}
 
 To set up your development environment with proper formatting and pre-commit hooks:
 
@@ -73,7 +86,7 @@ chmod +x .github/setup-dev.sh
 ./.github/setup-dev.sh
 ```
 
-### Required Commands Before Committing
+### Required Commands Before Committing {#required-commands-before-committing}
 
 **⚠️ IMPORTANT**: Always run these commands before committing to avoid CI failures:
 
@@ -99,11 +112,11 @@ cargo build --release
 - Run clippy checks to catch code issues
 - Prevent commits with formatting issues
 
-### CI Requirements
+### CI Requirements {#ci-requirements}
 
 The project enforces strict formatting and code quality standards.
 
-## License
+## License {#license}
 
 This project is dual-licensed under the terms of the AGPL-3.0-or-later and a commercial license.
 
