@@ -15,7 +15,7 @@
 
 ### Prerequisites
 
-1. https://www.rust-lang.org/tools/install
+1. [Rust installation page](https://www.rust-lang.org/tools/install)
 2. [blackbox_decode](https://github.com/betaflight/blackbox-tools) your BBL to CSV (`--save-headers`, `--index <num>`, and `--limits` parameters may be useful)
 
 ### Build
