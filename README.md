@@ -1,8 +1,21 @@
 ## This is an experimental RUST program, mostly created via A.I., to read Betaflight Blackbox CSV and produce meaningful graphs.
 
+## Table of Contents
+- [Prerequisites](#prerequisites)
+- [Build](#build)
+- [Usage](#usage)
+- [Example execution commands](#example-execution-commands)
+- [Output](#output)
+- [Code Overview](#code-overview)
+- [Development](#development)
+  - [Setting Up Development Environment](#setting-up-development-environment)
+  - [Required Commands Before Committing](#required-commands-before-committing)
+  - [CI Requirements](#ci-requirements)
+- [License](#license)
+
 ### Prerequisites
 
-1. https://www.rust-lang.org/tools/install
+1. [Rust installation page](https://www.rust-lang.org/tools/install)
 2. [blackbox_decode](https://github.com/betaflight/blackbox-tools) your BBL to CSV (`--save-headers`, `--index <num>`, and `--limits` parameters may be useful)
 
 ### Build

@@ -1,12 +1,24 @@
 ## Code Overview and Step Response Calculation
 
+## Table of Contents
+- [Code Overview and Step Response Calculation](#code-overview-and-step-response-calculation)
+  - [Configuration](#configuration)
+  - [Core Functionality](#core-functionality)
+  - [Filtering Delay Calculation](#filtering-delay-calculation)
+  - [Enhanced Cross-Correlation Method (Primary Implementation)](#enhanced-cross-correlation-method-primary-implementation)
+  - [Implementation Details](#implementation-details)
+  - [Filter Response Curves](#filter-response-curves)
+  - [Step-Response Comparison with Other Analysis Tools](#step-response-comparison-with-other-analysis-tools)
+    - [Compared to PIDtoolbox/Matlab (PTstepcalc.m)](#compared-to-pidtoolboxmatlab-ptstepcalcm)
+    - [Compared to PlasmaTree/Python (PID-Analyzer.py)](#compared-to-plasmatreepython-pid-analyzerpy)
+
 The Rust program processes Betaflight Blackbox CSV logs to generate various plots. Here's a concise overview:
 
-**Configuration:**
+### Configuration
 
 All analysis parameters, thresholds, plot dimensions, and algorithmic constants are centrally defined in `src/constants.rs`, making the implementation highly configurable for different analysis needs and flight controller characteristics.
 
-**Core Functionality:**
+### Core Functionality
 
 1.  **Argument Parsing (`src/main.rs`):**
     * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and an optional `--step` flag to generate only step response plots.
@@ -89,7 +101,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                 * `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap.
                 * `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
 
-**Filtering Delay Calculation (`src/data_analysis/filter_delay.rs`):**
+### Filtering Delay Calculation
 
 ***
 
@@ -109,11 +121,11 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 * **Data Validation:** Performs comprehensive data availability diagnostics across all axes before analysis.
 * **Averaging:** Individual axis delays are averaged to provide an overall system delay measurement when sufficient correlation is achieved.
 * **Bounds Checking:** Comprehensive bounds checking with `saturating_sub()` and explicit runtime verification prevents array access violations. Limits maximum delay search range (`MAX_DELAY_FRACTION`, `MAX_DELAY_SAMPLES`) to prevent unrealistic results and ensures robust parabolic interpolation.
-* **Confidence Value Clamping:** Confidence values are clamped to the valid range \[0, 1] to handle numerical noise in correlation calculations that could cause values to slightly exceed 1.0.
+* **Confidence Value Clamping:** Confidence values are clamped to the valid range [0, 1] to handle numerical noise in correlation calculations that could cause values to slightly exceed 1.0.
 * **Configurable Thresholds:** All correlation thresholds and delay search parameters are defined as named constants in `src/constants.rs` for maintainability and tuning.
 * **Display:** Results are shown in console output with confidence metrics (as percentages), and estimates are integrated into plot legends as "Delay: X.Xms(c:XX%)" for `_GyroVsUnfilt_stacked.png`, `_Gyro_Spectrums_comparative.png`, and `_Gyro_PSD_comparative.png` outputs.
 
-**Filter Response Curves (`src/data_analysis/filter_response.rs`):**
+### Filter Response Curves
 
 * **Flight Firmware Integration:** Automatically detects and parses filter configurations from Betaflight, EmuFlight, and INAV blackbox headers including filter types (PT1, PT2, PT3, PT4, BIQUAD), cutoff frequencies, and dynamic filter ranges.
 * **Butterworth Correction Visualization (Optional):** When enabled with the `--butterworth` command-line parameter, displays per-stage PT1 implementation details for PT2/PT3/PT4 filters on gyro and D-term spectrum plots:
@@ -136,11 +148,11 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 * **Visualization Integration:** Filter response curves are overlaid on spectrum plots (`plot_gyro_spectrums`) as red curves with clear legends showing filter type and cutoff frequency, enhancing spectrum analysis with theoretical filter characteristics.
 * **Quality Assurance:** Comprehensive unit tests verify -3dB magnitude response at cutoff frequencies for all filter types and validate gyro rate extraction accuracy.
 
-**Step-Response Comparison with Other Analysis Tools:**
+### Step-Response Comparison with Other Analysis Tools
 
 This implementation provides detailed and configurable analysis of flight controller performance. The modular design and centralized configuration system make it adaptable for various analysis requirements.
 
-* **Compared to PIDtoolbox/Matlab (`PTstepcalc.m`):**
+#### Compared to PIDtoolbox/Matlab (`PTstepcalc.m`)
     * **Deconvolution Method:** Both use Wiener deconvolution with a regularization term.
     * **Windowing:** This implementation uses Tukey (`TUKEY_ALPHA`) on input/output before FFT; Matlab uses Hann.
     * **Smoothing:** This implementation has optional initial gyro smoothing (`INITIAL_GYRO_SMOOTHING_WINDOW`) and mandatory post-average smoothing (`POST_AVERAGING_SMOOTHING_WINDOW`). Matlab smooths raw gyro input upfront.
@@ -150,7 +162,7 @@ This implementation provides detailed and configurable analysis of flight contro
     * **Quality Control (QC):** Both apply QC to individual responses based on steady-state characteristics. This implementation uses `NORMALIZED_STEADY_STATE_MIN_VAL`, `NORMALIZED_STEADY_STATE_MAX_VAL`, and optionally `NORMALIZED_STEADY_STATE_MEAN_MIN`, `NORMALIZED_STEADY_STATE_MEAN_MAX`. Matlab uses `min(steadyStateResp) > 0.5 && max(steadyStateResp) < 3`.
     * **Output:** This implementation can plot low/high/combined responses based on `setpoint_threshold` if `--dps` is provided with a value. Matlab stacks all valid responses.
 
-* **Compared to PlasmaTree/Python (`PID-Analyzer.py`):**
+#### Compared to PlasmaTree/Python (`PID-Analyzer.py`)
     * **Deconvolution Method:** PlasmaTree also uses Wiener deconvolution with a signal-to-noise ratio (`sn`) term in the denominator, derived from a `cutfreq` parameter and smoothed, effectively acting as frequency-dependent regularization. This implementation uses a simpler constant regularization term (`0.0001`).
     * **Windowing:** PlasmaTree uses a Hanning window by default (or Tukey) applied to input and output segments before deconvolution. This implementation uses a Tukey window.
     * **Input for Deconvolution:** PlasmaTree calculates an `input` signal by reconstructing the setpoint as seen by the PID loop. This implementation directly uses the logged setpoint values.
