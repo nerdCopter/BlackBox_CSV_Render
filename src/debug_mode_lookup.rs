@@ -398,7 +398,6 @@ fn parse_firmware_revision(firmware_revision: &str) -> (&str, FirmwareVersion) {
             let version_str = &after_betaflight[..space_pos];
 
             // Check for new date-based versioning (YYYY.mm.x[-suffix]) → treat YYYY >= 2025 as 4.6+
-            // Check for new date-based versioning (YYYY.mm.x[-suffix])
             if let Some(year_part) = version_str.split('.').next() {
                 if let Ok(year) = year_part.parse::<u32>() {
                     if year >= 2025 {
