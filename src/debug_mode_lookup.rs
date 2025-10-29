@@ -4,6 +4,7 @@
 // Used to decode the debug_mode integer from header metadata into human-readable names.
 
 use std::collections::HashMap;
+use std::fmt;
 
 /// Representation of firmware version type returned from parsing the header
 /// - Semver(major, minor) for traditional numeric Betaflight/EmuFlight/INAV
@@ -13,6 +14,18 @@ enum FirmwareVersion {
     Semver(u32, u32),
     Datever(u32, u32, u32),
     Unknown,
+}
+
+impl fmt::Display for FirmwareVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FirmwareVersion::Semver(major, minor) => write!(f, "{}.{}", major, minor),
+            FirmwareVersion::Datever(year, month, patch) => {
+                write!(f, "{}.{}.{}", year, month, patch)
+            }
+            FirmwareVersion::Unknown => write!(f, "Unknown"),
+        }
+    }
 }
 
 /// Common debug modes for EmuFlight 0-44 (shared across all versions)
@@ -325,8 +338,8 @@ fn inav_8x_debug_modes() -> HashMap<u32, &'static str> {
 }
 
 /// Detect firmware type and version from the firmware_revision header metadata
-/// Returns (firmware_type, FirmwareVersion)
-fn parse_firmware_revision(firmware_revision: &str) -> (&str, FirmwareVersion) {
+/// Returns (firmware_type, version_string, FirmwareVersion)
+fn parse_firmware_revision(firmware_revision: &str) -> (&str, &str, FirmwareVersion) {
     // INAV format from header metadata: "INAV x.x.x (<HASH>) <TARGET>"
     // Example: "INAV 8.0.0 (ec2106af) FLYWOOF745"
     // Check INAV first before others
@@ -343,9 +356,9 @@ fn parse_firmware_revision(firmware_revision: &str) -> (&str, FirmwareVersion) {
                 .get(1)
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
-            return ("INAV", FirmwareVersion::Semver(major, minor));
+            return ("INAV", version_str, FirmwareVersion::Semver(major, minor));
         }
-        return ("INAV", FirmwareVersion::Unknown);
+        return ("INAV", "", FirmwareVersion::Unknown);
     }
 
     // EmuFlight format from header metadata: "EmuFlight VERSION (HASH) TARGET"
@@ -373,9 +386,13 @@ fn parse_firmware_revision(firmware_revision: &str) -> (&str, FirmwareVersion) {
                 .get(1)
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
-            return ("EmuFlight", FirmwareVersion::Semver(major, minor));
+            return (
+                "EmuFlight",
+                version_str,
+                FirmwareVersion::Semver(major, minor),
+            );
         }
-        return ("EmuFlight", FirmwareVersion::Unknown);
+        return ("EmuFlight", "", FirmwareVersion::Unknown);
     }
 
     // Betaflight format from header metadata: "Betaflight VERSION (HASH) TARGET"
@@ -401,7 +418,11 @@ fn parse_firmware_revision(firmware_revision: &str) -> (&str, FirmwareVersion) {
                                 s.split('-').next().and_then(|p| p.parse().ok())
                             })
                             .unwrap_or(0);
-                        return ("Betaflight", FirmwareVersion::Datever(year, month, patch));
+                        return (
+                            "Betaflight",
+                            version_str,
+                            FirmwareVersion::Datever(year, month, patch),
+                        );
                     }
                 }
             }
@@ -416,18 +437,22 @@ fn parse_firmware_revision(firmware_revision: &str) -> (&str, FirmwareVersion) {
                 .get(1)
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
-            return ("Betaflight", FirmwareVersion::Semver(major, minor));
+            return (
+                "Betaflight",
+                version_str,
+                FirmwareVersion::Semver(major, minor),
+            );
         }
-        return ("Betaflight", FirmwareVersion::Unknown);
+        return ("Betaflight", "", FirmwareVersion::Unknown);
     }
 
-    ("Unknown", FirmwareVersion::Unknown)
+    ("Unknown", "", FirmwareVersion::Unknown)
 }
 
 /// Lookup debug mode name from integer value
 /// Returns the debug mode name string, or None if not found
 pub fn lookup_debug_mode(firmware_revision: &str, debug_mode_value: u32) -> Option<&'static str> {
-    let (fw_type, version) = parse_firmware_revision(firmware_revision);
+    let (fw_type, _version_str, version) = parse_firmware_revision(firmware_revision);
 
     let mode_map = match fw_type {
         "EmuFlight" => {
@@ -469,8 +494,9 @@ mod tests {
     #[test]
     fn test_emuflight_parse() {
         let fw = "EmuFlight 0.4.3 (784cd2b6b) HELIOSPRING";
-        let (fw_type, version) = parse_firmware_revision(fw);
+        let (fw_type, version_str, version) = parse_firmware_revision(fw);
         assert_eq!(fw_type, "EmuFlight");
+        assert_eq!(version_str, "0.4.3");
         match version {
             FirmwareVersion::Semver(major, minor) => {
                 assert_eq!(major, 0);
@@ -483,8 +509,9 @@ mod tests {
     #[test]
     fn test_betaflight_old_parse() {
         let fw = "Betaflight 4.5.2 (024f8e13d) STM32F7X2";
-        let (fw_type, version) = parse_firmware_revision(fw);
+        let (fw_type, version_str, version) = parse_firmware_revision(fw);
         assert_eq!(fw_type, "Betaflight");
+        assert_eq!(version_str, "4.5.2");
         match version {
             FirmwareVersion::Semver(major, minor) => {
                 assert_eq!(major, 4);
@@ -497,8 +524,9 @@ mod tests {
     #[test]
     fn test_betaflight_new_parse() {
         let fw = "Betaflight 2025.12.0-beta (aafd969ec) STM32F7X2";
-        let (fw_type, version) = parse_firmware_revision(fw);
+        let (fw_type, version_str, version) = parse_firmware_revision(fw);
         assert_eq!(fw_type, "Betaflight");
+        assert_eq!(version_str, "2025.12.0-beta");
         match version {
             FirmwareVersion::Datever(year, month, patch) => {
                 assert_eq!(year, 2025);
@@ -555,8 +583,9 @@ mod tests {
     #[test]
     fn test_inav_7x_parse() {
         let fw = "INAV 7.1.2 (4e1e59eb) FOXEERF722V4";
-        let (fw_type, version) = parse_firmware_revision(fw);
+        let (fw_type, version_str, version) = parse_firmware_revision(fw);
         assert_eq!(fw_type, "INAV");
+        assert_eq!(version_str, "7.1.2");
         match version {
             FirmwareVersion::Semver(major, minor) => {
                 assert_eq!(major, 7);
@@ -569,8 +598,9 @@ mod tests {
     #[test]
     fn test_inav_8x_parse() {
         let fw = "INAV 8.0.0 (ec2106af) FLYWOOF745";
-        let (fw_type, version) = parse_firmware_revision(fw);
+        let (fw_type, version_str, version) = parse_firmware_revision(fw);
         assert_eq!(fw_type, "INAV");
+        assert_eq!(version_str, "8.0.0");
         match version {
             FirmwareVersion::Semver(major, minor) => {
                 assert_eq!(major, 8);
@@ -611,8 +641,9 @@ mod tests {
     #[test]
     fn test_unknown_firmware() {
         let fw = "SomethingElse 1.0.0 (a1b2c3d4e) TARGET";
-        let (fw_type, version) = parse_firmware_revision(fw);
+        let (fw_type, version_str, version) = parse_firmware_revision(fw);
         assert_eq!(fw_type, "Unknown");
+        assert_eq!(version_str, "");
         assert_eq!(version, FirmwareVersion::Unknown);
     }
 
@@ -633,8 +664,9 @@ mod tests {
     fn test_betaflight_future_calver() {
         // Betaflight uses YYYY.MM.PP format (patch level, not day)
         let fw = "Betaflight 2027.06.15 (a1b2c3d4e) TARGET";
-        let (fw_type, version) = parse_firmware_revision(fw);
+        let (fw_type, version_str, version) = parse_firmware_revision(fw);
         assert_eq!(fw_type, "Betaflight");
+        assert_eq!(version_str, "2027.06.15");
         match version {
             FirmwareVersion::Datever(year, month, patch) => {
                 assert_eq!(year, 2027);
@@ -643,5 +675,15 @@ mod tests {
             }
             other => panic!("unexpected version: {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_firmware_version_display() {
+        assert_eq!(format!("{}", FirmwareVersion::Semver(4, 5)), "4.5");
+        assert_eq!(
+            format!("{}", FirmwareVersion::Datever(2025, 12, 15)),
+            "2025.12.15"
+        );
+        assert_eq!(format!("{}", FirmwareVersion::Unknown), "Unknown");
     }
 }
