@@ -38,9 +38,11 @@ pub fn plot_d_term_heatmap(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
-    _using_debug_fallback: bool,
-    _debug_mode_name: Option<&str>,
+    using_debug_fallback: bool,
+    debug_mode_name: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
+    // Clone debug mode name to move into closures
+    let debug_mode_name_owned = debug_mode_name.map(|s| s.to_string());
     let output_file = format!("{root_name}_D_Term_Heatmap_comparative.png");
     let plot_type_name = "D-Term Throttle-Frequency Heatmap";
 
@@ -386,7 +388,18 @@ pub fn plot_d_term_heatmap(
             };
 
             Some(HeatmapPlotConfig {
-                title: format!("{axis_name} Unfiltered D-term (derivative of gyroUnfilt)"),
+                title: if using_debug_fallback {
+                    if let Some(ref mode_name) = debug_mode_name_owned {
+                        format!(
+                            "{axis_name} Unfiltered D-term (derivative of gyroUnfilt [Debug={}])",
+                            mode_name
+                        )
+                    } else {
+                        format!("{axis_name} Unfiltered D-term (derivative of gyroUnfilt [Debug])")
+                    }
+                } else {
+                    format!("{axis_name} Unfiltered D-term (derivative of gyroUnfilt)")
+                },
                 x_range: 0.0..max_freq_to_plot,
                 y_range: THROTTLE_Y_MIN_VALUE..THROTTLE_Y_MAX_VALUE,
                 heatmap_data: unfilt_heatmap_data,

@@ -403,7 +403,21 @@ pub fn plot_d_term_psd(
             };
 
             Some(PlotConfig {
-                title: format!("{} Unfiltered D-term (derivative of gyroUnfilt)", axis_name),
+                title: if using_debug_fallback {
+                    if let Some(ref mode_name) = debug_mode_name_owned {
+                        format!(
+                            "{} Unfiltered D-term (derivative of gyroUnfilt [Debug={}])",
+                            axis_name, mode_name
+                        )
+                    } else {
+                        format!(
+                            "{} Unfiltered D-term (derivative of gyroUnfilt [Debug])",
+                            axis_name
+                        )
+                    }
+                } else {
+                    format!("{} Unfiltered D-term (derivative of gyroUnfilt)", axis_name)
+                },
                 x_range: 0.0..max_freq_display,
                 y_range: min_y_db..max_y_db,
                 series: vec![PlotSeries {
