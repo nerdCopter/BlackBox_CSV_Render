@@ -351,27 +351,17 @@ fn parse_firmware_revision(firmware_revision: &str) -> (&str, FirmwareVersion) {
     // EmuFlight format from header metadata: "EmuFlight VERSION (HASH) TARGET"
     // Example: "EmuFlight 0.4.3 (784cd2b6b) HELIOSPRING"
     // Check EmuFlight first before others (case-insensitive)
-    if let Some(after_emuflight) = firmware_revision.strip_prefix("EmuFlight ") {
-        // Extract version directly after "EmuFlight "
-        if let Some(space_pos) = after_emuflight.find(char::is_whitespace) {
-            let version_str = &after_emuflight[..space_pos];
-            let version_parts: Vec<&str> = version_str.split('.').collect();
-            let major = version_parts
-                .first()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
-            let minor = version_parts
-                .get(1)
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
-            return ("EmuFlight", FirmwareVersion::Semver(major, minor));
-        }
-        return ("EmuFlight", FirmwareVersion::Unknown);
-    }
+    if firmware_revision.strip_prefix("EmuFlight ").is_some()
+        || firmware_revision.strip_prefix("Emuflight ").is_some()
+    {
+        // Extract version after the prefix (case-insensitive)
+        let after_emuflight = if let Some(after) = firmware_revision.strip_prefix("EmuFlight ") {
+            after
+        } else {
+            firmware_revision.strip_prefix("Emuflight ").unwrap()
+        };
 
-    // Fallback for case variations (Emuflight with lowercase)
-    if let Some(after_emuflight) = firmware_revision.strip_prefix("Emuflight ") {
-        // Extract version directly after "Emuflight "
+        // Extract version directly after the prefix
         if let Some(space_pos) = after_emuflight.find(char::is_whitespace) {
             let version_str = &after_emuflight[..space_pos];
             let version_parts: Vec<&str> = version_str.split('.').collect();
