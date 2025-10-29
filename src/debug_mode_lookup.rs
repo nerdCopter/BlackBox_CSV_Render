@@ -8,7 +8,7 @@ use std::collections::HashMap;
 /// Representation of firmware version type returned from parsing the header
 /// - Semver(major, minor) for traditional numeric Betaflight/EmuFlight/INAV
 /// - Datever(year, month, patch) for Betaflight 2025+ date-versioning
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum FirmwareVersion {
     Semver(u32, u32),
     Datever(u32, u32, u32),
