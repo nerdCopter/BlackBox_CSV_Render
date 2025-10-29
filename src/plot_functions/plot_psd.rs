@@ -354,18 +354,11 @@ pub fn plot_psd(
 
             let unfilt_plot_series = vec![PlotSeries {
                 data: unfilt_psd_data,
-                label: {
-                    let base_label = "Unfiltered Gyro PSD".to_string();
-                    if using_debug_fallback {
-                        if let Some(ref mode_name) = debug_mode_name_owned {
-                            format!("{} [Debug={}]", base_label, mode_name)
-                        } else {
-                            format!("{} [Debug]", base_label)
-                        }
-                    } else {
-                        base_label
-                    }
-                },
+                label: super::format_debug_suffix(
+                    "Unfiltered Gyro PSD",
+                    using_debug_fallback,
+                    debug_mode_name_owned.as_deref(),
+                ),
                 color: *COLOR_GYRO_VS_UNFILT_UNFILT,
                 stroke_width: LINE_WIDTH_PLOT,
             }];

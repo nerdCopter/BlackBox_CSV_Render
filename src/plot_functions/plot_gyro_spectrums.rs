@@ -388,39 +388,25 @@ pub fn plot_gyro_spectrums(
                 data: unfilt_series_data,
                 label: {
                     // Check if dynamic LPF is being used to enhance the legend
-                    if let Some(ref config) = filter_config {
+                    let base_label = if let Some(ref config) = filter_config {
                         let (has_dynamic, min_cutoff, max_cutoff) =
                             filter_response::check_gyro_dynamic_lpf_usage(config);
-                        let base_label = if has_dynamic {
+                        if has_dynamic {
                             format!(
                                 "Unfiltered Gyro (Dynamic LPF {:.0}-{:.0}Hz)",
                                 min_cutoff, max_cutoff
                             )
                         } else {
                             "Unfiltered Gyro".to_string()
-                        };
-
-                        if using_debug_fallback {
-                            if let Some(ref mode_name) = debug_mode_name_owned {
-                                format!("{} [Debug={}]", base_label, mode_name)
-                            } else {
-                                format!("{} [Debug]", base_label)
-                            }
-                        } else {
-                            base_label
                         }
                     } else {
-                        let base_label = "Unfiltered Gyro".to_string();
-                        if using_debug_fallback {
-                            if let Some(ref mode_name) = debug_mode_name_owned {
-                                format!("{} [Debug={}]", base_label, mode_name)
-                            } else {
-                                format!("{} [Debug]", base_label)
-                            }
-                        } else {
-                            base_label
-                        }
-                    }
+                        "Unfiltered Gyro".to_string()
+                    };
+                    super::format_debug_suffix(
+                        &base_label,
+                        using_debug_fallback,
+                        debug_mode_name_owned.as_deref(),
+                    )
                 },
                 color: *COLOR_GYRO_VS_UNFILT_UNFILT,
                 stroke_width: LINE_WIDTH_PLOT,
