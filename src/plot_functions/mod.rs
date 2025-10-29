@@ -13,4 +13,19 @@ pub mod plot_setpoint_vs_gyro;
 pub mod plot_step_response;
 pub mod plot_throttle_freq_heatmap;
 
-// src/plot_functions/mod.rs
+// Helper function for formatting debug suffix in plot labels
+pub fn format_debug_suffix(
+    base_label: &str,
+    using_debug_fallback: bool,
+    debug_mode_name: Option<&str>,
+) -> String {
+    if using_debug_fallback {
+        if let Some(mode_name) = debug_mode_name {
+            format!("{} [Debug={}]", base_label, mode_name)
+        } else {
+            format!("{} [Debug]", base_label)
+        }
+    } else {
+        base_label.to_string()
+    }
+}

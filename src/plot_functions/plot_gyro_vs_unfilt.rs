@@ -105,15 +105,11 @@ pub fn plot_gyro_vs_unfilt(
             let mut series = Vec::new();
             if !unfilt_series_data.is_empty() {
                 // Create label with debug mode annotation if using debug fallback
-                let unfilt_label = if using_debug_fallback {
-                    if let Some(ref mode_name) = debug_mode_name_owned {
-                        format!("Unfiltered Gyro [Debug={}]", mode_name)
-                    } else {
-                        "Unfiltered Gyro [Debug]".to_string()
-                    }
-                } else {
-                    "Unfiltered Gyro (gyroUnfilt)".to_string()
-                };
+                let unfilt_label = super::format_debug_suffix(
+                    "Unfiltered Gyro (gyroUnfilt)",
+                    using_debug_fallback,
+                    debug_mode_name_owned.as_deref(),
+                );
 
                 series.push(PlotSeries {
                     data: unfilt_series_data,

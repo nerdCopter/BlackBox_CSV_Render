@@ -307,15 +307,11 @@ pub fn plot_d_term_spectrums(
                     } else {
                         format!("Unfiltered D-term | {}", delay_str)
                     };
-                    if using_debug_fallback {
-                        if let Some(ref mode_name) = debug_mode_name_owned {
-                            format!("{} [Debug={}]", label_base, mode_name)
-                        } else {
-                            format!("{} [Debug]", label_base)
-                        }
-                    } else {
-                        label_base
-                    }
+                    super::format_debug_suffix(
+                        &label_base,
+                        using_debug_fallback,
+                        debug_mode_name_owned.as_deref(),
+                    )
                 },
                 color: *COLOR_D_TERM_UNFILT,
                 stroke_width: 2,
