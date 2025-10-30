@@ -16,6 +16,9 @@ enum FirmwareVersion {
     Unknown,
 }
 
+/// Formats the parsed version components.
+/// Note: This does not preserve version suffixes (e.g., "-beta", "-rc1").
+/// Use the version_str from parse_firmware_revision if you need the original string.
 impl fmt::Display for FirmwareVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
