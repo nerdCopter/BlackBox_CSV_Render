@@ -592,7 +592,7 @@ fn draw_single_axis_chart_with_config(
                     area.draw(&Text::new(
                         draw_text.as_str(),
                         draw_pos,
-                        ("DejaVu Sans Mono", FONT_SIZE_PEAK_LABEL)
+                        ("Inconsolata", FONT_SIZE_PEAK_LABEL)
                             .into_font()
                             .color(&BLACK),
                     ))?;
