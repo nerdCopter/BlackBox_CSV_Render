@@ -13,6 +13,7 @@ num-complex = "0.4"
 ndarray = "0.15"
 ndarray-stats = "0.5"
 colorous = "1.0.16"
+rusttype = "0.9"
 
 [dev-dependencies]
 rand = "0.8"
