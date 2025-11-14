@@ -451,16 +451,31 @@ fn draw_single_axis_chart_with_config(
             static FONT_DATA_BYTES: OnceLock<Option<&'static [u8]>> = OnceLock::new();
 
             fn find_system_font_bytes() -> Option<&'static [u8]> {
-                // Try common Linux font locations; return first found
-                let candidates = [
+                // Prefer monospace fonts for accurate width calculations.
+                // Monospace glyphs have fixed advance width, eliminating fudge factors
+                // and ensuring accurate scaling across font size changes.
+                let monospace_candidates = [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+                    "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+                ];
+                for p in monospace_candidates.iter() {
+                    if Path::new(p).exists() {
+                        if let Ok(bytes) = fs::read(p) {
+                            let leaked = Box::leak(bytes.into_boxed_slice());
+                            return Some(&*leaked);
+                        }
+                    }
+                }
+                // Fallback to proportional fonts if monospace unavailable
+                let proportional_candidates = [
                     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
                     "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
                 ];
-                for p in candidates.iter() {
+                for p in proportional_candidates.iter() {
                     if Path::new(p).exists() {
                         if let Ok(bytes) = fs::read(p) {
-                            // Leak into static for rusttype lifetime
                             let leaked = Box::leak(bytes.into_boxed_slice());
                             return Some(&*leaked);
                         }
@@ -473,24 +488,20 @@ fn draw_single_axis_chart_with_config(
                 *FONT_DATA_BYTES.get_or_init(find_system_font_bytes)
             }
 
-            // Measure text pixel width using rusttype if a system font is available.
-            fn measured_text_width_px(text: &str, font_px: f32) -> Option<i32> {
+            // Measure text pixel width using rusttype with monospace font.
+            // Monospace fonts have fixed-width glyphs, providing reliable measurements
+            // without hardcoded fudge factors, and scaling accurately with font size changes.
+            fn measured_text_width_px_monospace(text: &str, font_px: f32) -> Option<i32> {
                 if let Some(font_bytes) = get_system_font_bytes() {
                     if let Some(font) = rusttype::Font::try_from_bytes(font_bytes) {
                         use rusttype::Scale;
                         let scale = Scale::uniform(font_px);
-                        let mut width = 0.0f32;
-                        let mut prev_id = None;
-                        for ch in text.chars() {
-                            let glyph = font.glyph(ch).scaled(scale);
-                            // kerning
-                            if let Some(prev) = prev_id {
-                                width += font.pair_kerning(scale, prev, glyph.id());
-                            }
-                            width += glyph.h_metrics().advance_width;
-                            prev_id = Some(glyph.id());
-                        }
-                        return Some((width.ceil() as i32) + 1); // small padding
+                        // For monospace, measure a reference character ('0' or 'M') to get fixed width
+                        let glyph = font.glyph('0').scaled(scale);
+                        let char_width = glyph.h_metrics().advance_width;
+                        // Calculate total width: (char_count * char_width) + small padding
+                        let total_width = (text.len() as f32 * char_width) + 1.0;
+                        return Some(total_width.ceil() as i32);
                     }
                 }
                 None
@@ -531,64 +542,51 @@ fn draw_single_axis_chart_with_config(
                     let label_text_no_triangle = label_text.trim_start_matches('▲').trim_start();
                     // Force right-aligned logic for peaks in the rightmost 10% of the plot
                     let force_right_aligned = peak_x_pixel > (area_width as f32 * 0.90) as i32;
-                    let (draw_text, draw_pos, recorded_start, recorded_end) = if label_fits
-                        && !force_right_aligned
-                    {
-                        // Left-aligned: same behavior as original implementation
-                        let left_x = label_start - (triangle_width / 2);
-                        (
-                            label_text.clone(),
-                            (left_x, text_y),
-                            // record bounding box as before (label_start,label_end) to preserve overlap behavior
-                            label_start,
-                            label_end,
-                        )
-                    } else {
-                        // Right-aligned: compute width including the triangle glyph and right-align
-                        let right_aligned_text = format!("{} ▲", label_text_no_triangle);
-                        // Tight width estimate for the full right-aligned string (including triangle).
-                        // Prefer measured width when a system font is available.
-                        let tri_label_width = measured_text_width_px(
-                            &right_aligned_text,
-                            FONT_SIZE_PEAK_LABEL as f32,
-                        )
-                        .unwrap_or_else(|| {
-                            // fallback to adaptive estimator
-                            let mut w = 0.0f32;
-                            for ch in right_aligned_text.chars() {
-                                w += match ch {
-                                    'i' | 'l' | 'I' | 'j' | '\'' | '|' | ':' | '.' | ',' => 0.35,
-                                    ' ' => 0.40,
-                                    'f' | 't' | 'r' | 'c' | 'k' | 's' => 0.55,
-                                    '0'..='9' => 0.6,
-                                    'm' | 'w' | 'M' | 'W' => 1.0,
-                                    _ => 0.75,
-                                };
-                            }
-                            ((w * FONT_SIZE_PEAK_LABEL as f32)
-                                + (FONT_SIZE_PEAK_LABEL as f32 * 0.06))
-                                as i32
-                        });
-                        // If the label (including triangle) fits to the left of the peak, right-align it.
-                        // Otherwise fall back to left-aligned placement.
-                        if tri_label_width + 4 <= peak_x_pixel {
-                            let right_x = peak_x_pixel - tri_label_width;
-                            // Empirical adjustment for font/rendering difference between measured and rendered width
-                            const RIGHT_ALIGN_ADJUST_PX: i32 = 22;
-                            let right_x_adj = right_x + RIGHT_ALIGN_ADJUST_PX;
-                            let right_x_clamped = if right_x_adj < 0 { 0 } else { right_x_adj };
+                    let (draw_text, draw_pos, recorded_start, recorded_end) =
+                        if label_fits && !force_right_aligned {
+                            // Left-aligned: same behavior as original implementation
+                            let left_x = label_start - (triangle_width / 2);
                             (
-                                right_aligned_text,
-                                (right_x_clamped, text_y),
-                                right_x_clamped,
-                                right_x_clamped + tri_label_width,
+                                label_text.clone(),
+                                (left_x, text_y),
+                                // record bounding box as before (label_start,label_end) to preserve overlap behavior
+                                label_start,
+                                label_end,
                             )
                         } else {
-                            // Fallback to left-aligned placement
-                            let left_x = label_start - (triangle_width / 2);
-                            (label_text.clone(), (left_x, text_y), label_start, label_end)
-                        }
-                    };
+                            // Right-aligned: compute width including the triangle glyph and right-align
+                            let right_aligned_text = format!("{} ▲", label_text_no_triangle);
+                            // Tight width estimate for the full right-aligned string (including triangle).
+                            // Use measured width for monospace (or proportional if monospace unavailable).
+                            let tri_label_width = measured_text_width_px_monospace(
+                                &right_aligned_text,
+                                FONT_SIZE_PEAK_LABEL as f32,
+                            )
+                            .unwrap_or_else(|| {
+                                // Fallback estimator for monospace: fixed char width.
+                                // Monospace typically: 0.6 * font_size per character (empirical)
+                                let monospace_char_width =
+                                    (FONT_SIZE_PEAK_LABEL as f32 * 0.6).ceil() as i32;
+                                (right_aligned_text.len() as i32 * monospace_char_width) + 2
+                            });
+                            // If the label (including triangle) fits to the left of the peak, right-align it.
+                            // Otherwise fall back to left-aligned placement.
+                            if tri_label_width + 4 <= peak_x_pixel {
+                                let right_x = peak_x_pixel - tri_label_width;
+                                // No fudge factor needed with monospace: measured width is accurate
+                                let right_x_clamped = if right_x < 0 { 0 } else { right_x };
+                                (
+                                    right_aligned_text,
+                                    (right_x_clamped, text_y),
+                                    right_x_clamped,
+                                    right_x_clamped + tri_label_width,
+                                )
+                            } else {
+                                // Fallback to left-aligned placement
+                                let left_x = label_start - (triangle_width / 2);
+                                (label_text.clone(), (left_x, text_y), label_start, label_end)
+                            }
+                        };
 
                     area.draw(&Text::new(
                         draw_text.as_str(),
