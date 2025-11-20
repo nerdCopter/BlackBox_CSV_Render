@@ -27,3 +27,7 @@ src/**
 # Include .github directory and its contents
 !.github/
 !.github/**
+
+
+#Ignore vscode AI rules
+.github/instructions/codacy.instructions.md

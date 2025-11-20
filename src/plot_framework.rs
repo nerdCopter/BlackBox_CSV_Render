@@ -63,8 +63,6 @@ pub fn draw_unavailable_message(
         (x_range.end - x_range.start) as u32,
         (y_range.end - y_range.start) as u32,
     );
-
-    // Create the message text
     let message = format!("{axis_name} {plot_type} Data Unavailable:\n{reason}");
 
     // Estimate text dimensions for better centering
@@ -480,17 +478,14 @@ fn draw_single_axis_chart_with_config(
                         use rusttype::Scale;
                         let scale = Scale::uniform(font_px);
                         let mut width = 0.0f32;
-                        let mut prev_id = None;
                         for ch in text.chars() {
                             let glyph = font.glyph(ch).scaled(scale);
-                            // kerning
-                            if let Some(prev) = prev_id {
-                                width += font.pair_kerning(scale, prev, glyph.id());
-                            }
                             width += glyph.h_metrics().advance_width;
-                            prev_id = Some(glyph.id());
                         }
-                        return Some((width.ceil() as i32) + 1); // small padding
+                        // Subtract one monospace character width (advance includes trailing space)
+                        let avg_char_width = font_px * 0.56;
+                        let width_px = (width - avg_char_width).ceil() as i32;
+                        return Some(width_px.max(0));
                     }
                 }
                 None
@@ -525,7 +520,7 @@ fn draw_single_axis_chart_with_config(
                     // Debug info will be printed after computing force_right_aligned
 
                     // Use a single triangle_width variable with a tunable ratio
-                    const TRIANGLE_WIDTH_RATIO: f32 = 0.6; // Tune as needed for your font
+                    const TRIANGLE_WIDTH_RATIO: f32 = 0.5; // Inconsolata triangle ▲ is ~50% of font width
                     let triangle_width =
                         (FONT_SIZE_PEAK_LABEL as f32 * TRIANGLE_WIDTH_RATIO) as i32;
                     let label_text_no_triangle = label_text.trim_start_matches('▲').trim_start();
@@ -546,8 +541,7 @@ fn draw_single_axis_chart_with_config(
                     } else {
                         // Right-aligned: compute width including the triangle glyph and right-align
                         let right_aligned_text = format!("{} ▲", label_text_no_triangle);
-                        // Tight width estimate for the full right-aligned string (including triangle).
-                        // Prefer measured width when a system font is available.
+                        // Measure the full right-aligned string width using advance widths
                         let tri_label_width = measured_text_width_px(
                             &right_aligned_text,
                             FONT_SIZE_PEAK_LABEL as f32,
@@ -565,17 +559,18 @@ fn draw_single_axis_chart_with_config(
                                     _ => 0.75,
                                 };
                             }
-                            ((w * FONT_SIZE_PEAK_LABEL as f32)
-                                + (FONT_SIZE_PEAK_LABEL as f32 * 0.06))
-                                as i32
+                            (w * FONT_SIZE_PEAK_LABEL as f32) as i32
                         });
+                        eprintln!(
+                            "RIGHT-ALIGN: freq={:.0}Hz peak_x={} label='{}' tri_label_width={}",
+                            peak_freq, peak_x_pixel, right_aligned_text, tri_label_width
+                        );
                         // If the label (including triangle) fits to the left of the peak, right-align it.
                         // Otherwise fall back to left-aligned placement.
                         if tri_label_width + 4 <= peak_x_pixel {
-                            let right_x = peak_x_pixel - tri_label_width;
-                            // Subtract half triangle width so triangle tip aligns with peak
-                            let right_x_adj = right_x - (triangle_width / 2);
-                            let right_x_clamped = if right_x_adj < 0 { 0 } else { right_x_adj };
+                            // Position text with triangle center aligned to peak
+                            let right_x = peak_x_pixel - tri_label_width + (triangle_width / 2);
+                            let right_x_clamped = if right_x < 0 { 0 } else { right_x };
                             (
                                 right_aligned_text,
                                 (right_x_clamped, text_y),
