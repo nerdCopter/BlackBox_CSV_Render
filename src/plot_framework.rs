@@ -449,11 +449,11 @@ fn draw_single_axis_chart_with_config(
             static FONT_DATA_BYTES: OnceLock<Option<&'static [u8]>> = OnceLock::new();
 
             fn find_system_font_bytes() -> Option<&'static [u8]> {
-                // Try common Linux font locations; return first found
+                // Try common Linux font locations; must match rendering font
+                // Use only monospace fonts for accurate measurement
                 let candidates = [
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-                    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
                 ];
                 for p in candidates.iter() {
                     if Path::new(p).exists() {
@@ -586,7 +586,7 @@ fn draw_single_axis_chart_with_config(
                     area.draw(&Text::new(
                         draw_text.as_str(),
                         draw_pos,
-                        ("Inconsolata", FONT_SIZE_PEAK_LABEL)
+                        ("DejaVu Sans Mono", FONT_SIZE_PEAK_LABEL)
                             .into_font()
                             .color(&BLACK),
                     ))?;
