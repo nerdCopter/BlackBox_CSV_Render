@@ -87,7 +87,6 @@ pub const MIN_PEAK_SEPARATION_HZ: f64 = 70.0; // Minimum frequency separation be
 
 // Peak label positioning constants
 pub const PEAK_LABEL_BOTTOM_MARGIN_PX: i32 = 72; // Pixels above the bottom edge of plot area for peak labels
-pub const RIGHT_ALIGN_THRESHOLD: f32 = 0.90; // Threshold for forcing right-alignment of peak labels (peaks in rightmost 10% of plot)
 
 // Constants for advanced peak detection
 pub const ENABLE_WINDOW_PEAK_DETECTION: bool = true; // Enable window-based peak detection for more robust analysis
