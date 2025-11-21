@@ -88,6 +88,10 @@ pub const MIN_PEAK_SEPARATION_HZ: f64 = 70.0; // Minimum frequency separation be
 // Peak label positioning constants
 pub const PEAK_LABEL_BOTTOM_MARGIN_PX: i32 = 72; // Pixels above the bottom edge of plot area for peak labels
 
+// Peak label font measurement constants
+pub const AVG_CHAR_WIDTH_RATIO: f32 = 0.56; // Monospace character width as ratio of font size (used to subtract trailing space from rusttype advance widths)
+pub const TRIANGLE_WIDTH_RATIO: f32 = 0.5; // DejaVu Sans Mono triangle ▲ width as ratio of font size
+
 // Constants for advanced peak detection
 pub const ENABLE_WINDOW_PEAK_DETECTION: bool = true; // Enable window-based peak detection for more robust analysis
                                                      // Set to false to use the previous 3-point (amp > prev && amp >= next) logic.

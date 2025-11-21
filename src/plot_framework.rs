@@ -18,10 +18,11 @@ use std::ops::Range;
 static BUNDLED_FONT_BYTES: &[u8] = include_bytes!("../fonts/DejaVuSansMono.ttf");
 
 use crate::constants::{
-    FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_AXIS_LABEL, FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND,
-    FONT_SIZE_MAIN_TITLE, FONT_SIZE_MESSAGE, FONT_SIZE_PEAK_LABEL, HEATMAP_MIN_PSD_DB,
-    LINE_WIDTH_LEGEND, MAX_PEAKS_TO_LABEL, PEAK_LABEL_BOTTOM_MARGIN_PX, PEAK_LABEL_MIN_AMPLITUDE,
-    PLOT_HEIGHT, PLOT_WIDTH, PSD_PEAK_LABEL_MIN_VALUE_DB,
+    AVG_CHAR_WIDTH_RATIO, FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_AXIS_LABEL,
+    FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, FONT_SIZE_MAIN_TITLE, FONT_SIZE_MESSAGE,
+    FONT_SIZE_PEAK_LABEL, HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, MAX_PEAKS_TO_LABEL,
+    PEAK_LABEL_BOTTOM_MARGIN_PX, PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH,
+    PSD_PEAK_LABEL_MIN_VALUE_DB, TRIANGLE_WIDTH_RATIO,
 };
 
 /// Special prefix for cutoff line series to avoid showing them in legends
@@ -463,7 +464,7 @@ fn draw_single_axis_chart_with_config(
                             width += glyph.h_metrics().advance_width;
                         }
                         // Subtract one monospace character width (advance includes trailing space)
-                        let avg_char_width = font_px * 0.56;
+                        let avg_char_width = font_px * AVG_CHAR_WIDTH_RATIO;
                         let width_px = (width - avg_char_width).ceil() as i32;
                         return Some(width_px.max(0));
                     }
@@ -500,7 +501,6 @@ fn draw_single_axis_chart_with_config(
                     // Debug info will be printed after computing force_right_aligned
 
                     // Use a single triangle_width variable with a tunable ratio
-                    const TRIANGLE_WIDTH_RATIO: f32 = 0.5; // Inconsolata triangle ▲ is ~50% of font width
                     let triangle_width =
                         (FONT_SIZE_PEAK_LABEL as f32 * TRIANGLE_WIDTH_RATIO) as i32;
                     let label_text_no_triangle = label_text.trim_start_matches('▲').trim_start();
