@@ -21,7 +21,7 @@ use crate::constants::{
     FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_AXIS_LABEL, FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND,
     FONT_SIZE_MAIN_TITLE, FONT_SIZE_MESSAGE, FONT_SIZE_PEAK_LABEL, HEATMAP_MIN_PSD_DB,
     LINE_WIDTH_LEGEND, MAX_PEAKS_TO_LABEL, PEAK_LABEL_BOTTOM_MARGIN_PX, PEAK_LABEL_MIN_AMPLITUDE,
-    PLOT_HEIGHT, PLOT_WIDTH, PSD_PEAK_LABEL_MIN_VALUE_DB,
+    PLOT_HEIGHT, PLOT_WIDTH, PSD_PEAK_LABEL_MIN_VALUE_DB, RIGHT_ALIGN_THRESHOLD,
 };
 
 /// Special prefix for cutoff line series to avoid showing them in legends
@@ -472,6 +472,9 @@ fn draw_single_axis_chart_with_config(
             }
 
             // Measure text pixel width using rusttype if a system font is available.
+            // Font measurement uses system TTF (DejaVu/Liberation/Free Sans) for width calculation,
+            // while rendering uses Inconsolata (provided by plotters). Both are monospace with
+            // similar metrics, ensuring accurate right-alignment.
             fn measured_text_width_px(text: &str, font_px: f32) -> Option<i32> {
                 if let Some(font_bytes) = get_system_font_bytes() {
                     if let Some(font) = rusttype::Font::try_from_bytes(font_bytes) {
@@ -525,7 +528,8 @@ fn draw_single_axis_chart_with_config(
                         (FONT_SIZE_PEAK_LABEL as f32 * TRIANGLE_WIDTH_RATIO) as i32;
                     let label_text_no_triangle = label_text.trim_start_matches('▲').trim_start();
                     // Force right-aligned logic for peaks in the rightmost 10% of the plot
-                    let force_right_aligned = peak_x_pixel > (area_width as f32 * 0.90) as i32;
+                    let force_right_aligned =
+                        peak_x_pixel > (area_width as f32 * RIGHT_ALIGN_THRESHOLD) as i32;
                     let (draw_text, draw_pos, recorded_start, recorded_end) = if label_fits
                         && !force_right_aligned
                     {
@@ -561,10 +565,6 @@ fn draw_single_axis_chart_with_config(
                             }
                             (w * FONT_SIZE_PEAK_LABEL as f32) as i32
                         });
-                        eprintln!(
-                            "RIGHT-ALIGN: freq={:.0}Hz peak_x={} label='{}' tri_label_width={}",
-                            peak_freq, peak_x_pixel, right_aligned_text, tri_label_width
-                        );
                         // If the label (including triangle) fits to the left of the peak, right-align it.
                         // Otherwise fall back to left-aligned placement.
                         if tri_label_width + 4 <= peak_x_pixel {
