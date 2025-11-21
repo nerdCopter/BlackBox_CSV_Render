@@ -12,10 +12,10 @@ use plotters::style::colors::{BLACK, RED, WHITE};
 use plotters::style::{Color, IntoFont, RGBColor};
 
 use std::error::Error;
-use std::fs;
 use std::ops::Range;
-use std::path::Path;
-use std::sync::OnceLock;
+
+// Embed the monospace font at compile time
+static BUNDLED_FONT_BYTES: &[u8] = include_bytes!("../fonts/DejaVuSansMono.ttf");
 
 use crate::constants::{
     FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_AXIS_LABEL, FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND,
@@ -445,30 +445,10 @@ fn draw_single_axis_chart_with_config(
             // tighter width for right-aligned placement (including the triangle) below.
             let label_width_estimate = (label_text.len() as f32 * 8.0) as i32; // Rough estimate
 
-            // --- Exact text measurement helper (uses system TTF if available) ---
-            static FONT_DATA_BYTES: OnceLock<Option<&'static [u8]>> = OnceLock::new();
-
-            fn find_system_font_bytes() -> Option<&'static [u8]> {
-                // Try common Linux font locations; must match rendering font
-                // Use only monospace fonts for accurate measurement
-                let candidates = [
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-                    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-                ];
-                for p in candidates.iter() {
-                    if Path::new(p).exists() {
-                        if let Ok(bytes) = fs::read(p) {
-                            // Leak into static for rusttype lifetime
-                            let leaked = Box::leak(bytes.into_boxed_slice());
-                            return Some(&*leaked);
-                        }
-                    }
-                }
-                None
-            }
-
+            // --- Exact text measurement helper (uses bundled font) ---
             fn get_system_font_bytes() -> Option<&'static [u8]> {
-                *FONT_DATA_BYTES.get_or_init(find_system_font_bytes)
+                // Return the embedded font that's compiled directly into the binary
+                Some(BUNDLED_FONT_BYTES)
             }
 
             // Measure text pixel width using rusttype if a system font is available.
