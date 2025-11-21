@@ -568,8 +568,11 @@ fn draw_single_axis_chart_with_config(
                         // If the label (including triangle) fits to the left of the peak, right-align it.
                         // Otherwise fall back to left-aligned placement.
                         if tri_label_width + 4 <= peak_x_pixel {
-                            // Position text with triangle center aligned to peak
-                            let right_x = peak_x_pixel - tri_label_width + (triangle_width / 2);
+                            // Position text so triangle tip points to peak frequency.
+                            // tri_label_width includes the triangle glyph's advance width.
+                            // The triangle is left-aligned within its advance width box,
+                            // so we need to add the full triangle_width to account for its visual position.
+                            let right_x = peak_x_pixel - tri_label_width + (triangle_width);
                             let right_x_clamped = if right_x < 0 { 0 } else { right_x };
                             (
                                 right_aligned_text,
