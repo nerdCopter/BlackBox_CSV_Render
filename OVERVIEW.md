@@ -148,6 +148,37 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 * **Visualization Integration:** Filter response curves are overlaid on spectrum plots (`plot_gyro_spectrums`) as red curves with clear legends showing filter type and cutoff frequency, enhancing spectrum analysis with theoretical filter characteristics.
 * **Quality Assurance:** Comprehensive unit tests verify -3dB magnitude response at cutoff frequencies for all filter types and validate gyro rate extraction accuracy.
 
+### Output and Tuning Recommendations
+
+#### Generated PNG Plots
+
+When `--step` flag is not used, all plots below are generated:
+
+- **`*_Step_Response_stacked_plot_*.png`** — Step response visualization with P:D recommendations overlay
+- **`*_PIDsum_PIDerror_Setpoint_stacked.png`** — Time-domain traces of PIDsum, PID error, and setpoint
+- **`*_SetpointVsGyro_stacked.png`** — Setpoint command vs. filtered gyro response comparison
+- **`*_GyroVsUnfilt_stacked.png`** — Filtered vs. unfiltered gyro comparison with calculated filtering delay
+- **`*_Gyro_Spectrums_comparative.png`** — Frequency-domain amplitude spectrums (filtered and unfiltered gyro)
+- **`*_Gyro_PSD_comparative.png`** — Gyro power spectral density in dB scale with peak detection
+- **`*_D_Term_Spectrums_comparative.png`** — D-term frequency-domain amplitude spectrums with intelligent thresholding
+- **`*_D_Term_PSD_comparative.png`** — D-term power spectral density with intelligent D-term activity detection
+- **`*_D_Term_Heatmap_comparative.png`** — D-term energy distribution across throttle levels and frequencies
+- **`*_Gyro_PSD_Spectrogram_comparative.png`** — Gyro spectrogram (PSD vs. time) using Short-Time Fourier Transform
+- **`*_Throttle_Freq_Heatmap_comparative.png`** — System noise characteristics across throttle levels and frequencies
+
+#### P:D Ratio Recommendations
+
+The system provides intelligent P:D tuning recommendations based on step-response peak analysis:
+
+- **Conservative recommendations** (+≈18% D): Safe incremental steps; 2–3 iterations to optimal
+- **Moderate recommendations** (+≈33% D): For experienced pilots; 1–2 iterations to optimal
+- Automatically handles D-Min/D-Max systems (Betaflight 4.0+)
+- Shows only base D when D-Min/D-Max is disabled
+- Works for all aircraft sizes, including 10+ inch, where D can exceed P
+- Includes warnings for severe overshoot or unreasonable P:D ratios
+- Shows recommendations only when the step response needs improvement (skips optimal peak 0.95–1.04)
+- **Note:** Peak value measures the first maximum after crossing the setpoint; the initial transient dip is normal system behavior
+
 ### Step-Response Comparison with Other Analysis Tools
 
 This implementation provides detailed and configurable analysis of flight controller performance. The modular design and centralized configuration system make it adaptable for various analysis requirements.
