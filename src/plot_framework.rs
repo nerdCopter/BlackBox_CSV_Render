@@ -191,7 +191,7 @@ fn draw_single_axis_chart_with_config(
             // Use decimal formatting for normalized response values (step response plots)
             if !plot_config.y_label.contains("dB") {
                 if y.abs() >= 1_000_000.0 {
-                    format!("{:.1}M", y / 1_000_000.0)
+                    format!("{:.0}M", y / 1_000_000.0)
                 } else if y.abs() >= 1000.0 {
                     format!("{:.0}k", y / 1000.0)
                 } else if y.abs() < 10.0
