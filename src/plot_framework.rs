@@ -29,6 +29,8 @@ use crate::constants::{
 pub const CUTOFF_LINE_PREFIX: &str = "__CUTOFF_LINE__";
 /// Special prefix for dotted cutoff line series
 pub const CUTOFF_LINE_DOTTED_PREFIX: &str = "__CUTOFF_LINE_DOTTED__";
+/// Right-align threshold: peaks in rightmost 10% of plot area use right-aligned labels
+const RIGHT_ALIGN_THRESHOLD: f32 = 0.90;
 
 /// Calculate plot range with padding.
 /// Adds 15% padding, or a fixed padding for very small ranges.
@@ -422,6 +424,27 @@ fn draw_single_axis_chart_with_config(
             row_positions.push(Vec::new());
         }
 
+        // Cache the font once to avoid re-parsing for each label
+        let bundled_font = rusttype::Font::try_from_bytes(BUNDLED_FONT_BYTES);
+
+        // Measure text pixel width using rusttype if a system font is available.
+        let measured_text_width_px = |text: &str, font_px: f32| -> Option<i32> {
+            if let Some(font) = &bundled_font {
+                use rusttype::Scale;
+                let scale = Scale::uniform(font_px);
+                let mut width = 0.0f32;
+                for ch in text.chars() {
+                    let glyph = font.glyph(ch).scaled(scale);
+                    width += glyph.h_metrics().advance_width;
+                }
+                // Subtract one monospace character width (advance includes trailing space)
+                let avg_char_width = font_px * AVG_CHAR_WIDTH_RATIO;
+                let width_px = (width - avg_char_width).ceil() as i32;
+                return Some(width_px.max(0));
+            }
+            None
+        };
+
         for (peak_idx, (peak_freq, _peak_amp, formatted_peak_amp)) in
             peak_labels.into_iter().enumerate()
         {
@@ -444,32 +467,6 @@ fn draw_single_axis_chart_with_config(
             // Rough per-character estimate (used for overlap probing). We'll compute a
             // tighter width for right-aligned placement (including the triangle) below.
             let label_width_estimate = (label_text.len() as f32 * 8.0) as i32; // Rough estimate
-
-            // --- Exact text measurement helper (uses bundled font) ---
-            fn get_system_font_bytes() -> Option<&'static [u8]> {
-                // Return the embedded font that's compiled directly into the binary
-                Some(BUNDLED_FONT_BYTES)
-            }
-
-            // Measure text pixel width using rusttype if a system font is available.
-            fn measured_text_width_px(text: &str, font_px: f32) -> Option<i32> {
-                if let Some(font_bytes) = get_system_font_bytes() {
-                    if let Some(font) = rusttype::Font::try_from_bytes(font_bytes) {
-                        use rusttype::Scale;
-                        let scale = Scale::uniform(font_px);
-                        let mut width = 0.0f32;
-                        for ch in text.chars() {
-                            let glyph = font.glyph(ch).scaled(scale);
-                            width += glyph.h_metrics().advance_width;
-                        }
-                        // Subtract one monospace character width (advance includes trailing space)
-                        let avg_char_width = font_px * AVG_CHAR_WIDTH_RATIO;
-                        let width_px = (width - avg_char_width).ceil() as i32;
-                        return Some(width_px.max(0));
-                    }
-                }
-                None
-            }
 
             // Assign row so that primary is at the top (highest y), secondary below, etc.
             let target_row = MAX_PEAKS_TO_LABEL - 1 - peak_idx;
@@ -503,8 +500,9 @@ fn draw_single_axis_chart_with_config(
                     let triangle_width =
                         (FONT_SIZE_PEAK_LABEL as f32 * TRIANGLE_WIDTH_RATIO) as i32;
                     let label_text_no_triangle = label_text.trim_start_matches('▲').trim_start();
-                    // Force right-aligned logic for peaks in the rightmost 10% of the plot
-                    let force_right_aligned = peak_x_pixel > (area_width as f32 * 0.90) as i32;
+                    // Force right-aligned logic for peaks in the rightmost threshold of the plot
+                    let force_right_aligned =
+                        peak_x_pixel > (area_width as f32 * RIGHT_ALIGN_THRESHOLD) as i32;
                     let (draw_text, draw_pos, recorded_start, recorded_end) = if label_fits
                         && !force_right_aligned
                     {
