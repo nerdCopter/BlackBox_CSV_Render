@@ -5,6 +5,7 @@ mod constants;
 mod data_analysis;
 mod data_input;
 mod debug_mode_lookup;
+mod font_config;
 mod pid_context;
 mod plot_framework;
 mod plot_functions;
