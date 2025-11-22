@@ -20,6 +20,8 @@ pub const FONT_FAMILY_BUNDLED: &str = "DejaVu Sans Mono";
 pub const FONT_FAMILY_SYSTEM: &str = "sans-serif";
 
 /// Represents a font style (family + size) for consistent usage throughout the application
+/// This struct provides type-safe font configuration and is available for future API extensions
+/// or alternative implementations that may benefit from structured font definitions.
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
 pub struct FontStyle {
@@ -28,6 +30,8 @@ pub struct FontStyle {
 }
 
 // Global font style constants for all text elements in the plots
+// These are provided for API extensibility and future use cases.
+// Current implementation uses FONT_TUPLE_* constants directly with plotters' IntoFont trait.
 #[allow(dead_code)]
 pub const FONT_MAIN_TITLE: FontStyle = FontStyle {
     family: FONT_FAMILY_SYSTEM,
