@@ -363,9 +363,8 @@ fn draw_single_axis_chart_with_config(
     }
 
     let area_offset = area.get_base_pixel();
-    let area_x_range = area.get_pixel_range().0;
+    let (area_x_range, area_y_range) = area.get_pixel_range();
     let area_width = area_x_range.end - area_x_range.start;
-    let area_y_range = area.get_pixel_range().1;
     let area_height = area_y_range.end - area_y_range.start;
 
     let peak_label_threshold = plot_config.peak_label_threshold.unwrap_or_else(|| {
