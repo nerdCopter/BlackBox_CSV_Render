@@ -112,8 +112,8 @@ pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
 pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;
 
 // D-term Plot Colors (distinct from gyro colors)
-pub const COLOR_D_TERM_FILT: &RGBColor = &LIGHTBLUE; // Keep blue for filtered (consistent)
-pub const COLOR_D_TERM_UNFILT: &RGBColor = &ORANGE; // Use orange for unfiltered (better contrast than yellow)
+pub const COLOR_D_TERM_FILT: &RGBColor = &GREEN; // Use green for filtered D-term (distinct from gyro blue/amber)
+pub const COLOR_D_TERM_UNFILT: &RGBColor = &ORANGE; // Use orange for unfiltered D-term (distinct from gyro yellow)
 
 // Step Response Plot
 pub const COLOR_STEP_RESPONSE_LOW_SP: &RGBColor = &LIGHTBLUE;
