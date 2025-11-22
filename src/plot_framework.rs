@@ -14,15 +14,15 @@ use plotters::style::{Color, IntoFont, RGBColor};
 use std::error::Error;
 use std::ops::Range;
 
-// Embed the monospace font at compile time
-static BUNDLED_FONT_BYTES: &[u8] = include_bytes!("../fonts/DejaVuSansMono.ttf");
-
 use crate::constants::{
-    AVG_CHAR_WIDTH_RATIO, FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_AXIS_LABEL,
-    FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, FONT_SIZE_MAIN_TITLE, FONT_SIZE_MESSAGE,
-    FONT_SIZE_PEAK_LABEL, HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, MAX_PEAKS_TO_LABEL,
-    PEAK_LABEL_BOTTOM_MARGIN_PX, PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH,
-    PSD_PEAK_LABEL_MIN_VALUE_DB, RIGHT_ALIGN_THRESHOLD, TRIANGLE_WIDTH_RATIO,
+    AVG_CHAR_WIDTH_RATIO, FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_MESSAGE, FONT_SIZE_PEAK_LABEL,
+    HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, MAX_PEAKS_TO_LABEL, PEAK_LABEL_BOTTOM_MARGIN_PX,
+    PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH, PSD_PEAK_LABEL_MIN_VALUE_DB,
+    RIGHT_ALIGN_THRESHOLD, TRIANGLE_WIDTH_RATIO,
+};
+use crate::font_config::{
+    BUNDLED_FONT_BYTES, FONT_TUPLE_AXIS_LABEL, FONT_TUPLE_CHART_TITLE, FONT_TUPLE_LEGEND,
+    FONT_TUPLE_MAIN_TITLE, FONT_TUPLE_MESSAGE, FONT_TUPLE_PEAK_LABEL,
 };
 
 /// Special prefix for cutoff line series to avoid showing them in legends
@@ -80,7 +80,7 @@ pub fn draw_unavailable_message(
     let center_x = width as i32 / 2 - estimated_text_width / 2;
     let center_y = height as i32 / 2 - estimated_text_height / 2;
 
-    let text_style = ("sans-serif", FONT_SIZE_MESSAGE).into_font().color(&RED);
+    let text_style = FONT_TUPLE_MESSAGE.into_font().color(&RED);
     area.draw(&Text::new(message, (center_x, center_y), text_style))?;
     Ok(())
 }
@@ -173,7 +173,7 @@ fn draw_single_axis_chart_with_config(
     plot_config: &PlotConfig,
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
-        .caption(&plot_config.title, ("sans-serif", FONT_SIZE_CHART_TITLE))
+        .caption(&plot_config.title, FONT_TUPLE_CHART_TITLE)
         .margin(5)
         .x_label_area_size(50) // Increased for more space below horizontal axis label
         .y_label_area_size(50)
@@ -208,7 +208,7 @@ fn draw_single_axis_chart_with_config(
             }
         })
         .light_line_style(WHITE.mix(0.7))
-        .label_style(("sans-serif", FONT_SIZE_AXIS_LABEL))
+        .label_style(FONT_TUPLE_AXIS_LABEL)
         .draw()?;
 
     // Draw frequency range shading BEFORE series (so data appears on top)
@@ -358,7 +358,7 @@ fn draw_single_axis_chart_with_config(
             .position(SeriesLabelPosition::UpperRight)
             .background_style(WHITE.mix(0.8))
             .border_style(BLACK)
-            .label_font(("sans-serif", FONT_SIZE_LEGEND))
+            .label_font(FONT_TUPLE_LEGEND)
             .draw()?;
     }
 
@@ -548,9 +548,7 @@ fn draw_single_axis_chart_with_config(
                     area.draw(&Text::new(
                         draw_text.as_str(),
                         draw_pos,
-                        ("DejaVu Sans Mono", FONT_SIZE_PEAK_LABEL)
-                            .into_font()
-                            .color(&BLACK),
+                        FONT_TUPLE_PEAK_LABEL.into_font().color(&BLACK),
                     ))?;
 
                     // Record this position
@@ -595,9 +593,7 @@ where
     root_area.draw(&Text::new(
         root_name,
         (10, 10),
-        ("sans-serif", FONT_SIZE_MAIN_TITLE)
-            .into_font()
-            .color(&BLACK),
+        FONT_TUPLE_MAIN_TITLE.into_font().color(&BLACK),
     ))?;
     let margined_root_area = root_area.margin(50, 5, 5, 5);
     let sub_plot_areas = margined_root_area.split_evenly((3, 1));
@@ -668,9 +664,7 @@ where
     root_area.draw(&Text::new(
         root_name,
         (10, 10),
-        ("sans-serif", FONT_SIZE_MAIN_TITLE)
-            .into_font()
-            .color(&BLACK),
+        FONT_TUPLE_MAIN_TITLE.into_font().color(&BLACK),
     ))?;
     let margined_root_area = root_area.margin(50, 5, 5, 5);
     let sub_plot_areas = margined_root_area.split_evenly((3, 2));
@@ -735,7 +729,7 @@ fn draw_single_heatmap_chart(
     max_db: f64, // Use dynamic max_db instead of hardcoded value
 ) -> Result<(), Box<dyn Error>> {
     let mut chart = ChartBuilder::on(area)
-        .caption(chart_title, ("sans-serif", FONT_SIZE_CHART_TITLE))
+        .caption(chart_title, FONT_TUPLE_CHART_TITLE)
         .margin(5)
         .x_label_area_size(50) // Increased for more space below horizontal axis label
         .y_label_area_size(50)
@@ -757,7 +751,7 @@ fn draw_single_heatmap_chart(
             }
         })
         .light_line_style(WHITE.mix(0.7))
-        .label_style(("sans-serif", FONT_SIZE_AXIS_LABEL))
+        .label_style(FONT_TUPLE_AXIS_LABEL)
         .draw()?;
 
     // Calculate bin widths for rectangle sizing
@@ -815,9 +809,7 @@ where
     root_area.draw(&Text::new(
         root_name,
         (10, 10),
-        ("sans-serif", FONT_SIZE_MAIN_TITLE)
-            .into_font()
-            .color(&BLACK),
+        FONT_TUPLE_MAIN_TITLE.into_font().color(&BLACK),
     ))?;
     let margined_root_area = root_area.margin(50, 5, 5, 5);
     let sub_plot_areas = margined_root_area.split_evenly((3, 2));
