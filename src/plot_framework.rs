@@ -423,9 +423,13 @@ fn draw_single_axis_chart_with_config(
         }
 
         // Cache the font once to avoid re-parsing for each label
-        // Font is embedded at compile time, so this should never fail
-        let bundled_font = rusttype::Font::try_from_bytes(BUNDLED_FONT_BYTES)
-            .expect("embedded font should always be valid");
+        // Font is embedded at compile time; convert Option to Result and propagate error
+        let bundled_font = rusttype::Font::try_from_bytes(BUNDLED_FONT_BYTES).ok_or_else(|| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "failed to parse embedded font bytes",
+            )) as Box<dyn Error>
+        })?;
 
         // Measure text pixel width using rusttype with the cached font.
         let measured_text_width_px = |text: &str, font_px: f32| -> i32 {
