@@ -70,9 +70,9 @@ pub const FONT_MESSAGE: FontStyle = FontStyle {
 
 // Tuple representations for use with plotters' IntoFont trait
 // These are convenient for direct use with plotters methods like `.caption()` and `.label_style()`
-pub const FONT_TUPLE_MAIN_TITLE: (&str, i32) = (FONT_FAMILY_SYSTEM, FONT_SIZE_MAIN_TITLE);
-pub const FONT_TUPLE_CHART_TITLE: (&str, i32) = (FONT_FAMILY_SYSTEM, FONT_SIZE_CHART_TITLE);
-pub const FONT_TUPLE_AXIS_LABEL: (&str, i32) = (FONT_FAMILY_SYSTEM, FONT_SIZE_AXIS_LABEL);
-pub const FONT_TUPLE_LEGEND: (&str, i32) = (FONT_FAMILY_SYSTEM, FONT_SIZE_LEGEND);
-pub const FONT_TUPLE_PEAK_LABEL: (&str, i32) = (FONT_FAMILY_BUNDLED, FONT_SIZE_PEAK_LABEL);
-pub const FONT_TUPLE_MESSAGE: (&str, i32) = (FONT_FAMILY_SYSTEM, FONT_SIZE_MESSAGE);
+pub const FONT_TUPLE_MAIN_TITLE: (&str, i32) = (FONT_MAIN_TITLE.family, FONT_MAIN_TITLE.size);
+pub const FONT_TUPLE_CHART_TITLE: (&str, i32) = (FONT_CHART_TITLE.family, FONT_CHART_TITLE.size);
+pub const FONT_TUPLE_AXIS_LABEL: (&str, i32) = (FONT_AXIS_LABEL.family, FONT_AXIS_LABEL.size);
+pub const FONT_TUPLE_LEGEND: (&str, i32) = (FONT_LEGEND.family, FONT_LEGEND.size);
+pub const FONT_TUPLE_PEAK_LABEL: (&str, i32) = (FONT_PEAK_LABEL.family, FONT_PEAK_LABEL.size);
+pub const FONT_TUPLE_MESSAGE: (&str, i32) = (FONT_MESSAGE.family, FONT_MESSAGE.size);
