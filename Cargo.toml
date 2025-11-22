@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021" # Use 2021 edition as it's standard, 2024 is not yet released/stable
 rust-version = "1.73"
 license = "AGPL-3.0-or-later"
+include = ["src/**", "fonts/**", "Cargo.toml", "LICENSE*", "README.md"]
 
 [dependencies]
 plotters = "0.3"
@@ -13,6 +14,7 @@ num-complex = "0.4"
 ndarray = "0.15"
 ndarray-stats = "0.5"
 colorous = "1.0.16"
+rusttype = "0.9"
 
 [dev-dependencies]
 rand = "0.8"

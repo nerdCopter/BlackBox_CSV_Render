@@ -14,11 +14,15 @@ use plotters::style::{Color, IntoFont, RGBColor};
 use std::error::Error;
 use std::ops::Range;
 
+// Embed the monospace font at compile time
+static BUNDLED_FONT_BYTES: &[u8] = include_bytes!("../fonts/DejaVuSansMono.ttf");
+
 use crate::constants::{
-    FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_AXIS_LABEL, FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND,
-    FONT_SIZE_MAIN_TITLE, FONT_SIZE_MESSAGE, FONT_SIZE_PEAK_LABEL, HEATMAP_MIN_PSD_DB,
-    LINE_WIDTH_LEGEND, PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH,
-    PSD_PEAK_LABEL_MIN_VALUE_DB,
+    AVG_CHAR_WIDTH_RATIO, FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_AXIS_LABEL,
+    FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, FONT_SIZE_MAIN_TITLE, FONT_SIZE_MESSAGE,
+    FONT_SIZE_PEAK_LABEL, HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, MAX_PEAKS_TO_LABEL,
+    PEAK_LABEL_BOTTOM_MARGIN_PX, PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH,
+    PSD_PEAK_LABEL_MIN_VALUE_DB, RIGHT_ALIGN_THRESHOLD, TRIANGLE_WIDTH_RATIO,
 };
 
 /// Special prefix for cutoff line series to avoid showing them in legends
@@ -60,8 +64,6 @@ pub fn draw_unavailable_message(
         (x_range.end - x_range.start) as u32,
         (y_range.end - y_range.start) as u32,
     );
-
-    // Create the message text
     let message = format!("{axis_name} {plot_type} Data Unavailable:\n{reason}");
 
     // Estimate text dimensions for better centering
@@ -364,8 +366,6 @@ fn draw_single_axis_chart_with_config(
     let (area_x_range, area_y_range) = area.get_pixel_range();
     let area_width = area_x_range.end - area_x_range.start;
     let area_height = area_y_range.end - area_y_range.start;
-    const TEXT_WIDTH_ESTIMATE: i32 = 300;
-    const TEXT_HEIGHT_ESTIMATE: i32 = 20;
 
     let peak_label_threshold = plot_config.peak_label_threshold.unwrap_or_else(|| {
         // Select appropriate threshold based on plot type
@@ -385,13 +385,10 @@ fn draw_single_axis_chart_with_config(
         .as_deref()
         .unwrap_or("{:.0}");
 
-    for (idx, &(peak_freq, peak_amp)) in plot_config.peaks.iter().enumerate() {
+    // Collect and prepare peak labels for bottom positioning
+    let mut peak_labels = Vec::new();
+    for &(peak_freq, peak_amp) in plot_config.peaks.iter() {
         if peak_amp > peak_label_threshold {
-            let peak_pixel_coords_relative_to_plotting_area =
-                chart.backend_coord(&(peak_freq, peak_amp));
-            let mut text_x = peak_pixel_coords_relative_to_plotting_area.0 - area_offset.0;
-            let mut text_y = peak_pixel_coords_relative_to_plotting_area.1 - area_offset.1;
-
             let formatted_peak_amp = if plot_config.y_label.to_lowercase().contains("db")
                 || peak_label_format_string_ref.contains("dB")
             {
@@ -406,22 +403,164 @@ fn draw_single_axis_chart_with_config(
                 format!("{peak_amp:.0}")
             };
 
-            let label_text = if idx == 0 {
-                format!("Primary Peak: {formatted_peak_amp} at {peak_freq:.0} Hz")
+            // Store frequency, amplitude, and formatted text for later sorting
+            peak_labels.push((peak_freq, peak_amp, formatted_peak_amp));
+        }
+    }
+
+    // Position labels at the bottom of the plot area, with fixed row assignment by peak priority
+    if !peak_labels.is_empty() {
+        // Sort peaks by amplitude (magnitude) in descending order for proper priority assignment
+        // Primary peak (largest amplitude) should be in top row, followed by secondary peaks
+        peak_labels.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        const LABEL_HEIGHT: i32 = 20;
+        let mut row_positions: Vec<Vec<(i32, i32)>> = Vec::new();
+
+        // Initialize row tracking for each peak priority level
+        for _ in 0..MAX_PEAKS_TO_LABEL {
+            row_positions.push(Vec::new());
+        }
+
+        // Cache the font once to avoid re-parsing for each label
+        // Font is embedded at compile time; convert Option to Result and propagate error
+        let bundled_font = rusttype::Font::try_from_bytes(BUNDLED_FONT_BYTES).ok_or_else(|| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "failed to parse embedded font bytes",
+            )) as Box<dyn Error>
+        })?;
+
+        // Measure text pixel width using rusttype with the cached font.
+        let measured_text_width_px = |text: &str, font_px: f32| -> i32 {
+            use rusttype::Scale;
+            let scale = Scale::uniform(font_px);
+            let mut width = 0.0f32;
+            for ch in text.chars() {
+                let glyph = bundled_font.glyph(ch).scaled(scale);
+                width += glyph.h_metrics().advance_width;
+            }
+            // Subtract one monospace character width (advance includes trailing space)
+            let avg_char_width = font_px * AVG_CHAR_WIDTH_RATIO;
+            let width_px = (width - avg_char_width).ceil() as i32;
+            width_px.max(0)
+        };
+
+        for (peak_idx, (peak_freq, _peak_amp, formatted_peak_amp)) in
+            peak_labels.into_iter().enumerate()
+        {
+            if peak_idx >= MAX_PEAKS_TO_LABEL {
+                break; // Only label up to MAX_PEAKS_TO_LABEL peaks
+            }
+
+            // Create label text based on sorted position (primary = first after sorting)
+            let label_text = if peak_idx == 0 {
+                format!("▲ Primary Peak: {formatted_peak_amp} at {peak_freq:.0} Hz")
             } else {
-                format!("Peak: {formatted_peak_amp} at {peak_freq:.0} Hz")
+                format!("▲ Peak: {formatted_peak_amp} at {peak_freq:.0} Hz")
             };
 
-            text_x = text_x.max(0).min(area_width - TEXT_WIDTH_ESTIMATE);
-            text_y = text_y.max(0).min(area_height - TEXT_HEIGHT_ESTIMATE);
+            // Get the X coordinate of the peak (horizontally aligned)
+            let peak_x_pixel = chart
+                .backend_coord(&(peak_freq, plot_config.y_range.start))
+                .0
+                - area_offset.0;
+            // Rough per-character estimate (used for overlap probing). We'll compute a
+            // tighter width for right-aligned placement (including the triangle) below.
+            let label_width_estimate = (label_text.len() as f32 * 8.0) as i32; // Rough estimate
 
-            area.draw(&Text::new(
-                label_text,
-                (text_x, text_y),
-                ("sans-serif", FONT_SIZE_PEAK_LABEL)
-                    .into_font()
-                    .color(&BLACK),
-            ))?;
+            // Assign row so that primary is at the top (highest y), secondary below, etc.
+            let target_row = MAX_PEAKS_TO_LABEL - 1 - peak_idx;
+            let mut horizontal_offset = 0;
+
+            // Find a position in this row, potentially offsetting horizontally to avoid overlap
+            loop {
+                let label_start = peak_x_pixel + horizontal_offset;
+                let label_end = label_start + label_width_estimate;
+                let text_y = area_height
+                    - ((target_row as i32) * LABEL_HEIGHT)
+                    - PEAK_LABEL_BOTTOM_MARGIN_PX;
+
+                // Check if this position overlaps with existing labels in this row
+                let mut overlaps = false;
+                for &(existing_start, existing_end) in &row_positions[target_row] {
+                    if !(label_end < existing_start || label_start > existing_end) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+
+                if !overlaps {
+                    // Determine if label would go off the right edge of the plot area
+                    let plot_right_edge = area_width;
+                    let label_fits = label_start + label_width_estimate <= plot_right_edge;
+
+                    // Debug info will be printed after computing force_right_aligned
+
+                    // Use a single triangle_width variable with a tunable ratio
+                    let triangle_width =
+                        (FONT_SIZE_PEAK_LABEL as f32 * TRIANGLE_WIDTH_RATIO) as i32;
+                    let label_text_no_triangle = label_text.trim_start_matches('▲').trim_start();
+                    // Force right-aligned logic for peaks in the rightmost threshold of the plot
+                    let force_right_aligned =
+                        peak_x_pixel > (area_width as f32 * RIGHT_ALIGN_THRESHOLD) as i32;
+                    let (draw_text, draw_pos, recorded_start, recorded_end) =
+                        if label_fits && !force_right_aligned {
+                            // Left-aligned: same behavior as original implementation
+                            let left_x = label_start - (triangle_width / 2);
+                            (
+                                label_text.clone(),
+                                (left_x, text_y),
+                                // record bounding box as before (label_start,label_end) to preserve overlap behavior
+                                label_start,
+                                label_end,
+                            )
+                        } else {
+                            // Right-aligned: compute width including the triangle glyph and right-align
+                            let right_aligned_text = format!("{} ▲", label_text_no_triangle);
+                            // Measure the full right-aligned string width using advance widths
+                            let tri_label_width = measured_text_width_px(
+                                &right_aligned_text,
+                                FONT_SIZE_PEAK_LABEL as f32,
+                            );
+                            // If the label (including triangle) fits to the left of the peak, right-align it.
+                            // Otherwise fall back to left-aligned placement.
+                            if tri_label_width + 4 <= peak_x_pixel {
+                                // Position text so triangle tip points to peak frequency.
+                                // tri_label_width includes the triangle glyph's advance width.
+                                // The triangle is left-aligned within its advance width box,
+                                // so we need to add the full triangle_width to account for its visual position.
+                                let right_x = peak_x_pixel - tri_label_width + (triangle_width);
+                                let right_x_clamped = if right_x < 0 { 0 } else { right_x };
+                                (
+                                    right_aligned_text,
+                                    (right_x_clamped, text_y),
+                                    right_x_clamped,
+                                    right_x_clamped + tri_label_width,
+                                )
+                            } else {
+                                // Fallback to left-aligned placement
+                                let left_x = label_start - (triangle_width / 2);
+                                (label_text.clone(), (left_x, text_y), label_start, label_end)
+                            }
+                        };
+
+                    area.draw(&Text::new(
+                        draw_text.as_str(),
+                        draw_pos,
+                        ("DejaVu Sans Mono", FONT_SIZE_PEAK_LABEL)
+                            .into_font()
+                            .color(&BLACK),
+                    ))?;
+
+                    // Record this position
+                    row_positions[target_row].push((recorded_start, recorded_end));
+                    break;
+                } else {
+                    // Try offsetting horizontally by the label width
+                    horizontal_offset += label_width_estimate;
+                }
+            }
         }
     }
 

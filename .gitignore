@@ -11,6 +11,10 @@ src/**
 !Cargo.toml
 !Cargo.lock
 
+# Include bundled fonts
+!fonts/
+!fonts/**/*.ttf
+
 # Include tests directory
 !tests/
 !tests/**/*.rs
@@ -27,3 +31,7 @@ src/**
 # Include .github directory and its contents
 !.github/
 !.github/**
+
+
+#Ignore vscode AI rules
+.github/instructions/codacy.instructions.md

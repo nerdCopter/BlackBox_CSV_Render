@@ -81,9 +81,17 @@ pub const THROTTLE_Y_MAX_VALUE: f64 = 1000.0; // Maximum throttle value for plot
 
 // Constants for spectrum peak labeling
 pub const MAX_PEAKS_TO_LABEL: usize = 3; // Max number of peaks (including primary) to label on spectrum plots
-pub const MIN_SECONDARY_PEAK_RATIO: f64 = 0.05; // Secondary peak must be ≥ this linear ratio of the primary peak’s amplitude
+pub const MIN_SECONDARY_PEAK_RATIO: f64 = 0.05; // Secondary peak must be ≥ this linear ratio of the primary peak's amplitude
 pub const MIN_SECONDARY_PEAK_DB: f64 = 6.0; // Minimum dB difference for secondary peaks in dB domain (6 dB = 4x power ratio)
 pub const MIN_PEAK_SEPARATION_HZ: f64 = 70.0; // Minimum frequency separation between reported peaks on spectrum plots
+
+// Peak label positioning constants
+pub const PEAK_LABEL_BOTTOM_MARGIN_PX: i32 = 72; // Pixels above the bottom edge of plot area for peak labels
+
+// Peak label font measurement constants
+pub const AVG_CHAR_WIDTH_RATIO: f32 = 0.56; // Monospace character width as ratio of font size (used to subtract trailing space from rusttype advance widths). Tuned for the bundled TTF; must be revisited if font changes.
+pub const TRIANGLE_WIDTH_RATIO: f32 = 0.5; // DejaVu Sans Mono triangle ▲ width as ratio of font size. Tuned for the bundled TTF; must be revisited if font changes.
+pub const RIGHT_ALIGN_THRESHOLD: f32 = 0.90; // Peaks in rightmost portion of plot area (threshold * 100%) use right-aligned labels
 
 // Constants for advanced peak detection
 pub const ENABLE_WINDOW_PEAK_DETECTION: bool = true; // Enable window-based peak detection for more robust analysis
