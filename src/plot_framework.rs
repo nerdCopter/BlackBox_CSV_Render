@@ -22,15 +22,13 @@ use crate::constants::{
     FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, FONT_SIZE_MAIN_TITLE, FONT_SIZE_MESSAGE,
     FONT_SIZE_PEAK_LABEL, HEATMAP_MIN_PSD_DB, LINE_WIDTH_LEGEND, MAX_PEAKS_TO_LABEL,
     PEAK_LABEL_BOTTOM_MARGIN_PX, PEAK_LABEL_MIN_AMPLITUDE, PLOT_HEIGHT, PLOT_WIDTH,
-    PSD_PEAK_LABEL_MIN_VALUE_DB, TRIANGLE_WIDTH_RATIO,
+    PSD_PEAK_LABEL_MIN_VALUE_DB, RIGHT_ALIGN_THRESHOLD, TRIANGLE_WIDTH_RATIO,
 };
 
 /// Special prefix for cutoff line series to avoid showing them in legends
 pub const CUTOFF_LINE_PREFIX: &str = "__CUTOFF_LINE__";
 /// Special prefix for dotted cutoff line series
 pub const CUTOFF_LINE_DOTTED_PREFIX: &str = "__CUTOFF_LINE_DOTTED__";
-/// Right-align threshold: peaks in rightmost 10% of plot area use right-aligned labels
-const RIGHT_ALIGN_THRESHOLD: f32 = 0.90;
 
 /// Calculate plot range with padding.
 /// Adds 15% padding, or a fixed padding for very small ranges.
@@ -425,24 +423,23 @@ fn draw_single_axis_chart_with_config(
         }
 
         // Cache the font once to avoid re-parsing for each label
-        let bundled_font = rusttype::Font::try_from_bytes(BUNDLED_FONT_BYTES);
+        // Font is embedded at compile time, so this should never fail
+        let bundled_font = rusttype::Font::try_from_bytes(BUNDLED_FONT_BYTES)
+            .expect("embedded font should always be valid");
 
-        // Measure text pixel width using rusttype if a system font is available.
-        let measured_text_width_px = |text: &str, font_px: f32| -> Option<i32> {
-            if let Some(font) = &bundled_font {
-                use rusttype::Scale;
-                let scale = Scale::uniform(font_px);
-                let mut width = 0.0f32;
-                for ch in text.chars() {
-                    let glyph = font.glyph(ch).scaled(scale);
-                    width += glyph.h_metrics().advance_width;
-                }
-                // Subtract one monospace character width (advance includes trailing space)
-                let avg_char_width = font_px * AVG_CHAR_WIDTH_RATIO;
-                let width_px = (width - avg_char_width).ceil() as i32;
-                return Some(width_px.max(0));
+        // Measure text pixel width using rusttype with the cached font.
+        let measured_text_width_px = |text: &str, font_px: f32| -> i32 {
+            use rusttype::Scale;
+            let scale = Scale::uniform(font_px);
+            let mut width = 0.0f32;
+            for ch in text.chars() {
+                let glyph = bundled_font.glyph(ch).scaled(scale);
+                width += glyph.h_metrics().advance_width;
             }
-            None
+            // Subtract one monospace character width (advance includes trailing space)
+            let avg_char_width = font_px * AVG_CHAR_WIDTH_RATIO;
+            let width_px = (width - avg_char_width).ceil() as i32;
+            width_px.max(0)
         };
 
         for (peak_idx, (peak_freq, _peak_amp, formatted_peak_amp)) in
@@ -503,62 +500,46 @@ fn draw_single_axis_chart_with_config(
                     // Force right-aligned logic for peaks in the rightmost threshold of the plot
                     let force_right_aligned =
                         peak_x_pixel > (area_width as f32 * RIGHT_ALIGN_THRESHOLD) as i32;
-                    let (draw_text, draw_pos, recorded_start, recorded_end) = if label_fits
-                        && !force_right_aligned
-                    {
-                        // Left-aligned: same behavior as original implementation
-                        let left_x = label_start - (triangle_width / 2);
-                        (
-                            label_text.clone(),
-                            (left_x, text_y),
-                            // record bounding box as before (label_start,label_end) to preserve overlap behavior
-                            label_start,
-                            label_end,
-                        )
-                    } else {
-                        // Right-aligned: compute width including the triangle glyph and right-align
-                        let right_aligned_text = format!("{} ▲", label_text_no_triangle);
-                        // Measure the full right-aligned string width using advance widths
-                        let tri_label_width = measured_text_width_px(
-                            &right_aligned_text,
-                            FONT_SIZE_PEAK_LABEL as f32,
-                        )
-                        .unwrap_or_else(|| {
-                            // fallback to adaptive estimator
-                            let mut w = 0.0f32;
-                            for ch in right_aligned_text.chars() {
-                                w += match ch {
-                                    'i' | 'l' | 'I' | 'j' | '\'' | '|' | ':' | '.' | ',' => 0.35,
-                                    ' ' => 0.40,
-                                    'f' | 't' | 'r' | 'c' | 'k' | 's' => 0.55,
-                                    '0'..='9' => 0.6,
-                                    'm' | 'w' | 'M' | 'W' => 1.0,
-                                    _ => 0.75,
-                                };
-                            }
-                            (w * FONT_SIZE_PEAK_LABEL as f32) as i32
-                        });
-                        // If the label (including triangle) fits to the left of the peak, right-align it.
-                        // Otherwise fall back to left-aligned placement.
-                        if tri_label_width + 4 <= peak_x_pixel {
-                            // Position text so triangle tip points to peak frequency.
-                            // tri_label_width includes the triangle glyph's advance width.
-                            // The triangle is left-aligned within its advance width box,
-                            // so we need to add the full triangle_width to account for its visual position.
-                            let right_x = peak_x_pixel - tri_label_width + (triangle_width);
-                            let right_x_clamped = if right_x < 0 { 0 } else { right_x };
+                    let (draw_text, draw_pos, recorded_start, recorded_end) =
+                        if label_fits && !force_right_aligned {
+                            // Left-aligned: same behavior as original implementation
+                            let left_x = label_start - (triangle_width / 2);
                             (
-                                right_aligned_text,
-                                (right_x_clamped, text_y),
-                                right_x_clamped,
-                                right_x_clamped + tri_label_width,
+                                label_text.clone(),
+                                (left_x, text_y),
+                                // record bounding box as before (label_start,label_end) to preserve overlap behavior
+                                label_start,
+                                label_end,
                             )
                         } else {
-                            // Fallback to left-aligned placement
-                            let left_x = label_start - (triangle_width / 2);
-                            (label_text.clone(), (left_x, text_y), label_start, label_end)
-                        }
-                    };
+                            // Right-aligned: compute width including the triangle glyph and right-align
+                            let right_aligned_text = format!("{} ▲", label_text_no_triangle);
+                            // Measure the full right-aligned string width using advance widths
+                            let tri_label_width = measured_text_width_px(
+                                &right_aligned_text,
+                                FONT_SIZE_PEAK_LABEL as f32,
+                            );
+                            // If the label (including triangle) fits to the left of the peak, right-align it.
+                            // Otherwise fall back to left-aligned placement.
+                            if tri_label_width + 4 <= peak_x_pixel {
+                                // Position text so triangle tip points to peak frequency.
+                                // tri_label_width includes the triangle glyph's advance width.
+                                // The triangle is left-aligned within its advance width box,
+                                // so we need to add the full triangle_width to account for its visual position.
+                                let right_x = peak_x_pixel - tri_label_width + (triangle_width);
+                                let right_x_clamped = if right_x < 0 { 0 } else { right_x };
+                                (
+                                    right_aligned_text,
+                                    (right_x_clamped, text_y),
+                                    right_x_clamped,
+                                    right_x_clamped + tri_label_width,
+                                )
+                            } else {
+                                // Fallback to left-aligned placement
+                                let left_x = label_start - (triangle_width / 2);
+                                (label_text.clone(), (left_x, text_y), label_start, label_end)
+                            }
+                        };
 
                     area.draw(&Text::new(
                         draw_text.as_str(),

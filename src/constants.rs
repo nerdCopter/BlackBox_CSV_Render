@@ -91,6 +91,7 @@ pub const PEAK_LABEL_BOTTOM_MARGIN_PX: i32 = 72; // Pixels above the bottom edge
 // Peak label font measurement constants
 pub const AVG_CHAR_WIDTH_RATIO: f32 = 0.56; // Monospace character width as ratio of font size (used to subtract trailing space from rusttype advance widths). Tuned for the bundled TTF; must be revisited if font changes.
 pub const TRIANGLE_WIDTH_RATIO: f32 = 0.5; // DejaVu Sans Mono triangle ▲ width as ratio of font size. Tuned for the bundled TTF; must be revisited if font changes.
+pub const RIGHT_ALIGN_THRESHOLD: f32 = 0.90; // Peaks in rightmost portion of plot area (threshold * 100%) use right-aligned labels
 
 // Constants for advanced peak detection
 pub const ENABLE_WINDOW_PEAK_DETECTION: bool = true; // Enable window-based peak detection for more robust analysis
