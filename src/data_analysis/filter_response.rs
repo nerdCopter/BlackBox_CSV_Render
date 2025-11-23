@@ -913,6 +913,7 @@ fn calculate_ptn_per_stage_cutoff(configured_cutoff_hz: f64, ptn_order: u32) -> 
 }
 
 /// Parse IMUF filters from EmuFlight headers
+/// Applies to ALL EmuFlight (both HELIOSPRING with external PTn and non-HELIO with pseudo-Kalman)
 pub fn parse_imuf_filters_with_gyro_rate(
     headers: &[(String, String)],
     _gyro_rate_hz: Option<f64>,
@@ -929,7 +930,9 @@ pub fn parse_imuf_filters_with_gyro_rate(
         .get("imuf_revision")
         .and_then(|s| s.parse::<u32>().ok());
 
-    // Parse pseudo-Kalman filter window size (applies to all axes)
+    // Parse pseudo-Kalman filter window size (applies to ALL EmuFlight)
+    // Non-HELIO: Controls windowed variance for Kalman measurement noise
+    // HELIO: Controls windowing in external firmware
     let pseudo_kalman_w = header_map
         .get("imuf_w")
         .and_then(|s| s.parse::<f64>().ok())
@@ -938,14 +941,15 @@ pub fn parse_imuf_filters_with_gyro_rate(
     // Parse IMUF parameters for each axis
     let axis_names = ["roll", "pitch", "yaw"];
     for (axis_idx, axis_name) in axis_names.iter().enumerate() {
-        // Parse per-axis lowpass cutoff frequencies
+        // Parse per-axis lowpass cutoff frequencies (HELIOSPRING only)
         let lowpass_key = format!("imuf_lowpass_{}", axis_name);
         let lowpass_cutoff_hz = header_map
             .get(&lowpass_key)
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
 
-        // Parse per-axis Q-factors (scaled by 1000 in headers)
+        // Parse per-axis Q-factors (applies to ALL EmuFlight)
+        // Scaled by 1000 in headers for easier integer tuning (100-16000 → 0.01-1.6)
         let q_key = format!("imuf_{}_q", axis_name);
         let q_factor_scaled = header_map
             .get(&q_key)
@@ -953,16 +957,21 @@ pub fn parse_imuf_filters_with_gyro_rate(
             .unwrap_or(0.0);
         let q_factor = q_factor_scaled / 1000.0; // Scale down from header value
 
-        // Parse PTn filter order (applies to all axes)
+        // Parse PTn filter order (HELIOSPRING only)
         let ptn_order = header_map
             .get("imuf_ptn_order")
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(2); // Default to PT2 if not specified
 
-        // Create IMUF filter config if we have valid parameters
-        if lowpass_cutoff_hz > 0.0 {
-            // Calculate per-stage PT1 cutoff (Butterworth correction)
-            let effective_cutoff_hz = calculate_ptn_per_stage_cutoff(lowpass_cutoff_hz, ptn_order);
+        // Create IMUF filter config if we have valid Q-factor or lowpass cutoff
+        // HELIOSPRING: Has both lowpass_cutoff_hz AND ptn_order
+        // Non-HELIO: Only has Q-factor and IMUF_w (no external PTn filter to visualize)
+        if lowpass_cutoff_hz > 0.0 || q_factor > 0.0 {
+            let effective_cutoff_hz = if lowpass_cutoff_hz > 0.0 {
+                calculate_ptn_per_stage_cutoff(lowpass_cutoff_hz, ptn_order)
+            } else {
+                0.0 // Non-HELIO: no PTn filter chain, just pseudo-Kalman parameters
+            };
 
             config.gyro[axis_idx].imuf = Some(ImufFilterConfig {
                 lowpass_cutoff_hz,
@@ -1014,8 +1023,17 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     };
 
     // Check for IMUF configuration and merge it with existing config
-    if has_imuf_pattern {
-        println!("Detected PTn filters with Butterworth correction (IMUF)");
+    // IMUF Q-factors and IMUF_w apply to ALL EmuFlight (both HELIOSPRING with external PTn and non-HELIO with pseudo-Kalman)
+    let has_imuf_q_factors = header_map.contains_key("imuf_roll_q")
+        || header_map.contains_key("imuf_pitch_q")
+        || header_map.contains_key("imuf_yaw_q");
+
+    if has_imuf_pattern || has_imuf_q_factors {
+        if has_imuf_pattern {
+            println!("Detected PTn filters with Butterworth correction (HELIOSPRING IMUF)");
+        } else {
+            println!("Detected EmuFlight pseudo-Kalman filter (Q-factors and window)");
+        }
 
         // Extract gyro rate for sample rate correction calculations
         let gyro_rate_hz = extract_gyro_rate(Some(headers));
@@ -1073,43 +1091,52 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
             );
         }
         if let Some(ref imuf) = config.gyro[axis_idx].imuf {
-            let stage_count_text = match imuf.ptn_order {
-                1 => "One PT1",
-                2 => "Two PT1",
-                3 => "Three PT1",
-                4 => "Four PT1",
-                _ => "Two PT1",
-            };
+            if imuf.lowpass_cutoff_hz > 0.0 {
+                // HELIOSPRING: Has external PTn filter chain
+                let stage_count_text = match imuf.ptn_order {
+                    1 => "One PT1",
+                    2 => "Two PT1",
+                    3 => "Three PT1",
+                    4 => "Four PT1",
+                    _ => "Two PT1",
+                };
 
-            let version_str = if let Some(rev) = imuf.revision {
-                format!("IMUF v{}", rev)
+                let version_str = if let Some(rev) = imuf.revision {
+                    format!("IMUF v{}", rev)
+                } else {
+                    "IMUF".to_string()
+                };
+
+                println!(
+                    "    {}: {} Combined={:.0}Hz → per-stage={:.0}Hz (Q={:.1})",
+                    version_str,
+                    stage_count_text,
+                    imuf.lowpass_cutoff_hz,
+                    imuf.effective_cutoff_hz,
+                    imuf.q_factor
+                );
+
+                // Show info about Butterworth correction
+                let ptn_scaling_diff = imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz;
+
+                if ptn_scaling_diff.abs() > 5.0 {
+                    println!(
+                        "      Note: Butterworth correction requires PT1 stages at {:.0}Hz to achieve {:.0}Hz combined response",
+                        imuf.effective_cutoff_hz,
+                        imuf.lowpass_cutoff_hz
+                    );
+                }
             } else {
-                "IMUF".to_string()
-            };
-
-            println!(
-                "    {}: {} Combined={:.0}Hz → per-stage={:.0}Hz (Q={:.1})",
-                version_str,
-                stage_count_text,
-                imuf.lowpass_cutoff_hz,
-                imuf.effective_cutoff_hz,
-                imuf.q_factor
-            );
-
-            // Show pseudo-Kalman window info if present
-            if let Some(w) = imuf.pseudo_kalman_w {
-                println!("      Pseudo-Kalman filter window size: {:.0}", w);
+                // Non-HELIOSPRING: Pseudo-Kalman only (no external PTn filter)
+                println!(
+                    "    EmuFlight Pseudo-Kalman: Q={:.1} (default Q=0.6)",
+                    imuf.q_factor
+                );
             }
 
-            // Show info about Butterworth correction
-            let ptn_scaling_diff = imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz;
-
-            if ptn_scaling_diff.abs() > 5.0 {
-                println!(
-                    "      Note: Butterworth correction requires PT1 stages at {:.0}Hz to achieve {:.0}Hz combined response",
-                    imuf.effective_cutoff_hz,
-                    imuf.lowpass_cutoff_hz
-                );
+            // Show pseudo-Kalman window info (applies to both HELIO and non-HELIO)
+            if let Some(w) = imuf.pseudo_kalman_w {
+                println!("      Pseudo-Kalman filter window size: {:.0} samples", w);
             }
         }
         if config.gyro[axis_idx].lpf1.is_none()
