@@ -956,7 +956,11 @@ pub fn parse_imuf_filters_with_gyro_rate(
             .get(&q_key)
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
-        let q_factor = q_factor_scaled / 1000.0; // Scale down from header value
+        let q_factor = if q_factor_scaled > 0.0 {
+            (q_factor_scaled / 1000.0).clamp(0.01, 16.0) // Validate within safe range
+        } else {
+            0.0 // No Q-factor configured
+        };
 
         // Parse PTn filter order (HELIOSPRING only)
         let ptn_order = header_map
@@ -1952,7 +1956,11 @@ mod tests {
         // Find response closest to cutoff frequency
         let response_at_cutoff = curve_points
             .iter()
-            .min_by_key(|(freq, _)| (*freq - 100.0).abs() as i64)
+            .min_by(|(f1, _), (f2, _)| {
+                let d1 = (*f1 - 100.0).abs();
+                let d2 = (*f2 - 100.0).abs();
+                d1.partial_cmp(&d2).unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|(_, response)| *response)
             .unwrap();
 

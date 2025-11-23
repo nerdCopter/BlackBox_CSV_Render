@@ -472,12 +472,12 @@ pub fn plot_gyro_spectrums(
                             imuf.pseudo_kalman_w.unwrap_or(0.0)
                         )
                     } else {
-                        // Non-HELIO: Show pseudo-Kalman parameters
-                        format!(
-                            "Pseudo-Kalman: Q={:.1}, W={:.0}",
-                            imuf.q_factor,
-                            imuf.pseudo_kalman_w.unwrap_or(0.0)
-                        )
+                        // Non-HELIO: Show pseudo-Kalman parameters only if W is present
+                        if let Some(w) = imuf.pseudo_kalman_w {
+                            format!("Pseudo-Kalman: Q={:.1}, W={:.0}", imuf.q_factor, w)
+                        } else {
+                            format!("Pseudo-Kalman: Q={:.1}", imuf.q_factor)
+                        }
                     };
                     unfilt_plot_series.push(PlotSeries {
                         data: vec![], // No data - just for legend

@@ -403,18 +403,18 @@ pub fn plot_d_term_spectrums(
                 if let Some(ref imuf) = config.dterm[axis_idx].imuf {
                     let imuf_label = if imuf.lowpass_cutoff_hz > 0.0 {
                         // HELIOSPRING: Show full PTn configuration with Q-factor
-                        format!(
-                            "IMUF Config: Q={:.1}, W={:.0}",
-                            imuf.q_factor,
-                            imuf.pseudo_kalman_w.unwrap_or(0.0)
-                        )
+                        if let Some(w) = imuf.pseudo_kalman_w {
+                            format!("IMUF Config: Q={:.1}, W={:.0}", imuf.q_factor, w)
+                        } else {
+                            format!("IMUF Config: Q={:.1}", imuf.q_factor)
+                        }
                     } else {
-                        // Non-HELIO: Show pseudo-Kalman parameters
-                        format!(
-                            "Pseudo-Kalman: Q={:.1}, W={:.0}",
-                            imuf.q_factor,
-                            imuf.pseudo_kalman_w.unwrap_or(0.0)
-                        )
+                        // Non-HELIO: Show pseudo-Kalman parameters only if W is present
+                        if let Some(w) = imuf.pseudo_kalman_w {
+                            format!("Pseudo-Kalman: Q={:.1}, W={:.0}", imuf.q_factor, w)
+                        } else {
+                            format!("Pseudo-Kalman: Q={:.1}", imuf.q_factor)
+                        }
                     };
                     unfilt_plot_series.push(PlotSeries {
                         data: vec![], // No data - just for legend
