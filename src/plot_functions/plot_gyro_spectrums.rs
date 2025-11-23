@@ -5,10 +5,9 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, ENABLE_WINDOW_PEAK_DETECTION,
-    FILTERED_GYRO_MIN_THRESHOLD, LINE_WIDTH_PLOT, MAX_PEAKS_TO_LABEL, MIN_PEAK_SEPARATION_HZ,
-    MIN_SECONDARY_PEAK_RATIO, PEAK_DETECTION_WINDOW_RADIUS, PEAK_LABEL_MIN_AMPLITUDE,
-    SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
+    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, FILTERED_GYRO_MIN_THRESHOLD,
+    LINE_WIDTH_PLOT, PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR,
+    SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
@@ -19,6 +18,7 @@ use crate::plot_framework::{
     draw_dual_spectrum_plot, AxisSpectrum, PlotConfig, PlotSeries, CUTOFF_LINE_DOTTED_PREFIX,
     CUTOFF_LINE_PREFIX,
 };
+use crate::plot_functions::peak_detection::find_and_sort_peaks_with_threshold;
 use crate::types::AllFFTData;
 use plotters::style::RGBColor;
 
@@ -77,166 +77,6 @@ pub fn plot_gyro_spectrums(
     let mut global_max_y_unfilt = 0.0f64;
     let mut global_max_y_filt = 0.0f64;
     let mut overall_max_y_amplitude = 0.0f64;
-
-    fn find_and_sort_peaks(
-        series_data: &[(f64, f64)],
-        primary_peak_info: Option<(f64, f64)>,
-        axis_name_str: &str,
-        spectrum_type_str: &str,
-    ) -> Vec<(f64, f64)> {
-        // For filtered gyro data, use intelligent threshold checking
-        // Based on user feedback: 4k, 2.1k peaks are reasonable, but <1.9k peaks are not meaningful
-        let is_filtered = spectrum_type_str == "Filtered";
-        let amplitude_threshold = if is_filtered {
-            FILTERED_GYRO_MIN_THRESHOLD // Use constant from constants.rs
-        } else {
-            PEAK_LABEL_MIN_AMPLITUDE // 1k threshold for unfiltered gyro
-        };
-
-        if is_filtered {
-            if let Some((_, peak_amp)) = primary_peak_info {
-                if peak_amp <= amplitude_threshold {
-                    let formatted_peak = if peak_amp >= 1000.0 {
-                        format!("{:.1}k", peak_amp / 1000.0)
-                    } else {
-                        format!("{:.1}", peak_amp)
-                    };
-                    let formatted_threshold = format!("{:.1}k", amplitude_threshold / 1000.0);
-                    println!("  {axis_name_str} {spectrum_type_str}: Primary peak ({}) below intelligent threshold ({}) - skipping peak detection.", formatted_peak, formatted_threshold);
-                    return Vec::new();
-                }
-            } else {
-                // No primary peak found at all
-                println!("  {axis_name_str} {spectrum_type_str}: No peaks above threshold - skipping peak detection.");
-                return Vec::new();
-            }
-        }
-
-        let mut peaks_to_plot: Vec<(f64, f64)> = Vec::new();
-
-        if let Some((peak_freq, peak_amp)) = primary_peak_info {
-            if peak_amp > amplitude_threshold {
-                peaks_to_plot.push((peak_freq, peak_amp));
-            }
-        }
-
-        if series_data.len() > 2 && peaks_to_plot.len() < MAX_PEAKS_TO_LABEL {
-            let mut candidate_secondary_peaks: Vec<(f64, f64)> = Vec::new();
-            // Iterate from the second point to the second-to-last point,
-            // as peak detection logic needs at least one point on each side.
-            for j in 1..(series_data.len() - 1) {
-                let (freq, amp) = series_data[j];
-
-                let is_potential_peak = {
-                    // Assign directly from the block's result
-                    if ENABLE_WINDOW_PEAK_DETECTION {
-                        let w = PEAK_DETECTION_WINDOW_RADIUS;
-                        // Check if a full window can be formed around j.
-                        // j must be at least w points from the start,
-                        // and j must be at least w points from the end (so j+w is a valid index).
-                        if j >= w && j + w < series_data.len() {
-                            // Full window logic
-                            let mut ge_left_in_window = true;
-                            for k_offset in 1..=w {
-                                // series_data[j - k_offset] is valid because j >= w >= k_offset
-                                if amp < series_data[j - k_offset].1 {
-                                    ge_left_in_window = false;
-                                    break;
-                                }
-                            }
-
-                            let mut gt_right_in_window = true;
-                            if ge_left_in_window {
-                                // Optimization: only check right if left is good
-                                for k_offset in 1..=w {
-                                    // series_data[j + k_offset] is valid because j + w < series_data.len()
-                                    // and k_offset <= w
-                                    if amp <= series_data[j + k_offset].1 {
-                                        gt_right_in_window = false;
-                                        break;
-                                    }
-                                }
-                            }
-                            ge_left_in_window && gt_right_in_window // Return this value for this path
-                        } else {
-                            // Fallback for edges where a full window isn't possible.
-                            // The loop for j ensures j-1 and j+1 are always valid.
-                            let prev_amp = series_data[j - 1].1;
-                            let next_amp = series_data[j + 1].1;
-                            // Using rightmost point of plateau for consistency with window logic's tendency
-                            amp >= prev_amp && amp > next_amp // Return this value for this path
-                        }
-                    } else {
-                        // Original 3-point logic (leftmost point of plateau or sharp peak).
-                        // The loop for j ensures j-1 and j+1 are always valid.
-                        let prev_amp = series_data[j - 1].1;
-                        let next_amp = series_data[j + 1].1;
-                        amp > prev_amp && amp >= next_amp // Return this value for this path
-                    }
-                }; // End of block assignment to is_potential_peak
-
-                if freq >= SPECTRUM_NOISE_FLOOR_HZ && is_potential_peak && amp > amplitude_threshold
-                {
-                    let mut is_valid_for_secondary_consideration = true;
-                    if let Some((primary_freq, primary_amp_val)) = primary_peak_info {
-                        if freq == primary_freq && amp == primary_amp_val {
-                            // Don't re-add the primary peak
-                            is_valid_for_secondary_consideration = false;
-                        } else {
-                            is_valid_for_secondary_consideration = (amp
-                                >= primary_amp_val * MIN_SECONDARY_PEAK_RATIO)
-                                && ((freq - primary_freq).abs() > MIN_PEAK_SEPARATION_HZ);
-                        }
-                    }
-                    // If no primary_peak_info, is_valid_for_secondary_consideration remains true (as long as it's a potential peak and above min amplitude)
-                    if is_valid_for_secondary_consideration {
-                        candidate_secondary_peaks.push((freq, amp));
-                    }
-                }
-            }
-
-            candidate_secondary_peaks
-                .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            for (s_freq, s_amp) in candidate_secondary_peaks {
-                if peaks_to_plot.len() >= MAX_PEAKS_TO_LABEL {
-                    break;
-                }
-                let mut too_close_to_existing = false;
-                for (p_freq, _) in &peaks_to_plot {
-                    if (s_freq - *p_freq).abs() < MIN_PEAK_SEPARATION_HZ {
-                        too_close_to_existing = true;
-                        break;
-                    }
-                }
-                if !too_close_to_existing && s_amp > amplitude_threshold {
-                    // Ensure it's still above the intelligent threshold for filtered data or min amp for unfiltered
-                    peaks_to_plot.push((s_freq, s_amp));
-                }
-            }
-        }
-
-        peaks_to_plot.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        if !peaks_to_plot.is_empty() {
-            let (main_freq, main_amp) = peaks_to_plot[0];
-            println!(
-                "  {axis_name_str} {spectrum_type_str} Gyro Spectrum: Primary Peak amplitude {main_amp:.0} at {:.1} Hz",
-                main_freq
-            );
-            for (idx, (freq, amp)) in peaks_to_plot.iter().skip(1).enumerate() {
-                println!(
-                    "    Subordinate Peak: {}: {:.0} at {:.1} Hz",
-                    idx + 1,
-                    amp,
-                    freq
-                );
-            }
-        } else {
-            println!(
-                "  {axis_name_str} {spectrum_type_str} Gyro Spectrum: No significant peaks found."
-            );
-        }
-        peaks_to_plot
-    }
 
     // Iterate safely over the minimum of AXIS_NAMES.len() and the fixed array size
     let axis_count = AXIS_NAMES.len().min(3); // gyro arrays are [Option<f64>; 3]
@@ -316,14 +156,20 @@ pub fn plot_gyro_spectrums(
             }
         }
 
-        let unfilt_peaks_for_plot = find_and_sort_peaks(
+        let unfilt_peaks_for_plot = find_and_sort_peaks_with_threshold(
             &unfilt_series_data,
             primary_peak_unfilt,
             axis_name,
             "Unfiltered",
+            PEAK_LABEL_MIN_AMPLITUDE,
         );
-        let filt_peaks_for_plot =
-            find_and_sort_peaks(&filt_series_data, primary_peak_filt, axis_name, "Filtered");
+        let filt_peaks_for_plot = find_and_sort_peaks_with_threshold(
+            &filt_series_data,
+            primary_peak_filt,
+            axis_name,
+            "Filtered",
+            FILTERED_GYRO_MIN_THRESHOLD,
+        );
 
         let noise_floor_sample_idx = (SPECTRUM_NOISE_FLOOR_HZ / freq_step).max(0.0) as usize;
         let max_amp_after_noise_floor_unfilt = unfilt_series_data
