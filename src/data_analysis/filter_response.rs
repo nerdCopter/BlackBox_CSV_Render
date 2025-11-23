@@ -236,9 +236,12 @@ pub fn pt4_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
 /// - cutoff_hz: -3dB cutoff frequency (ω₀ = 2π·fc)
 /// - q_factor: Quality factor (default 0.707 for Butterworth, can range 0.5-10.0)
 pub fn biquad_response_with_q(frequency_hz: f64, cutoff_hz: f64, q_factor: f64) -> f64 {
-    if cutoff_hz <= 0.0 || q_factor <= 0.0 {
+    if frequency_hz <= 0.0 || cutoff_hz <= 0.0 || q_factor <= 0.0 {
         return 1.0; // No filtering
     }
+
+    // Clamp Q-factor to documented safe range (0.5-10.0) to prevent numerical instabilities
+    let q_factor = q_factor.clamp(0.5, 10.0);
 
     let omega = 2.0 * std::f64::consts::PI * frequency_hz;
     let omega_0 = 2.0 * std::f64::consts::PI * cutoff_hz;
@@ -450,10 +453,8 @@ fn generate_single_filter_curve(
             FilterType::PT3 => pt3_response(frequency, filter.cutoff_hz),
             FilterType::PT4 => pt4_response(frequency, filter.cutoff_hz),
             FilterType::Biquad => {
-                // Use Q-factor if provided, otherwise default to Butterworth
-                let q = filter
-                    .q_factor
-                    .unwrap_or(1.0 / std::f64::consts::FRAC_1_SQRT_2);
+                // Use Q-factor if provided, otherwise default to Butterworth (1/sqrt(2) ≈ 0.707)
+                let q = filter.q_factor.unwrap_or(std::f64::consts::FRAC_1_SQRT_2);
                 biquad_response_with_q(frequency, filter.cutoff_hz, q)
             }
         };
@@ -1923,5 +1924,43 @@ mod tests {
         );
         assert!(curves_pt1[0].0.contains("PT1"));
         assert!(!curves_pt1[0].0.contains("per-stage"));
+    }
+
+    #[test]
+    fn test_biquad_curves_without_q_factor() {
+        // Test BIQUAD without explicit Q-factor (should use Butterworth default)
+        let lpf_biquad_default = FilterConfig {
+            filter_type: FilterType::Biquad,
+            cutoff_hz: 100.0,
+            q_factor: None, // No explicit Q - should default to Butterworth
+            enabled: true,
+        };
+
+        let axis_config = AxisFilterConfig {
+            lpf1: Some(lpf_biquad_default),
+            lpf2: None,
+            dynamic_lpf1: None,
+            imuf: None,
+        };
+
+        let curves = generate_individual_filter_curves(&axis_config, 1000.0, 100, false);
+        assert_eq!(curves.len(), 1);
+
+        let (_label, curve_points, _cutoff) = &curves[0];
+        assert!(!curve_points.is_empty(), "Curve should have data points");
+
+        // Find response closest to cutoff frequency
+        let response_at_cutoff = curve_points
+            .iter()
+            .min_by_key(|(freq, _)| (*freq - 100.0).abs() as i64)
+            .map(|(_, response)| *response)
+            .unwrap();
+
+        // Should be ~-3dB (0.707) for Butterworth
+        assert!(
+            (response_at_cutoff - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.02,
+            "BIQUAD without Q should default to Butterworth response (0.707 at cutoff), got {}",
+            response_at_cutoff
+        );
     }
 }
