@@ -139,7 +139,15 @@ fn expand_input_paths(input_paths: &[String]) -> Vec<String> {
             // It's a file, validate CSV extension before adding
             if let Some(extension) = input_path.extension() {
                 if extension.to_string_lossy().eq_ignore_ascii_case("csv") {
-                    csv_files.push(input_path_str.clone());
+                    // Skip header files (these are metadata files, not flight logs)
+                    let lowercase_path = input_path_str.to_ascii_lowercase();
+                    if lowercase_path.ends_with(".header.csv")
+                        || lowercase_path.ends_with(".headers.csv")
+                    {
+                        eprintln!("Warning: Skipping header file: {}", input_path_str);
+                    } else {
+                        csv_files.push(input_path_str.clone());
+                    }
                 } else {
                     eprintln!("Warning: Skipping non-CSV file: {}", input_path_str);
                 }
@@ -249,12 +257,20 @@ fn find_csv_files_in_dir_impl(
             // Check if it's a CSV file
             if let Some(extension) = path.extension() {
                 if extension.to_string_lossy().eq_ignore_ascii_case("csv") {
-                    match path.to_str() {
-                        Some(path_str) => csv_files.push(path_str.to_string()),
-                        None => eprintln!(
+                    // Skip header files (these are metadata files, not flight logs)
+                    if let Some(path_str) = path.to_str() {
+                        let lowercase = path_str.to_ascii_lowercase();
+                        if lowercase.ends_with(".header.csv") || lowercase.ends_with(".headers.csv")
+                        {
+                            eprintln!("Warning: Skipping header file: {}", path_str);
+                        } else {
+                            csv_files.push(path_str.to_string());
+                        }
+                    } else {
+                        eprintln!(
                             "Warning: Skipping file with non-UTF-8 path: {}",
                             path.display()
-                        ),
+                        );
                     }
                 }
             }
