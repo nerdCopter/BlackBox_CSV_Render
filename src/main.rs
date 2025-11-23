@@ -258,21 +258,19 @@ fn find_csv_files_in_dir_impl(
             if let Some(extension) = path.extension() {
                 if extension.to_string_lossy().eq_ignore_ascii_case("csv") {
                     // Skip header files (these are metadata files, not flight logs)
-                    if path.to_str().is_some_and(|s| {
-                        let lowercase = s.to_ascii_lowercase();
-                        lowercase.ends_with(".header.csv") || lowercase.ends_with(".headers.csv")
-                    }) {
-                        if let Some(path_str) = path.to_str() {
+                    if let Some(path_str) = path.to_str() {
+                        let lowercase = path_str.to_ascii_lowercase();
+                        if lowercase.ends_with(".header.csv") || lowercase.ends_with(".headers.csv")
+                        {
                             eprintln!("Warning: Skipping header file: {}", path_str);
+                        } else {
+                            csv_files.push(path_str.to_string());
                         }
                     } else {
-                        match path.to_str() {
-                            Some(path_str) => csv_files.push(path_str.to_string()),
-                            None => eprintln!(
-                                "Warning: Skipping file with non-UTF-8 path: {}",
-                                path.display()
-                            ),
-                        }
+                        eprintln!(
+                            "Warning: Skipping file with non-UTF-8 path: {}",
+                            path.display()
+                        );
                     }
                 }
             }
