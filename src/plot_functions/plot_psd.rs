@@ -167,13 +167,8 @@ pub fn plot_psd(
             "Unfiltered",
             PSD_PEAK_LABEL_MIN_VALUE_DB,
         );
-        let filt_peaks_for_plot = find_and_sort_peaks_with_threshold(
-            &filt_psd_data,
-            primary_peak_filt_db,
-            axis_name,
-            "Filtered",
-            PSD_PEAK_LABEL_MIN_VALUE_DB,
-        );
+        // Per issue #92: Skip peak detection on filtered plots entirely - they won't be rendered
+        let filt_peaks_for_plot = Vec::new();
 
         let noise_floor_sample_idx = (SPECTRUM_NOISE_FLOOR_HZ / freq_step).max(0.0) as usize;
         let max_val_after_noise_floor_unfilt_db = unfilt_psd_data
@@ -305,8 +300,8 @@ pub fn plot_psd(
                 x_label: "Frequency (Hz)".to_string(),
                 y_label: "Power/Frequency (dB)".to_string(),
                 peaks: filt_peaks,
-                peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
-                peak_label_format_string: Some("{:.2} dB".to_string()),
+                peak_label_threshold: None, // No peak labels on filtered plot per issue #92
+                peak_label_format_string: None,
                 frequency_ranges: None,
             });
 

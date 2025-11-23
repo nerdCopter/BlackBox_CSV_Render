@@ -319,13 +319,9 @@ pub fn plot_d_term_psd(
             "Unfiltered D-term PSD",
             PSD_PEAK_LABEL_MIN_VALUE_DB,
         );
-        let filt_peaks = find_and_sort_peaks_with_threshold(
-            &filt_series_data,
-            filt_primary_peak,
-            axis_name,
-            "Filtered D-term PSD",
-            PSD_PEAK_LABEL_MIN_VALUE_DB,
-        );
+        // Per issue #92: Skip peak detection on filtered plots entirely - they won't be rendered
+        let _filt_primary_peak = filt_primary_peak;
+        let filt_peaks = Vec::new();
 
         // Get delay string for this axis for legend display
         let delay_str = if any_delay_calculated {
@@ -458,8 +454,8 @@ pub fn plot_d_term_psd(
                 x_label: "Frequency (Hz)".to_string(),
                 y_label: "Power Spectral Density (dB/Hz)".to_string(),
                 peaks: filt_peaks,
-                peak_label_threshold: Some(PSD_PEAK_LABEL_MIN_VALUE_DB),
-                peak_label_format_string: Some("{:.0}dB".to_string()),
+                peak_label_threshold: None, // No peak labels on filtered plot per issue #92
+                peak_label_format_string: None,
                 frequency_ranges: None,
             })
         } else {

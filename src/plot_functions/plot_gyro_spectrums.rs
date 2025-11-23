@@ -5,8 +5,8 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, FILTERED_GYRO_MIN_THRESHOLD,
-    LINE_WIDTH_PLOT, PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR,
+    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, LINE_WIDTH_PLOT,
+    PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR,
     SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
@@ -163,13 +163,8 @@ pub fn plot_gyro_spectrums(
             "Unfiltered",
             PEAK_LABEL_MIN_AMPLITUDE,
         );
-        let filt_peaks_for_plot = find_and_sort_peaks_with_threshold(
-            &filt_series_data,
-            primary_peak_filt,
-            axis_name,
-            "Filtered",
-            FILTERED_GYRO_MIN_THRESHOLD,
-        );
+        // Per issue #92: Skip peak detection on filtered plots entirely - they won't be rendered
+        let filt_peaks_for_plot = Vec::new();
 
         let noise_floor_sample_idx = (SPECTRUM_NOISE_FLOOR_HZ / freq_step).max(0.0) as usize;
         let max_amp_after_noise_floor_unfilt = unfilt_series_data
@@ -553,9 +548,8 @@ pub fn plot_gyro_spectrums(
                 x_label: "Frequency (Hz)".to_string(),
                 y_label: "Amplitude".to_string(),
                 peaks: filt_peaks,
-                // Use FILTERED_GYRO_MIN_THRESHOLD for filtered plot labeling threshold
-                peak_label_threshold: Some(FILTERED_GYRO_MIN_THRESHOLD),
-                peak_label_format_string: Some("{:.0}".to_string()),
+                peak_label_threshold: None, // No peak labels on filtered plot per issue #92
+                peak_label_format_string: None,
                 frequency_ranges: None, // No dynamic notch on filtered plot (already applied)
             });
 
