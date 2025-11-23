@@ -553,8 +553,8 @@ pub fn plot_gyro_spectrums(
                 x_label: "Frequency (Hz)".to_string(),
                 y_label: "Amplitude".to_string(),
                 peaks: filt_peaks,
-                // MINIMAL CHANGE: Initialize new fields to Some for linear amplitude plots
-                peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
+                // Use FILTERED_GYRO_MIN_THRESHOLD for filtered plot labeling threshold
+                peak_label_threshold: Some(FILTERED_GYRO_MIN_THRESHOLD),
                 peak_label_format_string: Some("{:.0}".to_string()),
                 frequency_ranges: None, // No dynamic notch on filtered plot (already applied)
             });
