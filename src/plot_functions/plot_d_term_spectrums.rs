@@ -259,13 +259,9 @@ pub fn plot_d_term_spectrums(
             "Unfiltered D-term Spectrum",
             PEAK_LABEL_MIN_AMPLITUDE,
         );
-        let filt_peaks = find_and_sort_peaks_with_threshold(
-            &filt_series_data,
-            filt_primary_peak,
-            axis_name,
-            "Filtered D-term Spectrum",
-            PEAK_LABEL_MIN_AMPLITUDE,
-        );
+        // Per issue #92: Skip peak detection on filtered plots entirely - they won't be rendered
+        let _filt_primary_peak = filt_primary_peak;
+        let filt_peaks = Vec::new();
 
         // Get delay string for this axis for legend display
         let delay_str = if let Some(result) = delay_by_axis.get(axis_idx).and_then(|r| r.as_ref()) {
@@ -490,8 +486,8 @@ pub fn plot_d_term_spectrums(
                 x_label: "Frequency (Hz)".to_string(),
                 y_label: "Amplitude".to_string(),
                 peaks: filt_peaks,
-                peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
-                peak_label_format_string: Some("{:.0}".to_string()),
+                peak_label_threshold: None, // No peak labels on filtered plot per issue #92
+                peak_label_format_string: None,
                 frequency_ranges: None,
             })
         } else {
