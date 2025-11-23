@@ -48,27 +48,38 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500 --butterworth
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --dps 360 --output-dir ./plots --butterworth
+./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --output-dir ./plots --butterworth
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --output-dir ./step-only
+./target/release/BlackBox_CSV_Render path/to/ --step --output-dir ./step-only
 ```
 
 ### Output
-- PNG files are generated in the source folder (input file's directory), unless specified by the `--output-dir` parameter.
-- Console output provides P:D ratio recommendations based on step-response analysis:
-  - **Conservative recommendations** (+≈18% D): Safe incremental steps; 2–3 iterations to optimal
-  - **Moderate recommendations** (+≈33% D): For experienced pilots; 1–2 iterations to optimal
-  - Automatically handles D-Min/D-Max systems (Betaflight 4.0+)
-  - Shows only base D when D-Min/D-Max is disabled
-  - Works for all aircraft sizes, including 10+ inch, where D can exceed P
-  - Includes warnings for severe overshoot or unreasonable P:D ratios
-  - Shows recommendations only when the step response needs improvement (skips optimal peak 0.95–1.04)
-  - **Note:** Peak value measures the first maximum after crossing the setpoint; the initial transient dip is normal system behavior
 
-### Code Overview
+#### PNG Files Generated
+- `*_Step_Response_stacked_plot_*.png` — Step response analysis with P:D recommendations
+- `*_PIDsum_PIDerror_Setpoint_stacked.png` — PIDsum, PID error, and setpoint traces
+- `*_SetpointVsGyro_stacked.png` — Setpoint vs. filtered gyro comparison
+- `*_GyroVsUnfilt_stacked.png` — Filtered vs. unfiltered gyro comparison with delay estimates
+- `*_Gyro_Spectrums_comparative.png` — Frequency-domain gyro amplitude spectrums
+- `*_Gyro_PSD_comparative.png` — Gyro power spectral density (dB scale)
+- `*_D_Term_Spectrums_comparative.png` — Frequency-domain D-term amplitude spectrums
+- `*_D_Term_PSD_comparative.png` — D-term power spectral density (dB scale)
+- `*_D_Term_Heatmap_comparative.png` — D-term throttle/frequency heatmap
+- `*_Gyro_PSD_Spectrogram_comparative.png` — Gyro spectrogram (PSD vs. time)
+- `*_Throttle_Freq_Heatmap_comparative.png` — Throttle/frequency heatmap analysis
 
-For a detailed explanation of the program's functionality, especially the step-response calculation and comparison with other tools like PIDtoolbox (Matlab) and PlasmaTree PID-Analyzer (Python), please see [Overview.md](Overview.md).
+#### Console Output:
+- Current P:D ratio and peak analysis with response assessment
+- Conservative and Moderate tuning recommendations (with D/D-Min/D-Max values)
+- Warning indicators for severe overshoot or unreasonable ratios
+- Gyro filtering delay estimates (filtered vs. unfiltered, with confidence)
+- Filter configuration parsing and spectrum peak detection summaries
+- Use `--debug` flag for additional metadata: header information, flight data key mapping, sample header values, and debug mode identification
+
+#### Code and Output Overview
+
+For a detailed explanation of the program's functionality, especially the step-response calculation and comparison with other tools like PIDtoolbox (Matlab) and PlasmaTree PID-Analyzer (Python), please see [OVERVIEW.md](OVERVIEW.md).
 
 ## Development
 
@@ -78,7 +89,7 @@ To set up your development environment with proper formatting and pre-commit hoo
 
 ```bash
 # Clone and setup
-git clone <repository-url>
+git clone https://github.com/nerdCopter/BlackBox_CSV_Render.git
 cd BlackBox_CSV_Render
 
 # Run setup script (optional but recommended)
@@ -91,14 +102,14 @@ chmod +x .github/setup-dev.sh
 **⚠️ IMPORTANT**: Always run these commands before committing to avoid CI failures:
 
 ```bash
-# 1. Format code (REQUIRED)
+# 1. Check for clippy warnings (must be fixed first)
+cargo clippy --all-targets --all-features -- -D warnings
+
+# 2. Format code
 cargo fmt --all
 
-# 2. Check formatting compliance
+# 3. Check formatting compliance
 cargo fmt --all -- --check
-
-# 3. Check for clippy warnings (treated as errors)
-cargo clippy --all-targets --all-features -- -D warnings
 
 # 4. Run all tests
 cargo test --verbose
