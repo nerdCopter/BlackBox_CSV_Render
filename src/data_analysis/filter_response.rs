@@ -44,6 +44,7 @@ impl FilterType {
 pub struct FilterConfig {
     pub filter_type: FilterType,
     pub cutoff_hz: f64,
+    pub q_factor: Option<f64>, // Q-factor for BIQUAD filters (None defaults to 0.707 Butterworth)
     pub enabled: bool,
 }
 
@@ -65,6 +66,7 @@ pub struct ImufFilterConfig {
     pub ptn_order: u32,         // Filter order (1-4 -> PT1, PT2, PT3, PT4)
     pub q_factor: f64,          // Q-factor (scaled by 1000 in headers)
     pub revision: Option<u32>,  // IMUF revision from header (e.g., 256, 257)
+    pub pseudo_kalman_w: Option<f64>, // Pseudo-Kalman filter window size (IMUF_w parameter)
 
     // Calculated values (Butterworth correction for cascaded stages)
     pub effective_cutoff_hz: f64, // Per-stage PT1 cutoff (scaled up to achieve configured combined response)
@@ -95,10 +97,12 @@ pub type RpmFilterCurveData = (u32, String, Vec<(f64, f64)>, f64);
 
 /// Helper function to add PTn filter curves with Butterworth correction
 /// Generates both the user-configured curve and the per-stage implementation curve
+#[allow(clippy::too_many_arguments)]
 fn add_ptn_filter_curves(
     filter_curves: &mut Vec<FilterCurveData>,
     filter_type: FilterType,
     cutoff_hz: f64,
+    q_factor: Option<f64>,
     label_prefix: &str,
     max_frequency_hz: f64,
     num_points: usize,
@@ -108,15 +112,26 @@ fn add_ptn_filter_curves(
     let main_filter = FilterConfig {
         filter_type,
         cutoff_hz,
+        q_factor,
         enabled: true,
     };
     let main_curve = generate_single_filter_curve(&main_filter, max_frequency_hz, num_points);
-    let main_label = format!(
-        "{} ({} @ {:.0}Hz)",
-        label_prefix,
-        filter_type.name(),
-        cutoff_hz
-    );
+    let main_label = if let Some(q) = q_factor {
+        format!(
+            "{} ({} @ {:.0}Hz, Q={:.2})",
+            label_prefix,
+            filter_type.name(),
+            cutoff_hz,
+            q
+        )
+    } else {
+        format!(
+            "{} ({} @ {:.0}Hz)",
+            label_prefix,
+            filter_type.name(),
+            cutoff_hz
+        )
+    };
     filter_curves.push((main_label, main_curve, cutoff_hz));
 
     // Generate per-stage curve for PT2/PT3/PT4 (Butterworth correction) only if --butterworth flag is set
@@ -146,6 +161,7 @@ fn add_ptn_filter_curves(
             let stage_filter = FilterConfig {
                 filter_type,
                 cutoff_hz: per_stage_cutoff,
+                q_factor: None, // PT1 stages don't have Q-factor
                 enabled: true,
             };
             let stage_curve =
@@ -211,15 +227,45 @@ pub fn pt4_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
     1.0 / (1.0 + s_norm.powi(8)).sqrt()
 }
 
-/// Calculate frequency response magnitude for BIQUAD filter
-/// Simplified as 2nd order lowpass for now (can be enhanced with Q factor later)
+/// Calculate frequency response magnitude for BIQUAD filter with variable Q-factor
+/// H(s) = ω₀² / (s² + (ω₀/Q)·s + ω₀²)
+/// Frequency response magnitude: |H(jω)| = 1 / sqrt((1 - (ω/ω₀)²)² + (ω/(Q·ω₀))²)
+///
+/// Parameters:
+/// - frequency_hz: Frequency to evaluate at
+/// - cutoff_hz: -3dB cutoff frequency (ω₀ = 2π·fc)
+/// - q_factor: Quality factor (default 0.707 for Butterworth, can range 0.5-10.0)
+pub fn biquad_response_with_q(frequency_hz: f64, cutoff_hz: f64, q_factor: f64) -> f64 {
+    if frequency_hz <= 0.0 || cutoff_hz <= 0.0 || q_factor <= 0.0 {
+        return 1.0; // No filtering
+    }
+
+    // Clamp Q-factor to documented safe range (0.5-10.0) to prevent numerical instabilities
+    let q_factor = q_factor.clamp(0.5, 10.0);
+
+    let omega = 2.0 * std::f64::consts::PI * frequency_hz;
+    let omega_0 = 2.0 * std::f64::consts::PI * cutoff_hz;
+
+    // Normalized frequency ratio
+    let ratio = omega / omega_0;
+    let ratio_sq = ratio * ratio;
+
+    // |H(jω)| = 1 / sqrt((1 - r²)² + (r/Q)²)
+    // where r = ω/ω₀
+    let numerator = (1.0 - ratio_sq).powi(2) + (ratio / q_factor).powi(2);
+    1.0 / numerator.sqrt()
+}
+
+/// Calculate frequency response magnitude for BIQUAD filter (backward compatible)
+/// Uses default Butterworth Q-factor of 0.707 (1/sqrt(2))
+#[allow(dead_code)]
 pub fn biquad_response(frequency_hz: f64, cutoff_hz: f64) -> f64 {
     if cutoff_hz <= 0.0 {
         return 1.0; // No filtering
     }
-    // For now, treat as 2nd order lowpass similar to PT2
-    // This can be enhanced later with proper Q factor and filter type (LP/HP/BP/Notch)
-    pt2_response(frequency_hz, cutoff_hz)
+    // Default to Butterworth response (Q = 1/sqrt(2) ≈ 0.707)
+    let butterworth_q = std::f64::consts::FRAC_1_SQRT_2;
+    biquad_response_with_q(frequency_hz, cutoff_hz, butterworth_q)
 }
 
 /// Generate individual filter response curves (separate curve for each filter)
@@ -251,6 +297,7 @@ pub fn generate_individual_filter_curves(
                 &mut filter_curves,
                 dyn_lpf1.filter_type,
                 dyn_lpf1.min_cutoff_hz,
+                None, // Dynamic filters don't have Q-factor
                 &label_prefix,
                 max_frequency_hz,
                 num_points,
@@ -265,6 +312,7 @@ pub fn generate_individual_filter_curves(
                 &mut filter_curves,
                 lpf1.filter_type,
                 lpf1.cutoff_hz,
+                lpf1.q_factor,
                 "LPF1",
                 max_frequency_hz,
                 num_points,
@@ -281,6 +329,7 @@ pub fn generate_individual_filter_curves(
                 &mut filter_curves,
                 lpf2.filter_type,
                 lpf2.cutoff_hz,
+                lpf2.q_factor,
                 "LPF2",
                 max_frequency_hz,
                 num_points,
@@ -320,6 +369,11 @@ pub fn generate_individual_filter_curves(
             let header_filter = FilterConfig {
                 filter_type,
                 cutoff_hz: imuf.lowpass_cutoff_hz,
+                q_factor: if imuf.q_factor > 0.0 {
+                    Some(imuf.q_factor)
+                } else {
+                    None
+                },
                 enabled: true,
             };
             let header_curve =
@@ -337,6 +391,7 @@ pub fn generate_individual_filter_curves(
                 let stage_filter = FilterConfig {
                     filter_type,
                     cutoff_hz: imuf.effective_cutoff_hz,
+                    q_factor: None, // PT1 stages don't have Q-factor
                     enabled: true,
                 };
                 let stage_curve =
@@ -387,7 +442,11 @@ fn generate_single_filter_curve(
             FilterType::PT2 => pt2_response(frequency, filter.cutoff_hz),
             FilterType::PT3 => pt3_response(frequency, filter.cutoff_hz),
             FilterType::PT4 => pt4_response(frequency, filter.cutoff_hz),
-            FilterType::Biquad => biquad_response(frequency, filter.cutoff_hz),
+            FilterType::Biquad => {
+                // Use Q-factor if provided, otherwise default to Butterworth (1/sqrt(2) ≈ 0.707)
+                let q = filter.q_factor.unwrap_or(std::f64::consts::FRAC_1_SQRT_2);
+                biquad_response_with_q(frequency, filter.cutoff_hz, q)
+            }
         };
         curve_points.push((frequency, magnitude));
     }
@@ -503,10 +562,21 @@ pub fn parse_emuflight_filters(headers: &[(String, String)]) -> AllFilterConfigs
             {
                 if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
                     if cutoff_hz > 0.0 {
+                        // Parse Q-factor if this is a BIQUAD filter
+                        let q_factor = if filter_type == FilterType::Biquad {
+                            header_map
+                                .get(&format!("dterm_lowpass_q_{axis_name}"))
+                                .or_else(|| header_map.get("dterm_lowpass_q"))
+                                .and_then(|s| s.parse::<f64>().ok())
+                        } else {
+                            None
+                        };
+
                         // Only add if cutoff > 0
                         config.dterm[axis_idx].lpf1 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz,
+                            q_factor,
                             enabled: true,
                         });
                     }
@@ -524,10 +594,21 @@ pub fn parse_emuflight_filters(headers: &[(String, String)]) -> AllFilterConfigs
             {
                 if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
                     if cutoff_hz > 0.0 {
+                        // Parse Q-factor if this is a BIQUAD filter
+                        let q_factor = if filter_type == FilterType::Biquad {
+                            header_map
+                                .get(&format!("dterm_lowpass2_q_{axis_name}"))
+                                .or_else(|| header_map.get("dterm_lowpass2_q"))
+                                .and_then(|s| s.parse::<f64>().ok())
+                        } else {
+                            None
+                        };
+
                         // Only add if cutoff > 0
                         config.dterm[axis_idx].lpf2 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz,
+                            q_factor,
                             enabled: true,
                         });
                     }
@@ -545,10 +626,21 @@ pub fn parse_emuflight_filters(headers: &[(String, String)]) -> AllFilterConfigs
             {
                 if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
                     if cutoff_hz > 0.0 {
+                        // Parse Q-factor if this is a BIQUAD filter
+                        let q_factor = if filter_type == FilterType::Biquad {
+                            header_map
+                                .get(&format!("gyro_lowpass_q_{axis_name}"))
+                                .or_else(|| header_map.get("gyro_lowpass_q"))
+                                .and_then(|s| s.parse::<f64>().ok())
+                        } else {
+                            None
+                        };
+
                         // Only add if cutoff > 0
                         config.gyro[axis_idx].lpf1 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz,
+                            q_factor,
                             enabled: true,
                         });
                     }
@@ -566,10 +658,21 @@ pub fn parse_emuflight_filters(headers: &[(String, String)]) -> AllFilterConfigs
             {
                 if let Some(filter_type) = FilterType::from_u32(filter_type_num) {
                     if cutoff_hz > 0.0 {
+                        // Parse Q-factor if this is a BIQUAD filter
+                        let q_factor = if filter_type == FilterType::Biquad {
+                            header_map
+                                .get(&format!("gyro_lowpass2_q_{axis_name}"))
+                                .or_else(|| header_map.get("gyro_lowpass2_q"))
+                                .and_then(|s| s.parse::<f64>().ok())
+                        } else {
+                            None
+                        };
+
                         // Only add if cutoff > 0
                         config.gyro[axis_idx].lpf2 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz,
+                            q_factor,
                             enabled: true,
                         });
                     }
@@ -610,6 +713,15 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     .and_then(|s| s.parse::<u32>().ok())
                     .unwrap_or(0);
 
+                // Parse Q-factor if BIQUAD
+                let q_factor = if filter_type == FilterType::Biquad {
+                    header_map
+                        .get("dterm_lowpass_q")
+                        .and_then(|s| s.parse::<f64>().ok())
+                } else {
+                    None
+                };
+
                 // Apply to all axes - prioritize dynamic over static when both are present
                 for axis_idx in 0..AXIS_NAMES.len() {
                     if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
@@ -626,6 +738,7 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                         config.dterm[axis_idx].lpf1 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
+                            q_factor,
                             enabled: true,
                         });
                     }
@@ -643,11 +756,21 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     .and_then(|s| s.parse::<f64>().ok())
                     .unwrap_or(0.0);
 
+                // Parse Q-factor if BIQUAD
+                let q_factor = if filter_type == FilterType::Biquad {
+                    header_map
+                        .get("dterm_lowpass2_q")
+                        .and_then(|s| s.parse::<f64>().ok())
+                } else {
+                    None
+                };
+
                 if static_cutoff > 0.0 {
                     for axis_idx in 0..AXIS_NAMES.len() {
                         config.dterm[axis_idx].lpf2 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
+                            q_factor,
                             enabled: true,
                         });
                     }
@@ -675,6 +798,15 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     .and_then(|s| s.parse::<u32>().ok())
                     .unwrap_or(0);
 
+                // Parse Q-factor if BIQUAD
+                let q_factor = if filter_type == FilterType::Biquad {
+                    header_map
+                        .get("gyro_lowpass_q")
+                        .and_then(|s| s.parse::<f64>().ok())
+                } else {
+                    None
+                };
+
                 for axis_idx in 0..AXIS_NAMES.len() {
                     if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
                         // Dynamic mode takes precedence
@@ -690,6 +822,7 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                         config.gyro[axis_idx].lpf1 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
+                            q_factor,
                             enabled: true,
                         });
                     }
@@ -707,11 +840,21 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     .and_then(|s| s.parse::<f64>().ok())
                     .unwrap_or(0.0);
 
+                // Parse Q-factor if BIQUAD
+                let q_factor = if filter_type == FilterType::Biquad {
+                    header_map
+                        .get("gyro_lowpass2_q")
+                        .and_then(|s| s.parse::<f64>().ok())
+                } else {
+                    None
+                };
+
                 if static_cutoff > 0.0 {
                     for axis_idx in 0..AXIS_NAMES.len() {
                         config.gyro[axis_idx].lpf2 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
+                            q_factor,
                             enabled: true,
                         });
                     }
@@ -761,6 +904,7 @@ fn calculate_ptn_per_stage_cutoff(configured_cutoff_hz: f64, ptn_order: u32) -> 
 }
 
 /// Parse IMUF filters from EmuFlight headers
+/// Applies to ALL EmuFlight (both HELIOSPRING with external PTn and non-HELIO with pseudo-Kalman)
 pub fn parse_imuf_filters_with_gyro_rate(
     headers: &[(String, String)],
     _gyro_rate_hz: Option<f64>,
@@ -777,40 +921,59 @@ pub fn parse_imuf_filters_with_gyro_rate(
         .get("imuf_revision")
         .and_then(|s| s.parse::<u32>().ok());
 
+    // Parse pseudo-Kalman filter window size (applies to ALL EmuFlight)
+    // Non-HELIO: Controls windowed variance for Kalman measurement noise
+    // HELIO: Controls windowing in external firmware
+    let pseudo_kalman_w = header_map
+        .get("imuf_w")
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|&w| w > 0.0);
+
     // Parse IMUF parameters for each axis
     let axis_names = ["roll", "pitch", "yaw"];
     for (axis_idx, axis_name) in axis_names.iter().enumerate() {
-        // Parse per-axis lowpass cutoff frequencies
+        // Parse per-axis lowpass cutoff frequencies (HELIOSPRING only)
         let lowpass_key = format!("imuf_lowpass_{}", axis_name);
         let lowpass_cutoff_hz = header_map
             .get(&lowpass_key)
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
 
-        // Parse per-axis Q-factors (scaled by 1000 in headers)
+        // Parse per-axis Q-factors (applies to ALL EmuFlight)
+        // Scaled by 1000 in headers for easier integer tuning (100-16000 → 0.01-1.6)
         let q_key = format!("imuf_{}_q", axis_name);
         let q_factor_scaled = header_map
             .get(&q_key)
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
-        let q_factor = q_factor_scaled / 1000.0; // Scale down from header value
+        let q_factor = if q_factor_scaled > 0.0 {
+            (q_factor_scaled / 1000.0).clamp(0.01, 16.0) // Validate within safe range
+        } else {
+            0.0 // No Q-factor configured
+        };
 
-        // Parse PTn filter order (applies to all axes)
+        // Parse PTn filter order (HELIOSPRING only)
         let ptn_order = header_map
             .get("imuf_ptn_order")
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(2); // Default to PT2 if not specified
 
-        // Create IMUF filter config if we have valid parameters
-        if lowpass_cutoff_hz > 0.0 {
-            // Calculate per-stage PT1 cutoff (Butterworth correction)
-            let effective_cutoff_hz = calculate_ptn_per_stage_cutoff(lowpass_cutoff_hz, ptn_order);
+        // Create IMUF filter config if we have valid Q-factor or lowpass cutoff
+        // HELIOSPRING: Has both lowpass_cutoff_hz AND ptn_order
+        // Non-HELIO: Only has Q-factor and IMUF_w (no external PTn filter to visualize)
+        if lowpass_cutoff_hz > 0.0 || q_factor > 0.0 {
+            let effective_cutoff_hz = if lowpass_cutoff_hz > 0.0 {
+                calculate_ptn_per_stage_cutoff(lowpass_cutoff_hz, ptn_order)
+            } else {
+                0.0 // Non-HELIO: no PTn filter chain, just pseudo-Kalman parameters
+            };
 
             config.gyro[axis_idx].imuf = Some(ImufFilterConfig {
                 lowpass_cutoff_hz,
                 ptn_order,
                 q_factor,
                 revision: imuf_revision,
+                pseudo_kalman_w,
                 effective_cutoff_hz,
                 enabled: true,
             });
@@ -855,8 +1018,17 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     };
 
     // Check for IMUF configuration and merge it with existing config
-    if has_imuf_pattern {
-        println!("Detected PTn filters with Butterworth correction (IMUF)");
+    // IMUF Q-factors and IMUF_w apply to ALL EmuFlight (both HELIOSPRING with external PTn and non-HELIO with pseudo-Kalman)
+    let has_imuf_q_factors = header_map.contains_key("imuf_roll_q")
+        || header_map.contains_key("imuf_pitch_q")
+        || header_map.contains_key("imuf_yaw_q");
+
+    if has_imuf_pattern || has_imuf_q_factors {
+        if has_imuf_pattern {
+            println!("Detected PTn filters with Butterworth correction (HELIOSPRING IMUF)");
+        } else {
+            println!("Detected EmuFlight pseudo-Kalman filter (Q-factors and window)");
+        }
 
         // Extract gyro rate for sample rate correction calculations
         let gyro_rate_hz = extract_gyro_rate(Some(headers));
@@ -873,18 +1045,36 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
     for (axis_idx, axis_name) in AXIS_NAMES.iter().enumerate() {
         println!("  {axis_name} Gyro Filters:");
         if let Some(ref lpf1) = config.gyro[axis_idx].lpf1 {
-            println!(
-                "    LPF1: {} at {:.0} Hz",
-                lpf1.filter_type.name(),
-                lpf1.cutoff_hz
-            );
+            if let Some(q) = lpf1.q_factor {
+                println!(
+                    "    LPF1: {} at {:.0} Hz (Q={:.2})",
+                    lpf1.filter_type.name(),
+                    lpf1.cutoff_hz,
+                    q
+                );
+            } else {
+                println!(
+                    "    LPF1: {} at {:.0} Hz",
+                    lpf1.filter_type.name(),
+                    lpf1.cutoff_hz
+                );
+            }
         }
         if let Some(ref lpf2) = config.gyro[axis_idx].lpf2 {
-            println!(
-                "    LPF2: {} at {:.0} Hz",
-                lpf2.filter_type.name(),
-                lpf2.cutoff_hz
-            );
+            if let Some(q) = lpf2.q_factor {
+                println!(
+                    "    LPF2: {} at {:.0} Hz (Q={:.2})",
+                    lpf2.filter_type.name(),
+                    lpf2.cutoff_hz,
+                    q
+                );
+            } else {
+                println!(
+                    "    LPF2: {} at {:.0} Hz",
+                    lpf2.filter_type.name(),
+                    lpf2.cutoff_hz
+                );
+            }
         }
         if let Some(ref dyn_lpf1) = config.gyro[axis_idx].dynamic_lpf1 {
             println!(
@@ -896,38 +1086,52 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
             );
         }
         if let Some(ref imuf) = config.gyro[axis_idx].imuf {
-            let stage_count_text = match imuf.ptn_order {
-                1 => "One PT1",
-                2 => "Two PT1",
-                3 => "Three PT1",
-                4 => "Four PT1",
-                _ => "Two PT1",
-            };
+            if imuf.lowpass_cutoff_hz > 0.0 {
+                // HELIOSPRING: Has external PTn filter chain
+                let stage_count_text = match imuf.ptn_order {
+                    1 => "One PT1",
+                    2 => "Two PT1",
+                    3 => "Three PT1",
+                    4 => "Four PT1",
+                    _ => "Two PT1",
+                };
 
-            let version_str = if let Some(rev) = imuf.revision {
-                format!("IMUF v{}", rev)
-            } else {
-                "IMUF".to_string()
-            };
+                let version_str = if let Some(rev) = imuf.revision {
+                    format!("IMUF v{}", rev)
+                } else {
+                    "IMUF".to_string()
+                };
 
-            println!(
-                "    {}: {} Combined={:.0}Hz → per-stage={:.0}Hz (Q={:.1})",
-                version_str,
-                stage_count_text,
-                imuf.lowpass_cutoff_hz,
-                imuf.effective_cutoff_hz,
-                imuf.q_factor
-            );
-
-            // Show info about Butterworth correction
-            let ptn_scaling_diff = imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz;
-
-            if ptn_scaling_diff.abs() > 5.0 {
                 println!(
-                    "      Note: Butterworth correction requires PT1 stages at {:.0}Hz to achieve {:.0}Hz combined response",
+                    "    {}: {} Combined={:.0}Hz → per-stage={:.0}Hz (Q={:.1})",
+                    version_str,
+                    stage_count_text,
+                    imuf.lowpass_cutoff_hz,
                     imuf.effective_cutoff_hz,
-                    imuf.lowpass_cutoff_hz
+                    imuf.q_factor
                 );
+
+                // Show info about Butterworth correction
+                let ptn_scaling_diff = imuf.effective_cutoff_hz - imuf.lowpass_cutoff_hz;
+
+                if ptn_scaling_diff.abs() > 5.0 {
+                    println!(
+                        "      Note: Butterworth correction requires PT1 stages at {:.0}Hz to achieve {:.0}Hz combined response",
+                        imuf.effective_cutoff_hz,
+                        imuf.lowpass_cutoff_hz
+                    );
+                }
+            } else {
+                // Non-HELIOSPRING: Pseudo-Kalman only (no external PTn filter)
+                println!(
+                    "    EmuFlight Pseudo-Kalman: Q={:.1} (default Q=0.6)",
+                    imuf.q_factor
+                );
+            }
+
+            // Show pseudo-Kalman window info (applies to both HELIO and non-HELIO)
+            if let Some(w) = imuf.pseudo_kalman_w {
+                println!("      Pseudo-Kalman filter window size: {:.0} samples", w);
             }
         }
         if config.gyro[axis_idx].lpf1.is_none()
@@ -1497,6 +1701,7 @@ mod tests {
             ptn_order: 2,
             q_factor: 8.0,
             revision: Some(256),
+            pseudo_kalman_w: None,
             effective_cutoff_hz: 155.4, // Per-stage: 100 * 1.553773974
             enabled: true,
         };
@@ -1530,11 +1735,136 @@ mod tests {
     }
 
     #[test]
+    fn test_biquad_response_with_variable_q() {
+        // Test Butterworth Q (0.707 = 1/sqrt(2))
+        let butterworth_q = std::f64::consts::FRAC_1_SQRT_2;
+        let response_butterworth = biquad_response_with_q(100.0, 100.0, butterworth_q);
+        // At cutoff frequency with Butterworth Q, should be ~-3dB (0.707)
+        assert!((response_butterworth - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.001);
+
+        // Test with higher Q (sharper peak before cutoff)
+        let response_high_q = biquad_response_with_q(80.0, 100.0, 2.0);
+        let response_butterworth_80 = biquad_response_with_q(80.0, 100.0, butterworth_q);
+        assert!(response_high_q > response_butterworth_80);
+
+        // Test with lower Q (flatter response)
+        let response_low_q = biquad_response_with_q(80.0, 100.0, 0.5);
+        assert!(response_low_q < response_butterworth_80);
+
+        // Test backward compatibility - biquad_response should use Butterworth
+        let response_default = biquad_response(100.0, 100.0);
+        assert!((response_default - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_biquad_q_factor_parsing_betaflight() {
+        let headers = vec![
+            ("gyro_lpf1_type".to_string(), "1".to_string()), // BIQUAD
+            ("gyro_lpf1_static_hz".to_string(), "100".to_string()),
+            ("gyro_lowpass_q".to_string(), "2.0".to_string()),
+            ("dterm_lpf1_type".to_string(), "1".to_string()),
+            ("dterm_lpf1_static_hz".to_string(), "95".to_string()),
+            ("dterm_lowpass_q".to_string(), "1.5".to_string()),
+        ];
+
+        let config = parse_betaflight_filters(&headers);
+
+        // Check gyro LPF1 Q-factor
+        assert!(config.gyro[0].lpf1.is_some());
+        let gyro_lpf1 = config.gyro[0].lpf1.as_ref().unwrap();
+        assert_eq!(gyro_lpf1.filter_type, FilterType::Biquad);
+        assert_eq!(gyro_lpf1.cutoff_hz, 100.0);
+        assert!(gyro_lpf1.q_factor.is_some());
+        assert!((gyro_lpf1.q_factor.unwrap() - 2.0).abs() < 0.01);
+
+        // Check D-term LPF1 Q-factor
+        assert!(config.dterm[0].lpf1.is_some());
+        let dterm_lpf1 = config.dterm[0].lpf1.as_ref().unwrap();
+        assert_eq!(dterm_lpf1.filter_type, FilterType::Biquad);
+        assert_eq!(dterm_lpf1.cutoff_hz, 95.0);
+        assert!(dterm_lpf1.q_factor.is_some());
+        assert!((dterm_lpf1.q_factor.unwrap() - 1.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_biquad_q_factor_parsing_emuflight() {
+        let headers = vec![
+            ("gyro_lowpass_type".to_string(), "1".to_string()), // BIQUAD
+            ("gyro_lowpass_hz_roll".to_string(), "100".to_string()),
+            ("gyro_lowpass_q_roll".to_string(), "2.5".to_string()),
+            ("gyro_lowpass_hz_pitch".to_string(), "105".to_string()),
+            ("gyro_lowpass_q_pitch".to_string(), "2.3".to_string()),
+        ];
+
+        let config = parse_emuflight_filters(&headers);
+
+        // Check roll axis
+        assert!(config.gyro[0].lpf1.is_some());
+        let roll_lpf1 = config.gyro[0].lpf1.as_ref().unwrap();
+        assert_eq!(roll_lpf1.filter_type, FilterType::Biquad);
+        assert_eq!(roll_lpf1.cutoff_hz, 100.0);
+        assert!(roll_lpf1.q_factor.is_some());
+        assert!((roll_lpf1.q_factor.unwrap() - 2.5).abs() < 0.01);
+
+        // Check pitch axis
+        assert!(config.gyro[1].lpf1.is_some());
+        let pitch_lpf1 = config.gyro[1].lpf1.as_ref().unwrap();
+        assert_eq!(pitch_lpf1.filter_type, FilterType::Biquad);
+        assert_eq!(pitch_lpf1.cutoff_hz, 105.0);
+        assert!(pitch_lpf1.q_factor.is_some());
+        assert!((pitch_lpf1.q_factor.unwrap() - 2.3).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_biquad_curves_with_q_factor() {
+        let lpf_biquad_high_q = FilterConfig {
+            filter_type: FilterType::Biquad,
+            cutoff_hz: 100.0,
+            q_factor: Some(2.0),
+            enabled: true,
+        };
+
+        let axis_config = AxisFilterConfig {
+            lpf1: Some(lpf_biquad_high_q),
+            lpf2: None,
+            dynamic_lpf1: None,
+            imuf: None,
+        };
+
+        let curves = generate_individual_filter_curves(&axis_config, 1000.0, 100, false);
+        assert_eq!(curves.len(), 1);
+
+        let (label, _curve_points, _cutoff) = &curves[0];
+        assert!(label.contains("BIQUAD"));
+        assert!(label.contains("Q=2.00"));
+        assert!(label.contains("100Hz"));
+    }
+
+    #[test]
+    fn test_imuf_pseudo_kalman_w_parsing() {
+        let headers = vec![
+            ("IMUF_lowpass_roll".to_string(), "90".to_string()),
+            ("IMUF_ptn_order".to_string(), "2".to_string()),
+            ("IMUF_w".to_string(), "32".to_string()),
+        ];
+
+        let config = parse_imuf_filters_with_gyro_rate(&headers, None);
+
+        // Check that pseudo-Kalman window is parsed
+        assert!(config.gyro[0].imuf.is_some());
+        let imuf = config.gyro[0].imuf.as_ref().unwrap();
+        assert_eq!(imuf.lowpass_cutoff_hz, 90.0);
+        assert!(imuf.pseudo_kalman_w.is_some());
+        assert_eq!(imuf.pseudo_kalman_w.unwrap(), 32.0);
+    }
+
+    #[test]
     fn test_ptn_filter_curves_generation() {
         // Test that PT2 generates both main and per-stage curves
         let lpf1_pt2 = FilterConfig {
             filter_type: FilterType::PT2,
             cutoff_hz: 100.0,
+            q_factor: None,
             enabled: true,
         };
 
@@ -1569,6 +1899,7 @@ mod tests {
         let lpf1_pt1 = FilterConfig {
             filter_type: FilterType::PT1,
             cutoff_hz: 100.0,
+            q_factor: None,
             enabled: true,
         };
 
@@ -1587,5 +1918,47 @@ mod tests {
         );
         assert!(curves_pt1[0].0.contains("PT1"));
         assert!(!curves_pt1[0].0.contains("per-stage"));
+    }
+
+    #[test]
+    fn test_biquad_curves_without_q_factor() {
+        // Test BIQUAD without explicit Q-factor (should use Butterworth default)
+        let lpf_biquad_default = FilterConfig {
+            filter_type: FilterType::Biquad,
+            cutoff_hz: 100.0,
+            q_factor: None, // No explicit Q - should default to Butterworth
+            enabled: true,
+        };
+
+        let axis_config = AxisFilterConfig {
+            lpf1: Some(lpf_biquad_default),
+            lpf2: None,
+            dynamic_lpf1: None,
+            imuf: None,
+        };
+
+        let curves = generate_individual_filter_curves(&axis_config, 1000.0, 100, false);
+        assert_eq!(curves.len(), 1);
+
+        let (_label, curve_points, _cutoff) = &curves[0];
+        assert!(!curve_points.is_empty(), "Curve should have data points");
+
+        // Find response closest to cutoff frequency
+        let response_at_cutoff = curve_points
+            .iter()
+            .min_by(|(f1, _), (f2, _)| {
+                let d1 = (*f1 - 100.0).abs();
+                let d2 = (*f2 - 100.0).abs();
+                d1.partial_cmp(&d2).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(_, response)| *response)
+            .unwrap();
+
+        // Should be ~-3dB (0.707) for Butterworth
+        assert!(
+            (response_at_cutoff - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.02,
+            "BIQUAD without Q should default to Butterworth response (0.707 at cutoff), got {}",
+            response_at_cutoff
+        );
     }
 }

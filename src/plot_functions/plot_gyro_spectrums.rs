@@ -461,6 +461,21 @@ pub fn plot_gyro_spectrums(
                         });
                     }
                 }
+
+                // Add IMUF parameters to legend (Q and W parameters)
+                if let Some(ref imuf) = config.gyro[axis_index].imuf {
+                    let imuf_label = format!(
+                        "IMUF Config: Q={:.1}, W={:.0}",
+                        imuf.q_factor,
+                        imuf.pseudo_kalman_w.unwrap_or(0.0)
+                    );
+                    unfilt_plot_series.push(PlotSeries {
+                        data: vec![], // No data - just for legend
+                        label: imuf_label,
+                        color: RGBColor(200, 200, 200), // Light gray - no visible line
+                        stroke_width: 0,
+                    });
+                }
             }
 
             let filt_plot_series = vec![PlotSeries {
