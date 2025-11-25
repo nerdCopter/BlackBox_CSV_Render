@@ -378,22 +378,12 @@ pub fn generate_individual_filter_curves(
             };
             let header_curve =
                 generate_single_filter_curve(&header_filter, max_frequency_hz, num_points);
-            let header_label = if imuf.q_factor > 0.0 {
-                format!(
-                    "{} ({} @ {:.0}Hz, Q={:.2})",
-                    version_str,
-                    filter_type.name(),
-                    imuf.lowpass_cutoff_hz,
-                    imuf.q_factor
-                )
-            } else {
-                format!(
-                    "{} ({} @ {:.0}Hz)",
-                    version_str,
-                    filter_type.name(),
-                    imuf.lowpass_cutoff_hz
-                )
-            };
+            let header_label = format!(
+                "{} ({} @ {:.0}Hz)",
+                version_str,
+                filter_type.name(),
+                imuf.lowpass_cutoff_hz
+            );
             filter_curves.push((header_label, header_curve, imuf.lowpass_cutoff_hz));
 
             // Generate curve for per-stage PT1 cutoff (Butterworth correction - shows Two PT1 @ 140Hz) only if --butterworth flag is set
