@@ -21,19 +21,12 @@ use ndarray::Array1;
 
 use crate::types::StepResponseResults;
 
-// Include vergen generated environment variables (set by build.rs)
-#[allow(dead_code)]
-const GIT_SHA: &str = env!("VERGEN_GIT_SHA", "unknown");
-#[allow(dead_code)]
-const GIT_COMMIT_DATE: &str = env!("VERGEN_GIT_COMMIT_DATE", "unknown");
-
-// Build version string from git info
-const VERSION_STR: &str = concat!(
-    env!("VERGEN_GIT_SHA", "unknown"),
-    " (",
-    env!("VERGEN_GIT_COMMIT_DATE", "unknown"),
-    ")"
-);
+// Build version string from git info with fallbacks for builds without vergen metadata
+fn get_version_string() -> String {
+    let sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
+    let date = option_env!("VERGEN_GIT_COMMIT_DATE").unwrap_or("unknown");
+    format!("{sha} ({date})")
+}
 
 // Plot configuration struct
 #[derive(Debug, Clone, Copy)]
@@ -298,7 +291,7 @@ fn find_csv_files_in_dir_impl(
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("\nGraphically render statistical data from Blackbox CSV.");
-    eprintln!("  {} {}", env!("CARGO_PKG_NAME"), VERSION_STR);
+    eprintln!("  {} {}", env!("CARGO_PKG_NAME"), get_version_string());
     eprintln!("
 Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step]");
     eprintln!("  <inputX>: Path to one or more input CSV log files or directories containing CSV files (required).");
@@ -326,7 +319,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 }
 
 fn print_version_and_exit() {
-    println!("{} {}", env!("CARGO_PKG_NAME"), VERSION_STR);
+    println!("{} {}", env!("CARGO_PKG_NAME"), get_version_string());
     std::process::exit(0);
 }
 
