@@ -21,6 +21,13 @@ use ndarray::Array1;
 
 use crate::types::StepResponseResults;
 
+// Build version string from git info with fallbacks for builds without vergen metadata
+fn get_version_string() -> String {
+    let sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
+    let date = option_env!("VERGEN_GIT_COMMIT_DATE").unwrap_or("unknown");
+    format!("{sha} ({date})")
+}
+
 // Plot configuration struct
 #[derive(Debug, Clone, Copy)]
 struct PlotConfig {
@@ -283,6 +290,8 @@ fn find_csv_files_in_dir_impl(
 }
 
 fn print_usage_and_exit(program_name: &str) {
+    eprintln!("\nGraphically render statistical data from Blackbox CSV.");
+    eprintln!("  {} {}", env!("CARGO_PKG_NAME"), get_version_string());
     eprintln!("
 Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step]");
     eprintln!("  <inputX>: Path to one or more input CSV log files or directories containing CSV files (required).");
@@ -300,8 +309,8 @@ Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <dir
     eprintln!("                 as gray curves/lines on gyro and D-term spectrum plots.");
     eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
     eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
-    eprintln!("  --help: Show this help message and exit.");
-    eprintln!("  --version: Show version information and exit.");
+    eprintln!("  -h, --help: Show this help message and exit.");
+    eprintln!("  -V, --version: Show version information and exit.");
     eprintln!(
         "
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell."
@@ -310,11 +319,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 }
 
 fn print_version_and_exit() {
-    println!(
-        "{} version {}",
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION")
-    );
+    println!("{} {}", env!("CARGO_PKG_NAME"), get_version_string());
     std::process::exit(0);
 }
 
@@ -1029,9 +1034,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut i = 1;
     while i < args.len() {
         let arg = &args[i];
-        if arg == "--help" {
+        if arg == "--help" || arg == "-h" {
             print_usage_and_exit(program_name);
-        } else if arg == "--version" {
+        } else if arg == "--version" || arg == "-V" {
             print_version_and_exit();
         } else if arg == "--dps" {
             if dps_flag_present {
