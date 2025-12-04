@@ -11,3 +11,8 @@ pub mod pid_context;
 pub mod plot_framework;
 pub mod plot_functions;
 pub mod types;
+
+// Expose crate version derived from vergen-generated env vars at compile time.
+pub fn crate_version() -> &'static str {
+    option_env!("VERGEN_GIT_SEMVER").unwrap_or(env!("CARGO_PKG_VERSION"))
+}

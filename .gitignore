@@ -8,6 +8,7 @@ src/**
 !src/plot_functions/
 !src/data_analysis/
 !src/data_input/
+!build.rs
 !Cargo.toml
 !Cargo.lock
 

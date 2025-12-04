@@ -16,5 +16,9 @@ ndarray-stats = "0.5"
 colorous = "1.0.16"
 rusttype = "0.9"
 
+[build-dependencies]
+anyhow = "1.0"
+vergen = { version = "8", features = ["git", "gitcl"] }
+
 [dev-dependencies]
 rand = "0.8"
