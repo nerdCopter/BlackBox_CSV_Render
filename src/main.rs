@@ -290,8 +290,7 @@ fn find_csv_files_in_dir_impl(
 }
 
 fn print_usage_and_exit(program_name: &str) {
-    eprintln!("\nGraphically render statistical data from Blackbox CSV.");
-    eprintln!("  {} {}", env!("CARGO_PKG_NAME"), get_version_string());
+    eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
 Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step]");
     eprintln!("  <inputX>: Path to one or more input CSV log files or directories containing CSV files (required).");
@@ -316,11 +315,6 @@ Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <dir
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell."
     );
     std::process::exit(1);
-}
-
-fn print_version_and_exit() {
-    println!("{} {}", env!("CARGO_PKG_NAME"), get_version_string());
-    std::process::exit(0);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1015,6 +1009,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Print version at start of every execution
+    println!("{} {}", env!("CARGO_PKG_NAME"), get_version_string());
+    println!();
+
     // --- Argument Parsing ---
     let args: Vec<String> = env::args().collect();
     let program_name = &args[0];
@@ -1031,13 +1029,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut show_butterworth = false;
     let mut plot_config = PlotConfig::default();
 
+    let mut version_flag_set = false;
+
     let mut i = 1;
     while i < args.len() {
         let arg = &args[i];
         if arg == "--help" || arg == "-h" {
             print_usage_and_exit(program_name);
         } else if arg == "--version" || arg == "-V" {
-            print_version_and_exit();
+            version_flag_set = true;
         } else if arg == "--dps" {
             if dps_flag_present {
                 eprintln!("Error: --dps argument specified more than once.");
@@ -1087,6 +1087,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             input_paths.push(arg.clone());
         }
         i += 1;
+    }
+
+    // Exit if only --version flag was set
+    if version_flag_set {
+        return Ok(());
     }
 
     if input_paths.is_empty() {
