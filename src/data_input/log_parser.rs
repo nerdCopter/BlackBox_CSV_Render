@@ -205,6 +205,8 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
     let mut f_term_header_found = [false; 3];
 
     let header_indices: Vec<Option<usize>>;
+    let mut motor_indices: Vec<usize> = Vec::new();
+    let mut motor_count = 0usize;
 
     // Read CSV header and map target headers to indices.
     {
@@ -216,6 +218,54 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             .from_reader(BufReader::new(file));
         let header_record = reader.headers()?.clone();
         println!("Flight data keys found in CSV: {header_record:?}");
+
+        // Detect motor channels dynamically (motor[0] through motor[N-1])
+        // Collect all motor headers with their (motor_num, csv_idx) pairs, allowing out-of-order
+        let mut motor_pairs: Vec<(usize, usize)> = Vec::new();
+
+        for (csv_idx, header) in header_record.iter().enumerate() {
+            let trimmed = header.trim();
+            if trimmed.starts_with("motor[") && trimmed.ends_with(']') {
+                if let Some(num_str) = trimmed
+                    .strip_prefix("motor[")
+                    .and_then(|s| s.strip_suffix(']'))
+                {
+                    if let Ok(motor_num) = num_str.parse::<usize>() {
+                        motor_pairs.push((motor_num, csv_idx));
+                    }
+                }
+            }
+        }
+
+        // Sort by motor number to ensure consistent ordering
+        motor_pairs.sort_by_key(|&(motor_num, _)| motor_num);
+
+        // Validate sequence and log warnings for gaps or non-contiguous indices
+        if !motor_pairs.is_empty() {
+            let mut expected_motor = 0usize;
+            for &(motor_num, _) in &motor_pairs {
+                if motor_num != expected_motor && debug_mode {
+                    println!(
+                        "Warning: Gap detected in motor indices. Expected motor[{}] but found motor[{}]",
+                        expected_motor, motor_num
+                    );
+                }
+                expected_motor = motor_num + 1;
+            }
+
+            // Populate motor_indices from sorted pairs
+            for (_, csv_idx) in &motor_pairs {
+                motor_indices.push(*csv_idx);
+            }
+            motor_count = motor_pairs.len();
+
+            println!(
+                "Detected {} motor outputs: motor[{}] through motor[{}]",
+                motor_count,
+                motor_pairs.first().map(|&(n, _)| n).unwrap_or(0),
+                motor_pairs.last().map(|&(n, _)| n).unwrap_or(0)
+            );
+        }
 
         header_indices = target_headers
             .iter()
@@ -469,6 +519,15 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                             Some(val) => Some(val),
                             None => parsed_debug[axis],
                         };
+                    }
+
+                    // Parse motor outputs
+                    current_row_data.motors = Vec::with_capacity(motor_count);
+                    for &motor_csv_idx in &motor_indices {
+                        let motor_val = record
+                            .get(motor_csv_idx)
+                            .and_then(|val_str| val_str.parse::<f64>().ok());
+                        current_row_data.motors.push(motor_val);
                     }
 
                     all_log_data.push(current_row_data);

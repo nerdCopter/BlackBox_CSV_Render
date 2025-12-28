@@ -42,6 +42,7 @@ struct PlotConfig {
     pub psd_db_heatmap: bool,
     pub throttle_freq_heatmap: bool,
     pub d_term_heatmap: bool,
+    pub motor_spectrums: bool,
 }
 
 impl Default for PlotConfig {
@@ -58,6 +59,7 @@ impl Default for PlotConfig {
             psd_db_heatmap: true,
             throttle_freq_heatmap: true,
             d_term_heatmap: true,
+            motor_spectrums: true,
         }
     }
 }
@@ -76,6 +78,7 @@ impl PlotConfig {
             psd_db_heatmap: false,
             throttle_freq_heatmap: false,
             d_term_heatmap: false,
+            motor_spectrums: false,
         }
     }
 }
@@ -90,6 +93,7 @@ use crate::plot_functions::plot_d_term_psd::plot_d_term_psd;
 use crate::plot_functions::plot_d_term_spectrums::plot_d_term_spectrums;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
 use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
+use crate::plot_functions::plot_motor_spectrums::plot_motor_spectrums;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
 use crate::plot_functions::plot_psd::plot_psd;
 use crate::plot_functions::plot_psd_db_heatmap::plot_psd_db_heatmap;
@@ -967,6 +971,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             using_debug_fallback,
             debug_mode_label,
         )?;
+    }
+
+    if plot_config.motor_spectrums {
+        plot_motor_spectrums(&all_log_data, &root_name_string, sample_rate)?;
     }
 
     if plot_config.psd {

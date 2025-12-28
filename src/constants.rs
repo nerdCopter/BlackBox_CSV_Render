@@ -55,6 +55,7 @@ pub const EXCLUDE_END_S: f64 = 3.0; // Exclude seconds from the end of the log
 // Constants for the spectrum plot (linear amplitude)
 pub const SPECTRUM_Y_AXIS_FLOOR: f64 = 20000.0; // Maximum amplitude for spectrum plots.
 pub const SPECTRUM_NOISE_FLOOR_HZ: f64 = 70.0; // Frequency threshold below which to ignore for dynamic Y-axis scaling (e.g., motor idle noise).
+pub const MOTOR_NOISE_FLOOR_HZ: f64 = 10.0; // Motor spectrum: filter out throttle changes (<10 Hz), focus on oscillations/ESC noise (10+ Hz)
 pub const SPECTRUM_Y_AXIS_HEADROOM_FACTOR: f64 = 1.2; // Factor to extend Y-axis above the highest peak (after noise floor) for better visibility.
 pub const PEAK_LABEL_MIN_AMPLITUDE: f64 = 1000.0; // Ignore peaks under this; Tunable (gyro spectrums only)
 
