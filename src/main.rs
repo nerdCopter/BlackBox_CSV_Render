@@ -42,6 +42,7 @@ struct PlotConfig {
     pub psd_db_heatmap: bool,
     pub throttle_freq_heatmap: bool,
     pub d_term_heatmap: bool,
+    pub motor_spectrums: bool,
 }
 
 impl Default for PlotConfig {
@@ -58,6 +59,7 @@ impl Default for PlotConfig {
             psd_db_heatmap: true,
             throttle_freq_heatmap: true,
             d_term_heatmap: true,
+            motor_spectrums: true,
         }
     }
 }
@@ -76,6 +78,24 @@ impl PlotConfig {
             psd_db_heatmap: false,
             throttle_freq_heatmap: false,
             d_term_heatmap: false,
+            motor_spectrums: false,
+        }
+    }
+
+    fn motor_only() -> Self {
+        Self {
+            step_response: false,
+            pidsum_error_setpoint: false,
+            setpoint_vs_gyro: false,
+            gyro_vs_unfilt: false,
+            gyro_spectrums: false,
+            d_term_psd: false,
+            d_term_spectrums: false,
+            psd: false,
+            psd_db_heatmap: false,
+            throttle_freq_heatmap: false,
+            d_term_heatmap: false,
+            motor_spectrums: true,
         }
     }
 }
@@ -90,6 +110,7 @@ use crate::plot_functions::plot_d_term_psd::plot_d_term_psd;
 use crate::plot_functions::plot_d_term_spectrums::plot_d_term_spectrums;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
 use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
+use crate::plot_functions::plot_motor_spectrums::plot_motor_spectrums;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
 use crate::plot_functions::plot_psd::plot_psd;
 use crate::plot_functions::plot_psd_db_heatmap::plot_psd_db_heatmap;
@@ -292,7 +313,7 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step]");
+Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step] [--motor]");
     eprintln!("  <inputX>: Path to one or more input CSV log files or directories containing CSV files (required).");
     eprintln!("            If a directory is specified, all CSV files within it (including subdirectories) will be processed.");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
@@ -308,6 +329,9 @@ Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <dir
     eprintln!("                 as gray curves/lines on gyro and D-term spectrum plots.");
     eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
     eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
+    eprintln!(
+        "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
+    );
     eprintln!("  -h, --help: Show this help message and exit.");
     eprintln!("  -V, --version: Show version information and exit.");
     eprintln!(
@@ -969,6 +993,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         )?;
     }
 
+    if plot_config.motor_spectrums {
+        plot_motor_spectrums(&all_log_data, &root_name_string, sample_rate)?;
+    }
+
     if plot_config.psd {
         plot_psd(
             &all_log_data,
@@ -1080,6 +1108,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             show_butterworth = true;
         } else if arg == "--step" {
             plot_config = PlotConfig::step_only();
+        } else if arg == "--motor" {
+            plot_config = PlotConfig::motor_only();
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);

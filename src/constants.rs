@@ -52,6 +52,21 @@ pub const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0; // Minimum setpoint/gyro magnitu
 pub const EXCLUDE_START_S: f64 = 3.0; // Exclude seconds from the start of the log
 pub const EXCLUDE_END_S: f64 = 3.0; // Exclude seconds from the end of the log
 
+// Motor spectrum analysis constants
+pub const MOTOR_OSCILLATION_FREQ_MIN_HZ: f64 = 50.0; // Lower bound for motor oscillation detection (Hz)
+pub const MOTOR_OSCILLATION_FREQ_MAX_HZ: f64 = 200.0; // Upper bound for motor oscillation detection (Hz)
+pub const MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER: f64 = 3.0; // Peak must be > N× average to flag oscillation (unitless multiplier)
+pub const MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD: f64 = 10.0; // Absolute amplitude threshold (normalized linear amplitude units)
+pub const MOTOR_SPECTRUM_Y_AXIS_MAX: f64 = 5.0; // Static Y-axis maximum for motor spectrum plots (normalized linear amplitude units)
+
+// Minimum samples required for a meaningful FFT on motor outputs
+pub const MIN_FFT_SAMPLES: usize = 128; // Minimum samples for reliable oscillation detection (provides ~2-3 frequency bins in 50-200 Hz range at 8kHz)
+
+// TODO: Verify that MOTOR_OSCILLATION_FREQ_MIN_HZ..MOTOR_OSCILLATION_FREQ_MAX_HZ (50–200 Hz)
+// matches the expected motor/prop/ESC oscillation ranges for our target hardware.
+// If some target platforms (large props, geared motors, etc.) show relevant oscillations
+// outside this range, consider adjusting these bounds or making them configurable.
+
 // Constants for the spectrum plot (linear amplitude)
 pub const SPECTRUM_Y_AXIS_FLOOR: f64 = 20000.0; // Maximum amplitude for spectrum plots.
 pub const SPECTRUM_NOISE_FLOOR_HZ: f64 = 70.0; // Frequency threshold below which to ignore for dynamic Y-axis scaling (e.g., motor idle noise).
