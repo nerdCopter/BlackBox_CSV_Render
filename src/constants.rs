@@ -59,6 +59,9 @@ pub const MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER: f64 = 3.0; // Peak must be > N
 pub const MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD: f64 = 10.0; // Absolute amplitude threshold (normalized linear amplitude units)
 pub const MOTOR_SPECTRUM_Y_AXIS_MAX: f64 = 5.0; // Static Y-axis maximum for motor spectrum plots (normalized linear amplitude units)
 
+// Minimum samples required for a meaningful FFT on motor outputs
+pub const MIN_FFT_SAMPLES: usize = 10; // e.g., 10 samples is a conservative lower bound
+
 // TODO: Verify that MOTOR_OSCILLATION_FREQ_MIN_HZ..MOTOR_OSCILLATION_FREQ_MAX_HZ (50–200 Hz)
 // matches the expected motor/prop/ESC oscillation ranges for our target hardware.
 // If some target platforms (large props, geared motors, etc.) show relevant oscillations

@@ -4,8 +4,9 @@ use ndarray::Array1;
 use std::error::Error;
 
 use crate::constants::{
-    LINE_WIDTH_PLOT, MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD, MOTOR_OSCILLATION_FREQ_MAX_HZ,
-    MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER, TUKEY_ALPHA,
+    LINE_WIDTH_PLOT, MIN_FFT_SAMPLES, MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD,
+    MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ,
+    MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
@@ -85,12 +86,13 @@ pub fn plot_motor_spectrums(
             continue;
         }
 
-        // Minimum samples needed for meaningful FFT (e.g., 10 samples)
-        if samples.len() < 10 {
+        // Minimum samples needed for meaningful FFT
+        if samples.len() < MIN_FFT_SAMPLES {
             println!(
-                "  Motor {}: Insufficient data ({} samples)",
+                "  Motor {}: Insufficient data ({} samples, need >= {})",
                 motor_idx,
-                samples.len()
+                samples.len(),
+                MIN_FFT_SAMPLES
             );
             motor_spectrums.push(None);
             continue;
