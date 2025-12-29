@@ -10,6 +10,7 @@ use crate::constants::{
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_input::log_data::LogRowData;
+use plotters::prelude::*;
 use plotters::style::colors::full_palette::{AMBER, BLUE, GREEN, ORANGE, PURPLE, RED};
 use plotters::style::RGBColor;
 
@@ -158,8 +159,6 @@ pub fn plot_motor_spectrums(
     }
 
     // Generate stacked plots with dynamic row count for motors
-    use plotters::prelude::*;
-
     let root_area = BitMapBackend::new(
         &output_file,
         (crate::constants::PLOT_WIDTH, crate::constants::PLOT_HEIGHT),
