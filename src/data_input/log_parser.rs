@@ -239,17 +239,31 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         // Sort by motor number to ensure consistent ordering
         motor_pairs.sort_by_key(|&(motor_num, _)| motor_num);
 
-        // Validate sequence and log warnings for gaps or non-contiguous indices
+        // Validate sequence and collect any missing motor indices
         if !motor_pairs.is_empty() {
+            let mut missing_indices: Vec<usize> = Vec::new();
             let mut expected_motor = 0usize;
+
             for &(motor_num, _) in &motor_pairs {
-                if motor_num != expected_motor && debug_mode {
-                    println!(
-                        "Warning: Gap detected in motor indices. Expected motor[{}] but found motor[{}]",
-                        expected_motor, motor_num
-                    );
+                // Collect all missing indices between expected and found
+                while expected_motor < motor_num {
+                    missing_indices.push(expected_motor);
+                    expected_motor += 1;
                 }
                 expected_motor = motor_num + 1;
+            }
+
+            // Emit single consolidated warning if debug_mode and gaps detected
+            if debug_mode && !missing_indices.is_empty() {
+                let missing_str = missing_indices
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                println!(
+                    "Warning: Gap(s) detected in motor indices. Missing: motor[{}]",
+                    missing_str
+                );
             }
 
             // Populate motor_indices from sorted pairs

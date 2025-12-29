@@ -57,7 +57,7 @@ pub const MOTOR_OSCILLATION_FREQ_MIN_HZ: f64 = 50.0; // Lower bound for motor os
 pub const MOTOR_OSCILLATION_FREQ_MAX_HZ: f64 = 200.0; // Upper bound for motor oscillation detection (Hz)
 pub const MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER: f64 = 3.0; // Peak must be > N× average to flag oscillation (unitless multiplier)
 pub const MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD: f64 = 10.0; // Absolute amplitude threshold (normalized linear amplitude units)
-pub const MOTOR_SPECTRUM_Y_AXIS_MAX: f64 = 2.0; // Static Y-axis maximum for motor spectrum plots (normalized linear amplitude units)
+pub const MOTOR_SPECTRUM_Y_AXIS_MAX: f64 = 5.0; // Static Y-axis maximum for motor spectrum plots (normalized linear amplitude units)
 
 // TODO: Verify that MOTOR_OSCILLATION_FREQ_MIN_HZ..MOTOR_OSCILLATION_FREQ_MAX_HZ (50–200 Hz)
 // matches the expected motor/prop/ESC oscillation ranges for our target hardware.
