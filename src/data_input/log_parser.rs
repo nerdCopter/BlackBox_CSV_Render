@@ -206,7 +206,6 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
 
     let header_indices: Vec<Option<usize>>;
     let mut motor_indices: Vec<usize> = Vec::new();
-    let mut motor_count = 0usize;
 
     // Read CSV header and map target headers to indices.
     {
@@ -257,11 +256,10 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             for (_, csv_idx) in &motor_pairs {
                 motor_indices.push(*csv_idx);
             }
-            motor_count = motor_pairs.len();
 
             println!(
                 "Detected {} motor outputs: motor[{}] through motor[{}]",
-                motor_count,
+                motor_indices.len(),
                 motor_pairs.first().map(|&(n, _)| n).unwrap_or(0),
                 motor_pairs.last().map(|&(n, _)| n).unwrap_or(0)
             );
@@ -522,7 +520,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                     }
 
                     // Parse motor outputs
-                    current_row_data.motors = Vec::with_capacity(motor_count);
+                    current_row_data.motors = Vec::with_capacity(motor_indices.len());
                     for &motor_csv_idx in &motor_indices {
                         let motor_val = record
                             .get(motor_csv_idx)
