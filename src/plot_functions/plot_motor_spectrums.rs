@@ -85,6 +85,17 @@ pub fn plot_motor_spectrums(
             continue;
         }
 
+        // Minimum samples needed for meaningful FFT (e.g., 10 samples)
+        if samples.len() < 10 {
+            println!(
+                "  Motor {}: Insufficient data ({} samples)",
+                motor_idx,
+                samples.len()
+            );
+            motor_spectrums.push(None);
+            continue;
+        }
+
         let n_samples = samples.len();
 
         // Apply Tukey window
