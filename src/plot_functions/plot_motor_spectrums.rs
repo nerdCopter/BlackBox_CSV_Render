@@ -51,18 +51,10 @@ pub fn plot_motor_spectrums(
         return Ok(());
     }
 
-    // Skip if only 1-2 motors (likely simulator or test data)
-    if motor_count < 3 {
-        println!(
-            "\nINFO: Skipping Motor Spectrum Plot: Only {} motor(s) detected (minimum 3 required).",
-            motor_count
-        );
-        return Ok(());
-    }
-
     println!(
-        "\n--- Generating Motor Spectrum Analysis ({} motors) ---",
-        motor_count
+        "\n--- Generating Motor Spectrum Analysis ({} motor{}) ---",
+        motor_count,
+        if motor_count == 1 { "" } else { "s" }
     );
 
     let mut global_max_amplitude = 0.0f64;
