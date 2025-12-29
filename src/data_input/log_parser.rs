@@ -427,7 +427,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             && debug_header_found.iter().take(3).any(|&found| found);
 
         if using_debug_fallback {
-            println!("\n⚠ Using debug[0-2] as fallback for gyroUnfilt[0-2]");
+            println!("\n⚠️ Using debug[0-2] as fallback for gyroUnfilt[0-2]");
 
             // Try to report which debug mode is being used
             if let Some((_, debug_mode_value)) =
