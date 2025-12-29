@@ -4,7 +4,8 @@ use ndarray::Array1;
 use std::error::Error;
 
 use crate::constants::{
-    LINE_WIDTH_PLOT, MOTOR_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
+    LINE_WIDTH_PLOT, MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD, MOTOR_OSCILLATION_FREQ_MAX_HZ,
+    MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
@@ -109,18 +110,11 @@ pub fn plot_motor_spectrums(
             })
             .collect();
 
-        // Find max amplitude for this motor (skip low frequencies below noise floor)
-        let skip_idx = (MOTOR_NOISE_FLOOR_HZ / freq_spacing).ceil() as usize;
-        let motor_max = if skip_idx < amplitudes.len() {
-            amplitudes[skip_idx..]
-                .iter()
-                .copied()
-                .fold(0.0f64, f64::max)
+        // Find max amplitude for this motor (skip DC at index 0)
+        let motor_max = if amplitudes.len() > 1 {
+            amplitudes[1..].iter().copied().fold(0.0f64, f64::max)
         } else {
-            amplitudes[1..] // Fallback: just skip DC if noise floor calculation failed
-                .iter()
-                .copied()
-                .fold(0.0f64, f64::max)
+            amplitudes.first().copied().unwrap_or(0.0)
         };
 
         if motor_max > global_max_amplitude {
@@ -137,7 +131,9 @@ pub fn plot_motor_spectrums(
             let freq_range_50_200: Vec<(f64, f64)> = frequencies
                 .iter()
                 .zip(amplitudes.iter())
-                .filter(|(f, _)| **f >= 50.0 && **f <= 200.0)
+                .filter(|(f, _)| {
+                    **f >= MOTOR_OSCILLATION_FREQ_MIN_HZ && **f <= MOTOR_OSCILLATION_FREQ_MAX_HZ
+                })
                 .map(|(f, a)| (*f, *a))
                 .collect();
 
@@ -149,10 +145,12 @@ pub fn plot_motor_spectrums(
                     .map(|(_, a)| *a)
                     .fold(0.0f64, f64::max);
 
-                if max_in_range > 3.0 * avg_amplitude && max_in_range > 10.0 {
+                if max_in_range > MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER * avg_amplitude
+                    && max_in_range > MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD
+                {
                     println!(
-                        "  ⚠ Motor {}: Potential oscillation detected in 50-200 Hz range (peak {:.1} >> avg {:.1})",
-                        motor_idx, max_in_range, avg_amplitude
+                        "  ⚠ Motor {}: Potential oscillation detected in {:.0}-{:.0} Hz range (peak {:.1} >> avg {:.1})",
+                        motor_idx, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ, max_in_range, avg_amplitude
                     );
                 }
             }
@@ -186,28 +184,23 @@ pub fn plot_motor_spectrums(
         if let Some(spectrum_data) = motor_spectrums.get(motor_idx).and_then(|opt| opt.as_ref()) {
             let (frequencies, amplitudes, _) = spectrum_data;
 
-            // Filter out DC and low frequencies to focus on motor-specific behavior
-            // Low frequencies are dominated by throttle changes and hide useful diagnostics
+            // Use full frequency range starting from 0 Hz with static Y-cap
+            // This shows throttle-dominated low frequencies (0-10 Hz) and motor diagnostics (10+Hz)
             let nyquist_freq = sr_value / 2.0;
 
             let filtered_data: Vec<(f64, f64)> = frequencies
                 .iter()
                 .zip(amplitudes.iter())
-                .filter(|(f, _)| **f >= MOTOR_NOISE_FLOOR_HZ)
                 .take_while(|(f, _)| **f <= nyquist_freq)
                 .map(|(f, a)| (*f, *a))
                 .collect();
 
             if !filtered_data.is_empty() {
-                // Calculate Y-axis range - use a small minimum to avoid flat plots
-                // Motor spectrums typically have much smaller amplitudes than gyro
-                let motor_specific_floor = global_max_amplitude * 0.01; // 1% of max as floor
-                let max_y = global_max_amplitude.max(motor_specific_floor.max(0.001));
-                let y_max_range = max_y * SPECTRUM_Y_AXIS_HEADROOM_FACTOR;
-                let y_range = 0.0..y_max_range;
+                // Use static Y-axis range for standardized comparison across copters.
+                // MOTOR_SPECTRUM_Y_AXIS_MAX provides consistent visual scaling and future-proofs against outliers.
+                let y_range = 0.0..crate::constants::MOTOR_SPECTRUM_Y_AXIS_MAX;
 
-                // X-axis range - show full range from 0 Hz (even though data filtered to 10+ Hz)
-                // This makes filtering visually clear: empty space before 10 Hz
+                // X-axis: show full range from 0 Hz (includes throttle and motor data)
                 let x_max = filtered_data
                     .last()
                     .map(|(f, _)| *f)
@@ -229,9 +222,12 @@ pub fn plot_motor_spectrums(
                     .configure_mesh()
                     .x_desc("Frequency (Hz)")
                     .y_desc("Amplitude")
-                    .x_labels(15)
-                    .x_label_formatter(&|x| format!("{:.0}", x))
+                    .x_labels(20)
                     .y_labels(10)
+                    .x_label_formatter(&|x| format!("{:.0}", x))
+                    .y_label_formatter(&|y| format!("{:.0}", y))
+                    .light_line_style(WHITE.mix(0.7))
+                    .label_style(crate::font_config::FONT_TUPLE_AXIS_LABEL)
                     .draw()?;
 
                 chart
