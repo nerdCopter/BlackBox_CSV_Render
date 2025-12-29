@@ -59,8 +59,6 @@ pub fn plot_motor_spectrums(
         if motor_count == 1 { "" } else { "s" }
     );
 
-    let mut global_max_amplitude = 0.0f64;
-
     // Extract motor data for each motor
     let mut motor_samples: Vec<Vec<f32>> = vec![Vec::new(); motor_count];
 
@@ -117,10 +115,6 @@ pub fn plot_motor_spectrums(
         } else {
             amplitudes.first().copied().unwrap_or(0.0)
         };
-
-        if motor_max > global_max_amplitude {
-            global_max_amplitude = motor_max;
-        }
 
         motor_spectrums.push(Some((frequencies, amplitudes, motor_max)));
         println!("  Motor {}: Max amplitude = {:.2}", motor_idx, motor_max);
