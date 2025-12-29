@@ -68,7 +68,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shel
 - `*_D_Term_Heatmap_comparative.png` — D-term throttle/frequency heatmap
 - `*_Gyro_PSD_Spectrogram_comparative.png` — Gyro spectrogram (PSD vs. time)
 - `*_Throttle_Freq_Heatmap_comparative.png` — Throttle/frequency heatmap analysis
-- `*_Motor_Spectrums_stacked.png` — Motor output frequency analysis (supports 3-8 motors)
+- `*_Motor_Spectrums_stacked.png` — Motor output frequency analysis (supports any number of motors; colors wrap every 8 motors; plotting requires ≥3 motors by default)
 
 #### Console Output:
 - Current P:D ratio and peak analysis with response assessment

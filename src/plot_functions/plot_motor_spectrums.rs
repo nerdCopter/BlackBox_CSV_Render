@@ -72,6 +72,11 @@ pub fn plot_motor_spectrums(
 
     for row in log_data {
         for (motor_idx, motor_val) in row.motors.iter().enumerate() {
+            // Defensive: skip any motor entries that exceed the expected motor count
+            // (shouldn't happen if headers are consistent, but protects against malformed logs)
+            if motor_idx >= motor_samples.len() {
+                continue; // Skip if motor count varies unexpectedly
+            }
             if let Some(val) = motor_val {
                 motor_samples[motor_idx].push(*val as f32);
             }
