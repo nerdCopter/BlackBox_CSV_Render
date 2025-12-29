@@ -32,11 +32,14 @@ Usage: ./BlackBox_CSV_Render <input_file1.csv> [<input_file2.csv> ...] [--dps <v
                  deg/s threshold value. Must be a positive number.
                  If --dps is omitted, a general step-response is shown.
   --output-dir <directory>: Optional. Specifies the output directory for generated plots.
-                         If omitted, plots are saved in the source folder (input file's directory).
+                         If omitted, plots are saved in the source folder (input directory).
   --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters
                  as gray curves/lines on gyro and D-term spectrum plots.
   --debug: Optional. Shows detailed metadata information during processing.
   --step: Optional. Generate only step response plots, skipping all other graphs.
+  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
+  -h, --help: Show this help message and exit.
+  -V, --version: Show version information and exit.
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell.
 ```
