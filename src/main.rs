@@ -65,24 +65,7 @@ impl Default for PlotConfig {
 }
 
 impl PlotConfig {
-    fn step_only() -> Self {
-        Self {
-            step_response: true,
-            pidsum_error_setpoint: false,
-            setpoint_vs_gyro: false,
-            gyro_vs_unfilt: false,
-            gyro_spectrums: false,
-            d_term_psd: false,
-            d_term_spectrums: false,
-            psd: false,
-            psd_db_heatmap: false,
-            throttle_freq_heatmap: false,
-            d_term_heatmap: false,
-            motor_spectrums: false,
-        }
-    }
-
-    fn motor_only() -> Self {
+    fn none() -> Self {
         Self {
             step_response: false,
             pidsum_error_setpoint: false,
@@ -95,7 +78,7 @@ impl PlotConfig {
             psd_db_heatmap: false,
             throttle_freq_heatmap: false,
             d_term_heatmap: false,
-            motor_spectrums: true,
+            motor_spectrums: false,
         }
     }
 }
@@ -1056,6 +1039,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut debug_mode = false;
     let mut show_butterworth = false;
     let mut plot_config = PlotConfig::default();
+    let mut has_only_flags = false;
+    let mut step_requested = false;
+    let mut motor_requested = false;
 
     let mut version_flag_set = false;
 
@@ -1107,9 +1093,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--butterworth" {
             show_butterworth = true;
         } else if arg == "--step" {
-            plot_config = PlotConfig::step_only();
+            has_only_flags = true;
+            step_requested = true;
         } else if arg == "--motor" {
-            plot_config = PlotConfig::motor_only();
+            has_only_flags = true;
+            motor_requested = true;
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1117,6 +1105,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             input_paths.push(arg.clone());
         }
         i += 1;
+    }
+
+    // Apply "only" flags if any were specified
+    if has_only_flags {
+        plot_config = PlotConfig::none();
+        plot_config.step_response = step_requested;
+        plot_config.motor_spectrums = motor_requested;
+    }
+
+    // Show debug information when the runtime --debug flag is present
+    if debug_mode {
+        println!(
+            "DEBUG: has_only_flags={}, step_requested={}, motor_requested={}, plot_config={:?}",
+            has_only_flags, step_requested, motor_requested, plot_config
+        );
     }
 
     // Exit if only --version flag was set
