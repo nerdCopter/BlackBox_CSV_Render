@@ -229,7 +229,14 @@ pub fn plot_motor_spectrums(
                     .x_labels(20)
                     .y_labels(10)
                     .x_label_formatter(&|x| format!("{:.0}", x))
-                    .y_label_formatter(&|y| format!("{:.0}", y))
+                    .y_label_formatter(&|y| {
+                        // Show tenths for Y-axis if max is < 5, otherwise show integers
+                        if crate::constants::MOTOR_SPECTRUM_Y_AXIS_MAX < 5.0 {
+                            format!("{:.1}", y)
+                        } else {
+                            format!("{:.0}", y)
+                        }
+                    })
                     .light_line_style(WHITE.mix(0.7))
                     .label_style(crate::font_config::FONT_TUPLE_AXIS_LABEL)
                     .draw()?;
