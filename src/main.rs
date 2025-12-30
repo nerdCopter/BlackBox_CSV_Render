@@ -300,7 +300,7 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step] [--motor]");
+Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step] [--motor] [--setpoint]");
     eprintln!("  <inputX>: Path to one or more input CSV log files or directories containing CSV files (required).");
     eprintln!("            If a directory is specified, all CSV files within it (including subdirectories) will be processed.");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
@@ -318,6 +318,9 @@ Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <dir
     eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
     eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
+    );
+    eprintln!(
+        "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
     );
     eprintln!("  -h, --help: Show this help message and exit.");
     eprintln!("  -V, --version: Show version information and exit.");
@@ -1050,6 +1053,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut has_only_flags = false;
     let mut step_requested = false;
     let mut motor_requested = false;
+    let mut setpoint_requested = false;
 
     let mut version_flag_set = false;
 
@@ -1106,6 +1110,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--motor" {
             has_only_flags = true;
             motor_requested = true;
+        } else if arg == "--setpoint" {
+            has_only_flags = true;
+            setpoint_requested = true;
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1115,18 +1122,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         i += 1;
     }
 
-    // Apply "only" flags if any were specified
+    // Apply "only" flags if any were specified (non-mutually exclusive: OR together)
     if has_only_flags {
         plot_config = PlotConfig::none();
         plot_config.step_response = step_requested;
         plot_config.motor_spectrums = motor_requested;
+        if setpoint_requested {
+            plot_config.pidsum_error_setpoint = true;
+            plot_config.setpoint_vs_gyro = true;
+            plot_config.setpoint_derivative = true;
+        }
     }
 
     // Show debug information when the runtime --debug flag is present
     if debug_mode {
         println!(
-            "DEBUG: has_only_flags={}, step_requested={}, motor_requested={}, plot_config={:?}",
-            has_only_flags, step_requested, motor_requested, plot_config
+            "DEBUG: has_only_flags={}, step_requested={}, motor_requested={}, setpoint_requested={}, plot_config={:?}",
+            has_only_flags, step_requested, motor_requested, setpoint_requested, plot_config
         );
     }
 
