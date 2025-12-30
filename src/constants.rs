@@ -127,44 +127,31 @@ pub const COLOR_SETPOINT_VS_GYRO_GYRO: &RGBColor = &LIGHTBLUE;
 pub const COLOR_SETPOINT_DERIVATIVE: &RGBColor = &PURPLE;
 
 // Static Y-axis absolute maximum for Setpoint Derivative plots (abs value).
-// Default conservative value for typical flight logs. The plot code will expand
-// beyond this if real data exceeds it (using p95*1.2 as robust candidate, then
-// max with observed peak) to avoid clipping. Change this constant to adjust the
-// visual comparison scale for most logs.
-// Rationale: ~80% of normal (non-acro) flights are below 20k. Using 20k as default
-// provides honest representation; acro/freestyle automatically expand with title
-// annotation, making aggressive input visually obvious. Expansion is not a failure,
-// it's transparency—users can see when a flight pushes the envelope.
+// Conservative default (~80% of normal flights). Auto-expands for acro/freestyle
+// with annotation. This is honest representation, not artificial constraint.
 pub const SETPOINT_DERIVATIVE_Y_AXIS_MAX: f64 = 20_000.0;
 
-// Maximum plausible setpoint derivative rate (deg/s²). Used to filter out
-// data corruption artifacts (e.g., logging gaps, timestamp glitches) that
-// produce unrealistic spikes. Real setpoint rates (even extreme acro) max out
-// around 50-80k. Anything above 100k is almost certainly a logging artifact
-// (e.g., 780° swing in 2ms, or ±10° in 58µs). Derivatives exceeding this
-// threshold are skipped from plot range calculation with logged warning.
+// Maximum plausible setpoint derivative rate (deg/s²). Filters logging artifacts
+// (data gaps, corrupt timestamps). Real-world rates max ~50-80k; >100k is almost
+// certainly corrupt data. Derivatives above threshold are excluded with warning.
 pub const SETPOINT_DERIVATIVE_OUTLIER_THRESHOLD: f64 = 100_000.0;
 
 // Minimum reasonable time delta (seconds) between consecutive setpoint samples.
-// For 8 kHz logs, expect dt ≈ 0.000125 sec. Values < 0.00005 sec (~20 kHz+)
-// indicate sampling glitches or missing/corrupted rows. Such samples are
-// excluded from derivative calculation to avoid spurious spikes.
+// For 8 kHz logs (~125µs); <50µs indicates glitches or missing rows. Excluded to
+// prevent spurious spikes from corrupted time stamps.
 pub const SETPOINT_DERIVATIVE_MIN_DT: f64 = 0.00005;
 
-// Percentile to use for robust expansion detection in setpoint derivative plots.
-// 95th percentile is standard statistical practice: captures 95% of normal data,
-// excludes legitimate top 5% (acro/freestyle/aggressive input).
+// Percentile for robust expansion detection (95th is standard statistical practice).
+// Captures 95% of normal data, excludes top 5% (acro/freestyle).
 pub const SETPOINT_DERIVATIVE_EXPANSION_PERCENTILE: f64 = 0.95;
 
-// Scale factor applied to the percentile-based candidate for Y-axis expansion.
-// Applied as: p95 * SCALE_FACTOR = expansion_candidate. Using 1.2 provides
-// a cushion to avoid clipping legitimate high-rate maneuvers while staying
-// data-driven (not arbitrary). Adjust downward for tighter visual comparison.
+// Scale factor for percentile-based expansion candidate (p95 * SCALE).
+// 1.2 provides cushion to avoid clipping high-rate maneuvers. Adjust downward
+// for tighter visual comparison.
 pub const SETPOINT_DERIVATIVE_PERCENTILE_SCALE: f64 = 1.2;
 
-// Headroom factor (percentage) added to final Y-axis range for visual breathing room.
-// Applied as: half_range *= (1.0 + HEADROOM_FACTOR). Using 0.05 (5%) avoids tight,
-// cramped plots while remaining visually tight. Increase if you want more margin.
+// Visual headroom added to final Y-axis range (multiplier: 1.0 + FACTOR).
+// 5% avoids tight cramped plots. Increase for more margin.
 pub const SETPOINT_DERIVATIVE_Y_AXIS_HEADROOM_FACTOR: f64 = 0.05;
 
 // Gyro vs Unfilt Gyro Plot
