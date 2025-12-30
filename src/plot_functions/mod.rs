@@ -10,6 +10,7 @@ pub mod plot_motor_spectrums;
 pub mod plot_pidsum_error_setpoint;
 pub mod plot_psd;
 pub mod plot_psd_db_heatmap;
+pub mod plot_setpoint_derivative;
 pub mod plot_setpoint_vs_gyro;
 pub mod plot_step_response;
 pub mod plot_throttle_freq_heatmap;

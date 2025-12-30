@@ -123,6 +123,18 @@ pub const COLOR_SETPOINT_MAIN: &RGBColor = &ORANGE;
 pub const COLOR_SETPOINT_VS_GYRO_SP: &RGBColor = &ORANGE;
 pub const COLOR_SETPOINT_VS_GYRO_GYRO: &RGBColor = &LIGHTBLUE;
 
+// Setpoint Derivative Plot
+pub const COLOR_SETPOINT_DERIVATIVE: &RGBColor = &PURPLE;
+
+// Static Y-axis absolute maximum for Setpoint Derivative plots (abs value).
+// Set to a conservative but reasonable value for most use cases.
+// Rationale: statistics from the dataset showed 95th percentile ~119k and
+// 99th ~352k (some extreme outliers exist). Using 100k covers nearly all
+// non-racer/freestyle flights while remaining visually useful. The plot
+// code will still expand beyond this value if real data exceeds it (to
+// avoid clipping), and will annotate when expansion occurs.
+pub const SETPOINT_DERIVATIVE_Y_AXIS_MAX: f64 = 100_000.0;
+
 // Gyro vs Unfilt Gyro Plot
 pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
 pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;

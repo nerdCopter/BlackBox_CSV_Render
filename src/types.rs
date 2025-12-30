@@ -45,8 +45,10 @@ pub type AllPSDData = [Option<AxisPSDData>; 3];
 
 // Plot data types
 pub type AxisPlotData2 = Vec<(f64, Option<f64>, Option<f64>)>;
+pub type AxisPlotData2Simple = Vec<(f64, f64)>; // For derivative and simple time-series plots
 pub type AxisPlotData3 = Vec<(f64, Option<f64>, Option<f64>, Option<f64>)>;
 pub type AllAxisPlotData2 = [AxisPlotData2; 3];
+pub type AllAxisPlotData2Simple = [AxisPlotData2Simple; 3];
 pub type AllAxisPlotData3 = [AxisPlotData3; 3];
 
 // Step response plot data

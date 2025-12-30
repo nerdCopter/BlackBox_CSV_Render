@@ -34,6 +34,7 @@ struct PlotConfig {
     pub step_response: bool,
     pub pidsum_error_setpoint: bool,
     pub setpoint_vs_gyro: bool,
+    pub setpoint_derivative: bool,
     pub gyro_vs_unfilt: bool,
     pub gyro_spectrums: bool,
     pub d_term_psd: bool,
@@ -51,6 +52,7 @@ impl Default for PlotConfig {
             step_response: true,
             pidsum_error_setpoint: true,
             setpoint_vs_gyro: true,
+            setpoint_derivative: true,
             gyro_vs_unfilt: true,
             gyro_spectrums: true,
             d_term_psd: true,
@@ -70,6 +72,7 @@ impl PlotConfig {
             step_response: false,
             pidsum_error_setpoint: false,
             setpoint_vs_gyro: false,
+            setpoint_derivative: false,
             gyro_vs_unfilt: false,
             gyro_spectrums: false,
             d_term_psd: false,
@@ -97,6 +100,7 @@ use crate::plot_functions::plot_motor_spectrums::plot_motor_spectrums;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
 use crate::plot_functions::plot_psd::plot_psd;
 use crate::plot_functions::plot_psd_db_heatmap::plot_psd_db_heatmap;
+use crate::plot_functions::plot_setpoint_derivative::plot_setpoint_derivative;
 use crate::plot_functions::plot_setpoint_vs_gyro::plot_setpoint_vs_gyro;
 use crate::plot_functions::plot_step_response::plot_step_response;
 use crate::plot_functions::plot_throttle_freq_heatmap::plot_throttle_freq_heatmap;
@@ -906,6 +910,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
     if plot_config.setpoint_vs_gyro {
         plot_setpoint_vs_gyro(&all_log_data, &root_name_string, sample_rate)?;
+    }
+
+    if plot_config.setpoint_derivative {
+        plot_setpoint_derivative(&all_log_data, &root_name_string, sample_rate)?;
     }
 
     // Determine if debug fallback is being used for gyroUnfilt
