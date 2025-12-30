@@ -78,14 +78,44 @@ pub fn plot_setpoint_derivative(
             continue;
         }
 
-        // Pair derivative values with time points
-        let derivative_series_data: Vec<(f64, f64)> = times
-            .iter()
-            .zip(derivatives.iter())
-            .map(|(time, deriv)| (*time, *deriv as f64))
-            .collect();
+        // Pair derivative values with time points, applying sanity filters
+        let mut derivative_series_data: Vec<(f64, f64)> = Vec::new();
+        let mut outlier_count = 0;
+        for (idx, (time, deriv)) in times.iter().zip(derivatives.iter()).enumerate() {
+            let deriv_f64 = *deriv as f64;
 
-        // Update global ranges
+            // Calculate dt (time delta from previous sample) for outlier detection
+            let dt = if idx > 0 {
+                time - times[idx - 1]
+            } else {
+                1.0 / sr // Use expected sample period for first sample
+            };
+
+            // Filter: skip derivatives from unreasonably small time deltas (logging glitches)
+            // or from implausibly large rates (data corruption)
+            if dt < crate::constants::SETPOINT_DERIVATIVE_MIN_DT {
+                outlier_count += 1;
+                continue;
+            }
+            if deriv_f64.abs() > crate::constants::SETPOINT_DERIVATIVE_OUTLIER_THRESHOLD {
+                outlier_count += 1;
+                continue;
+            }
+
+            derivative_series_data.push((*time, deriv_f64));
+        }
+
+        if outlier_count > 0 {
+            println!(
+                "Warning: Setpoint derivative plot (axis {}) filtered {} outliers (dt<{:.0e} or |deriv|>{:.0})",
+                AXIS_NAMES[axis_index],
+                outlier_count,
+                crate::constants::SETPOINT_DERIVATIVE_MIN_DT,
+                crate::constants::SETPOINT_DERIVATIVE_OUTLIER_THRESHOLD
+            );
+        }
+
+        // Update global ranges (using filtered data only)
         for (time, deriv) in &derivative_series_data {
             time_min = time_min.min(*time);
             time_max = time_max.max(*time);

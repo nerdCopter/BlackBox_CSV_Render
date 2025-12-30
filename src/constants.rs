@@ -127,13 +127,28 @@ pub const COLOR_SETPOINT_VS_GYRO_GYRO: &RGBColor = &LIGHTBLUE;
 pub const COLOR_SETPOINT_DERIVATIVE: &RGBColor = &PURPLE;
 
 // Static Y-axis absolute maximum for Setpoint Derivative plots (abs value).
-// Set to a conservative but reasonable value for most use cases.
-// Rationale: statistics from the dataset showed 95th percentile ~119k and
-// 99th ~352k (some extreme outliers exist). Using 100k covers nearly all
-// non-racer/freestyle flights while remaining visually useful. The plot
-// code will still expand beyond this value if real data exceeds it (to
-// avoid clipping), and will annotate when expansion occurs.
-pub const SETPOINT_DERIVATIVE_Y_AXIS_MAX: f64 = 100_000.0;
+// Default conservative value for typical flight logs. The plot code will expand
+// beyond this if real data exceeds it (using p95*1.2 as robust candidate, then
+// max with observed peak) to avoid clipping. Change this constant to adjust the
+// visual comparison scale for most logs.
+// Rationale: Statistics from real flight logs show ~90% are below 50k, ~95% below ~120k.
+// Using 50k as default covers most normal flights while expanding automatically
+// for edge cases (acro/freestyle/test logs) with logged notification.
+pub const SETPOINT_DERIVATIVE_Y_AXIS_MAX: f64 = 50_000.0;
+
+// Maximum plausible setpoint derivative rate (deg/s²). Used to filter out
+// data corruption artifacts (e.g., logging gaps, timestamp glitches) that
+// produce unrealistic spikes. Even aggressive acro input does not exceed ~200k.
+// Anything above 500k is almost certainly a logging artifact (e.g., 306° change
+// in 2 microseconds). Derivatives exceeding this threshold are skipped from
+// the plot range calculation with a logged warning.
+pub const SETPOINT_DERIVATIVE_OUTLIER_THRESHOLD: f64 = 500_000.0;
+
+// Minimum reasonable time delta (seconds) between consecutive setpoint samples.
+// For 8 kHz logs, expect dt ≈ 0.000125 sec. Values < 0.00005 sec (~20 kHz+)
+// indicate sampling glitches or missing/corrupted rows. Such samples are
+// excluded from derivative calculation to avoid spurious spikes.
+pub const SETPOINT_DERIVATIVE_MIN_DT: f64 = 0.00005;
 
 // Gyro vs Unfilt Gyro Plot
 pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
