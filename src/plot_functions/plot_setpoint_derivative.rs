@@ -67,7 +67,8 @@ pub fn plot_setpoint_derivative(
         let (times, setpoints): (Vec<f64>, Vec<f64>) =
             data.iter().map(|(time, sp)| (*time, *sp)).unzip();
 
-        // Convert setpoints to f32 for derivative calculation
+        // Convert setpoints to f32 for derivative calculation (shared utility expects f32).
+        // Minor precision loss (f64→f32→f64) is acceptable for visualization purposes.
         let setpoints_f32: Vec<f32> = setpoints.iter().map(|&sp| sp as f32).collect();
 
         // Calculate derivatives
