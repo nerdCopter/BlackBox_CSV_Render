@@ -150,6 +150,22 @@ pub const SETPOINT_DERIVATIVE_OUTLIER_THRESHOLD: f64 = 500_000.0;
 // excluded from derivative calculation to avoid spurious spikes.
 pub const SETPOINT_DERIVATIVE_MIN_DT: f64 = 0.00005;
 
+// Percentile to use for robust expansion detection in setpoint derivative plots.
+// 95th percentile is standard statistical practice: captures 95% of normal data,
+// excludes legitimate top 5% (acro/freestyle/aggressive input).
+pub const SETPOINT_DERIVATIVE_EXPANSION_PERCENTILE: f64 = 0.95;
+
+// Scale factor applied to the percentile-based candidate for Y-axis expansion.
+// Applied as: p95 * SCALE_FACTOR = expansion_candidate. Using 1.2 provides
+// a cushion to avoid clipping legitimate high-rate maneuvers while staying
+// data-driven (not arbitrary). Adjust downward for tighter visual comparison.
+pub const SETPOINT_DERIVATIVE_PERCENTILE_SCALE: f64 = 1.2;
+
+// Headroom factor (percentage) added to final Y-axis range for visual breathing room.
+// Applied as: half_range *= (1.0 + HEADROOM_FACTOR). Using 0.05 (5%) avoids tight,
+// cramped plots while remaining visually tight. Increase if you want more margin.
+pub const SETPOINT_DERIVATIVE_Y_AXIS_HEADROOM_FACTOR: f64 = 0.05;
+
 // Gyro vs Unfilt Gyro Plot
 pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
 pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;

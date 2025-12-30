@@ -130,7 +130,7 @@ pub fn plot_setpoint_derivative(
     let (common_y_min, common_y_max) = calculate_range(global_val_min, global_val_max);
 
     // Determine symmetric half-range with a safety constant from constants.rs.
-    // Use a robust statistic (p95) scaled by 1.2 as the expansion candidate to avoid single-sample outlier influence.
+    // Use a robust statistic (p95) scaled by constant as the expansion candidate to avoid single-sample outlier influence.
     let static_min = crate::constants::SETPOINT_DERIVATIVE_Y_AXIS_MAX;
 
     // Collect absolute derivative magnitudes across all axes
@@ -144,8 +144,10 @@ pub fn plot_setpoint_derivative(
     let mut p95_candidate = 0.0_f64;
     if !all_abs_vals.is_empty() {
         all_abs_vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let idx = ((all_abs_vals.len() - 1) as f64 * 0.95).floor() as usize;
-        p95_candidate = all_abs_vals[idx] * 1.2; // scale by 1.2
+        let idx = ((all_abs_vals.len() - 1) as f64
+            * crate::constants::SETPOINT_DERIVATIVE_EXPANSION_PERCENTILE)
+            .floor() as usize;
+        p95_candidate = all_abs_vals[idx] * crate::constants::SETPOINT_DERIVATIVE_PERCENTILE_SCALE;
     }
 
     let global_half = common_y_min.abs().max(common_y_max.abs());
@@ -153,8 +155,8 @@ pub fn plot_setpoint_derivative(
     // Use the maximum of: static_min, p95_candidate, and observed global max (to avoid clipping)
     let mut half_range = static_min.max(p95_candidate).max(global_half);
 
-    // Add 5% headroom for visibility
-    half_range *= 1.05;
+    // Add headroom for visibility
+    half_range *= 1.0 + crate::constants::SETPOINT_DERIVATIVE_Y_AXIS_HEADROOM_FACTOR;
 
     // Log / annotate whether we are using the static minimum or expanding (and reason)
     if half_range > static_min * 1.01 {
