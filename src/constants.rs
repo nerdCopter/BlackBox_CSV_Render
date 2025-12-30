@@ -127,9 +127,9 @@ pub const COLOR_SETPOINT_VS_GYRO_GYRO: &RGBColor = &LIGHTBLUE;
 pub const COLOR_SETPOINT_DERIVATIVE: &RGBColor = &PURPLE;
 
 // Static Y-axis absolute maximum for Setpoint Derivative plots (abs value).
-// Conservative default (~80% of normal flights). Auto-expands for acro/freestyle
+// Comfortable default (~85% of normal flights). Auto-expands for acro/freestyle
 // with annotation. This is honest representation, not artificial constraint.
-pub const SETPOINT_DERIVATIVE_Y_AXIS_MAX: f64 = 20_000.0;
+pub const SETPOINT_DERIVATIVE_Y_AXIS_MAX: f64 = 40_000.0;
 
 // Maximum plausible setpoint derivative rate (deg/s²). Filters logging artifacts
 // (data gaps, corrupt timestamps). Real-world rates max ~50-80k; >100k is almost
