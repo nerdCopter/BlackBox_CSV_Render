@@ -195,7 +195,7 @@ pub fn plot_setpoint_derivative(
             y_range,
             series,
             "Time (s)".to_string(),
-            "Rate of Change (deg/s)".to_string(),
+            "Rate of Change (deg/s²)".to_string(),
         ))
     })
 }
