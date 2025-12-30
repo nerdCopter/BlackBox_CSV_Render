@@ -100,19 +100,35 @@ pub fn plot_setpoint_derivative(
     let (common_y_min, common_y_max) = calculate_range(global_val_min, global_val_max);
 
     // Determine symmetric half-range with a safety constant from constants.rs.
-    // Ensure we add a small headroom to make plotting visually less tight.
-    let mut half_range = crate::constants::SETPOINT_DERIVATIVE_Y_AXIS_MAX;
-    let global_half = common_y_min.abs().max(common_y_max.abs());
-    if global_half > half_range {
-        // If real data exceeds the chosen static value, expand to cover it to avoid clipping
-        half_range = global_half;
+    // Use a robust statistic (p95) scaled by 1.2 as the expansion candidate to avoid single-sample outlier influence.
+    let static_min = crate::constants::SETPOINT_DERIVATIVE_Y_AXIS_MAX;
+
+    // Collect absolute derivative magnitudes across all axes
+    let mut all_abs_vals: Vec<f64> = all_derivatives
+        .iter()
+        .flat_map(|axis| axis.iter().map(|(_, v)| v.abs()))
+        .filter(|v| v.is_finite())
+        .collect();
+
+    // Compute p95 if we have enough samples
+    let mut p95_candidate = 0.0_f64;
+    if !all_abs_vals.is_empty() {
+        all_abs_vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let idx = ((all_abs_vals.len() - 1) as f64 * 0.95).floor() as usize;
+        p95_candidate = all_abs_vals[idx] * 1.2; // scale by 1.2
     }
+
+    let global_half = common_y_min.abs().max(common_y_max.abs());
+
+    // Use the maximum of: static_min, p95_candidate, and observed global max (to avoid clipping)
+    let mut half_range = static_min.max(p95_candidate).max(global_half);
+
     // Add 5% headroom for visibility
     half_range *= 1.05;
 
-    // Log / annotate whether we are using the static minimum or expanding
-    if half_range > crate::constants::SETPOINT_DERIVATIVE_Y_AXIS_MAX * 1.01 {
-        println!("Note: Setpoint derivative Y-axis expanded to ±{:.0} because data exceeded static limit ±{:.0}", half_range, crate::constants::SETPOINT_DERIVATIVE_Y_AXIS_MAX);
+    // Log / annotate whether we are using the static minimum or expanding (and reason)
+    if half_range > static_min * 1.01 {
+        println!("Note: Setpoint derivative Y-axis expanded to ±{:.0} (p95*1.2={:.0}, observed={:.0}, static_min={:.0})", half_range, p95_candidate, global_half, static_min);
     } else {
         println!("Using static setpoint derivative Y-axis ±{:.0}", half_range);
     }
@@ -134,8 +150,18 @@ pub fn plot_setpoint_derivative(
             stroke_width: line_stroke_plot,
         }];
 
+        // Include the y-range used in the chart title for quick identification
+        let format_half = if half_range.abs() >= 1000.0 {
+            format!("{:.0}k", half_range / 1000.0)
+        } else {
+            format!("{:.0}", half_range)
+        };
+
         Some((
-            format!("{} Setpoint Derivative", AXIS_NAMES[axis_index]),
+            format!(
+                "{} Setpoint Derivative (±{} )",
+                AXIS_NAMES[axis_index], format_half
+            ),
             x_range,
             y_range,
             series,
