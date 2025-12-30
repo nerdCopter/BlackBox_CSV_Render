@@ -131,18 +131,19 @@ pub const COLOR_SETPOINT_DERIVATIVE: &RGBColor = &PURPLE;
 // beyond this if real data exceeds it (using p95*1.2 as robust candidate, then
 // max with observed peak) to avoid clipping. Change this constant to adjust the
 // visual comparison scale for most logs.
-// Rationale: Statistics from real flight logs show ~90% are below 50k, ~95% below ~120k.
-// Using 50k as default covers most normal flights while expanding automatically
-// for edge cases (acro/freestyle/test logs) with logged notification.
-pub const SETPOINT_DERIVATIVE_Y_AXIS_MAX: f64 = 50_000.0;
+// Rationale: ~80% of normal (non-acro) flights are below 20k. Using 20k as default
+// provides honest representation; acro/freestyle automatically expand with title
+// annotation, making aggressive input visually obvious. Expansion is not a failure,
+// it's transparency—users can see when a flight pushes the envelope.
+pub const SETPOINT_DERIVATIVE_Y_AXIS_MAX: f64 = 20_000.0;
 
 // Maximum plausible setpoint derivative rate (deg/s²). Used to filter out
 // data corruption artifacts (e.g., logging gaps, timestamp glitches) that
-// produce unrealistic spikes. Even aggressive acro input does not exceed ~200k.
-// Anything above 500k is almost certainly a logging artifact (e.g., 306° change
-// in 2 microseconds). Derivatives exceeding this threshold are skipped from
-// the plot range calculation with a logged warning.
-pub const SETPOINT_DERIVATIVE_OUTLIER_THRESHOLD: f64 = 500_000.0;
+// produce unrealistic spikes. Real setpoint rates (even extreme acro) max out
+// around 50-80k. Anything above 100k is almost certainly a logging artifact
+// (e.g., 780° swing in 2ms, or ±10° in 58µs). Derivatives exceeding this
+// threshold are skipped from plot range calculation with logged warning.
+pub const SETPOINT_DERIVATIVE_OUTLIER_THRESHOLD: f64 = 100_000.0;
 
 // Minimum reasonable time delta (seconds) between consecutive setpoint samples.
 // For 8 kHz logs, expect dt ≈ 0.000125 sec. Values < 0.00005 sec (~20 kHz+)
