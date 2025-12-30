@@ -7,7 +7,7 @@ use crate::axis_names::AXIS_NAMES;
 use crate::constants::{COLOR_SETPOINT_DERIVATIVE, LINE_WIDTH_PLOT};
 use crate::data_analysis::derivative;
 use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{calculate_range, draw_stacked_plot, PlotSeries};
+use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 use crate::types::AllAxisPlotData2Simple;
 
 /// Generates the Stacked Setpoint Derivative (Rate of Change) Plot
@@ -126,9 +126,6 @@ pub fn plot_setpoint_derivative(
         all_derivatives.push(derivative_series_data);
     }
 
-    // Calculate common Y-axis range for all axes
-    let (common_y_min, common_y_max) = calculate_range(global_val_min, global_val_max);
-
     // Determine symmetric half-range with a safety constant from constants.rs.
     // Use a robust statistic (p95) scaled by constant as the expansion candidate to avoid single-sample outlier influence.
     let static_min = crate::constants::SETPOINT_DERIVATIVE_Y_AXIS_MAX;
@@ -150,7 +147,7 @@ pub fn plot_setpoint_derivative(
         p95_candidate = all_abs_vals[idx] * crate::constants::SETPOINT_DERIVATIVE_PERCENTILE_SCALE;
     }
 
-    let global_half = common_y_min.abs().max(common_y_max.abs());
+    let global_half = global_val_min.abs().max(global_val_max.abs());
 
     // Use the maximum of: static_min, p95_candidate, and observed global max (to avoid clipping)
     let mut half_range = static_min.max(p95_candidate).max(global_half);
@@ -191,7 +188,7 @@ pub fn plot_setpoint_derivative(
 
         Some((
             format!(
-                "{} Setpoint Derivative (±{} )",
+                "{} Setpoint Derivative (±{})",
                 AXIS_NAMES[axis_index], format_half
             ),
             x_range,
