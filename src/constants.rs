@@ -123,6 +123,37 @@ pub const COLOR_SETPOINT_MAIN: &RGBColor = &ORANGE;
 pub const COLOR_SETPOINT_VS_GYRO_SP: &RGBColor = &ORANGE;
 pub const COLOR_SETPOINT_VS_GYRO_GYRO: &RGBColor = &LIGHTBLUE;
 
+// Setpoint Derivative Plot
+pub const COLOR_SETPOINT_DERIVATIVE: &RGBColor = &PURPLE;
+
+// Static Y-axis absolute maximum for Setpoint Derivative plots (abs value).
+// Comfortable default (~90% of normal flights). Auto-expands for acro/freestyle
+// with annotation. This is honest representation, not artificial constraint.
+pub const SETPOINT_DERIVATIVE_Y_AXIS_MAX: f64 = 50_000.0;
+
+// Maximum plausible setpoint derivative rate (deg/s²). Filters logging artifacts
+// (data gaps, corrupt timestamps). Real-world rates max ~50-80k; >100k is almost
+// certainly corrupt data. Derivatives above threshold are excluded with warning.
+pub const SETPOINT_DERIVATIVE_OUTLIER_THRESHOLD: f64 = 100_000.0;
+
+// Minimum reasonable time delta (seconds) between consecutive setpoint samples.
+// For 8 kHz logs (~125µs); <50µs indicates glitches or missing rows. Excluded to
+// prevent spurious spikes from corrupted time stamps.
+pub const SETPOINT_DERIVATIVE_MIN_DT: f64 = 0.00005;
+
+// Percentile for robust expansion detection (95th is standard statistical practice).
+// Captures 95% of normal data, excludes top 5% (acro/freestyle).
+pub const SETPOINT_DERIVATIVE_EXPANSION_PERCENTILE: f64 = 0.95;
+
+// Scale factor for percentile-based expansion candidate (p95 * SCALE).
+// 1.2 provides cushion to avoid clipping high-rate maneuvers. Adjust downward
+// for tighter visual comparison.
+pub const SETPOINT_DERIVATIVE_PERCENTILE_SCALE: f64 = 1.2;
+
+// Visual headroom added to final Y-axis range (multiplier: 1.0 + FACTOR).
+// 5% avoids tight cramped plots. Increase for more margin.
+pub const SETPOINT_DERIVATIVE_Y_AXIS_HEADROOM_FACTOR: f64 = 0.05;
+
 // Gyro vs Unfilt Gyro Plot
 pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
 pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;

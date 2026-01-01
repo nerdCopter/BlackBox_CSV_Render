@@ -34,6 +34,7 @@ struct PlotConfig {
     pub step_response: bool,
     pub pidsum_error_setpoint: bool,
     pub setpoint_vs_gyro: bool,
+    pub setpoint_derivative: bool,
     pub gyro_vs_unfilt: bool,
     pub gyro_spectrums: bool,
     pub d_term_psd: bool,
@@ -51,6 +52,7 @@ impl Default for PlotConfig {
             step_response: true,
             pidsum_error_setpoint: true,
             setpoint_vs_gyro: true,
+            setpoint_derivative: true,
             gyro_vs_unfilt: true,
             gyro_spectrums: true,
             d_term_psd: true,
@@ -70,6 +72,7 @@ impl PlotConfig {
             step_response: false,
             pidsum_error_setpoint: false,
             setpoint_vs_gyro: false,
+            setpoint_derivative: false,
             gyro_vs_unfilt: false,
             gyro_spectrums: false,
             d_term_psd: false,
@@ -97,6 +100,7 @@ use crate::plot_functions::plot_motor_spectrums::plot_motor_spectrums;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
 use crate::plot_functions::plot_psd::plot_psd;
 use crate::plot_functions::plot_psd_db_heatmap::plot_psd_db_heatmap;
+use crate::plot_functions::plot_setpoint_derivative::plot_setpoint_derivative;
 use crate::plot_functions::plot_setpoint_vs_gyro::plot_setpoint_vs_gyro;
 use crate::plot_functions::plot_step_response::plot_step_response;
 use crate::plot_functions::plot_throttle_freq_heatmap::plot_throttle_freq_heatmap;
@@ -296,7 +300,7 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step] [--motor]");
+Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step] [--motor] [--setpoint]");
     eprintln!("  <inputX>: Path to one or more input CSV log files or directories containing CSV files (required).");
     eprintln!("            If a directory is specified, all CSV files within it (including subdirectories) will be processed.");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
@@ -314,6 +318,9 @@ Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <dir
     eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
     eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
+    );
+    eprintln!(
+        "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
     );
     eprintln!("  -h, --help: Show this help message and exit.");
     eprintln!("  -V, --version: Show version information and exit.");
@@ -908,6 +915,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         plot_setpoint_vs_gyro(&all_log_data, &root_name_string, sample_rate)?;
     }
 
+    if plot_config.setpoint_derivative {
+        plot_setpoint_derivative(&all_log_data, &root_name_string, sample_rate)?;
+    }
+
     // Determine if debug fallback is being used for gyroUnfilt
     let using_debug_fallback = !gyro_unfilt_header_found.iter().any(|&found| found)
         && debug_header_found.iter().take(3).any(|&found| found);
@@ -1042,6 +1053,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut has_only_flags = false;
     let mut step_requested = false;
     let mut motor_requested = false;
+    let mut setpoint_requested = false;
 
     let mut version_flag_set = false;
 
@@ -1098,6 +1110,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--motor" {
             has_only_flags = true;
             motor_requested = true;
+        } else if arg == "--setpoint" {
+            has_only_flags = true;
+            setpoint_requested = true;
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1107,18 +1122,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         i += 1;
     }
 
-    // Apply "only" flags if any were specified
+    // Apply "only" flags if any were specified (non-mutually exclusive: OR together)
     if has_only_flags {
         plot_config = PlotConfig::none();
         plot_config.step_response = step_requested;
         plot_config.motor_spectrums = motor_requested;
+        if setpoint_requested {
+            plot_config.pidsum_error_setpoint = true;
+            plot_config.setpoint_vs_gyro = true;
+            plot_config.setpoint_derivative = true;
+        }
     }
 
     // Show debug information when the runtime --debug flag is present
     if debug_mode {
         println!(
-            "DEBUG: has_only_flags={}, step_requested={}, motor_requested={}, plot_config={:?}",
-            has_only_flags, step_requested, motor_requested, plot_config
+            "DEBUG: has_only_flags={}, step_requested={}, motor_requested={}, setpoint_requested={}, plot_config={:?}",
+            has_only_flags, step_requested, motor_requested, setpoint_requested, plot_config
         );
     }
 

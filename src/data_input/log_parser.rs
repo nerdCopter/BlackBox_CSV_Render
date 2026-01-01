@@ -427,14 +427,14 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             && debug_header_found.iter().take(3).any(|&found| found);
 
         if using_debug_fallback {
-            println!("\n⚠️ Using debug[0-2] as fallback for gyroUnfilt[0-2]");
+            println!("  ⚠️  Using debug[0-2] as fallback for gyroUnfilt[0-2]");
 
             // Try to report which debug mode is being used
             if let Some((_, debug_mode_value)) =
                 header_metadata.iter().find(|(k, _)| k == "debug_mode")
             {
                 if let Ok(debug_int) = debug_mode_value.parse::<u32>() {
-                    println!("  Debug mode value: {} (see INFORMATION/DEBUG_MODE_REFERENCE.md for lookup)", debug_int);
+                    println!("  Debug mode value: {}", debug_int);
                 }
             }
         }
