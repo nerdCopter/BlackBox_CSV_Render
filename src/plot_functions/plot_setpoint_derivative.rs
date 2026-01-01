@@ -180,17 +180,17 @@ pub fn plot_setpoint_derivative(
             stroke_width: line_stroke_plot,
         }];
 
-        // Include the y-range used in the chart title for quick identification
-        let format_half = if half_range.abs() >= 1000.0 {
-            format!("{:.0}k", half_range / 1000.0)
+        // Include the actual data maximum in the chart title for quick identification
+        let format_max = if global_half.abs() >= 1000.0 {
+            format!("{:.0}k", global_half / 1000.0)
         } else {
-            format!("{:.0}", half_range)
+            format!("{:.0}", global_half)
         };
 
         Some((
             format!(
                 "{} Setpoint Derivative (±{})",
-                AXIS_NAMES[axis_index], format_half
+                AXIS_NAMES[axis_index], format_max
             ),
             x_range,
             y_range,
