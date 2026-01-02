@@ -1,7 +1,5 @@
 // src/data_analysis/transfer_function_estimation.rs
 
-#![allow(dead_code)] // Functions used by plot_bode module
-
 use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;

@@ -1,7 +1,5 @@
 // src/plot_functions/plot_bode.rs
 
-#![allow(dead_code)] // Will be integrated in main.rs
-
 use plotters::backend::BitMapBackend;
 use plotters::chart::ChartBuilder;
 use plotters::coord::Shift;

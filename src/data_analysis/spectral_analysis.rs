@@ -1,7 +1,5 @@
 // src/data_analysis/spectral_analysis.rs
 
-#![allow(dead_code)] // Functions used by transfer_function_estimation module
-
 use ndarray::Array1;
 use num_complex::Complex64;
 use std::error::Error;

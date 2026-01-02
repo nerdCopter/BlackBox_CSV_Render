@@ -44,6 +44,7 @@ struct PlotConfig {
     pub throttle_freq_heatmap: bool,
     pub d_term_heatmap: bool,
     pub motor_spectrums: bool,
+    pub bode: bool,
 }
 
 impl Default for PlotConfig {
@@ -62,6 +63,7 @@ impl Default for PlotConfig {
             throttle_freq_heatmap: true,
             d_term_heatmap: true,
             motor_spectrums: true,
+            bode: true,
         }
     }
 }
@@ -82,6 +84,7 @@ impl PlotConfig {
             throttle_freq_heatmap: false,
             d_term_heatmap: false,
             motor_spectrums: false,
+            bode: false,
         }
     }
 }
@@ -91,6 +94,7 @@ use crate::constants::{
 };
 
 // Specific plot function imports
+use crate::plot_functions::plot_bode::plot_bode_analysis;
 use crate::plot_functions::plot_d_term_heatmap::plot_d_term_heatmap;
 use crate::plot_functions::plot_d_term_psd::plot_d_term_psd;
 use crate::plot_functions::plot_d_term_spectrums::plot_d_term_spectrums;
@@ -999,6 +1003,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             using_debug_fallback,
             debug_mode_label,
         )?;
+    }
+
+    if plot_config.bode {
+        plot_bode_analysis(&all_log_data, &root_name_string, sample_rate)?;
     }
 
     if plot_config.psd_db_heatmap {
