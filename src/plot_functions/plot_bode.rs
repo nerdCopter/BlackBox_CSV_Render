@@ -12,7 +12,9 @@ use plotters::style::{IntoFont, RGBColor, ShapeStyle};
 use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
-use crate::constants::{LINE_WIDTH_PLOT, PLOT_HEIGHT, PLOT_WIDTH};
+use crate::constants::{
+    FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, LINE_WIDTH_PLOT, PLOT_HEIGHT, PLOT_WIDTH,
+};
 use crate::data_analysis::transfer_function_estimation::{
     calculate_stability_margins, estimate_transfer_function_h1, Confidence, StabilityMargins,
     TransferFunctionResult,
@@ -470,7 +472,9 @@ fn draw_confidence_legend(
     root.draw(&Text::new(
         "Confidence Level",
         (legend_x, legend_y + 5),
-        ("sans-serif", 14).into_font().color(&BLACK),
+        ("sans-serif", FONT_SIZE_CHART_TITLE)
+            .into_font()
+            .color(&BLACK),
     ))?;
 
     // High confidence (green)
@@ -484,7 +488,7 @@ fn draw_confidence_legend(
     root.draw(&Text::new(
         "High (>0.7)",
         (legend_x + 20, legend_y + 30),
-        ("sans-serif", 12).into_font().color(&BLACK),
+        ("sans-serif", FONT_SIZE_LEGEND).into_font().color(&BLACK),
     ))?;
 
     // Medium confidence (dark orange)
@@ -498,7 +502,7 @@ fn draw_confidence_legend(
     root.draw(&Text::new(
         "Medium (0.4-0.7)",
         (legend_x + 20, legend_y + 20 + spacing + 10),
-        ("sans-serif", 12).into_font().color(&BLACK),
+        ("sans-serif", FONT_SIZE_LEGEND).into_font().color(&BLACK),
     ))?;
 
     // Low confidence (red)
@@ -512,7 +516,7 @@ fn draw_confidence_legend(
     root.draw(&Text::new(
         "Low (<0.4)",
         (legend_x + 20, legend_y + 20 + 2 * spacing + 10),
-        ("sans-serif", 12).into_font().color(&BLACK),
+        ("sans-serif", FONT_SIZE_LEGEND).into_font().color(&BLACK),
     ))?;
 
     Ok(())
