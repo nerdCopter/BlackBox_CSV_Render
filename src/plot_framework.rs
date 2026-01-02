@@ -32,6 +32,7 @@ pub const CUTOFF_LINE_DOTTED_PREFIX: &str = "__CUTOFF_LINE_DOTTED__";
 
 /// Calculate plot range with padding.
 /// Adds 15% padding, or a fixed padding for very small ranges.
+#[allow(dead_code)]
 pub fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
     let (min, max) = if min_val <= max_val {
         (min_val, max_val)

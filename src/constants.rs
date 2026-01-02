@@ -158,6 +158,11 @@ pub const SETPOINT_DERIVATIVE_Y_AXIS_HEADROOM_FACTOR: f64 = 0.05;
 pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
 pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;
 
+// Unified Y-axis scaling constant (minimum scale for symmetric range)
+// Ensures all three axes (Roll/Pitch/Yaw) use the same Y-axis range for visual comparison
+// Set to 100.0 deg/s as a reasonable minimum that covers typical flight scenarios
+pub const UNIFIED_Y_AXIS_MIN_SCALE: f64 = 100.0;
+
 // D-term Plot Colors (distinct from gyro colors)
 pub const COLOR_D_TERM_FILT: &RGBColor = &GREEN; // Use green for filtered D-term (distinct from gyro blue/amber)
 pub const COLOR_D_TERM_UNFILT: &RGBColor = &ORANGE; // Use orange for unfiltered D-term (distinct from gyro yellow)

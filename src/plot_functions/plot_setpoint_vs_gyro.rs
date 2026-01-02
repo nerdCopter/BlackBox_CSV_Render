@@ -6,11 +6,14 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::types::AllAxisPlotData2;
 
-use crate::constants::{COLOR_SETPOINT_VS_GYRO_GYRO, COLOR_SETPOINT_VS_GYRO_SP, LINE_WIDTH_PLOT};
+use crate::constants::{
+    COLOR_SETPOINT_VS_GYRO_GYRO, COLOR_SETPOINT_VS_GYRO_SP, LINE_WIDTH_PLOT,
+    UNIFIED_Y_AXIS_MIN_SCALE,
+};
 use crate::data_analysis::filter_delay;
 use crate::data_analysis::filter_delay::DelayAnalysisResult;
 use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{calculate_range, draw_stacked_plot, PlotSeries};
+use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 
 /// Generates the Stacked Setpoint vs Gyro Plot (Orange, Blue)
 pub fn plot_setpoint_vs_gyro(
@@ -55,6 +58,29 @@ pub fn plot_setpoint_vs_gyro(
     let color_gyro: RGBColor = *COLOR_SETPOINT_VS_GYRO_GYRO;
     let line_stroke_plot = LINE_WIDTH_PLOT;
 
+    // Pre-calculate min/max across ALL axes for symmetric Y-axis scaling (issue #115)
+    let mut global_val_min = f64::INFINITY;
+    let mut global_val_max = f64::NEG_INFINITY;
+
+    #[allow(clippy::needless_range_loop)]
+    for axis_index in 0..AXIS_NAMES.len() {
+        let data = &axis_plot_data[axis_index];
+        for (_, setpoint, gyro_filt) in data {
+            if let Some(s) = setpoint {
+                global_val_min = global_val_min.min(*s);
+                global_val_max = global_val_max.max(*s);
+            }
+            if let Some(g) = gyro_filt {
+                global_val_min = global_val_min.min(*g);
+                global_val_max = global_val_max.max(*g);
+            }
+        }
+    }
+
+    // Determine symmetric half-range with minimum scale
+    let global_half = global_val_min.abs().max(global_val_max.abs());
+    let half_range = global_half.max(UNIFIED_Y_AXIS_MIN_SCALE);
+
     draw_stacked_plot(
         &output_file_setpoint_gyro,
         root_name,
@@ -70,8 +96,6 @@ pub fn plot_setpoint_vs_gyro(
 
             let mut time_min = f64::INFINITY;
             let mut time_max = f64::NEG_INFINITY;
-            let mut val_min = f64::INFINITY;
-            let mut val_max = f64::NEG_INFINITY;
 
             for (time, setpoint, gyro_filt) in data {
                 time_min = time_min.min(*time);
@@ -79,13 +103,9 @@ pub fn plot_setpoint_vs_gyro(
 
                 if let Some(s) = setpoint {
                     setpoint_series_data.push((*time, *s));
-                    val_min = val_min.min(*s);
-                    val_max = val_max.max(*s);
                 }
                 if let Some(g) = gyro_filt {
                     gyro_series_data.push((*time, *g));
-                    val_min = val_min.min(*g);
-                    val_max = val_max.max(*g);
                 }
             }
 
@@ -93,9 +113,9 @@ pub fn plot_setpoint_vs_gyro(
                 return None;
             }
 
-            let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+            // Use unified symmetric Y-axis range across all axes
             let x_range = time_min..time_max;
-            let y_range = final_value_min..final_value_max;
+            let y_range = -half_range..half_range;
 
             let mut series = Vec::new();
             if !gyro_series_data.is_empty() {

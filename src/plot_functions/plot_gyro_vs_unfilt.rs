@@ -4,11 +4,14 @@ use plotters::style::RGBColor;
 use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
-use crate::constants::{COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, LINE_WIDTH_PLOT};
+use crate::constants::{
+    COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, LINE_WIDTH_PLOT,
+    UNIFIED_Y_AXIS_MIN_SCALE,
+};
 use crate::data_analysis::filter_delay;
 use crate::data_analysis::filter_delay::DelayAnalysisResult;
 use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{calculate_range, draw_stacked_plot, PlotSeries};
+use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 use crate::types::AllAxisPlotData2;
 
 /// Generates the Stacked Gyro vs Unfiltered Gyro Plot (Purple, Orange)
@@ -60,6 +63,29 @@ pub fn plot_gyro_vs_unfilt(
     let color_gyro_filt: RGBColor = *COLOR_GYRO_VS_UNFILT_FILT;
     let line_stroke_plot = LINE_WIDTH_PLOT;
 
+    // Pre-calculate min/max across ALL axes for unified Y-axis scaling
+    let mut global_val_min = f64::INFINITY;
+    let mut global_val_max = f64::NEG_INFINITY;
+
+    #[allow(clippy::needless_range_loop)]
+    for axis_index in 0..AXIS_NAMES.len() {
+        let data = &axis_plot_data[axis_index];
+        for (_, gyro_filt, gyro_unfilt) in data {
+            if let Some(gf) = gyro_filt {
+                global_val_min = global_val_min.min(*gf);
+                global_val_max = global_val_max.max(*gf);
+            }
+            if let Some(gu) = gyro_unfilt {
+                global_val_min = global_val_min.min(*gu);
+                global_val_max = global_val_max.max(*gu);
+            }
+        }
+    }
+
+    // Determine symmetric half-range with minimum scale
+    let global_half = global_val_min.abs().max(global_val_max.abs());
+    let half_range = global_half.max(UNIFIED_Y_AXIS_MIN_SCALE);
+
     draw_stacked_plot(
         &output_file_gyro,
         root_name,
@@ -75,8 +101,6 @@ pub fn plot_gyro_vs_unfilt(
 
             let mut time_min = f64::INFINITY;
             let mut time_max = f64::NEG_INFINITY;
-            let mut val_min = f64::INFINITY;
-            let mut val_max = f64::NEG_INFINITY;
 
             for (time, gyro_filt, gyro_unfilt) in data {
                 time_min = time_min.min(*time);
@@ -84,13 +108,9 @@ pub fn plot_gyro_vs_unfilt(
 
                 if let Some(gf) = gyro_filt {
                     filt_series_data.push((*time, *gf));
-                    val_min = val_min.min(*gf);
-                    val_max = val_max.max(*gf);
                 }
                 if let Some(gu) = gyro_unfilt {
                     unfilt_series_data.push((*time, *gu));
-                    val_min = val_min.min(*gu);
-                    val_max = val_max.max(*gu);
                 }
             }
 
@@ -98,9 +118,9 @@ pub fn plot_gyro_vs_unfilt(
                 return None;
             }
 
-            let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+            // Use unified Y-axis range across all axes
             let x_range = time_min..time_max;
-            let y_range = final_value_min..final_value_max;
+            let y_range = -half_range..half_range;
 
             let mut series = Vec::new();
             if !unfilt_series_data.is_empty() {

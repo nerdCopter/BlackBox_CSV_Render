@@ -63,6 +63,8 @@ pub fn plot_d_term_psd(
 
     let mut global_max_y_unfilt = f64::NEG_INFINITY;
     let mut global_max_y_filt = f64::NEG_INFINITY;
+    let mut global_min_y_unfilt = f64::INFINITY;
+    let mut global_min_y_filt = f64::INFINITY;
 
     // Store axis spectrum data
     let mut axis_spectrums: Vec<AxisSpectrum> = Vec::new();
@@ -256,6 +258,7 @@ pub fn plot_d_term_psd(
 
                     unfilt_series_data.push((freq, psd_db));
                     global_max_y_unfilt = global_max_y_unfilt.max(psd_db);
+                    global_min_y_unfilt = global_min_y_unfilt.min(psd_db);
                     max_freq_for_auto_scale = max_freq_for_auto_scale.max(freq);
                 }
             }
@@ -286,6 +289,7 @@ pub fn plot_d_term_psd(
 
                     filt_series_data.push((freq, psd_db));
                     global_max_y_filt = global_max_y_filt.max(psd_db);
+                    global_min_y_filt = global_min_y_filt.min(psd_db);
                     max_freq_for_auto_scale = max_freq_for_auto_scale.max(freq);
                 }
             }
@@ -468,6 +472,66 @@ pub fn plot_d_term_psd(
         });
     }
 
+    // Calculate unified Y-axis range across ALL axes for consistent visual comparison (issue #115)
+    let db_step = 10.0;
+    let overall_min_db = if global_min_y_unfilt.is_finite() || global_min_y_filt.is_finite() {
+        global_min_y_unfilt.min(global_min_y_filt).min(-60.0)
+    } else {
+        -60.0 // fallback minimum
+    };
+
+    let overall_max_db = if global_max_y_unfilt.is_finite() || global_max_y_filt.is_finite() {
+        global_max_y_unfilt.max(global_max_y_filt)
+    } else {
+        0.0 // fallback maximum
+    };
+
+    let unified_min_y_db = (overall_min_db / db_step).floor() * db_step;
+    let unified_max_y_db = if overall_max_db == overall_min_db {
+        overall_max_db + db_step // prevent zero range
+    } else {
+        ((overall_max_db / db_step).floor() + 1.0) * db_step
+    };
+
+    // Recreate axis_spectrums with unified Y-axis ranges
+    let mut unified_axis_spectrums: Vec<AxisSpectrum> = Vec::new();
+
+    for old_spectrum in &axis_spectrums {
+        let unified_unfiltered = old_spectrum
+            .unfiltered
+            .as_ref()
+            .map(|old_config| PlotConfig {
+                title: old_config.title.clone(),
+                x_range: old_config.x_range.clone(),
+                y_range: unified_min_y_db..unified_max_y_db, // Unified Y-axis
+                series: old_config.series.clone(),
+                x_label: old_config.x_label.clone(),
+                y_label: old_config.y_label.clone(),
+                peaks: old_config.peaks.clone(),
+                peak_label_threshold: old_config.peak_label_threshold,
+                peak_label_format_string: old_config.peak_label_format_string.clone(),
+                frequency_ranges: old_config.frequency_ranges.clone(),
+            });
+
+        let unified_filtered = old_spectrum.filtered.as_ref().map(|old_config| PlotConfig {
+            title: old_config.title.clone(),
+            x_range: old_config.x_range.clone(),
+            y_range: unified_min_y_db..unified_max_y_db, // Unified Y-axis
+            series: old_config.series.clone(),
+            x_label: old_config.x_label.clone(),
+            y_label: old_config.y_label.clone(),
+            peaks: old_config.peaks.clone(),
+            peak_label_threshold: old_config.peak_label_threshold,
+            peak_label_format_string: old_config.peak_label_format_string.clone(),
+            frequency_ranges: old_config.frequency_ranges.clone(),
+        });
+
+        unified_axis_spectrums.push(AxisSpectrum {
+            unfiltered: unified_unfiltered,
+            filtered: unified_filtered,
+        });
+    }
+
     let overall_max_y_amplitude = global_max_y_unfilt.max(global_max_y_filt);
 
     if overall_max_y_amplitude == f64::NEG_INFINITY || overall_max_y_amplitude <= -100.0 {
@@ -476,8 +540,8 @@ pub fn plot_d_term_psd(
     }
 
     draw_dual_spectrum_plot(&output_file, root_name, "D-Term PSD", move |axis_index| {
-        if axis_index < axis_spectrums.len() {
-            Some(axis_spectrums[axis_index].clone())
+        if axis_index < unified_axis_spectrums.len() {
+            Some(unified_axis_spectrums[axis_index].clone())
         } else {
             None
         }
