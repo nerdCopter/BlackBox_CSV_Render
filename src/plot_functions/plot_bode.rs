@@ -66,10 +66,10 @@ pub fn plot_bode_analysis(
     }
 
     // Generate single combined plot filename
-    let output_file = format!("{}_bode_analysis.png", root_name);
+    let output_file = format!("{}_Bode_Analysis.png", root_name);
 
     // Create the 3×3 grid plot
-    match create_bode_grid_plot(&output_file, &tf_results, &margins_results) {
+    match create_bode_grid_plot(&output_file, root_name, &tf_results, &margins_results) {
         Ok(_) => println!("  Generated Bode analysis plot: {}", output_file),
         Err(e) => {
             println!("  Error creating Bode plot: {}", e);
@@ -93,6 +93,7 @@ pub fn plot_bode_analysis(
 /// Create a 3×3 grid Bode plot (3 axes × 3 plot types)
 fn create_bode_grid_plot(
     output_file: &str,
+    root_name: &str,
     tf_results: &[TransferFunctionResult],
     margins_results: &[StabilityMargins],
 ) -> Result<(), Box<dyn Error>> {
@@ -111,10 +112,9 @@ fn create_bode_grid_plot(
     let root = BitMapBackend::new(output_file, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
     root.fill(&WHITE)?;
 
-    // Add main title
-    let title = "Bode Analysis - Frequency Response (Roll, Pitch, Yaw)";
+    // Add main title with log filename
     root.draw(&Text::new(
-        title,
+        root_name,
         (20, 20),
         FONT_TUPLE_MAIN_TITLE.into_font().color(&BLACK),
     ))?;
@@ -235,7 +235,7 @@ fn draw_magnitude_subplot(
 
     let mut chart = ChartBuilder::on(area)
         .caption(
-            format!("{} Magnitude", axis_name),
+            format!("Bode Analysis - {} Magnitude", axis_name),
             FONT_TUPLE_CHART_TITLE.into_font(),
         )
         .margin(10)
@@ -313,7 +313,7 @@ fn draw_phase_subplot(
 
     let mut chart = ChartBuilder::on(area)
         .caption(
-            format!("{} Phase", axis_name),
+            format!("Bode Analysis - {} Phase", axis_name),
             FONT_TUPLE_CHART_TITLE.into_font(),
         )
         .margin(10)
@@ -386,7 +386,7 @@ fn draw_coherence_subplot(
 
     let mut chart = ChartBuilder::on(area)
         .caption(
-            format!("{} Coherence", axis_name),
+            format!("Bode Analysis - {} Coherence", axis_name),
             FONT_TUPLE_CHART_TITLE.into_font(),
         )
         .margin(10)
