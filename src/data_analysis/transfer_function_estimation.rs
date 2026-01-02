@@ -386,8 +386,8 @@ pub fn calculate_stability_margins(
         margins.bandwidth_hz = Some(f_bw);
     }
 
-    // Add warnings for tight margins
-    if margins.has_tight_margins() {
+    // Add warnings for tight margins (only if coherence is reasonable)
+    if margins.has_tight_margins() && margins.confidence != Confidence::Low {
         if let Some(pm) = margins.phase_margin_deg {
             if pm < 30.0 {
                 margins
@@ -405,9 +405,19 @@ pub fn calculate_stability_margins(
         }
     }
 
-    // Check for unstable system
-    if !margins.is_stable() {
-        margins.warnings.push("System may be unstable".to_string());
+    // Check for unstable system (only warn if coherence is reasonable)
+    if !margins.is_stable() && margins.confidence != Confidence::Low {
+        margins
+            .warnings
+            .push("System may be unstable (negative margins detected)".to_string());
+    }
+
+    // Add note about low coherence affecting reliability
+    if margins.confidence == Confidence::Low {
+        margins.warnings.push(
+            "Note: Low coherence at critical frequencies - margin values may be unreliable"
+                .to_string(),
+        );
     }
 
     Ok(margins)
