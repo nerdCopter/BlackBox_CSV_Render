@@ -107,9 +107,8 @@ fn create_bode_grid_plot(
         }
     }
 
-    // Create main drawing area (larger for 3×3 grid)
-    let root =
-        BitMapBackend::new(output_file, (PLOT_WIDTH * 3, PLOT_HEIGHT * 3)).into_drawing_area();
+    // Create main drawing area with standard plot dimensions
+    let root = BitMapBackend::new(output_file, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
     root.fill(&WHITE)?;
 
     // Add main title
