@@ -40,7 +40,8 @@ pub struct TransferFunctionResult {
     pub coherence: Vec<f64>,
     /// Sample rate used
     pub sample_rate_hz: f64,
-    /// Axis name (Roll, Pitch, or Yaw)
+    /// Axis name (Roll, Pitch, or Yaw) - retained for potential future use
+    #[allow(dead_code)]
     pub axis_name: String,
 }
 

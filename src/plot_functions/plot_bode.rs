@@ -22,7 +22,7 @@ use crate::font_config::{FONT_TUPLE_AXIS_LABEL, FONT_TUPLE_CHART_TITLE, FONT_TUP
 
 /// Plot Bode analysis for all three axes (Roll, Pitch, Yaw)
 ///
-/// Generates transfer function plots with magnitude, phase, and coherence subplots
+/// Generates a single 3×3 grid plot with magnitude, phase, and coherence for all axes
 pub fn plot_bode_analysis(
     log_data: &[LogRowData],
     root_name: &str,
@@ -35,14 +35,17 @@ pub fn plot_bode_analysis(
         return Ok(());
     };
 
-    // Generate Bode plots for each axis
+    // Estimate transfer functions for all three axes
+    let mut tf_results = Vec::new();
+    let mut margins_results = Vec::new();
+
     for (axis_index, &axis_name) in AXIS_NAMES.iter().enumerate() {
         // Estimate transfer function
         let tf_result = match estimate_transfer_function_h1(log_data, sr_value, axis_index) {
             Ok(tf) => tf,
             Err(e) => {
                 println!("  Skipping Bode plot for {}: {}", axis_name, e);
-                continue;
+                return Ok(());
             }
         };
 
@@ -58,18 +61,26 @@ pub fn plot_bode_analysis(
             }
         };
 
-        // Generate plot filename
-        let output_file = format!("{}_bode_{}.png", root_name, axis_name.to_lowercase());
+        tf_results.push(tf_result);
+        margins_results.push(margins);
+    }
 
-        // Create the plot
-        match create_bode_plot(&output_file, &tf_result, &margins) {
-            Ok(_) => println!("  Generated Bode plot: {}", output_file),
-            Err(e) => println!("  Error creating Bode plot for {}: {}", axis_name, e),
+    // Generate single combined plot filename
+    let output_file = format!("{}_bode_analysis.png", root_name);
+
+    // Create the 3×3 grid plot
+    match create_bode_grid_plot(&output_file, &tf_results, &margins_results) {
+        Ok(_) => println!("  Generated Bode analysis plot: {}", output_file),
+        Err(e) => {
+            println!("  Error creating Bode plot: {}", e);
+            return Err(e);
         }
+    }
 
-        // Print warnings if any
+    // Print warnings for all axes
+    for (axis_index, margins) in margins_results.iter().enumerate() {
         if !margins.warnings.is_empty() {
-            println!("  Bode Analysis Warnings for {}:", axis_name);
+            println!("  Bode Analysis Warnings for {}:", AXIS_NAMES[axis_index]);
             for warning in &margins.warnings {
                 println!("    - {}", warning);
             }
@@ -79,85 +90,106 @@ pub fn plot_bode_analysis(
     Ok(())
 }
 
-/// Create a three-row Bode plot with magnitude, phase, and coherence
-fn create_bode_plot(
+/// Create a 3×3 grid Bode plot (3 axes × 3 plot types)
+fn create_bode_grid_plot(
     output_file: &str,
-    tf: &TransferFunctionResult,
-    margins: &StabilityMargins,
+    tf_results: &[TransferFunctionResult],
+    margins_results: &[StabilityMargins],
 ) -> Result<(), Box<dyn Error>> {
-    if !tf.is_valid() || tf.is_empty() {
-        return Err("Invalid or empty transfer function data".into());
+    if tf_results.len() != 3 || margins_results.len() != 3 {
+        return Err("Expected exactly 3 axes for Bode grid plot".into());
     }
 
-    // Create main drawing area
-    let root = BitMapBackend::new(output_file, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
+    // Validate all transfer functions
+    for tf in tf_results {
+        if !tf.is_valid() || tf.is_empty() {
+            return Err("Invalid or empty transfer function data".into());
+        }
+    }
+
+    // Create main drawing area (larger for 3×3 grid)
+    let root =
+        BitMapBackend::new(output_file, (PLOT_WIDTH * 3, PLOT_HEIGHT * 3)).into_drawing_area();
     root.fill(&WHITE)?;
 
-    // Create title with stability margins
-    let title = format_title(&tf.axis_name, margins);
+    // Add main title
+    let title = "Bode Analysis - Frequency Response (Roll, Pitch, Yaw)";
     root.draw(&Text::new(
         title,
-        (10, 10),
+        (20, 20),
         FONT_TUPLE_MAIN_TITLE.into_font().color(&BLACK),
     ))?;
 
-    // Split into three rows
-    let areas = root.margin(50, 5, 5, 5).split_evenly((3, 1));
+    // Split into 3×3 grid
+    let areas = root.margin(60, 10, 10, 10).split_evenly((3, 3));
 
-    // Filter data to coherence > 0.1 regions (very permissive - coherence plot shows quality)
-    let (filtered_freq, filtered_mag, filtered_phase, filtered_coh) = filter_by_coherence(tf, 0.1);
+    // Determine global frequency range for consistency
+    let mut global_freq_min = f64::INFINITY;
+    let mut global_freq_max: f64 = 0.0;
 
-    if filtered_freq.is_empty() {
-        return Err("No data with coherence > 0.1".into());
+    for tf in tf_results {
+        let (filtered_freq, _, _, _) = filter_by_coherence(tf, 0.1);
+        if !filtered_freq.is_empty() {
+            global_freq_min = global_freq_min.min(*filtered_freq.first().unwrap());
+            global_freq_max = global_freq_max.max(*filtered_freq.last().unwrap());
+        }
     }
 
-    // Determine frequency range (logarithmic, 1 Hz to Nyquist frequency)
-    let nyquist = tf.sample_rate_hz / 2.0;
-    let freq_min = 1.0_f64.max(*filtered_freq.first().unwrap_or(&1.0));
-    let freq_max = nyquist.min(*filtered_freq.last().unwrap_or(&100.0));
+    let freq_min = global_freq_min.max(1.0);
+    let freq_max = global_freq_max.min(tf_results[0].sample_rate_hz / 2.0);
 
-    // Plot 1: Magnitude (dB)
-    draw_magnitude_plot(
-        &areas[0],
-        &filtered_freq,
-        &filtered_mag,
-        margins,
-        freq_min,
-        freq_max,
-    )?;
+    // Plot grid: rows are axes (Roll, Pitch, Yaw), columns are plot types (Mag, Phase, Coh)
+    for axis_index in 0..3 {
+        let tf = &tf_results[axis_index];
+        let margins = &margins_results[axis_index];
+        let axis_name = AXIS_NAMES[axis_index];
 
-    // Plot 2: Phase (degrees)
-    draw_phase_plot(
-        &areas[1],
-        &filtered_freq,
-        &filtered_phase,
-        margins,
-        freq_min,
-        freq_max,
-    )?;
+        // Filter data
+        let (filtered_freq, filtered_mag, filtered_phase, filtered_coh) =
+            filter_by_coherence(tf, 0.1);
 
-    // Plot 3: Coherence (0-1)
-    draw_coherence_plot(&areas[2], &filtered_freq, &filtered_coh, freq_min, freq_max)?;
+        if filtered_freq.is_empty() {
+            continue;
+        }
+
+        // Column 0: Magnitude
+        let mag_area = &areas[axis_index * 3];
+        draw_magnitude_subplot(
+            mag_area,
+            axis_name,
+            &filtered_freq,
+            &filtered_mag,
+            margins,
+            freq_min,
+            freq_max,
+        )?;
+
+        // Column 1: Phase
+        let phase_area = &areas[axis_index * 3 + 1];
+        draw_phase_subplot(
+            phase_area,
+            axis_name,
+            &filtered_freq,
+            &filtered_phase,
+            margins,
+            freq_min,
+            freq_max,
+        )?;
+
+        // Column 2: Coherence
+        let coh_area = &areas[axis_index * 3 + 2];
+        draw_coherence_subplot(
+            coh_area,
+            axis_name,
+            &filtered_freq,
+            &filtered_coh,
+            freq_min,
+            freq_max,
+        )?;
+    }
 
     root.present()?;
     Ok(())
-}
-
-/// Format plot title with stability margin information
-fn format_title(axis_name: &str, margins: &StabilityMargins) -> String {
-    let pm_str = if let Some(pm) = margins.phase_margin_deg {
-        format!("PM: {:.1}°", pm)
-    } else {
-        "PM: N/A".to_string()
-    };
-
-    let gm_str = if let Some(gm) = margins.gain_margin_db {
-        format!("GM: {:.1} dB", gm)
-    } else {
-        "GM: N/A".to_string()
-    };
-
-    format!("Bode Plot - {} ({}, {})", axis_name, pm_str, gm_str)
 }
 
 /// Filter transfer function data by coherence threshold
@@ -182,9 +214,10 @@ fn filter_by_coherence(
     (freq, mag, phase, coh)
 }
 
-/// Draw magnitude subplot
-fn draw_magnitude_plot(
+/// Draw magnitude subplot with axis label
+fn draw_magnitude_subplot(
     area: &DrawingArea<BitMapBackend, Shift>,
+    axis_name: &str,
     freq: &[f64],
     mag: &[f64],
     margins: &StabilityMargins,
@@ -202,7 +235,10 @@ fn draw_magnitude_plot(
     let mag_range_max = (mag_max + 10.0).ceil();
 
     let mut chart = ChartBuilder::on(area)
-        .caption("Magnitude", FONT_TUPLE_CHART_TITLE.into_font())
+        .caption(
+            format!("{} Magnitude", axis_name),
+            FONT_TUPLE_CHART_TITLE.into_font(),
+        )
         .margin(10)
         .x_label_area_size(40)
         .y_label_area_size(60)
@@ -256,9 +292,10 @@ fn draw_magnitude_plot(
     Ok(())
 }
 
-/// Draw phase subplot
-fn draw_phase_plot(
+/// Draw phase subplot with axis label
+fn draw_phase_subplot(
     area: &DrawingArea<BitMapBackend, Shift>,
+    axis_name: &str,
     freq: &[f64],
     phase: &[f64],
     margins: &StabilityMargins,
@@ -276,7 +313,10 @@ fn draw_phase_plot(
     let phase_range_max = (phase_max + 30.0).ceil();
 
     let mut chart = ChartBuilder::on(area)
-        .caption("Phase", FONT_TUPLE_CHART_TITLE.into_font())
+        .caption(
+            format!("{} Phase", axis_name),
+            FONT_TUPLE_CHART_TITLE.into_font(),
+        )
         .margin(10)
         .x_label_area_size(40)
         .y_label_area_size(60)
@@ -332,9 +372,10 @@ fn draw_phase_plot(
     Ok(())
 }
 
-/// Draw coherence subplot
-fn draw_coherence_plot(
+/// Draw coherence subplot with axis label
+fn draw_coherence_subplot(
     area: &DrawingArea<BitMapBackend, Shift>,
+    axis_name: &str,
     freq: &[f64],
     coh: &[f64],
     freq_min: f64,
@@ -345,7 +386,10 @@ fn draw_coherence_plot(
     }
 
     let mut chart = ChartBuilder::on(area)
-        .caption("Coherence", FONT_TUPLE_CHART_TITLE.into_font())
+        .caption(
+            format!("{} Coherence", axis_name),
+            FONT_TUPLE_CHART_TITLE.into_font(),
+        )
         .margin(10)
         .x_label_area_size(40)
         .y_label_area_size(60)
