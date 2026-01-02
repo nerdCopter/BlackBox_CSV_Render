@@ -1,6 +1,7 @@
 // src/plot_functions/mod.rs
 
 pub mod peak_detection;
+pub mod plot_bode;
 pub mod plot_d_term_heatmap;
 pub mod plot_d_term_psd;
 pub mod plot_d_term_spectrums;
