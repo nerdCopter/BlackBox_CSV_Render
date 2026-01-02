@@ -515,7 +515,7 @@ pub fn plot_d_term_spectrums(
     let max_y_filt = global_max_y_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR;
     let unified_y_max_filt = max_y_filt.max(d_term_floor_filt * 100.0); // Ensure reasonable range
 
-    // Now recreate axis_spectrums with unified Y-axis ranges
+    // Now recreate axis_spectrums with unified Y-axis ranges using helper method
     let mut unified_axis_spectrums: Vec<AxisSpectrum> = Vec::new();
 
     // Re-iterate to apply unified Y-axis
@@ -524,31 +524,12 @@ pub fn plot_d_term_spectrums(
         let unified_unfiltered = old_spectrum
             .unfiltered
             .as_ref()
-            .map(|old_config| PlotConfig {
-                title: old_config.title.clone(),
-                x_range: old_config.x_range.clone(),
-                y_range: d_term_floor_unfilt..unified_y_max_unfilt, // Unified Y-axis
-                series: old_config.series.clone(),
-                x_label: old_config.x_label.clone(),
-                y_label: old_config.y_label.clone(),
-                peaks: old_config.peaks.clone(),
-                peak_label_threshold: old_config.peak_label_threshold,
-                peak_label_format_string: old_config.peak_label_format_string.clone(),
-                frequency_ranges: old_config.frequency_ranges.clone(),
-            });
+            .map(|config| config.with_y_range(d_term_floor_unfilt..unified_y_max_unfilt));
 
-        let unified_filtered = old_spectrum.filtered.as_ref().map(|old_config| PlotConfig {
-            title: old_config.title.clone(),
-            x_range: old_config.x_range.clone(),
-            y_range: d_term_floor_filt..unified_y_max_filt, // Unified Y-axis
-            series: old_config.series.clone(),
-            x_label: old_config.x_label.clone(),
-            y_label: old_config.y_label.clone(),
-            peaks: old_config.peaks.clone(),
-            peak_label_threshold: old_config.peak_label_threshold,
-            peak_label_format_string: old_config.peak_label_format_string.clone(),
-            frequency_ranges: old_config.frequency_ranges.clone(),
-        });
+        let unified_filtered = old_spectrum
+            .filtered
+            .as_ref()
+            .map(|config| config.with_y_range(d_term_floor_filt..unified_y_max_filt));
 
         unified_axis_spectrums.push(AxisSpectrum {
             unfiltered: unified_unfiltered,

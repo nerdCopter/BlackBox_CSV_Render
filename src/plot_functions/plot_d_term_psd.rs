@@ -493,38 +493,19 @@ pub fn plot_d_term_psd(
         ((overall_max_db / db_step).floor() + 1.0) * db_step
     };
 
-    // Recreate axis_spectrums with unified Y-axis ranges
+    // Recreate axis_spectrums with unified Y-axis ranges using helper method
     let mut unified_axis_spectrums: Vec<AxisSpectrum> = Vec::new();
 
     for old_spectrum in &axis_spectrums {
         let unified_unfiltered = old_spectrum
             .unfiltered
             .as_ref()
-            .map(|old_config| PlotConfig {
-                title: old_config.title.clone(),
-                x_range: old_config.x_range.clone(),
-                y_range: unified_min_y_db..unified_max_y_db, // Unified Y-axis
-                series: old_config.series.clone(),
-                x_label: old_config.x_label.clone(),
-                y_label: old_config.y_label.clone(),
-                peaks: old_config.peaks.clone(),
-                peak_label_threshold: old_config.peak_label_threshold,
-                peak_label_format_string: old_config.peak_label_format_string.clone(),
-                frequency_ranges: old_config.frequency_ranges.clone(),
-            });
+            .map(|config| config.with_y_range(unified_min_y_db..unified_max_y_db));
 
-        let unified_filtered = old_spectrum.filtered.as_ref().map(|old_config| PlotConfig {
-            title: old_config.title.clone(),
-            x_range: old_config.x_range.clone(),
-            y_range: unified_min_y_db..unified_max_y_db, // Unified Y-axis
-            series: old_config.series.clone(),
-            x_label: old_config.x_label.clone(),
-            y_label: old_config.y_label.clone(),
-            peaks: old_config.peaks.clone(),
-            peak_label_threshold: old_config.peak_label_threshold,
-            peak_label_format_string: old_config.peak_label_format_string.clone(),
-            frequency_ranges: old_config.frequency_ranges.clone(),
-        });
+        let unified_filtered = old_spectrum
+            .filtered
+            .as_ref()
+            .map(|config| config.with_y_range(unified_min_y_db..unified_max_y_db));
 
         unified_axis_spectrums.push(AxisSpectrum {
             unfiltered: unified_unfiltered,
