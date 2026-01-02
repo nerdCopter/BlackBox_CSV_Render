@@ -48,7 +48,10 @@ pub struct TransferFunctionResult {
 impl TransferFunctionResult {
     /// Check if transfer function has valid data
     pub fn is_valid(&self) -> bool {
-        !self.frequency_hz.is_empty() && self.frequency_hz.len() == self.magnitude_db.len()
+        !self.frequency_hz.is_empty()
+            && self.frequency_hz.len() == self.magnitude_db.len()
+            && self.frequency_hz.len() == self.phase_deg.len()
+            && self.frequency_hz.len() == self.coherence.len()
     }
 
     /// Get number of frequency points
@@ -103,7 +106,11 @@ impl TransferFunctionResult {
         let m1 = self.magnitude_db[idx];
         let m2 = self.magnitude_db[idx + 1];
 
-        let t = (target_freq - f1) / (f2 - f1);
+        let t = if (f2 - f1).abs() > 1e-12 {
+            (target_freq - f1) / (f2 - f1)
+        } else {
+            0.5
+        };
         Some(m1 + t * (m2 - m1))
     }
 
@@ -129,7 +136,11 @@ impl TransferFunctionResult {
         let p1 = self.phase_deg[idx];
         let p2 = self.phase_deg[idx + 1];
 
-        let t = (target_freq - f1) / (f2 - f1);
+        let t = if (f2 - f1).abs() > 1e-12 {
+            (target_freq - f1) / (f2 - f1)
+        } else {
+            0.5
+        };
         Some(p1 + t * (p2 - p1))
     }
 
@@ -204,6 +215,10 @@ pub fn estimate_transfer_function_h1(
     // Compute H1 estimator: H1(f) = Sxy(f) / Sxx(f)
     let mut h1_complex = Vec::with_capacity(cpsd_xy.len());
     let mut frequency_hz = Vec::with_capacity(cpsd_xy.len());
+    let mut coherence_values = Vec::with_capacity(cpsd_xy.len());
+
+    // Calculate coherence for quality assessment
+    let coherence_result = coherence(&cpsd_xy, &psd_xx, &psd_yy)?;
 
     for (i, (freq, cpsd)) in cpsd_xy.iter().enumerate() {
         let psd_input = psd_xx[i].1;
@@ -212,6 +227,8 @@ pub fn estimate_transfer_function_h1(
             let h1 = cpsd / psd_input;
             h1_complex.push(h1);
             frequency_hz.push(*freq);
+            // Keep coherence value aligned with frequency and magnitude
+            coherence_values.push(coherence_result[i].1);
         }
     }
 
@@ -229,10 +246,6 @@ pub fn estimate_transfer_function_h1(
     let phase_rad: Vec<f64> = h1_complex.iter().map(|h| h.arg()).collect();
     let phase_deg: Vec<f64> = phase_rad.iter().map(|&p| to_phase_deg(p)).collect();
     let phase_deg_unwrapped = unwrap_phase(&phase_deg);
-
-    // Calculate coherence for quality assessment
-    let coherence_result = coherence(&cpsd_xy, &psd_xx, &psd_yy)?;
-    let coherence_values: Vec<f64> = coherence_result.iter().map(|(_, coh)| *coh).collect();
 
     Ok(TransferFunctionResult {
         frequency_hz,

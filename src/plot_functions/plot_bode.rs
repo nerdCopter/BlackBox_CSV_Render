@@ -20,6 +20,9 @@ use crate::data_analysis::transfer_function_estimation::{
 use crate::data_input::log_data::LogRowData;
 use crate::font_config::{FONT_TUPLE_AXIS_LABEL, FONT_TUPLE_CHART_TITLE, FONT_TUPLE_MAIN_TITLE};
 
+/// Minimum coherence threshold for filtering Bode plot data
+const MIN_COHERENCE_FOR_PLOT: f64 = 0.1;
+
 /// Plot Bode analysis for all three axes (Roll, Pitch, Yaw)
 ///
 /// Generates a single 3×3 grid plot with magnitude, phase, and coherence for all axes
@@ -130,7 +133,7 @@ fn create_bode_grid_plot(
     let mut global_freq_max: f64 = 0.0;
 
     for tf in tf_results {
-        let (filtered_freq, _, _, _) = filter_by_coherence(tf, 0.1);
+        let (filtered_freq, _, _, _) = filter_by_coherence(tf, MIN_COHERENCE_FOR_PLOT);
         if !filtered_freq.is_empty() {
             global_freq_min = global_freq_min.min(*filtered_freq.first().unwrap());
             global_freq_max = global_freq_max.max(*filtered_freq.last().unwrap());
@@ -148,7 +151,7 @@ fn create_bode_grid_plot(
 
         // Filter data
         let (filtered_freq, filtered_mag, filtered_phase, filtered_coh) =
-            filter_by_coherence(tf, 0.1);
+            filter_by_coherence(tf, MIN_COHERENCE_FOR_PLOT);
 
         if filtered_freq.is_empty() {
             continue;
