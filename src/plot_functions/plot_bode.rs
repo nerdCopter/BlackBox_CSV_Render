@@ -104,17 +104,17 @@ fn create_bode_plot(
     // Split into three rows
     let areas = root.margin(50, 5, 5, 5).split_evenly((3, 1));
 
-    // Filter data to coherence > 0.3 regions for better visualization
-    let (filtered_freq, filtered_mag, filtered_phase, filtered_coh) = filter_by_coherence(tf, 0.3);
+    // Filter data to coherence > 0.1 regions (very permissive - coherence plot shows quality)
+    let (filtered_freq, filtered_mag, filtered_phase, filtered_coh) = filter_by_coherence(tf, 0.1);
 
     if filtered_freq.is_empty() {
-        return Err("No data with coherence > 0.3".into());
+        return Err("No data with coherence > 0.1".into());
     }
 
-    // Determine frequency range (logarithmic, 0.1 Hz to Nyquist/2)
+    // Determine frequency range (logarithmic, 1 Hz to Nyquist frequency)
     let nyquist = tf.sample_rate_hz / 2.0;
-    let freq_min = 0.1_f64.max(*filtered_freq.first().unwrap_or(&0.1));
-    let freq_max = (nyquist / 2.0).min(*filtered_freq.last().unwrap_or(&100.0));
+    let freq_min = 1.0_f64.max(*filtered_freq.first().unwrap_or(&1.0));
+    let freq_max = nyquist.min(*filtered_freq.last().unwrap_or(&100.0));
 
     // Plot 1: Magnitude (dB)
     draw_magnitude_plot(
