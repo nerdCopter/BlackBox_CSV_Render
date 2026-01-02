@@ -7,7 +7,7 @@ use plotters::drawing::{DrawingArea, IntoDrawingArea};
 use plotters::element::{Circle, Text};
 use plotters::prelude::IntoLogRange;
 use plotters::series::LineSeries;
-use plotters::style::colors::{BLACK, GREEN, RED, WHITE, YELLOW};
+use plotters::style::colors::{BLACK, GREEN, RED, WHITE};
 use plotters::style::{IntoFont, RGBColor, ShapeStyle};
 use std::error::Error;
 
@@ -121,6 +121,9 @@ fn create_bode_grid_plot(
 
     // Split into 3×3 grid
     let areas = root.margin(60, 10, 10, 10).split_evenly((3, 3));
+
+    // Draw legend for confidence colors
+    draw_confidence_legend(&root, PLOT_WIDTH, PLOT_HEIGHT)?;
 
     // Determine global frequency range for consistency
     let mut global_freq_min = f64::INFINITY;
@@ -423,9 +426,93 @@ fn draw_coherence_subplot(
 fn confidence_color(conf: Confidence) -> RGBColor {
     match conf {
         Confidence::High => GREEN,
-        Confidence::Medium => YELLOW,
+        Confidence::Medium => RGBColor(255, 140, 0), // Dark orange - more visible than yellow
         Confidence::Low => RED,
     }
+}
+
+/// Draw legend explaining confidence color coding
+fn draw_confidence_legend(
+    root: &DrawingArea<BitMapBackend, Shift>,
+    width: u32,
+    _height: u32,
+) -> Result<(), Box<dyn Error>> {
+    let legend_x = width as i32 - 220;
+    let legend_y = 40;
+    let box_size = 12;
+    let spacing = 25;
+
+    // Legend background (white rectangle with border)
+    root.draw(&plotters::element::Rectangle::new(
+        [
+            (legend_x - 10, legend_y - 10),
+            (width as i32 - 10, legend_y + 95),
+        ],
+        plotters::style::ShapeStyle::from(&BLACK)
+            .stroke_width(1)
+            .filled(),
+    ))?;
+
+    root.draw(&plotters::element::Rectangle::new(
+        [
+            (legend_x - 8, legend_y - 8),
+            (width as i32 - 12, legend_y + 93),
+        ],
+        plotters::style::ShapeStyle::from(&WHITE)
+            .stroke_width(0)
+            .filled(),
+    ))?;
+
+    // Title
+    root.draw(&Text::new(
+        "Confidence Level",
+        (legend_x, legend_y + 5),
+        ("sans-serif", 14).into_font().color(&BLACK),
+    ))?;
+
+    // High confidence (green)
+    root.draw(&plotters::element::Rectangle::new(
+        [
+            (legend_x, legend_y + 20),
+            (legend_x + box_size, legend_y + 20 + box_size),
+        ],
+        plotters::style::ShapeStyle::from(&GREEN).filled(),
+    ))?;
+    root.draw(&Text::new(
+        "High (>0.7)",
+        (legend_x + 20, legend_y + 30),
+        ("sans-serif", 12).into_font().color(&BLACK),
+    ))?;
+
+    // Medium confidence (dark orange)
+    root.draw(&plotters::element::Rectangle::new(
+        [
+            (legend_x, legend_y + 20 + spacing),
+            (legend_x + box_size, legend_y + 20 + spacing + box_size),
+        ],
+        plotters::style::ShapeStyle::from(&RGBColor(255, 140, 0)).filled(),
+    ))?;
+    root.draw(&Text::new(
+        "Medium (0.4-0.7)",
+        (legend_x + 20, legend_y + 20 + spacing + 10),
+        ("sans-serif", 12).into_font().color(&BLACK),
+    ))?;
+
+    // Low confidence (red)
+    root.draw(&plotters::element::Rectangle::new(
+        [
+            (legend_x, legend_y + 20 + 2 * spacing),
+            (legend_x + box_size, legend_y + 20 + 2 * spacing + box_size),
+        ],
+        plotters::style::ShapeStyle::from(&RED).filled(),
+    ))?;
+    root.draw(&Text::new(
+        "Low (<0.4)",
+        (legend_x + 20, legend_y + 20 + 2 * spacing + 10),
+        ("sans-serif", 12).into_font().color(&BLACK),
+    ))?;
+
+    Ok(())
 }
 
 /// Linear interpolation helper
