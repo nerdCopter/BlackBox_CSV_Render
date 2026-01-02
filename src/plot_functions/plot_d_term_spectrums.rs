@@ -275,18 +275,6 @@ pub fn plot_d_term_spectrums(
             "".to_string()
         };
 
-        // Calculate linear amplitude Y-axis range with intelligent floor for D-terms
-        // D-terms naturally have lower amplitudes, especially filtered ones
-        // Use a much lower floor to prevent compressing low-amplitude signals
-        let d_term_floor_unfilt = (global_max_y_unfilt * 0.001).max(1.0); // 0.1% of max or 1.0 minimum
-        let d_term_floor_filt = (global_max_y_filt * 0.001).max(1.0); // 0.1% of max or 1.0 minimum
-
-        let max_y_unfilt = global_max_y_unfilt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR;
-        let y_max_unfilt = max_y_unfilt.max(d_term_floor_unfilt * 100.0); // Ensure reasonable range
-
-        let max_y_filt = global_max_y_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR;
-        let y_max_filt = max_y_filt.max(d_term_floor_filt * 100.0); // Ensure reasonable range
-
         // Create plot configurations
         let unfiltered_config = if !unfilt_series_data.is_empty() {
             let max_freq_display = if max_freq_for_auto_scale > 0.0 {
@@ -464,7 +452,7 @@ pub fn plot_d_term_spectrums(
             Some(PlotConfig {
                 title: format!("{} Unfiltered D-term (derivative of gyroUnfilt)", axis_name),
                 x_range: 0.0..max_freq_display,
-                y_range: d_term_floor_unfilt..y_max_unfilt,
+                y_range: 0.0..1.0, // Placeholder - will be replaced with unified range
                 series: unfilt_plot_series,
                 x_label: "Frequency (Hz)".to_string(),
                 y_label: "Amplitude".to_string(),
@@ -487,7 +475,7 @@ pub fn plot_d_term_spectrums(
             Some(PlotConfig {
                 title: format!("{} Filtered D-term (flight controller output)", axis_name),
                 x_range: 0.0..max_freq_display,
-                y_range: d_term_floor_filt..y_max_filt,
+                y_range: 0.0..1.0, // Placeholder - will be replaced with unified range
                 series: vec![PlotSeries {
                     data: filt_series_data,
                     label: if delay_str.is_empty() {
@@ -515,6 +503,40 @@ pub fn plot_d_term_spectrums(
         });
     }
 
+    // Calculate unified Y-axis range across ALL axes for consistent visual comparison (issue #115)
+    // D-terms naturally have lower amplitudes, especially filtered ones
+    // Use a much lower floor to prevent compressing low-amplitude signals
+    let d_term_floor_unfilt = (global_max_y_unfilt * 0.001).max(1.0); // 0.1% of max or 1.0 minimum
+    let d_term_floor_filt = (global_max_y_filt * 0.001).max(1.0); // 0.1% of max or 1.0 minimum
+
+    let max_y_unfilt = global_max_y_unfilt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR;
+    let unified_y_max_unfilt = max_y_unfilt.max(d_term_floor_unfilt * 100.0); // Ensure reasonable range
+
+    let max_y_filt = global_max_y_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR;
+    let unified_y_max_filt = max_y_filt.max(d_term_floor_filt * 100.0); // Ensure reasonable range
+
+    // Now recreate axis_spectrums with unified Y-axis ranges using helper method
+    let mut unified_axis_spectrums: Vec<AxisSpectrum> = Vec::new();
+
+    // Re-iterate to apply unified Y-axis
+    let axis_count = AXIS_NAMES.len().min(3);
+    for old_spectrum in axis_spectrums.iter().take(axis_count) {
+        let unified_unfiltered = old_spectrum
+            .unfiltered
+            .as_ref()
+            .map(|config| config.with_y_range(d_term_floor_unfilt..unified_y_max_unfilt));
+
+        let unified_filtered = old_spectrum
+            .filtered
+            .as_ref()
+            .map(|config| config.with_y_range(d_term_floor_filt..unified_y_max_filt));
+
+        unified_axis_spectrums.push(AxisSpectrum {
+            unfiltered: unified_unfiltered,
+            filtered: unified_filtered,
+        });
+    }
+
     let overall_max_y_amplitude = global_max_y_unfilt.max(global_max_y_filt);
 
     if overall_max_y_amplitude <= 0.0 {
@@ -527,8 +549,8 @@ pub fn plot_d_term_spectrums(
         root_name,
         "D-Term Spectrums",
         move |axis_index| {
-            if axis_index < axis_spectrums.len() {
-                Some(axis_spectrums[axis_index].clone())
+            if axis_index < unified_axis_spectrums.len() {
+                Some(unified_axis_spectrums[axis_index].clone())
             } else {
                 None
             }

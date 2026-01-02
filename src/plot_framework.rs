@@ -32,6 +32,7 @@ pub const CUTOFF_LINE_DOTTED_PREFIX: &str = "__CUTOFF_LINE_DOTTED__";
 
 /// Calculate plot range with padding.
 /// Adds 15% padding, or a fixed padding for very small ranges.
+#[allow(dead_code)]
 pub fn calculate_range(min_val: f64, max_val: f64) -> (f64, f64) {
     let (min, max) = if min_val <= max_val {
         (min_val, max_val)
@@ -115,6 +116,25 @@ pub struct PlotConfig {
     pub peak_label_threshold: Option<f64>,
     pub peak_label_format_string: Option<String>,
     pub frequency_ranges: Option<Vec<FrequencyRange>>,
+}
+
+impl PlotConfig {
+    /// Create a new PlotConfig with a different Y-axis range, cloning all other fields.
+    /// Useful for unified Y-axis scaling across multiple plots (issue #115).
+    pub fn with_y_range(&self, y_range: Range<f64>) -> Self {
+        PlotConfig {
+            title: self.title.clone(),
+            x_range: self.x_range.clone(),
+            y_range,
+            series: self.series.clone(),
+            x_label: self.x_label.clone(),
+            y_label: self.y_label.clone(),
+            peaks: self.peaks.clone(),
+            peak_label_threshold: self.peak_label_threshold,
+            peak_label_format_string: self.peak_label_format_string.clone(),
+            frequency_ranges: self.frequency_ranges.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]

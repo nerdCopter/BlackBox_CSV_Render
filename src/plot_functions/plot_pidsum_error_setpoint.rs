@@ -8,9 +8,10 @@ use crate::types::AllAxisPlotData3;
 
 use crate::constants::{
     COLOR_PIDERROR_MAIN, COLOR_PIDSUM_MAIN, COLOR_SETPOINT_MAIN, LINE_WIDTH_PLOT,
+    UNIFIED_Y_AXIS_MIN_SCALE,
 };
 use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{calculate_range, draw_stacked_plot, PlotSeries};
+use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 
 /// Generates the Stacked PIDsum vs PID Error vs Setpoint Plot (Green, Blue, Yellow)
 pub fn plot_pidsum_error_setpoint(
@@ -54,6 +55,34 @@ pub fn plot_pidsum_error_setpoint(
     let color_setpoint: RGBColor = *COLOR_SETPOINT_MAIN;
     let line_stroke_plot = LINE_WIDTH_PLOT;
 
+    // Pre-calculate min/max across ALL axes for symmetric/unified Y-axis scaling (issue #115)
+    let mut global_val_min = f64::INFINITY;
+    let mut global_val_max = f64::NEG_INFINITY;
+
+    #[allow(clippy::needless_range_loop)]
+    for axis_index in 0..axis_plot_data.len() {
+        let data = &axis_plot_data[axis_index];
+        for (_, setpoint, gyro_filt, pidsum) in data {
+            if let Some(p) = pidsum {
+                global_val_min = global_val_min.min(*p);
+                global_val_max = global_val_max.max(*p);
+            }
+            if let Some(s) = setpoint {
+                global_val_min = global_val_min.min(*s);
+                global_val_max = global_val_max.max(*s);
+                if let Some(g) = gyro_filt {
+                    let error = s - g;
+                    global_val_min = global_val_min.min(error);
+                    global_val_max = global_val_max.max(error);
+                }
+            }
+        }
+    }
+
+    // Determine symmetric half-range with minimum scale
+    let global_half = global_val_min.abs().max(global_val_max.abs());
+    let half_range = global_half.max(UNIFIED_Y_AXIS_MIN_SCALE);
+
     draw_stacked_plot(
         &output_file_pidsum_error,
         root_name,
@@ -70,8 +99,6 @@ pub fn plot_pidsum_error_setpoint(
 
             let mut time_min = f64::INFINITY;
             let mut time_max = f64::NEG_INFINITY;
-            let mut val_min = f64::INFINITY;
-            let mut val_max = f64::NEG_INFINITY;
 
             for (time, setpoint, gyro_filt, pidsum) in data {
                 time_min = time_min.min(*time);
@@ -79,18 +106,12 @@ pub fn plot_pidsum_error_setpoint(
 
                 if let Some(p) = pidsum {
                     pidsum_series_data.push((*time, *p));
-                    val_min = val_min.min(*p);
-                    val_max = val_max.max(*p);
                 }
                 if let Some(s) = setpoint {
                     setpoint_series_data.push((*time, *s));
-                    val_min = val_min.min(*s);
-                    val_max = val_max.max(*s);
                     if let Some(g) = gyro_filt {
                         let error = s - g;
                         pid_error_series_data.push((*time, error));
-                        val_min = val_min.min(error);
-                        val_max = val_max.max(error);
                     }
                 }
             }
@@ -102,9 +123,9 @@ pub fn plot_pidsum_error_setpoint(
                 return None;
             }
 
-            let (final_value_min, final_value_max) = calculate_range(val_min, val_max);
+            // Use unified symmetric Y-axis range across all axes
             let x_range = time_min..time_max;
-            let y_range = final_value_min..final_value_max;
+            let y_range = -half_range..half_range;
 
             let mut series = Vec::new();
             if !pidsum_series_data.is_empty() {

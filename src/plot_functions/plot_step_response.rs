@@ -12,7 +12,7 @@ use crate::constants::{
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
 use crate::data_input::pid_metadata::PidMetadata;
-use crate::plot_framework::{calculate_range, draw_stacked_plot, PlotSeries};
+use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 use crate::types::{AllStepResponsePlotData, StepResponseResults};
 
 #[allow(clippy::too_many_arguments)]
@@ -57,6 +57,13 @@ pub fn plot_step_response(
     let sr = sample_rate.unwrap_or(1000.0); // Default sample rate if not provided
 
     let mut plot_data_per_axis: AllStepResponsePlotData = Default::default();
+
+    // Track global min/max for symmetric Y-axis scaling (issue #115)
+    let mut global_resp_min = f64::INFINITY;
+    let mut global_resp_max = f64::NEG_INFINITY;
+
+    // Temporary storage for series and metadata before creating final plot_data_per_axis
+    let mut temp_axis_data: Vec<Option<(String, Vec<PlotSeries>)>> = vec![None; 3];
 
     // Compute a safe shared bound for all arrays to prevent out-of-bounds access
     let axis_count = usize::min(
@@ -324,27 +331,14 @@ pub fn plot_step_response(
             }
 
             // Calculate y-range from the actual series data
-            let mut resp_min = f64::INFINITY;
-            let mut resp_max = f64::NEG_INFINITY;
             for s_data in &series {
                 for &(_, v) in &s_data.data {
                     if v.is_finite() {
-                        resp_min = resp_min.min(v);
-                        resp_max = resp_max.max(v);
+                        global_resp_min = global_resp_min.min(v);
+                        global_resp_max = global_resp_max.max(v);
                     }
                 }
             }
-
-            let (final_resp_min, final_resp_max) = if resp_min.is_finite() && resp_max.is_finite() {
-                calculate_range(resp_min, resp_max)
-            } else {
-                // Default range if no valid data, or handle as error
-                eprintln!("Warning: Axis {axis_index} has no finite data for Y-axis range calculation. Using default range.");
-                (-0.2, 1.8) // A reasonable default for normalized step responses
-            };
-
-            let x_range = 0f64..step_response_plot_duration_s * 1.05; // Add a little padding to x-axis
-            let y_range = final_resp_min..final_resp_max;
 
             // Add current P:D ratio with quality assessment as legend entries for Roll/Pitch
             if axis_index < 2 {
@@ -423,26 +417,47 @@ pub fn plot_step_response(
                 }
             }
 
-            plot_data_per_axis[axis_index] = Some((
-                {
-                    let mut title = format!("{} Step Response", AXIS_NAMES[axis_index]);
+            // Store title for later use
+            let mut title = format!("{} Step Response", AXIS_NAMES[axis_index]);
+            if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
+                let firmware_type = pid_metadata.get_firmware_type();
+                let pid_info = axis_pid.format_for_title(firmware_type, dmax_enabled);
+                if !pid_info.is_empty() {
+                    title.push_str(&pid_info);
+                }
+            }
+            if has_nonzero_f_term_data[axis_index] {
+                title.push_str(" - Invalid due to Feed-Forward");
+            }
 
-                    // Add PID information to the title using firmware-specific terminology (no P:D ratio)
-                    if let Some(axis_pid) = pid_metadata.get_axis(axis_index) {
-                        let firmware_type = pid_metadata.get_firmware_type();
-                        let pid_info = axis_pid.format_for_title(firmware_type, dmax_enabled);
-                        if !pid_info.is_empty() {
-                            title.push_str(&pid_info);
-                        }
-                    }
-                    // Keep original invalidity logic from master - same for all firmware types
-                    if has_nonzero_f_term_data[axis_index] {
-                        title.push_str(" - Invalid due to Feed-Forward");
-                    }
-                    title
-                },
-                x_range,
-                y_range,
+            temp_axis_data[axis_index] = Some((title, series));
+        }
+    }
+
+    // Calculate unified Y-axis range across ALL axes for symmetric scaling (issue #115)
+    let (final_resp_min, final_resp_max) =
+        if global_resp_min.is_finite() && global_resp_max.is_finite() {
+            // Simple symmetric range expansion with 10% padding
+            let range = (global_resp_max - global_resp_min).max(0.1);
+            let mid = (global_resp_max + global_resp_min) / 2.0;
+            let half_range = range * 0.55; // 10% padding = 1.1/2 = 0.55
+            (mid - half_range, mid + half_range)
+        } else {
+            // Default range if no valid data
+            eprintln!("Warning: No finite step response data found. Using default range.");
+            (-0.2, 1.8) // A reasonable default for normalized step responses
+        };
+
+    let x_range = 0f64..step_response_plot_duration_s * 1.05;
+    let y_range = final_resp_min..final_resp_max;
+
+    // Now populate plot_data_per_axis with unified Y-axis range
+    for axis_index in 0..axis_count {
+        if let Some((title, series)) = temp_axis_data[axis_index].take() {
+            plot_data_per_axis[axis_index] = Some((
+                title,
+                x_range.clone(),
+                y_range.clone(),
                 series,
                 "Time (s)".to_string(),
                 "Normalized Response".to_string(),
@@ -454,11 +469,6 @@ pub fn plot_step_response(
         &output_file_step,
         root_name,
         plot_type_name,
-        move |axis_idx_for_closure| {
-            // Renamed to avoid conflict if axis_index is passed for debug
-            plot_data_per_axis[axis_idx_for_closure].as_ref().cloned()
-        },
+        move |axis_idx_for_closure| plot_data_per_axis[axis_idx_for_closure].as_ref().cloned(),
     )
 }
-
-// src/plot_functions/plot_step_response.rs
