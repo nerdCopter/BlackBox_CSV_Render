@@ -481,12 +481,14 @@ fn draw_confidence_legend(
     let legend_y = 40;
     let box_size = 12;
     let spacing = 25;
+    let box_offset = 10; // Vertical offset to align box with text baseline
+    let text_offset = 9; // Vertical offset to center text with box
 
-    // Legend background (white rectangle with border)
+    // Legend background (white rectangle with border) - increased bottom padding for whitespace
     root.draw(&plotters::element::Rectangle::new(
         [
             (legend_x - 10, legend_y - 10),
-            (width as i32 - 10, legend_y + 95),
+            (width as i32 - 10, legend_y + 110),
         ],
         plotters::style::ShapeStyle::from(&BLACK)
             .stroke_width(1)
@@ -496,7 +498,7 @@ fn draw_confidence_legend(
     root.draw(&plotters::element::Rectangle::new(
         [
             (legend_x - 8, legend_y - 8),
-            (width as i32 - 12, legend_y + 93),
+            (width as i32 - 12, legend_y + 108),
         ],
         plotters::style::ShapeStyle::from(&WHITE)
             .stroke_width(0)
@@ -515,42 +517,48 @@ fn draw_confidence_legend(
     // High confidence (green)
     root.draw(&plotters::element::Rectangle::new(
         [
-            (legend_x, legend_y + 20),
-            (legend_x + box_size, legend_y + 20 + box_size),
+            (legend_x, legend_y + 20 + box_offset),
+            (legend_x + box_size, legend_y + 20 + box_offset + box_size),
         ],
         plotters::style::ShapeStyle::from(&GREEN).filled(),
     ))?;
     root.draw(&Text::new(
         "High (>0.7)",
-        (legend_x + 20, legend_y + 30),
+        (legend_x + 20, legend_y + 20 + text_offset),
         ("sans-serif", FONT_SIZE_LEGEND).into_font().color(&BLACK),
     ))?;
 
     // Medium confidence (dark orange)
     root.draw(&plotters::element::Rectangle::new(
         [
-            (legend_x, legend_y + 20 + spacing),
-            (legend_x + box_size, legend_y + 20 + spacing + box_size),
+            (legend_x, legend_y + 20 + spacing + box_offset),
+            (
+                legend_x + box_size,
+                legend_y + 20 + spacing + box_offset + box_size,
+            ),
         ],
         plotters::style::ShapeStyle::from(&RGBColor(255, 140, 0)).filled(),
     ))?;
     root.draw(&Text::new(
         "Medium (0.4-0.7)",
-        (legend_x + 20, legend_y + 20 + spacing + 10),
+        (legend_x + 20, legend_y + 20 + spacing + text_offset),
         ("sans-serif", FONT_SIZE_LEGEND).into_font().color(&BLACK),
     ))?;
 
     // Low confidence (red)
     root.draw(&plotters::element::Rectangle::new(
         [
-            (legend_x, legend_y + 20 + 2 * spacing),
-            (legend_x + box_size, legend_y + 20 + 2 * spacing + box_size),
+            (legend_x, legend_y + 20 + 2 * spacing + box_offset),
+            (
+                legend_x + box_size,
+                legend_y + 20 + 2 * spacing + box_offset + box_size,
+            ),
         ],
         plotters::style::ShapeStyle::from(&RED).filled(),
     ))?;
     root.draw(&Text::new(
         "Low (<0.4)",
-        (legend_x + 20, legend_y + 20 + 2 * spacing + 10),
+        (legend_x + 20, legend_y + 20 + 2 * spacing + text_offset),
         ("sans-serif", FONT_SIZE_LEGEND).into_font().color(&BLACK),
     ))?;
 
