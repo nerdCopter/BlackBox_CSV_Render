@@ -155,9 +155,8 @@ fn create_bode_grid_plot(
 
     // Guard against all axes having empty filtered data
     if global_freq_min.is_infinite() || global_freq_max == 0.0 {
-        // No valid data to plot - use safe defaults or return
-        global_freq_min = 1.0;
-        global_freq_max = tf_results[0].sample_rate_hz / 2.0;
+        println!("\nINFO: Skipping Bode Plot: All axes have insufficient coherence for plotting.");
+        return Ok(());
     }
 
     let freq_min = global_freq_min.max(1.0);
@@ -542,8 +541,9 @@ fn draw_confidence_legend(
 
 /// Linear interpolation helper
 ///
-/// # Panics (debug mode)
-/// Panics if x is not sorted in ascending order.
+/// # Panics
+/// In debug builds, panics if `x` is not sorted in ascending order.
+/// In release builds, behavior is undefined if `x` is not sorted.
 fn interpolate(x: &[f64], y: &[f64], x_target: f64) -> Option<f64> {
     if x.len() != y.len() || x.len() < 2 {
         return None;
