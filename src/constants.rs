@@ -231,4 +231,15 @@ pub const MIN_REASONABLE_PD_RATIO: f64 = 0.3; // Don't recommend D > 3.3× P (wa
 pub const MAX_REASONABLE_PD_RATIO: f64 = 3.0; // Don't recommend D < P/3
 pub const SEVERE_OVERSHOOT_THRESHOLD: f64 = 1.5; // Peak > 1.5 suggests deeper issues than just D tuning
 
+// Bode analysis and transfer function estimation constants
+pub const COHERENCE_HIGH_THRESHOLD: f64 = 0.7; // High confidence threshold for stability margins
+pub const COHERENCE_MEDIUM_THRESHOLD: f64 = 0.4; // Medium confidence threshold for stability margins
+pub const FREQUENCY_EPSILON: f64 = 1e-12; // Guard against division by zero for frequency differences
+pub const VALUE_EPSILON: f64 = 1e-12; // Guard against division by zero for value (magnitude/phase) differences
+pub const PSD_EPSILON: f64 = 1e-12; // Guard against division by zero for PSD values
+
+// Bode plot margin constants
+pub const MAGNITUDE_PLOT_MARGIN_DB: f64 = 10.0; // Padding above/below magnitude data for plot range
+pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data for plot range
+
 // src/constants.rs

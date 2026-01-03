@@ -44,6 +44,7 @@ struct PlotConfig {
     pub throttle_freq_heatmap: bool,
     pub d_term_heatmap: bool,
     pub motor_spectrums: bool,
+    pub bode: bool,
 }
 
 impl Default for PlotConfig {
@@ -62,6 +63,7 @@ impl Default for PlotConfig {
             throttle_freq_heatmap: true,
             d_term_heatmap: true,
             motor_spectrums: true,
+            bode: true,
         }
     }
 }
@@ -82,6 +84,7 @@ impl PlotConfig {
             throttle_freq_heatmap: false,
             d_term_heatmap: false,
             motor_spectrums: false,
+            bode: false,
         }
     }
 }
@@ -91,6 +94,7 @@ use crate::constants::{
 };
 
 // Specific plot function imports
+use crate::plot_functions::plot_bode::plot_bode_analysis;
 use crate::plot_functions::plot_d_term_heatmap::plot_d_term_heatmap;
 use crate::plot_functions::plot_d_term_psd::plot_d_term_psd;
 use crate::plot_functions::plot_d_term_spectrums::plot_d_term_spectrums;
@@ -300,7 +304,7 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step] [--motor] [--setpoint]");
+Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step] [--motor] [--setpoint] [--bode]");
     eprintln!("  <inputX>: Path to one or more input CSV log files or directories containing CSV files (required).");
     eprintln!("            If a directory is specified, all CSV files within it (including subdirectories) will be processed.");
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
@@ -322,6 +326,7 @@ Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <dir
     eprintln!(
         "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
     );
+    eprintln!("  --bode: Optional. Generate only Bode analysis plots, skipping all other graphs.");
     eprintln!("  -h, --help: Show this help message and exit.");
     eprintln!("  -V, --version: Show version information and exit.");
     eprintln!(
@@ -1001,6 +1006,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         )?;
     }
 
+    if plot_config.bode {
+        plot_bode_analysis(&all_log_data, &root_name_string, sample_rate)?;
+    }
+
     if plot_config.psd_db_heatmap {
         plot_psd_db_heatmap(
             &all_log_data,
@@ -1054,6 +1063,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut step_requested = false;
     let mut motor_requested = false;
     let mut setpoint_requested = false;
+    let mut bode_requested = false;
 
     let mut version_flag_set = false;
 
@@ -1113,6 +1123,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--setpoint" {
             has_only_flags = true;
             setpoint_requested = true;
+        } else if arg == "--bode" {
+            has_only_flags = true;
+            bode_requested = true;
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1127,6 +1140,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         plot_config = PlotConfig::none();
         plot_config.step_response = step_requested;
         plot_config.motor_spectrums = motor_requested;
+        plot_config.bode = bode_requested;
         if setpoint_requested {
             plot_config.pidsum_error_setpoint = true;
             plot_config.setpoint_vs_gyro = true;
