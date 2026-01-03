@@ -50,7 +50,7 @@ pub fn plot_bode_analysis(
             Ok(tf) => tf,
             Err(e) => {
                 println!("  Skipping Bode plot for {}: {}", axis_name, e);
-                return Ok(());
+                continue; // Skip this axis, process remaining axes
             }
         };
 
@@ -95,15 +95,22 @@ pub fn plot_bode_analysis(
     Ok(())
 }
 
-/// Create a 3×3 grid Bode plot (3 axes × 3 plot types)
+/// Create a grid Bode plot (1 to 3 axes × 3 plot types)
 fn create_bode_grid_plot(
     output_file: &str,
     root_name: &str,
     tf_results: &[TransferFunctionResult],
     margins_results: &[StabilityMargins],
 ) -> Result<(), Box<dyn Error>> {
-    if tf_results.len() != 3 || margins_results.len() != 3 {
-        return Err("Expected exactly 3 axes for Bode grid plot".into());
+    if tf_results.is_empty() || tf_results.len() > 3 {
+        return Err(format!(
+            "Expected 1-3 axes for Bode grid plot, got {}",
+            tf_results.len()
+        )
+        .into());
+    }
+    if tf_results.len() != margins_results.len() {
+        return Err("Transfer function and margins results must have same length".into());
     }
 
     // Validate all transfer functions
@@ -124,8 +131,10 @@ fn create_bode_grid_plot(
         FONT_TUPLE_MAIN_TITLE.into_font().color(&BLACK),
     ))?;
 
-    // Split into 3×3 grid
-    let areas = root.margin(60, 10, 10, 10).split_evenly((3, 3));
+    // Split into N×3 grid (N = number of axes)
+    let areas = root
+        .margin(60, 10, 10, 10)
+        .split_evenly((tf_results.len(), 3));
 
     // Draw legend for confidence colors
     draw_confidence_legend(&root, PLOT_WIDTH, PLOT_HEIGHT)?;
@@ -145,8 +154,8 @@ fn create_bode_grid_plot(
     let freq_min = global_freq_min.max(1.0);
     let freq_max = global_freq_max.min(tf_results[0].sample_rate_hz / 2.0);
 
-    // Plot grid: rows are axes (Roll, Pitch, Yaw), columns are plot types (Mag, Phase, Coh)
-    for axis_index in 0..3 {
+    // Plot grid: rows are axes, columns are plot types (Mag, Phase, Coh)
+    for axis_index in 0..tf_results.len() {
         let tf = &tf_results[axis_index];
         let margins = &margins_results[axis_index];
         let axis_name = AXIS_NAMES[axis_index];
@@ -523,10 +532,19 @@ fn draw_confidence_legend(
 }
 
 /// Linear interpolation helper
+///
+/// # Panics (debug mode)
+/// Panics if x is not sorted in ascending order.
 fn interpolate(x: &[f64], y: &[f64], x_target: f64) -> Option<f64> {
     if x.len() != y.len() || x.len() < 2 {
         return None;
     }
+
+    // Validate x is sorted (debug builds only)
+    debug_assert!(
+        x.windows(2).all(|w| w[0] <= w[1]),
+        "interpolate requires sorted x array"
+    );
 
     // Find bracketing indices
     let mut idx = 0;
