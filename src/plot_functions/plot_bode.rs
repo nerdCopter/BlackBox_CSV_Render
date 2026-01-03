@@ -151,6 +151,13 @@ fn create_bode_grid_plot(
         }
     }
 
+    // Guard against all axes having empty filtered data
+    if global_freq_min.is_infinite() || global_freq_max == 0.0 {
+        // No valid data to plot - use safe defaults or return
+        global_freq_min = 1.0;
+        global_freq_max = tf_results[0].sample_rate_hz / 2.0;
+    }
+
     let freq_min = global_freq_min.max(1.0);
     let freq_max = global_freq_max.min(tf_results[0].sample_rate_hz / 2.0);
 
@@ -552,6 +559,10 @@ fn interpolate(x: &[f64], y: &[f64], x_target: f64) -> Option<f64> {
         idx += 1;
     }
 
+    // Clamp to bounds
+    if x_target < x[0] {
+        return Some(y[0]);
+    }
     if idx >= x.len() - 1 {
         return Some(y[y.len() - 1]);
     }
