@@ -71,6 +71,12 @@ pub fn plot_bode_analysis(
         margins_results.push(margins);
     }
 
+    // Early exit if no valid axes
+    if tf_results.is_empty() {
+        println!("\nINFO: Skipping Bode Plot: No valid transfer function data for any axis.");
+        return Ok(());
+    }
+
     // Generate single combined plot filename
     let output_file = format!("{}_Bode_Analysis.png", root_name);
 
