@@ -149,7 +149,7 @@ fn create_bode_grid_plot(
 
     // Determine global frequency range for consistency
     let mut global_freq_min = f64::INFINITY;
-    let mut global_freq_max: f64 = 0.0;
+    let mut global_freq_max = f64::NEG_INFINITY;
 
     for tf in tf_results {
         let (filtered_freq, _, _, _) = filter_by_coherence(tf, MIN_COHERENCE_FOR_PLOT);
@@ -160,7 +160,7 @@ fn create_bode_grid_plot(
     }
 
     // Guard against all axes having empty filtered data
-    if global_freq_min.is_infinite() || global_freq_max == 0.0 {
+    if global_freq_min.is_infinite() || global_freq_max.is_infinite() {
         println!("\nINFO: Skipping Bode Plot: All axes have insufficient coherence for plotting.");
         return Ok(());
     }
