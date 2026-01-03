@@ -85,19 +85,25 @@ impl TransferFunctionResult {
     }
 
     /// Get magnitude at a specific frequency (with interpolation)
+    ///
+    /// Returns the value at the edge if target_freq is outside the frequency range.
     pub fn get_magnitude_at_freq(&self, target_freq: f64) -> Option<f64> {
         if self.frequency_hz.len() < 2 {
             return None;
+        }
+
+        // Handle out-of-bounds cases explicitly
+        if target_freq < self.frequency_hz[0] {
+            return self.magnitude_db.first().copied();
+        }
+        if target_freq > *self.frequency_hz.last().unwrap() {
+            return self.magnitude_db.last().copied();
         }
 
         // Find bracketing indices
         let mut idx = 0;
         while idx < self.frequency_hz.len() - 1 && self.frequency_hz[idx + 1] < target_freq {
             idx += 1;
-        }
-
-        if idx >= self.frequency_hz.len() - 1 {
-            return self.magnitude_db.last().copied();
         }
 
         // Linear interpolation
@@ -115,19 +121,25 @@ impl TransferFunctionResult {
     }
 
     /// Get phase at a specific frequency (with interpolation)
+    ///
+    /// Returns the value at the edge if target_freq is outside the frequency range.
     pub fn get_phase_at_freq(&self, target_freq: f64) -> Option<f64> {
         if self.frequency_hz.len() < 2 {
             return None;
+        }
+
+        // Handle out-of-bounds cases explicitly
+        if target_freq < self.frequency_hz[0] {
+            return self.phase_deg.first().copied();
+        }
+        if target_freq > *self.frequency_hz.last().unwrap() {
+            return self.phase_deg.last().copied();
         }
 
         // Find bracketing indices
         let mut idx = 0;
         while idx < self.frequency_hz.len() - 1 && self.frequency_hz[idx + 1] < target_freq {
             idx += 1;
-        }
-
-        if idx >= self.frequency_hz.len() - 1 {
-            return self.phase_deg.last().copied();
         }
 
         // Linear interpolation
