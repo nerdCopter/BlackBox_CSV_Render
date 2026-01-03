@@ -238,4 +238,8 @@ pub const FREQUENCY_EPSILON: f64 = 1e-12; // Guard against division by zero for 
 pub const VALUE_EPSILON: f64 = 1e-12; // Guard against division by zero for value (magnitude/phase) differences
 pub const PSD_EPSILON: f64 = 1e-12; // Guard against division by zero for PSD values
 
+// Bode plot margin constants
+pub const MAGNITUDE_PLOT_MARGIN_DB: f64 = 10.0; // Padding above/below magnitude data for plot range
+pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data for plot range
+
 // src/constants.rs

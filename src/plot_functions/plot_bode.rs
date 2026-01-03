@@ -13,8 +13,8 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, FREQUENCY_EPSILON, LINE_WIDTH_PLOT, PLOT_HEIGHT,
-    PLOT_WIDTH,
+    FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, FREQUENCY_EPSILON, LINE_WIDTH_PLOT,
+    MAGNITUDE_PLOT_MARGIN_DB, PHASE_PLOT_MARGIN_DEG, PLOT_HEIGHT, PLOT_WIDTH,
 };
 use crate::data_analysis::transfer_function_estimation::{
     calculate_stability_margins, estimate_transfer_function_h1, Confidence, StabilityMargins,
@@ -261,8 +261,8 @@ fn draw_magnitude_subplot(
     // Determine magnitude range
     let mag_min = mag.iter().copied().fold(f64::INFINITY, f64::min);
     let mag_max = mag.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let mag_range_min = (mag_min - 10.0).floor();
-    let mag_range_max = (mag_max + 10.0).ceil();
+    let mag_range_min = (mag_min - MAGNITUDE_PLOT_MARGIN_DB).floor();
+    let mag_range_max = (mag_max + MAGNITUDE_PLOT_MARGIN_DB).ceil();
 
     let mut chart = ChartBuilder::on(area)
         .caption(
@@ -339,8 +339,8 @@ fn draw_phase_subplot(
     // Determine phase range
     let phase_min = phase.iter().copied().fold(f64::INFINITY, f64::min);
     let phase_max = phase.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let phase_range_min = (phase_min - 30.0).floor();
-    let phase_range_max = (phase_max + 30.0).ceil();
+    let phase_range_min = (phase_min - PHASE_PLOT_MARGIN_DEG).floor();
+    let phase_range_max = (phase_max + PHASE_PLOT_MARGIN_DEG).ceil();
 
     let mut chart = ChartBuilder::on(area)
         .caption(
