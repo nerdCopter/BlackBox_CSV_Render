@@ -67,24 +67,43 @@ impl TransferFunctionResult {
         self.frequency_hz.is_empty()
     }
 
-    /// Find index closest to a given frequency
+    /// Find index closest to a given frequency using binary search
     pub fn find_frequency_index(&self, target_freq: f64) -> Option<usize> {
         if self.frequency_hz.is_empty() {
             return None;
         }
 
-        let mut best_idx = 0;
-        let mut best_diff = (self.frequency_hz[0] - target_freq).abs();
-
-        for (i, &freq) in self.frequency_hz.iter().enumerate() {
-            let diff = (freq - target_freq).abs();
-            if diff < best_diff {
-                best_diff = diff;
-                best_idx = i;
-            }
+        // Handle NaN target frequency
+        if target_freq.is_nan() {
+            return None;
         }
 
-        Some(best_idx)
+        // Binary search for exact match or insertion point
+        match self.frequency_hz.binary_search_by(|freq| {
+            freq.partial_cmp(&target_freq)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }) {
+            Ok(idx) => Some(idx), // Exact match found
+            Err(idx) => {
+                // idx is the insertion point; compare neighbors for closest match
+                if idx == 0 {
+                    // target_freq is less than all frequencies
+                    Some(0)
+                } else if idx >= self.frequency_hz.len() {
+                    // target_freq is greater than all frequencies
+                    Some(self.frequency_hz.len() - 1)
+                } else {
+                    // target_freq is between idx-1 and idx; pick the closer one
+                    let left_diff = (self.frequency_hz[idx - 1] - target_freq).abs();
+                    let right_diff = (self.frequency_hz[idx] - target_freq).abs();
+                    if left_diff <= right_diff {
+                        Some(idx - 1)
+                    } else {
+                        Some(idx)
+                    }
+                }
+            }
+        }
     }
 
     /// Get magnitude at a specific frequency (with interpolation)
