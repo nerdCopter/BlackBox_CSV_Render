@@ -13,7 +13,8 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, LINE_WIDTH_PLOT, PLOT_HEIGHT, PLOT_WIDTH,
+    FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, FREQUENCY_EPSILON, LINE_WIDTH_PLOT, PLOT_HEIGHT,
+    PLOT_WIDTH,
 };
 use crate::data_analysis::transfer_function_estimation::{
     calculate_stability_margins, estimate_transfer_function_h1, Confidence, StabilityMargins,
@@ -83,9 +84,10 @@ pub fn plot_bode_analysis(
     }
 
     // Print warnings for all axes
-    for (axis_index, margins) in margins_results.iter().enumerate() {
+    for (axis_idx, margins) in margins_results.iter().enumerate() {
         if !margins.warnings.is_empty() {
-            println!("  Bode Analysis Warnings for {}:", AXIS_NAMES[axis_index]);
+            let axis_name = &tf_results[axis_idx].axis_name;
+            println!("  Bode Analysis Warnings for {}:", axis_name);
             for warning in &margins.warnings {
                 println!("    - {}", warning);
             }
@@ -165,7 +167,7 @@ fn create_bode_grid_plot(
     for axis_index in 0..tf_results.len() {
         let tf = &tf_results[axis_index];
         let margins = &margins_results[axis_index];
-        let axis_name = AXIS_NAMES[axis_index];
+        let axis_name = &tf.axis_name;
 
         // Filter data
         let (filtered_freq, filtered_mag, filtered_phase, filtered_coh) =
@@ -572,6 +574,11 @@ fn interpolate(x: &[f64], y: &[f64], x_target: f64) -> Option<f64> {
     let x2 = x[idx + 1];
     let y1 = y[idx];
     let y2 = y[idx + 1];
+
+    // Guard against duplicate x values
+    if (x2 - x1).abs() < FREQUENCY_EPSILON {
+        return Some(y1);
+    }
 
     let t = (x_target - x1) / (x2 - x1);
     Some(y1 + t * (y2 - y1))
