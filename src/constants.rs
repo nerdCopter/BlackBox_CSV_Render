@@ -235,6 +235,7 @@ pub const SEVERE_OVERSHOOT_THRESHOLD: f64 = 1.5; // Peak > 1.5 suggests deeper i
 pub const COHERENCE_HIGH_THRESHOLD: f64 = 0.7; // High confidence threshold for stability margins
 pub const COHERENCE_MEDIUM_THRESHOLD: f64 = 0.4; // Medium confidence threshold for stability margins
 pub const FREQUENCY_EPSILON: f64 = 1e-12; // Guard against division by zero for frequency differences
+pub const VALUE_EPSILON: f64 = 1e-12; // Guard against division by zero for value (magnitude/phase) differences
 pub const PSD_EPSILON: f64 = 1e-12; // Guard against division by zero for PSD values
 
 // src/constants.rs

@@ -5,6 +5,7 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COHERENCE_HIGH_THRESHOLD, COHERENCE_MEDIUM_THRESHOLD, FREQUENCY_EPSILON, PSD_EPSILON,
+    VALUE_EPSILON,
 };
 use crate::data_analysis::spectral_analysis::{
     coherence, to_magnitude_db, to_phase_deg, unwrap_phase, welch_cpsd, welch_psd, WelchConfig,
@@ -492,7 +493,7 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
             let f2 = frequencies[i + 1];
 
             // Linear interpolation
-            let t = if (v2 - v1).abs() > FREQUENCY_EPSILON {
+            let t = if (v2 - v1).abs() > VALUE_EPSILON {
                 (target - v1) / (v2 - v1)
             } else {
                 0.5
@@ -537,7 +538,7 @@ fn find_last_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Opti
             let f2 = frequencies[i + 1];
 
             // Linear interpolation
-            let t = if (v2 - v1).abs() > FREQUENCY_EPSILON {
+            let t = if (v2 - v1).abs() > VALUE_EPSILON {
                 (target - v1) / (v2 - v1)
             } else {
                 0.5
