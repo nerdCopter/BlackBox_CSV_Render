@@ -301,16 +301,22 @@ fn draw_magnitude_subplot(
 
     // Mark gain crossover
     if let Some(f_c) = margins.gain_crossover_hz {
-        if f_c >= freq_min && f_c <= freq_max {
-            let color = confidence_color(margins.confidence);
+        let color = confidence_color(margins.confidence);
+        let in_range = f_c >= freq_min && f_c <= freq_max;
 
-            // Vertical line
-            chart.draw_series(LineSeries::new(
-                vec![(f_c, mag_range_min), (f_c, mag_range_max)],
-                ShapeStyle::from(&color).stroke_width(2),
-            ))?;
+        // Draw vertical line (always visible, even if outside filtered range)
+        let line_style = if in_range {
+            ShapeStyle::from(&color).stroke_width(2)
+        } else {
+            ShapeStyle::from(&color).stroke_width(1)
+        };
+        chart.draw_series(LineSeries::new(
+            vec![(f_c, mag_range_min), (f_c, mag_range_max)],
+            line_style,
+        ))?;
 
-            // Marker on curve
+        // Marker on curve (only if within range)
+        if in_range {
             chart.draw_series(std::iter::once(Circle::new(
                 (f_c, 0.0),
                 5,
@@ -379,16 +385,22 @@ fn draw_phase_subplot(
 
     // Mark phase crossover
     if let Some(f_p) = margins.phase_crossover_hz {
-        if f_p >= freq_min && f_p <= freq_max {
-            let color = confidence_color(margins.confidence);
+        let color = confidence_color(margins.confidence);
+        let in_range = f_p >= freq_min && f_p <= freq_max;
 
-            // Vertical line
-            chart.draw_series(LineSeries::new(
-                vec![(f_p, phase_range_min), (f_p, phase_range_max)],
-                ShapeStyle::from(&color).stroke_width(2),
-            ))?;
+        // Draw vertical line (always visible, even if outside filtered range)
+        let line_style = if in_range {
+            ShapeStyle::from(&color).stroke_width(2)
+        } else {
+            ShapeStyle::from(&color).stroke_width(1)
+        };
+        chart.draw_series(LineSeries::new(
+            vec![(f_p, phase_range_min), (f_p, phase_range_max)],
+            line_style,
+        ))?;
 
-            // Marker on curve (need to interpolate phase at f_p)
+        // Marker on curve (only if within range)
+        if in_range {
             if let Some(phase_at_fp) = interpolate(freq, phase, f_p) {
                 chart.draw_series(std::iter::once(Circle::new(
                     (f_p, phase_at_fp),
