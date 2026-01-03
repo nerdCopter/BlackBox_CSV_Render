@@ -431,7 +431,8 @@ pub fn calculate_stability_margins(
     }
 
     // Estimate bandwidth (-3dB point)
-    let bandwidth = find_crossover(&tf.frequency_hz, &tf.magnitude_db, -3.0);
+    // For systems with passband ripple, use the last -3dB crossing to get accurate bandwidth
+    let bandwidth = find_last_crossover(&tf.frequency_hz, &tf.magnitude_db, -3.0);
     if let Some((f_bw, _)) = bandwidth {
         margins.bandwidth_hz = Some(f_bw);
     }
@@ -503,4 +504,49 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
     }
 
     None
+}
+
+/// Find the last crossing of a target value (for bandwidth with passband ripple)
+///
+/// Finds the final crossing point where the values cross the target level.
+/// Useful for bandwidth estimation when passband ripple exists — returns the
+/// last -3dB crossing instead of the first, providing accurate bandwidth.
+///
+/// # Arguments
+/// * `frequencies` - Sorted array of frequency values (Hz)
+/// * `values` - Array of magnitude or phase values
+/// * `target` - Target value to cross
+///
+/// # Returns
+/// `Some((crossover_frequency, target_value))` for the last crossing,
+/// or `None` if no crossing found or arrays are invalid.
+fn find_last_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f64, f64)> {
+    if frequencies.len() < 2 || frequencies.len() != values.len() {
+        return None;
+    }
+
+    let mut last_crossing = None;
+
+    for i in 0..values.len() - 1 {
+        let v1 = values[i];
+        let v2 = values[i + 1];
+
+        // Check if target is between v1 and v2
+        if (v1 <= target && target <= v2) || (v2 <= target && target <= v1) {
+            let f1 = frequencies[i];
+            let f2 = frequencies[i + 1];
+
+            // Linear interpolation
+            let t = if (v2 - v1).abs() > FREQUENCY_EPSILON {
+                (target - v1) / (v2 - v1)
+            } else {
+                0.5
+            };
+
+            let f_cross = f1 + t * (f2 - f1);
+            last_crossing = Some((f_cross, target));
+        }
+    }
+
+    last_crossing
 }
