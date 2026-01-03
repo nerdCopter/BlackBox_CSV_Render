@@ -3,6 +3,9 @@
 use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
+use crate::constants::{
+    COHERENCE_HIGH_THRESHOLD, COHERENCE_MEDIUM_THRESHOLD, FREQUENCY_EPSILON, PSD_EPSILON,
+};
 use crate::data_analysis::spectral_analysis::{
     coherence, to_magnitude_db, to_phase_deg, unwrap_phase, welch_cpsd, welch_psd, WelchConfig,
 };
@@ -112,7 +115,7 @@ impl TransferFunctionResult {
         let m1 = self.magnitude_db[idx];
         let m2 = self.magnitude_db[idx + 1];
 
-        let t = if (f2 - f1).abs() > 1e-12 {
+        let t = if (f2 - f1).abs() > FREQUENCY_EPSILON {
             (target_freq - f1) / (f2 - f1)
         } else {
             0.5
@@ -148,7 +151,7 @@ impl TransferFunctionResult {
         let p1 = self.phase_deg[idx];
         let p2 = self.phase_deg[idx + 1];
 
-        let t = if (f2 - f1).abs() > 1e-12 {
+        let t = if (f2 - f1).abs() > FREQUENCY_EPSILON {
             (target_freq - f1) / (f2 - f1)
         } else {
             0.5
@@ -235,7 +238,7 @@ pub fn estimate_transfer_function_h1(
     for (i, (freq, cpsd)) in cpsd_xy.iter().enumerate() {
         let psd_input = psd_xx[i].1;
 
-        if psd_input > 1e-12 {
+        if psd_input > PSD_EPSILON {
             let h1 = cpsd / psd_input;
             h1_complex.push(h1);
             frequency_hz.push(*freq);
@@ -359,12 +362,12 @@ pub fn calculate_stability_margins(
 
             // Check coherence at gain crossover
             if let Some(coh_at_fc) = tf.get_coherence_at_freq(f_c) {
-                if coh_at_fc < 0.4 {
+                if coh_at_fc < COHERENCE_MEDIUM_THRESHOLD {
                     margins.confidence = Confidence::Low;
                     margins
                         .warnings
                         .push(format!("Low coherence at gain crossover: {:.2}", coh_at_fc));
-                } else if coh_at_fc < 0.7 {
+                } else if coh_at_fc < COHERENCE_HIGH_THRESHOLD {
                     margins.confidence = Confidence::Medium;
                 } else {
                     margins.confidence = Confidence::High;
@@ -389,13 +392,15 @@ pub fn calculate_stability_margins(
 
             // Check coherence at phase crossover
             if let Some(coh_at_fp) = tf.get_coherence_at_freq(f_p) {
-                if coh_at_fp < 0.4 && margins.confidence != Confidence::Low {
+                if coh_at_fp < COHERENCE_MEDIUM_THRESHOLD && margins.confidence != Confidence::Low {
                     margins.confidence = Confidence::Low;
                     margins.warnings.push(format!(
                         "Low coherence at phase crossover: {:.2}",
                         coh_at_fp
                     ));
-                } else if coh_at_fp < 0.7 && margins.confidence == Confidence::High {
+                } else if coh_at_fp < COHERENCE_HIGH_THRESHOLD
+                    && margins.confidence == Confidence::High
+                {
                     margins.confidence = Confidence::Medium;
                 }
             }
@@ -467,7 +472,7 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
             let f2 = frequencies[i + 1];
 
             // Linear interpolation
-            let t = if (v2 - v1).abs() > 1e-12 {
+            let t = if (v2 - v1).abs() > FREQUENCY_EPSILON {
                 (target - v1) / (v2 - v1)
             } else {
                 0.5
