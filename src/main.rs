@@ -1122,7 +1122,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("Error: --dps argument specified more than once.");
                 print_usage_and_exit(program_name);
             }
-            if i + 1 >= args.len() || args[i + 1].starts_with("--") {
+            if i + 1 >= args.len() || args[i + 1].starts_with("-") {
                 eprintln!("Error: --dps requires a numeric value (deg/s threshold).");
                 print_usage_and_exit(program_name);
             }
