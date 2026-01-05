@@ -148,8 +148,14 @@ use crate::data_analysis::calc_step_response;
 /// Expand input paths to a list of CSV files.
 /// If a path is a file, validate CSV extension before adding.
 /// If a path is a directory, find CSV files (optionally recursing into subdirectories).
-fn expand_input_paths(input_paths: &[String], recursive: bool, debug_mode: bool) -> Vec<String> {
+/// Returns (csv_files, total_skipped_subdirectories)
+fn expand_input_paths(
+    input_paths: &[String],
+    recursive: bool,
+    debug_mode: bool,
+) -> (Vec<String>, usize) {
     let mut csv_files = Vec::new();
+    let mut total_skipped = 0;
 
     for input_path_str in input_paths {
         let input_path = Path::new(input_path_str);
@@ -179,7 +185,10 @@ fn expand_input_paths(input_paths: &[String], recursive: bool, debug_mode: bool)
         } else if input_path.is_dir() {
             // It's a directory, find CSV files (recursive only if flag is set)
             match find_csv_files_in_dir(input_path, recursive, debug_mode) {
-                Ok(mut dir_csv_files) => csv_files.append(&mut dir_csv_files),
+                Ok((mut dir_csv_files, skipped_count)) => {
+                    csv_files.append(&mut dir_csv_files);
+                    total_skipped += skipped_count;
+                }
                 Err(err) => eprintln!(
                     "Warning: Error processing directory {}: {}",
                     input_path_str, err
@@ -194,30 +203,33 @@ fn expand_input_paths(input_paths: &[String], recursive: bool, debug_mode: bool)
         }
     }
 
-    csv_files
+    (csv_files, total_skipped)
 }
 
 /// Find CSV files in a directory, optionally recursing into subdirectories
+/// Returns (csv_files, skipped_subdirectories_count)
 fn find_csv_files_in_dir(
     dir_path: &Path,
     recursive: bool,
     debug_mode: bool,
-) -> Result<Vec<String>, Box<dyn Error>> {
+) -> Result<(Vec<String>, usize), Box<dyn Error>> {
     let mut visited = HashSet::new();
     find_csv_files_in_dir_impl(dir_path, &mut visited, recursive, debug_mode)
 }
 
 /// Internal implementation with symlink loop protection
+/// Returns (csv_files, skipped_subdirectories_count)
 fn find_csv_files_in_dir_impl(
     dir_path: &Path,
     visited: &mut HashSet<PathBuf>,
     recursive: bool,
     debug_mode: bool,
-) -> Result<Vec<String>, Box<dyn Error>> {
+) -> Result<(Vec<String>, usize), Box<dyn Error>> {
     let mut csv_files = Vec::new();
+    let mut skipped_count = 0;
 
     if !dir_path.is_dir() {
-        return Ok(csv_files);
+        return Ok((csv_files, skipped_count));
     }
 
     // Canonicalize path to detect symlink loops
@@ -228,7 +240,7 @@ fn find_csv_files_in_dir_impl(
                 "Warning: Cannot canonicalize directory path: {}",
                 dir_path.display()
             );
-            return Ok(csv_files);
+            return Ok((csv_files, skipped_count));
         }
     };
 
@@ -238,7 +250,7 @@ fn find_csv_files_in_dir_impl(
             "Warning: Skipping directory due to symlink loop: {}",
             dir_path.display()
         );
-        return Ok(csv_files);
+        return Ok((csv_files, skipped_count));
     }
     visited.insert(canonical_path);
 
@@ -250,7 +262,7 @@ fn find_csv_files_in_dir_impl(
                 dir_path.display(),
                 err
             );
-            return Ok(csv_files);
+            return Ok((csv_files, skipped_count));
         }
     };
 
@@ -272,25 +284,26 @@ fn find_csv_files_in_dir_impl(
             // Recurse into subdirectories only if recursive flag is set
             if recursive {
                 match find_csv_files_in_dir_impl(&path, visited, recursive, debug_mode) {
-                    Ok(mut sub_csv_files) => csv_files.append(&mut sub_csv_files),
+                    Ok((mut sub_csv_files, sub_skipped)) => {
+                        csv_files.append(&mut sub_csv_files);
+                        skipped_count += sub_skipped;
+                    }
                     Err(err) => eprintln!(
                         "Warning: Error processing subdirectory '{}': {}",
                         path.display(),
                         err
                     ),
                 }
-            } else if debug_mode {
-                // Only show skip message in debug mode to avoid verbose output
-                eprintln!(
-                    "Note: Skipping subdirectory '{}' (use --recursive to include subdirectories)",
-                    path.display()
-                );
             } else {
-                // Skip subdirectories when not in recursive mode
-                eprintln!(
-                    "Note: Skipping subdirectory '{}' (use --recursive to include subdirectories)",
-                    path.display()
-                );
+                // Skip this subdirectory
+                skipped_count += 1;
+                if debug_mode {
+                    // Show skip message in debug mode
+                    eprintln!(
+                        "Note: Skipping subdirectory '{}' (use --recursive to include subdirectories)",
+                        path.display()
+                    );
+                }
             }
         } else if path.is_file() {
             // Check if it's a CSV file
@@ -318,7 +331,7 @@ fn find_csv_files_in_dir_impl(
 
     // Sort the files for consistent ordering
     csv_files.sort();
-    Ok(csv_files)
+    Ok((csv_files, skipped_count))
 }
 
 fn print_usage_and_exit(program_name: &str) {
@@ -1197,7 +1210,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Expand input paths (files and directories) to a list of CSV files
-    let input_files = expand_input_paths(&input_paths, recursive, debug_mode);
+    let (input_files, skipped_subdirs) = expand_input_paths(&input_paths, recursive, debug_mode);
+
+    // Print summary of skipped subdirectories when not using recursive mode
+    if !recursive && skipped_subdirs > 0 {
+        let plural = if skipped_subdirs == 1 {
+            "subdirectory"
+        } else {
+            "subdirectories"
+        };
+        eprintln!(
+            "Note: Skipped {} {} (use --recursive to include subdirectories)",
+            skipped_subdirs, plural
+        );
+    }
 
     if input_files.is_empty() {
         eprintln!("Error: No CSV files found in the specified input paths.");
