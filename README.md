@@ -43,7 +43,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [--output-dir <directory>] 
                  deg/s threshold value. Must be a positive number.
                  If --dps is omitted, a general step-response is shown.
   --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
-  --recursive, -R: Optional. When processing directories, recursively find CSV files in subdirectories.
+  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.
   --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative).
   --step: Optional. Generate only step response plots, skipping all other graphs.
   -h, --help: Show this help message and exit.
@@ -65,7 +65,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --output-dir ./plots --butterworth
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path/to/ --step --output-dir ./step-only
+./target/release/BlackBox_CSV_Render path/to/ -R --step --output-dir ./step-only
 ```
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/ --setpoint --output-dir ./setpoint-only

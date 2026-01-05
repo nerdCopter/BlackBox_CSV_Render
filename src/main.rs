@@ -148,7 +148,7 @@ use crate::data_analysis::calc_step_response;
 /// Expand input paths to a list of CSV files.
 /// If a path is a file, validate CSV extension before adding.
 /// If a path is a directory, find CSV files (optionally recursing into subdirectories).
-fn expand_input_paths(input_paths: &[String], recursive: bool) -> Vec<String> {
+fn expand_input_paths(input_paths: &[String], recursive: bool, debug_mode: bool) -> Vec<String> {
     let mut csv_files = Vec::new();
 
     for input_path_str in input_paths {
@@ -178,7 +178,7 @@ fn expand_input_paths(input_paths: &[String], recursive: bool) -> Vec<String> {
             }
         } else if input_path.is_dir() {
             // It's a directory, find CSV files (recursive only if flag is set)
-            match find_csv_files_in_dir(input_path, recursive) {
+            match find_csv_files_in_dir(input_path, recursive, debug_mode) {
                 Ok(mut dir_csv_files) => csv_files.append(&mut dir_csv_files),
                 Err(err) => eprintln!(
                     "Warning: Error processing directory {}: {}",
@@ -198,9 +198,13 @@ fn expand_input_paths(input_paths: &[String], recursive: bool) -> Vec<String> {
 }
 
 /// Find CSV files in a directory, optionally recursing into subdirectories
-fn find_csv_files_in_dir(dir_path: &Path, recursive: bool) -> Result<Vec<String>, Box<dyn Error>> {
+fn find_csv_files_in_dir(
+    dir_path: &Path,
+    recursive: bool,
+    debug_mode: bool,
+) -> Result<Vec<String>, Box<dyn Error>> {
     let mut visited = HashSet::new();
-    find_csv_files_in_dir_impl(dir_path, &mut visited, recursive)
+    find_csv_files_in_dir_impl(dir_path, &mut visited, recursive, debug_mode)
 }
 
 /// Internal implementation with symlink loop protection
@@ -208,6 +212,7 @@ fn find_csv_files_in_dir_impl(
     dir_path: &Path,
     visited: &mut HashSet<PathBuf>,
     recursive: bool,
+    debug_mode: bool,
 ) -> Result<Vec<String>, Box<dyn Error>> {
     let mut csv_files = Vec::new();
 
@@ -266,7 +271,7 @@ fn find_csv_files_in_dir_impl(
         if path.is_dir() {
             // Recurse into subdirectories only if recursive flag is set
             if recursive {
-                match find_csv_files_in_dir_impl(&path, visited, recursive) {
+                match find_csv_files_in_dir_impl(&path, visited, recursive, debug_mode) {
                     Ok(mut sub_csv_files) => csv_files.append(&mut sub_csv_files),
                     Err(err) => eprintln!(
                         "Warning: Error processing subdirectory '{}': {}",
@@ -274,6 +279,12 @@ fn find_csv_files_in_dir_impl(
                         err
                     ),
                 }
+            } else if debug_mode {
+                // Only show skip message in debug mode to avoid verbose output
+                eprintln!(
+                    "Note: Skipping subdirectory '{}' (use --recursive to include subdirectories)",
+                    path.display()
+                );
             } else {
                 // Skip subdirectories when not in recursive mode
                 eprintln!(
@@ -338,7 +349,7 @@ Usage: {program_name} <input1> [<input2> ...] [--output-dir <directory>] [--bode
     eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
     );
-    eprintln!("  --recursive, -R: Optional. When processing directories, recursively find CSV files in subdirectories.");
+    eprintln!("  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.");
     eprintln!(
         "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
     );
@@ -1186,7 +1197,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Expand input paths (files and directories) to a list of CSV files
-    let input_files = expand_input_paths(&input_paths, recursive);
+    let input_files = expand_input_paths(&input_paths, recursive, debug_mode);
 
     if input_files.is_empty() {
         eprintln!("Error: No CSV files found in the specified input paths.");
