@@ -110,19 +110,54 @@ pub fn plot_pid_activity(
             let mut time_min = f64::INFINITY;
             let mut time_max = f64::NEG_INFINITY;
 
-            // Collect P, I, D term data and track time range
+            // Track min/max/avg for each term for legend display
+            // Average is included because:
+            // - P-term avg: Shows net proportional correction (persistent offset = tuning issue)
+            // - I-term avg: Shows integrator wind direction (fighting disturbance = bias or wind)
+            // - D-term avg: Should stay ~0 (non-zero avg = lag or phase shift issues)
+            // Min/max show actual operating range; avg contextualizes the data trend
+
+            // Track min/max for each term for legend display
+            let mut p_min = f64::INFINITY;
+            let mut p_max = f64::NEG_INFINITY;
+            let mut p_sum = 0.0;
+            let mut p_count = 0;
+
+            let mut i_min = f64::INFINITY;
+            let mut i_max = f64::NEG_INFINITY;
+            let mut i_sum = 0.0;
+            let mut i_count = 0;
+
+            let mut d_min = f64::INFINITY;
+            let mut d_max = f64::NEG_INFINITY;
+            let mut d_sum = 0.0;
+            let mut d_count = 0;
+
+            // Collect P, I, D term data and track time range, min/max/sum
             for (time, p_term, i_term, d_term) in data {
                 time_min = time_min.min(*time);
                 time_max = time_max.max(*time);
 
                 if let Some(p) = p_term {
                     p_term_series_data.push((*time, *p));
+                    p_min = p_min.min(*p);
+                    p_max = p_max.max(*p);
+                    p_sum += p;
+                    p_count += 1;
                 }
                 if let Some(i) = i_term {
                     i_term_series_data.push((*time, *i));
+                    i_min = i_min.min(*i);
+                    i_max = i_max.max(*i);
+                    i_sum += i;
+                    i_count += 1;
                 }
                 if let Some(d) = d_term {
                     d_term_series_data.push((*time, *d));
+                    d_min = d_min.min(*d);
+                    d_max = d_max.max(*d);
+                    d_sum += d;
+                    d_count += 1;
                 }
             }
 
@@ -151,9 +186,17 @@ pub fn plot_pid_activity(
 
             // Add D-term data series first (drawn first = behind)
             if !d_term_series_data.is_empty() {
+                let d_avg = if d_count > 0 {
+                    d_sum / d_count as f64
+                } else {
+                    0.0
+                };
                 series.push(PlotSeries {
                     data: d_term_series_data,
-                    label: "D-term (Derivative)".to_string(),
+                    label: format!(
+                        "D-term (Derivative): min={:.0}, avg={:.1}, max={:.0}",
+                        d_min, d_avg, d_max
+                    ),
                     color: color_d_term,
                     stroke_width: line_stroke_plot,
                 });
@@ -161,9 +204,17 @@ pub fn plot_pid_activity(
 
             // Add P-term data series (drawn second)
             if !p_term_series_data.is_empty() {
+                let p_avg = if p_count > 0 {
+                    p_sum / p_count as f64
+                } else {
+                    0.0
+                };
                 series.push(PlotSeries {
                     data: p_term_series_data,
-                    label: "P-term (Proportional)".to_string(),
+                    label: format!(
+                        "P-term (Proportional): min={:.0}, avg={:.1}, max={:.0}",
+                        p_min, p_avg, p_max
+                    ),
                     color: color_p_term,
                     stroke_width: line_stroke_plot,
                 });
@@ -171,9 +222,17 @@ pub fn plot_pid_activity(
 
             // Add I-term data series last (drawn last = on top, most visible)
             if !i_term_series_data.is_empty() {
+                let i_avg = if i_count > 0 {
+                    i_sum / i_count as f64
+                } else {
+                    0.0
+                };
                 series.push(PlotSeries {
                     data: i_term_series_data,
-                    label: "I-term (Integral)".to_string(),
+                    label: format!(
+                        "I-term (Integral): min={:.0}, avg={:.1}, max={:.0}",
+                        i_min, i_avg, i_max
+                    ),
                     color: color_i_term,
                     stroke_width: line_stroke_plot,
                 });
