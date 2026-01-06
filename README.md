@@ -26,7 +26,7 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [--recursive] [--setpoint] [--step]
+Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [-R|--recursive] [--setpoint] [--step]
   <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).
             Can mix files and directories in a single command.
             - Individual CSV file: path/to/file.csv

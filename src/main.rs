@@ -337,7 +337,7 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [--recursive] [--setpoint] [--step]");
+Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [-R|--recursive] [--setpoint] [--step]");
     eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
     eprintln!("            Can mix files and directories in a single command.");
     eprintln!("            - Individual CSV file: path/to/file.csv");
