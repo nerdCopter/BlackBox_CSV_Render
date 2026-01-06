@@ -191,11 +191,18 @@ pub fn plot_pid_activity(
                 } else {
                     0.0
                 };
+                // Calculate lag ratio: |avg| / |max| shows phase shift tendency
+                let d_range = (d_max - d_min).abs();
+                let d_lag_ratio = if d_range.abs() > 1e-6 {
+                    (d_avg.abs() / d_range) * 100.0
+                } else {
+                    0.0
+                };
                 series.push(PlotSeries {
                     data: d_term_series_data,
                     label: format!(
-                        "D-term (Derivative): min={:.0}, avg={:.1}, max={:.0}",
-                        d_min, d_avg, d_max
+                        "D-term (Derivative): min={:.0}, avg={:.1}, max={:.0} (lag ratio: {:.1}%)",
+                        d_min, d_avg, d_max, d_lag_ratio
                     ),
                     color: color_d_term,
                     stroke_width: line_stroke_plot,
