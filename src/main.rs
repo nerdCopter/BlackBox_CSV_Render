@@ -1122,7 +1122,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("Error: --dps argument specified more than once.");
                 print_usage_and_exit(program_name);
             }
-            if i + 1 >= args.len() || args[i + 1].starts_with("-") {
+            if i + 1 >= args.len() {
                 eprintln!("Error: --dps requires a numeric value (deg/s threshold).");
                 print_usage_and_exit(program_name);
             }
@@ -1146,7 +1146,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 eprintln!("Error: --output-dir/-O argument specified more than once.");
                 print_usage_and_exit(program_name);
             }
-            if i + 1 >= args.len() || args[i + 1].starts_with("-") {
+            if i + 1 >= args.len() {
                 eprintln!("Error: --output-dir/-O requires a directory path.");
                 print_usage_and_exit(program_name);
             } else {
