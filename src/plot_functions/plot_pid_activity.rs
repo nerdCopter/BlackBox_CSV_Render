@@ -7,7 +7,8 @@ use crate::axis_names::AXIS_NAMES;
 use crate::types::AllAxisPlotData3;
 
 use crate::constants::{
-    COLOR_D_TERM_ACTIVITY, COLOR_I_TERM, COLOR_P_TERM, LINE_WIDTH_PLOT, PID_ACTIVITY_Y_AXIS_MIN,
+    COLOR_D_TERM_ACTIVITY, COLOR_I_TERM, COLOR_P_TERM, LINE_WIDTH_PLOT,
+    PID_ACTIVITY_ITERM_SATURATION_LIMIT, PID_ACTIVITY_Y_AXIS_MIN,
 };
 use crate::data_input::log_data::LogRowData;
 use crate::data_input::pid_metadata::parse_pid_metadata;
@@ -61,7 +62,7 @@ pub fn plot_pid_activity(
     let mut global_val_max = f64::NEG_INFINITY;
 
     // Include I-term saturation limits in the calculation
-    let iterm_limit = 400.0;
+    let iterm_limit = PID_ACTIVITY_ITERM_SATURATION_LIMIT;
 
     #[allow(clippy::needless_range_loop)]
     for axis_index in 0..axis_plot_data.len() {

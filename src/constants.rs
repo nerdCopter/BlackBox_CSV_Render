@@ -170,6 +170,9 @@ pub const UNIFIED_Y_AXIS_MIN_SCALE: f64 = 100.0;
 // 200.0 covers typical PID values (P:30-80, I:20-80, D:20-100) with expansion for aggressive flying
 pub const PID_ACTIVITY_Y_AXIS_MIN: f64 = 200.0;
 
+// I-term saturation limit for PID activity plots (±400)
+pub const PID_ACTIVITY_ITERM_SATURATION_LIMIT: f64 = 400.0;
+
 // D-term Plot Colors (distinct from gyro colors)
 pub const COLOR_D_TERM_FILT: &RGBColor = &GREEN; // Use green for filtered D-term (distinct from gyro blue/amber)
 pub const COLOR_D_TERM_UNFILT: &RGBColor = &ORANGE; // Use orange for unfiltered D-term (distinct from gyro yellow)
