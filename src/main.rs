@@ -45,6 +45,7 @@ struct PlotConfig {
     pub d_term_heatmap: bool,
     pub motor_spectrums: bool,
     pub bode: bool,
+    pub pid_activity: bool,
 }
 
 impl Default for PlotConfig {
@@ -64,6 +65,7 @@ impl Default for PlotConfig {
             d_term_heatmap: true,
             motor_spectrums: true,
             bode: true,
+            pid_activity: true,
         }
     }
 }
@@ -85,6 +87,7 @@ impl PlotConfig {
             d_term_heatmap: false,
             motor_spectrums: false,
             bode: false,
+            pid_activity: false,
         }
     }
 }
@@ -101,6 +104,7 @@ use crate::plot_functions::plot_d_term_spectrums::plot_d_term_spectrums;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
 use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
 use crate::plot_functions::plot_motor_spectrums::plot_motor_spectrums;
+use crate::plot_functions::plot_pid_activity::plot_pid_activity;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
 use crate::plot_functions::plot_psd::plot_psd;
 use crate::plot_functions::plot_psd_db_heatmap::plot_psd_db_heatmap;
@@ -337,7 +341,7 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [-R|--recursive] [--setpoint] [--step]");
+Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
     eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
     eprintln!("            Can mix files and directories in a single command.");
     eprintln!("            - Individual CSV file: path/to/file.csv");
@@ -362,6 +366,7 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
     );
+    eprintln!("  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).");
     eprintln!("  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.");
     eprintln!(
         "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
@@ -1074,6 +1079,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         )?;
     }
 
+    if plot_config.pid_activity {
+        plot_pid_activity(&all_log_data, &root_name_string, Some(&header_metadata))?;
+    }
+
     // CWD restoration happens automatically when _cwd_guard goes out of scope
     println!("--- Finished processing file: {input_file_str} ---");
     Ok(())
@@ -1104,6 +1113,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut motor_requested = false;
     let mut setpoint_requested = false;
     let mut bode_requested = false;
+    let mut pid_requested = false;
     let mut recursive = false;
 
     let mut version_flag_set = false;
@@ -1169,6 +1179,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--bode" {
             has_only_flags = true;
             bode_requested = true;
+        } else if arg == "--pid" {
+            has_only_flags = true;
+            pid_requested = true;
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1184,6 +1197,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         plot_config.step_response = step_requested;
         plot_config.motor_spectrums = motor_requested;
         plot_config.bode = bode_requested;
+        plot_config.pid_activity = pid_requested;
         if setpoint_requested {
             plot_config.pidsum_error_setpoint = true;
             plot_config.setpoint_vs_gyro = true;

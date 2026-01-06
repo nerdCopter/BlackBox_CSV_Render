@@ -26,7 +26,7 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [-R|--recursive] [--setpoint] [--step]
+Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
   <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).
             Can mix files and directories in a single command.
             - Individual CSV file: path/to/file.csv
@@ -43,14 +43,15 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory
                  deg/s threshold value. Must be a positive number.
                  If --dps is omitted, a general step-response is shown.
   --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
+  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).
   -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.
   --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative).
   --step: Optional. Generate only step response plots, skipping all other graphs.
   -h, --help: Show this help message and exit.
   -V, --version: Show version information and exit.
 
-Note: --step, --motor, --setpoint, and --bode are non-mutually exclusive and can be combined
-(e.g., --step --setpoint generates both step response and setpoint plots).
+Note: --step, --motor, --setpoint, --bode, and --pid are non-mutually exclusive and can be combined
+(e.g., --step --setpoint --pid generates step response, setpoint, and PID activity plots).
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns.
 ```
@@ -89,6 +90,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 - `*_Gyro_PSD_Spectrogram_comparative.png` — Gyro spectrogram (PSD vs. time)
 - `*_Throttle_Freq_Heatmap_comparative.png` — Throttle/frequency heatmap analysis
 - `*_Motor_Spectrums_stacked.png` — Motor output frequency analysis (supports any motor count; colors wrap every 8 motors)
+- `*_PID_Activity_stacked.png` — P, I, D term activity over time (stacked plot showing all three PID components)
 
 #### Console Output:
 - Current P:D ratio and peak analysis with response assessment
