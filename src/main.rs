@@ -147,9 +147,15 @@ use crate::data_analysis::calc_step_response;
 
 /// Expand input paths to a list of CSV files.
 /// If a path is a file, validate CSV extension before adding.
-/// If a path is a directory, recursively find all CSV files within it.
-fn expand_input_paths(input_paths: &[String]) -> Vec<String> {
+/// If a path is a directory, find CSV files (optionally recursing into subdirectories).
+/// Returns (csv_files, total_skipped_subdirectories)
+fn expand_input_paths(
+    input_paths: &[String],
+    recursive: bool,
+    debug_mode: bool,
+) -> (Vec<String>, usize) {
     let mut csv_files = Vec::new();
+    let mut total_skipped = 0;
 
     for input_path_str in input_paths {
         let input_path = Path::new(input_path_str);
@@ -177,9 +183,12 @@ fn expand_input_paths(input_paths: &[String]) -> Vec<String> {
                 );
             }
         } else if input_path.is_dir() {
-            // It's a directory, find all CSV files recursively
-            match find_csv_files_in_dir(input_path) {
-                Ok(mut dir_csv_files) => csv_files.append(&mut dir_csv_files),
+            // It's a directory, find CSV files (recursive only if flag is set)
+            match find_csv_files_in_dir(input_path, recursive, debug_mode) {
+                Ok((mut dir_csv_files, skipped_count)) => {
+                    csv_files.append(&mut dir_csv_files);
+                    total_skipped += skipped_count;
+                }
                 Err(err) => eprintln!(
                     "Warning: Error processing directory {}: {}",
                     input_path_str, err
@@ -194,24 +203,33 @@ fn expand_input_paths(input_paths: &[String]) -> Vec<String> {
         }
     }
 
-    csv_files
+    (csv_files, total_skipped)
 }
 
-/// Recursively find all CSV files in a directory
-fn find_csv_files_in_dir(dir_path: &Path) -> Result<Vec<String>, Box<dyn Error>> {
+/// Find CSV files in a directory, optionally recursing into subdirectories
+/// Returns (csv_files, skipped_subdirectories_count)
+fn find_csv_files_in_dir(
+    dir_path: &Path,
+    recursive: bool,
+    debug_mode: bool,
+) -> Result<(Vec<String>, usize), Box<dyn Error>> {
     let mut visited = HashSet::new();
-    find_csv_files_in_dir_impl(dir_path, &mut visited)
+    find_csv_files_in_dir_impl(dir_path, &mut visited, recursive, debug_mode)
 }
 
 /// Internal implementation with symlink loop protection
+/// Returns (csv_files, skipped_subdirectories_count)
 fn find_csv_files_in_dir_impl(
     dir_path: &Path,
     visited: &mut HashSet<PathBuf>,
-) -> Result<Vec<String>, Box<dyn Error>> {
+    recursive: bool,
+    debug_mode: bool,
+) -> Result<(Vec<String>, usize), Box<dyn Error>> {
     let mut csv_files = Vec::new();
+    let mut skipped_count = 0;
 
     if !dir_path.is_dir() {
-        return Ok(csv_files);
+        return Ok((csv_files, skipped_count));
     }
 
     // Canonicalize path to detect symlink loops
@@ -222,7 +240,7 @@ fn find_csv_files_in_dir_impl(
                 "Warning: Cannot canonicalize directory path: {}",
                 dir_path.display()
             );
-            return Ok(csv_files);
+            return Ok((csv_files, skipped_count));
         }
     };
 
@@ -232,7 +250,7 @@ fn find_csv_files_in_dir_impl(
             "Warning: Skipping directory due to symlink loop: {}",
             dir_path.display()
         );
-        return Ok(csv_files);
+        return Ok((csv_files, skipped_count));
     }
     visited.insert(canonical_path);
 
@@ -244,7 +262,7 @@ fn find_csv_files_in_dir_impl(
                 dir_path.display(),
                 err
             );
-            return Ok(csv_files);
+            return Ok((csv_files, skipped_count));
         }
     };
 
@@ -263,14 +281,29 @@ fn find_csv_files_in_dir_impl(
         let path = entry.path();
 
         if path.is_dir() {
-            // Recursively search subdirectories
-            match find_csv_files_in_dir_impl(&path, visited) {
-                Ok(mut sub_csv_files) => csv_files.append(&mut sub_csv_files),
-                Err(err) => eprintln!(
-                    "Warning: Error processing subdirectory '{}': {}",
-                    path.display(),
-                    err
-                ),
+            // Recurse into subdirectories only if recursive flag is set
+            if recursive {
+                match find_csv_files_in_dir_impl(&path, visited, recursive, debug_mode) {
+                    Ok((mut sub_csv_files, sub_skipped)) => {
+                        csv_files.append(&mut sub_csv_files);
+                        skipped_count += sub_skipped;
+                    }
+                    Err(err) => eprintln!(
+                        "Warning: Error processing subdirectory '{}': {}",
+                        path.display(),
+                        err
+                    ),
+                }
+            } else {
+                // Skip this subdirectory
+                skipped_count += 1;
+                if debug_mode {
+                    // Show skip message in debug mode
+                    eprintln!(
+                        "Note: Skipping subdirectory '{}' (use --recursive to include subdirectories)",
+                        path.display()
+                    );
+                }
             }
         } else if path.is_file() {
             // Check if it's a CSV file
@@ -298,40 +331,47 @@ fn find_csv_files_in_dir_impl(
 
     // Sort the files for consistent ordering
     csv_files.sort();
-    Ok(csv_files)
+    Ok((csv_files, skipped_count))
 }
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [--dps <value>] [--output-dir <directory>] [--butterworth] [--debug] [--step] [--motor] [--setpoint] [--bode]");
-    eprintln!("  <inputX>: Path to one or more input CSV log files or directories containing CSV files (required).");
-    eprintln!("            If a directory is specified, all CSV files within it (including subdirectories) will be processed.");
-    eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
-    eprintln!("                 deg/s threshold value. Must be a positive number.");
-    eprintln!("                 If --dps is omitted, a general step-response is shown.");
+Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [-R|--recursive] [--setpoint] [--step]");
+    eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
+    eprintln!("            Can mix files and directories in a single command.");
+    eprintln!("            - Individual CSV file: path/to/file.csv");
+    eprintln!("            - Directory: path/to/dir/ (finds CSV files only in that directory)");
+    eprintln!("            - Wildcards: *.csv, *LOG*.csv (shell-expanded; works with mixed file and directory patterns)");
     eprintln!(
-        "  --output-dir <directory>: Optional. Specifies the output directory for generated plots."
+        "            Note: Header files (.header.csv, .headers.csv) are automatically excluded."
     );
-    eprintln!("                         If omitted, plots are saved in the source folder (input file's directory).");
+    eprintln!(
+        "  -O, --output-dir <directory>: Optional. Specifies the output directory for generated plots."
+    );
+    eprintln!("                              If omitted, plots are saved in the source folder (input directory).");
+    eprintln!("  --bode: Optional. Generate only Bode analysis plots, skipping all other graphs.");
     eprintln!(
         "  --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters"
     );
     eprintln!("                 as gray curves/lines on gyro and D-term spectrum plots.");
     eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
-    eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
+    eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
+    eprintln!("                 deg/s threshold value. Must be a positive number.");
+    eprintln!("                 If --dps is omitted, a general step-response is shown.");
     eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
     );
+    eprintln!("  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.");
     eprintln!(
         "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
     );
-    eprintln!("  --bode: Optional. Generate only Bode analysis plots, skipping all other graphs.");
+    eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
     eprintln!("  -h, --help: Show this help message and exit.");
     eprintln!("  -V, --version: Show version information and exit.");
     eprintln!(
         "
-Arguments can be in any order. Wildcards (e.g., *.csv) are supported by the shell."
+Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns."
     );
     std::process::exit(1);
 }
@@ -1064,6 +1104,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut motor_requested = false;
     let mut setpoint_requested = false;
     let mut bode_requested = false;
+    let mut recursive = false;
 
     let mut version_flag_set = false;
 
@@ -1074,12 +1115,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             print_usage_and_exit(program_name);
         } else if arg == "--version" || arg == "-V" {
             version_flag_set = true;
+        } else if arg == "--recursive" || arg == "-R" {
+            recursive = true;
         } else if arg == "--dps" {
             if dps_flag_present {
                 eprintln!("Error: --dps argument specified more than once.");
                 print_usage_and_exit(program_name);
             }
-            if i + 1 >= args.len() || args[i + 1].starts_with("--") {
+            if i + 1 >= args.len() {
                 eprintln!("Error: --dps requires a numeric value (deg/s threshold).");
                 print_usage_and_exit(program_name);
             }
@@ -1098,13 +1141,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                     print_usage_and_exit(program_name);
                 }
             }
-        } else if arg == "--output-dir" {
+        } else if arg == "--output-dir" || arg == "-O" {
             if output_dir.is_some() {
-                eprintln!("Error: --output-dir argument specified more than once.");
+                eprintln!("Error: --output-dir/-O argument specified more than once.");
                 print_usage_and_exit(program_name);
             }
-            if i + 1 >= args.len() || args[i + 1].starts_with("--") {
-                eprintln!("Error: --output-dir requires a directory path.");
+            if i + 1 >= args.len() {
+                eprintln!("Error: --output-dir/-O requires a directory path.");
                 print_usage_and_exit(program_name);
             } else {
                 output_dir = Some(args[i + 1].clone());
@@ -1167,7 +1210,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Expand input paths (files and directories) to a list of CSV files
-    let input_files = expand_input_paths(&input_paths);
+    let (input_files, skipped_subdirs) = expand_input_paths(&input_paths, recursive, debug_mode);
+
+    // Print summary of skipped subdirectories when not using recursive mode
+    if !recursive && skipped_subdirs > 0 {
+        let plural = if skipped_subdirs == 1 {
+            "subdirectory"
+        } else {
+            "subdirectories"
+        };
+        eprintln!(
+            "Note: Skipped {} {} (use --recursive to include subdirectories)",
+            skipped_subdirs, plural
+        );
+    }
 
     if input_files.is_empty() {
         eprintln!("Error: No CSV files found in the specified input paths.");
