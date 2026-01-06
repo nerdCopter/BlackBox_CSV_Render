@@ -2,6 +2,7 @@
 - Preserve comments unless related code changes
 - Add only functional comments, no AI/history notes
 - Ask before removing any debug console output
+- **All constants go in `src/constants.rs`** — no hardcoded magic numbers in function code
 - Run checks in this order:
   1) `cargo clippy --all-targets --all-features -- -D warnings` — fix all warnings.
   2) `cargo fmt --all` — only after clippy passes.
