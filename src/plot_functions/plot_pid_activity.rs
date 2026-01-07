@@ -7,12 +7,11 @@ use crate::axis_names::AXIS_NAMES;
 use crate::types::AllAxisPlotData3;
 
 use crate::constants::{
-    COLOR_D_TERM_ACTIVITY, COLOR_I_TERM, COLOR_P_TERM, LINE_WIDTH_PLOT,
-    PID_ACTIVITY_ITERM_SATURATION_LIMIT, PID_ACTIVITY_Y_AXIS_MIN,
+    COLOR_D_TERM_ACTIVITY, COLOR_I_TERM, COLOR_P_TERM, LINE_WIDTH_PLOT, PID_ACTIVITY_Y_AXIS_MIN,
 };
 use crate::data_input::log_data::LogRowData;
 use crate::data_input::pid_metadata::parse_pid_metadata;
-use crate::plot_framework::{draw_stacked_plot, PlotSeries, CUTOFF_LINE_DOTTED_PREFIX};
+use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 
 /// Generates the Stacked P, I, D Term Activity Plot showing all three PID terms over time
 pub fn plot_pid_activity(
@@ -57,35 +56,39 @@ pub fn plot_pid_activity(
     let color_d_term: RGBColor = *COLOR_D_TERM_ACTIVITY;
     let line_stroke_plot = LINE_WIDTH_PLOT;
 
-    // Pre-calculate min/max across ALL axes for unified Y-axis scaling
-    let mut global_val_min = f64::INFINITY;
-    let mut global_val_max = f64::NEG_INFINITY;
-
-    // Include I-term saturation limits in the calculation
-    let iterm_limit = PID_ACTIVITY_ITERM_SATURATION_LIMIT;
+    // Pre-calculate percentile-based range across ALL axes for unified Y-axis scaling
+    // Use 1st and 99th percentiles to ignore extreme outliers (crashes, hard landings)
+    // that would compress normal flight data into an unreadable spectrum
+    let mut all_values: Vec<f64> = Vec::new();
 
     #[allow(clippy::needless_range_loop)]
     for axis_index in 0..axis_plot_data.len() {
         let data = &axis_plot_data[axis_index];
         for (_, p_term, i_term, d_term) in data {
             if let Some(p) = p_term {
-                global_val_min = global_val_min.min(*p);
-                global_val_max = global_val_max.max(*p);
+                all_values.push(*p);
             }
             if let Some(i) = i_term {
-                global_val_min = global_val_min.min(*i);
-                global_val_max = global_val_max.max(*i);
+                all_values.push(*i);
             }
             if let Some(d) = d_term {
-                global_val_min = global_val_min.min(*d);
-                global_val_max = global_val_max.max(*d);
+                all_values.push(*d);
             }
         }
     }
 
-    // Include I-term saturation limits in the range
-    global_val_min = global_val_min.min(-iterm_limit);
-    global_val_max = global_val_max.max(iterm_limit);
+    // Calculate 5th and 95th percentiles (removes 5% outliers - keeps 90% of data)
+    let (global_val_min, global_val_max) = if all_values.is_empty() {
+        (-PID_ACTIVITY_Y_AXIS_MIN, PID_ACTIVITY_Y_AXIS_MIN)
+    } else {
+        all_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let len = all_values.len();
+        let p5_idx = (len as f64 * 0.05).floor() as usize;
+        let p95_idx = (len as f64 * 0.95).ceil().min(len as f64 - 1.0) as usize;
+        let p5 = all_values[p5_idx];
+        let p95 = all_values[p95_idx];
+        (p5, p95)
+    };
 
     // Determine symmetric half-range with minimum scale
     let global_half = global_val_min.abs().max(global_val_max.abs());
@@ -169,31 +172,27 @@ pub fn plot_pid_activity(
                 return None;
             }
 
-            // Create constant-value series for I-term saturation limits
-            let mut limit_pos_series_data: Vec<(f64, f64)> = Vec::new();
-            let mut limit_neg_series_data: Vec<(f64, f64)> = Vec::new();
-
-            limit_pos_series_data.push((time_min, iterm_limit));
-            limit_pos_series_data.push((time_max, iterm_limit));
-
-            limit_neg_series_data.push((time_min, -iterm_limit));
-            limit_neg_series_data.push((time_max, -iterm_limit));
-
             // Use unified symmetric Y-axis range across all axes
             let x_range = time_min..time_max;
             let y_range = -half_range..half_range;
 
             let mut series = Vec::new();
 
-            // Add D-term data series first (drawn first = behind)
-            if !d_term_series_data.is_empty() {
-                let d_avg = if d_count > 0 {
-                    d_sum / d_count as f64
-                } else {
-                    0.0
-                };
+            // For Yaw (axis_index == 2), draw D-term last for better visibility.
+            // For Roll/Pitch, draw D-term first (behind) since it's typically more active.
+            let is_yaw = axis_index == 2;
+
+            // Calculate D-term average for label
+            let d_avg = if d_count > 0 {
+                d_sum / d_count as f64
+            } else {
+                0.0
+            };
+
+            // For Roll/Pitch: Add D-term first (drawn first = behind)
+            if !is_yaw && !d_term_series_data.is_empty() {
                 series.push(PlotSeries {
-                    data: d_term_series_data,
+                    data: d_term_series_data.clone(),
                     label: format!(
                         "D-term (Derivative): min={:.0}, avg={:.1}, max={:.0}",
                         d_min, d_avg, d_max
@@ -203,7 +202,7 @@ pub fn plot_pid_activity(
                 });
             }
 
-            // Add P-term data series (drawn second)
+            // Add P-term data series
             if !p_term_series_data.is_empty() {
                 let p_avg = if p_count > 0 {
                     p_sum / p_count as f64
@@ -221,7 +220,7 @@ pub fn plot_pid_activity(
                 });
             }
 
-            // Add I-term data series last (drawn last = on top, most visible)
+            // Add I-term data series
             if !i_term_series_data.is_empty() {
                 let i_avg = if i_count > 0 {
                     i_sum / i_count as f64
@@ -239,26 +238,18 @@ pub fn plot_pid_activity(
                 });
             }
 
-            // Add I-term saturation reference lines (dashed)
-            series.push(PlotSeries {
-                data: limit_pos_series_data,
-                label: format!(
-                    "{}I-term Limit (+{})",
-                    CUTOFF_LINE_DOTTED_PREFIX, iterm_limit as i32
-                ),
-                color: RGBColor(200, 0, 0),
-                stroke_width: 2,
-            });
-
-            series.push(PlotSeries {
-                data: limit_neg_series_data,
-                label: format!(
-                    "{}I-term Limit (-{})",
-                    CUTOFF_LINE_DOTTED_PREFIX, iterm_limit as i32
-                ),
-                color: RGBColor(200, 0, 0),
-                stroke_width: 2,
-            });
+            // For Yaw: Add D-term last (drawn last = on top) for visibility
+            if is_yaw && !d_term_series_data.is_empty() {
+                series.push(PlotSeries {
+                    data: d_term_series_data,
+                    label: format!(
+                        "D-term (Derivative): min={:.0}, avg={:.1}, max={:.0}",
+                        d_min, d_avg, d_max
+                    ),
+                    color: color_d_term,
+                    stroke_width: line_stroke_plot,
+                });
+            }
 
             Some((
                 {
