@@ -190,17 +190,26 @@ pub fn plot_pid_activity(
                 0.0
             };
 
-            // For Roll/Pitch: Add D-term first (drawn first = behind)
-            if !is_yaw && !d_term_series_data.is_empty() {
-                series.push(PlotSeries {
-                    data: d_term_series_data.clone(),
+            // Create D-term PlotSeries once to avoid duplication
+            let mut d_term_series = if !d_term_series_data.is_empty() {
+                Some(PlotSeries {
+                    data: d_term_series_data,
                     label: format!(
                         "D-term (Derivative): min={:.0}, avg={:.1}, max={:.0}",
                         d_min, d_avg, d_max
                     ),
                     color: color_d_term,
                     stroke_width: line_stroke_plot,
-                });
+                })
+            } else {
+                None
+            };
+
+            // For Roll/Pitch: Add D-term first (drawn first = behind)
+            if !is_yaw {
+                if let Some(series_to_push) = d_term_series.take() {
+                    series.push(series_to_push);
+                }
             }
 
             // Add P-term data series
@@ -240,16 +249,10 @@ pub fn plot_pid_activity(
             }
 
             // For Yaw: Add D-term last (drawn last = on top) for visibility
-            if is_yaw && !d_term_series_data.is_empty() {
-                series.push(PlotSeries {
-                    data: d_term_series_data,
-                    label: format!(
-                        "D-term (Derivative): min={:.0}, avg={:.1}, max={:.0}",
-                        d_min, d_avg, d_max
-                    ),
-                    color: color_d_term,
-                    stroke_width: line_stroke_plot,
-                });
+            if is_yaw {
+                if let Some(series_to_push) = d_term_series.take() {
+                    series.push(series_to_push);
+                }
             }
 
             Some((
