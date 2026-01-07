@@ -57,7 +57,7 @@ pub fn plot_pid_activity(
     let line_stroke_plot = LINE_WIDTH_PLOT;
 
     // Pre-calculate percentile-based range across ALL axes for unified Y-axis scaling
-    // Use 1st and 99th percentiles to ignore extreme outliers (crashes, hard landings)
+    // Use 5th and 95th percentiles to ignore extreme outliers (crashes, hard landings)
     // that would compress normal flight data into an unreadable spectrum
     let mut all_values: Vec<f64> = Vec::new();
 
