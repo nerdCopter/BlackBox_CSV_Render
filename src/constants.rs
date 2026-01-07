@@ -22,7 +22,7 @@ pub const RESPONSE_LENGTH_S: f64 = 0.5; // Length of the step response to keep (
 pub const SUPERPOSITION_FACTOR: usize = 16; // Number of overlapping windows (can be tuned)
 pub const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning window)
 
-pub const INITIAL_GYRO_SMOOTHING_WINDOW: usize = 15; // // Initial Gyro Smoothing (applied before deconvolution)
+pub const INITIAL_GYRO_SMOOTHING_WINDOW: usize = 15; // Initial Gyro Smoothing (applied before deconvolution)
 pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 15; // Constant for post-averaging smoothing of the final step response curves.
 
 pub const APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION: bool = true; // Individual Response "Y-Correction" (Normalization before averaging)
