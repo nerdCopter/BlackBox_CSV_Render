@@ -179,6 +179,7 @@ pub fn plot_pid_activity(
             let mut series = Vec::new();
 
             // For Yaw (axis_index == 2), draw D-term last for better visibility.
+            // Axis indices are managed by axis_names.rs: 0=Roll, 1=Pitch, 2=Yaw
             // For Roll/Pitch, draw D-term first (behind) since it's typically more active.
             let is_yaw = axis_index == 2;
 
