@@ -64,7 +64,7 @@ impl Default for PlotConfig {
             throttle_freq_heatmap: true,
             d_term_heatmap: true,
             motor_spectrums: true,
-            bode: true,
+            bode: false,
             pid_activity: true,
         }
     }
@@ -354,7 +354,9 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
         "  -O, --output-dir <directory>: Optional. Specifies the output directory for generated plots."
     );
     eprintln!("                              If omitted, plots are saved in the source folder (input directory).");
-    eprintln!("  --bode: Optional. Generate only Bode analysis plots, skipping all other graphs.");
+    eprintln!("  --bode: Optional. Generate Bode plot analysis (magnitude, phase, coherence).");
+    eprintln!("          NOTE: Requires controlled test flights with system-identification inputs");
+    eprintln!("          (chirp/PRBS). Not recommended for normal flight logs.");
     eprintln!(
         "  --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters"
     );
@@ -1052,6 +1054,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     }
 
     if plot_config.bode {
+        eprintln!();
+        eprintln!("⚠️  WARNING: Bode plots are designed for controlled test flights with system-identification inputs.");
+        eprintln!(
+            "    For normal flight log analysis, use spectrum plots (default behavior) instead."
+        );
+        eprintln!();
         plot_bode_analysis(&all_log_data, &root_name_string, sample_rate)?;
     }
 
