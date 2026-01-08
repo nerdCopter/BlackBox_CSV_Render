@@ -8,6 +8,7 @@
   - [Enhanced Cross-Correlation Method (Primary Implementation)](#enhanced-cross-correlation-method-primary-implementation)
   - [Implementation Details](#implementation-details)
   - [Filter Response Curves](#filter-response-curves)
+  - [Bode Plot Analysis (Optional)](#bode-plot-analysis-optional)
   - [Step-Response Comparison with Other Analysis Tools](#step-response-comparison-with-other-analysis-tools)
     - [Compared to PIDtoolbox/Matlab (PTstepcalc.m)](#compared-to-pidtoolboxmatlab-ptstepcalcm)
     - [Compared to PlasmaTree/Python (PID-Analyzer.py)](#compared-to-plasmatreepython-pid-analyzerpy)
@@ -147,6 +148,14 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 * **Curve Generation:** Logarithmic frequency spacing from 10% of cutoff frequency to gyro Nyquist frequency (gyro\_rate/2) with 1000 points for smooth visualization. Includes division-by-zero protection and edge case handling.
 * **Visualization Integration:** Filter response curves are overlaid on spectrum plots (`plot_gyro_spectrums`) as red curves with clear legends showing filter type and cutoff frequency, enhancing spectrum analysis with theoretical filter characteristics.
 * **Quality Assurance:** Comprehensive unit tests verify -3dB magnitude response at cutoff frequencies for all filter types and validate gyro rate extraction accuracy.
+
+### Bode Plot Analysis (Optional)
+
+* **Purpose:** Transfer function visualization for system identification via magnitude, phase, and coherence plots. Reveals frequency-domain behavior and control loop characteristics.
+* **Activation:** Disabled by default; enable with `--bode` flag (requires explicit user action).
+* **Recommended Use:** Controlled test flights with system-identification inputs (chirp/PRBS) on secured craft. Provides reliable transfer function estimates with high coherence (γ² ≥ 0.6).
+* **Limitations:** Normal operational flight logs produce low coherence due to nonlinearities, closed-loop feedback, and nonstationary maneuvers. Results in such cases are unreliable and not recommended for tuning decisions.
+* **Warning:** A runtime warning is displayed when `--bode` is used to inform users of these requirements and recommend spectrum analysis for normal flights.
 
 ### Output and Tuning Recommendations
 
