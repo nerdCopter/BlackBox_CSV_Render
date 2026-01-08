@@ -1,5 +1,6 @@
 // src/pid_context.rs
 
+use crate::axis_names::axis_name;
 use crate::data_input::pid_metadata::PidMetadata;
 
 /// Context struct containing PID metadata and related parameters for plotting functions
@@ -29,23 +30,10 @@ impl PidContext {
         }
     }
 
-    /// Get axis name for display purposes
-    #[allow(dead_code)] // Future use in plot functions
-    pub fn get_axis_name(&self, axis_index: usize) -> &'static str {
-        match axis_index {
-            0 => "Roll",
-            1 => "Pitch",
-            2 => "Yaw",
-            _ => {
-                panic!("Invalid axis index: {axis_index}. Expected 0 (roll), 1 (pitch), or 2 (yaw)")
-            }
-        }
-    }
-
     /// Get firmware-specific axis title with PID information
     #[allow(dead_code)] // Future use in plot functions
     pub fn get_axis_title_with_pids(&self, axis_index: usize) -> String {
-        let axis_name = self.get_axis_name(axis_index);
+        let axis_name_str = axis_name(axis_index);
 
         if let Some(axis_pid) = self.pid_metadata.get_axis(axis_index) {
             let firmware_type = self.pid_metadata.get_firmware_type();
@@ -53,12 +41,12 @@ impl PidContext {
             let pid_info = axis_pid.format_for_title(firmware_type, dmax_enabled);
 
             if pid_info.is_empty() {
-                axis_name.to_string()
+                axis_name_str.to_string()
             } else {
-                format!("{axis_name}{pid_info}")
+                format!("{axis_name_str}{pid_info}")
             }
         } else {
-            axis_name.to_string()
+            axis_name_str.to_string()
         }
     }
 }
