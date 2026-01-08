@@ -356,7 +356,7 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     eprintln!("                              If omitted, plots are saved in the source folder (input directory).");
     eprintln!("  --bode: Optional. Generate Bode plot analysis (magnitude, phase, coherence).");
     eprintln!("          NOTE: Requires controlled test flights with system-identification inputs");
-    eprintln!("          (chirp/PRBS on secured craft). Not recommended for normal flight logs");
+    eprintln!("          (chirp/PRBS). Not recommended for normal flight logs.");
     eprintln!(
         "  --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters"
     );

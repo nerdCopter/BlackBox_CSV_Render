@@ -35,7 +35,9 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory
             Note: Header files (.header.csv, .headers.csv) are automatically excluded.
   -O, --output-dir <directory>: Optional. Specifies the output directory for generated plots.
                               If omitted, plots are saved in the source folder (input directory).
-  --bode: Optional. Generate only Bode analysis plots, skipping all other graphs.
+  --bode: Optional. Generate Bode plot analysis (magnitude, phase, coherence).
+          NOTE: Requires controlled test flights with system-identification inputs
+          (chirp/PRBS). Not recommended for normal flight logs.
   --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters
                  as gray curves/lines on gyro and D-term spectrum plots.
   --debug: Optional. Shows detailed metadata information during processing.
