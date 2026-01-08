@@ -153,7 +153,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 * **Purpose:** Transfer function visualization for system identification via magnitude, phase, and coherence plots. Reveals frequency-domain behavior and control loop characteristics.
 * **Activation:** Disabled by default; enable with `--bode` flag (requires explicit user action).
-* **Recommended Use:** Controlled test flights with system-identification inputs (chirp/PRBS) on secured craft. Provides reliable transfer function estimates with high coherence (γ² ≥ 0.6).
+* **Recommended Use:** Controlled test flights with system-identification inputs (chirp/PRBS) on a tethered or otherwise secured aircraft. Provides reliable transfer function estimates with high coherence (γ² ≥ 0.6).
 * **Limitations:** Normal operational flight logs produce low coherence due to nonlinearities, closed-loop feedback, and nonstationary maneuvers. Results in such cases are unreliable and not recommended for tuning decisions.
 * **Warning:** A runtime warning is displayed when `--bode` is used to inform users of these requirements and recommend spectrum analysis for normal flights.
 

@@ -39,3 +39,10 @@
 - Use `.github/setup-dev.sh` for environment setup
 - Pre-commit hook enforces formatting and clippy checks
 - All changes must pass CI pipeline
+## Documentation
+- **OVERVIEW.md Maintenance:** For new features, add documentation in `OVERVIEW.md` at proper, appropriate locations
+  - Information should be balanced or concise; never overly verbose
+  - Align verbosity with existing documentation style in OVERVIEW.md
+  - Verify placement fits the document structure and flow
+- Update Table of Contents in OVERVIEW.md when adding new sections
+- Keep README.md usage/examples synchronized with actual CLI flags in `src/main.rs`
