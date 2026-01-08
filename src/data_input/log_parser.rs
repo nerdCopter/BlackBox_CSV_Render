@@ -484,11 +484,12 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
 
                         // D term with optional axisD[2] fallback
                         let d_target_idx = 7 + axis; // Indices 7,8,9
-                        if axis == 2 && header_indices[d_target_idx].is_none() {
-                            current_row_data.d_term[axis] = Some(0.0);
+                        let d_val = parse_f64_by_target_idx(d_target_idx);
+                        current_row_data.d_term[axis] = if d_val.is_none() && axis == 2 {
+                            Some(0.0)
                         } else {
-                            current_row_data.d_term[axis] = parse_f64_by_target_idx(d_target_idx);
-                        }
+                            d_val
+                        };
 
                         // F term with optional axisF[0-2] fallback
                         let f_target_idx = 10 + axis; // Indices 10,11,12

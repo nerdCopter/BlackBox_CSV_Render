@@ -165,6 +165,7 @@ When `--step` flag is not used, all plots below are generated:
 - **`*_D_Term_Heatmap_comparative.png`** — D-term energy distribution across throttle levels and frequencies
 - **`*_Gyro_PSD_Spectrogram_comparative.png`** — Gyro spectrogram (PSD vs. time) using Short-Time Fourier Transform
 - **`*_Throttle_Freq_Heatmap_comparative.png`** — System noise characteristics across throttle levels and frequencies
+- **`*_PID_Activity_stacked.png`** — P, I, D term activity over time for each axis (Roll, Pitch, Yaw). Displays all three PID components on the same time-domain plot with unified Y-axis scaling for visual comparison. Each term shows min/avg/max statistics in the legend. Useful for visualizing PID contribution balance during flight and identifying control issues (persistent P-term offset, I-term wind direction, D-term phase lag).
 
 #### P:D Ratio Recommendations
 

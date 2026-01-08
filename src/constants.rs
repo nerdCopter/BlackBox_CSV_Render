@@ -22,7 +22,7 @@ pub const RESPONSE_LENGTH_S: f64 = 0.5; // Length of the step response to keep (
 pub const SUPERPOSITION_FACTOR: usize = 16; // Number of overlapping windows (can be tuned)
 pub const TUKEY_ALPHA: f64 = 1.0; // Alpha for Tukey window (1.0 is Hanning window)
 
-pub const INITIAL_GYRO_SMOOTHING_WINDOW: usize = 15; // // Initial Gyro Smoothing (applied before deconvolution)
+pub const INITIAL_GYRO_SMOOTHING_WINDOW: usize = 15; // Initial Gyro Smoothing (applied before deconvolution)
 pub const POST_AVERAGING_SMOOTHING_WINDOW: usize = 15; // Constant for post-averaging smoothing of the final step response curves.
 
 pub const APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION: bool = true; // Individual Response "Y-Correction" (Normalization before averaging)
@@ -158,10 +158,17 @@ pub const SETPOINT_DERIVATIVE_Y_AXIS_HEADROOM_FACTOR: f64 = 0.05;
 pub const COLOR_GYRO_VS_UNFILT_FILT: &RGBColor = &LIGHTBLUE;
 pub const COLOR_GYRO_VS_UNFILT_UNFILT: &RGBColor = &AMBER;
 
-// Unified Y-axis scaling constant (minimum scale for symmetric range)
-// Ensures all three axes (Roll/Pitch/Yaw) use the same Y-axis range for visual comparison
-// Set to 100.0 deg/s as a reasonable minimum that covers typical flight scenarios
+// P, I, D Term Activity Plot
+pub const COLOR_P_TERM: &RGBColor = &RED;
+pub const COLOR_I_TERM: &RGBColor = &LIGHTBLUE;
+pub const COLOR_D_TERM_ACTIVITY: &RGBColor = &GREEN;
+
+// Minimum Y-axis scale for gyro/setpoint plots (deg/s, symmetric range)
 pub const UNIFIED_Y_AXIS_MIN_SCALE: f64 = 100.0;
+
+// Minimum Y-axis scale for P, I, D activity plots (symmetric range)
+// 200.0 provides good visibility for human interpretation
+pub const PID_ACTIVITY_Y_AXIS_MIN: f64 = 200.0;
 
 // D-term Plot Colors (distinct from gyro colors)
 pub const COLOR_D_TERM_FILT: &RGBColor = &GREEN; // Use green for filtered D-term (distinct from gyro blue/amber)
