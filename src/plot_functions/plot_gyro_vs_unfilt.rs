@@ -84,7 +84,7 @@ pub fn plot_gyro_vs_unfilt(
     // compress the normal flight data. Analysis of 148 logs shows P95 is typically
     // only 27% of absolute max, meaning outliers dominate current scaling.
     let half_range = if !all_abs_vals.is_empty() {
-        all_abs_vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        all_abs_vals.sort_by(|a, b| a.total_cmp(b));
         let p95_idx =
             ((all_abs_vals.len() - 1) as f64 * UNIFIED_Y_AXIS_PERCENTILE).floor() as usize;
         let p95_val = all_abs_vals[p95_idx];
