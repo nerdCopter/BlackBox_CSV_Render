@@ -164,7 +164,7 @@ pub const COLOR_I_TERM: &RGBColor = &LIGHTBLUE;
 pub const COLOR_D_TERM_ACTIVITY: &RGBColor = &GREEN;
 
 // Minimum Y-axis scale for gyro/setpoint plots (deg/s, symmetric range)
-pub const UNIFIED_Y_AXIS_MIN_SCALE: f64 = 100.0;
+pub const UNIFIED_Y_AXIS_MIN_SCALE: f64 = 200.0;
 
 // Y-axis scaling strategy for gyro/setpoint plots
 // Using 95th percentile provides better visualization for typical flight data
