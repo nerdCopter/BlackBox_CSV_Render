@@ -7,26 +7,30 @@ use crate::axis_names::AXIS_COUNT;
 use ndarray::{Array1, Array2};
 use std::error::Error;
 
-// Compile-time check: Ensure AXIS_COUNT is 3 for backward compatibility.
-// The public type aliases below (StepResponseResults, AllFFTData, etc.) use AXIS_COUNT
-// as a breaking change from the original hardcoded '3'. This assertion ensures
-// the API remains compatible if AXIS_COUNT is ever changed.
-const _: [(); 1] = [(); if AXIS_COUNT == 3 { 1 } else { 0 }];
+// Compile-time assertion: AXIS_COUNT must be 3 for backward compatibility.
+// Public type aliases (StepResponseResults, AllFFTData, AllPSDData, etc.) depend on
+// AXIS_COUNT. Changing AXIS_COUNT is a breaking change and requires API migration.
+const _: () = assert!(
+    AXIS_COUNT == 3,
+    "AXIS_COUNT must be 3 for backward compatibility"
+);
 
 // Step response calculation types
 pub type StepResponseResult = (Array1<f64>, Array2<f32>, Array1<f32>);
 pub type StepResponseResults = [Option<StepResponseResult>; AXIS_COUNT];
 
 // Log parser return type
+// Note: [bool; 3] and [bool; 4] arrays are header detection flags (not axis-specific).
+// They must remain hardcoded and do NOT reference AXIS_COUNT.
 pub type LogParseResult = Result<
     (
         Vec<crate::data_input::log_data::LogRowData>,
         Option<f64>,
-        [bool; 3],             // f_term_header_found
-        [bool; 4],             // setpoint_header_found
-        [bool; 3],             // gyro_header_found
-        [bool; 3],             // gyro_unfilt_header_found
-        [bool; 4],             // debug_header_found
+        [bool; 3],             // f_term_header_found (fixed: 3 fields)
+        [bool; 4],             // setpoint_header_found (fixed: 4 fields)
+        [bool; 3],             // gyro_header_found (fixed: 3 fields)
+        [bool; 3],             // gyro_unfilt_header_found (fixed: 3 fields)
+        [bool; 4],             // debug_header_found (fixed: 4 fields)
         Vec<(String, String)>, // header_metadata
     ),
     Box<dyn Error>,
