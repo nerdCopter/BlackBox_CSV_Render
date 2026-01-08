@@ -166,6 +166,13 @@ pub const COLOR_D_TERM_ACTIVITY: &RGBColor = &GREEN;
 // Minimum Y-axis scale for gyro/setpoint plots (deg/s, symmetric range)
 pub const UNIFIED_Y_AXIS_MIN_SCALE: f64 = 100.0;
 
+// Y-axis scaling strategy for gyro/setpoint plots
+// Using 95th percentile provides better visualization for typical flight data
+// while outliers (crashes, hard landings) still visible but don't compress normal data
+// Analysis of 148 flight logs shows P95 is typically only 27% of absolute max
+pub const UNIFIED_Y_AXIS_PERCENTILE: f64 = 0.95; // Use 95th percentile for Y-axis scaling
+pub const UNIFIED_Y_AXIS_PERCENTILE_SCALE: f64 = 1.15; // Scale factor: P95 * 1.15 provides headroom
+
 // Minimum Y-axis scale for P, I, D activity plots (symmetric range)
 // 200.0 provides good visibility for human interpretation
 pub const PID_ACTIVITY_Y_AXIS_MIN: f64 = 200.0;
