@@ -7,6 +7,12 @@ use crate::axis_names::AXIS_COUNT;
 use ndarray::{Array1, Array2};
 use std::error::Error;
 
+// Compile-time check: Ensure AXIS_COUNT is 3 for backward compatibility.
+// The public type aliases below (StepResponseResults, AllFFTData, etc.) use AXIS_COUNT
+// as a breaking change from the original hardcoded '3'. This assertion ensures
+// the API remains compatible if AXIS_COUNT is ever changed.
+const _: [(); 1] = [(); if AXIS_COUNT == 3 { 1 } else { 0 }];
+
 // Step response calculation types
 pub type StepResponseResult = (Array1<f64>, Array2<f32>, Array1<f32>);
 pub type StepResponseResults = [Option<StepResponseResult>; AXIS_COUNT];
