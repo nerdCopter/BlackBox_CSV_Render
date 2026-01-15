@@ -8,7 +8,7 @@ use crate::types::AllAxisPlotData2;
 
 use crate::constants::{
     COLOR_SETPOINT_VS_GYRO_GYRO, COLOR_SETPOINT_VS_GYRO_SP, LINE_WIDTH_PLOT,
-    UNIFIED_Y_AXIS_MIN_SCALE, UNIFIED_Y_AXIS_PERCENTILE, UNIFIED_Y_AXIS_PERCENTILE_SCALE,
+    UNIFIED_Y_AXIS_HEADROOM_SCALE, UNIFIED_Y_AXIS_MIN_SCALE, UNIFIED_Y_AXIS_PERCENTILE,
 };
 use crate::data_analysis::filter_delay;
 use crate::data_analysis::filter_delay::DelayAnalysisResult;
@@ -83,7 +83,7 @@ pub fn plot_setpoint_vs_gyro(
         let p95_idx =
             ((all_abs_vals.len() - 1) as f64 * UNIFIED_Y_AXIS_PERCENTILE).floor() as usize;
         let p95_val = all_abs_vals[p95_idx];
-        let scaled_p95 = p95_val * UNIFIED_Y_AXIS_PERCENTILE_SCALE;
+        let scaled_p95 = p95_val * UNIFIED_Y_AXIS_HEADROOM_SCALE;
         scaled_p95.max(UNIFIED_Y_AXIS_MIN_SCALE)
     } else {
         UNIFIED_Y_AXIS_MIN_SCALE

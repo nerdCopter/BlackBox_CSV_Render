@@ -138,9 +138,9 @@ pub const SETPOINT_DERIVATIVE_Y_AXIS_MIN: f64 = 3810.0;
 // Captures 95% of normal data, excludes top 5% (acro/freestyle).
 pub const SETPOINT_DERIVATIVE_EXPANSION_PERCENTILE: f64 = 0.95;
 
-// Scale factor for percentile-based expansion candidate (p95 * SCALE).
+// Headroom scale factor for percentile-based expansion (p95 * SCALE).
 // 1.2 provides cushion to avoid clipping high-rate maneuvers.
-pub const SETPOINT_DERIVATIVE_PERCENTILE_SCALE: f64 = 1.2;
+pub const SETPOINT_DERIVATIVE_HEADROOM_SCALE: f64 = 1.2;
 
 // Visual headroom added to final Y-axis range (multiplier: 1.0 + FACTOR).
 // 5% avoids tight cramped plots.
@@ -173,7 +173,7 @@ pub const UNIFIED_Y_AXIS_MIN_SCALE: f64 = 200.0;
 // while outliers (crashes, hard landings) still visible but don't compress normal data
 // Analysis of 148 flight logs shows P95 is typically only 27% of absolute max
 pub const UNIFIED_Y_AXIS_PERCENTILE: f64 = 0.95; // Use 95th percentile for Y-axis scaling
-pub const UNIFIED_Y_AXIS_PERCENTILE_SCALE: f64 = 1.15; // Scale factor: P95 * 1.15 provides headroom
+pub const UNIFIED_Y_AXIS_HEADROOM_SCALE: f64 = 1.2; // Headroom scale factor: P95 * 1.2 provides cushion
 
 // Minimum Y-axis scale for P, I, D activity plots (symmetric range)
 // 200.0 provides good visibility for human interpretation
