@@ -482,9 +482,6 @@ pub fn calculate_stability_margins(
     Ok(margins)
 }
 
-/// Find the first crossing of a target value with linear interpolation
-///
-/// Returns (frequency, value_at_crossing) if found
 /// Interpolates phase values using wrap-aware shortest-path interpolation
 ///
 /// Handles ±180° discontinuities correctly by:
@@ -518,6 +515,23 @@ fn interpolate_phase(p1: f64, p2: f64, t: f64) -> f64 {
     ((interpolated + 180.0).rem_euclid(360.0)) - 180.0
 }
 
+/// Find the first crossing of a target value with wrap-aware detection
+///
+/// Finds the first frequency at which a signal crosses a target value.
+/// For phase-like values (abs(target) > 90°), uses wrap-aware circular comparison
+/// to correctly detect crossings at ±180° discontinuities.
+/// For other values, uses standard linear interval testing.
+///
+/// Returns (frequency, value_at_crossing) if found.
+///
+/// # Arguments
+/// * `frequencies` - Sorted array of frequency values (Hz)
+/// * `values` - Array of magnitude or phase values to search
+/// * `target` - Target value to cross
+///
+/// # Returns
+/// `Some((crossover_frequency, target_value))` if a crossing is found,
+/// or `None` if no crossing found or arrays are invalid.
 fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f64, f64)> {
     if frequencies.len() < 2 || frequencies.len() != values.len() {
         return None;
@@ -614,6 +628,11 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
 /// Finds the final crossing point where the values cross the target level.
 /// Useful for bandwidth estimation when passband ripple exists — returns the
 /// last -3dB crossing instead of the first, providing accurate bandwidth.
+///
+/// **Note**: Uses standard linear interpolation without wrap-aware handling.
+/// This is correct for magnitude-based bandwidth estimation. For phase values
+/// that may wrap at ±180°, use `find_crossover` instead, which handles
+/// wrap-aware circular detection.
 ///
 /// # Arguments
 /// * `frequencies` - Sorted array of frequency values (Hz)
