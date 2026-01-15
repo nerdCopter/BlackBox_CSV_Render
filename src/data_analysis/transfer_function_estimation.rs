@@ -38,7 +38,7 @@ pub struct TransferFunctionResult {
     pub frequency_hz: Vec<f64>,
     /// Magnitude in dB
     pub magnitude_db: Vec<f64>,
-    /// Phase in degrees (unwrapped)
+    /// Phase in degrees (wrapped to [-180°, +180°])
     pub phase_deg: Vec<f64>,
     /// Coherence (0-1 quality metric)
     pub coherence: Vec<f64>,
