@@ -143,9 +143,10 @@ impl TransferFunctionResult {
         Some(m1 + t * (m2 - m1))
     }
 
-    /// Get phase at a specific frequency (with interpolation)
+    /// Get phase at a specific frequency (with wrap-aware interpolation)
     ///
     /// Returns the value at the edge if target_freq is outside the frequency range.
+    /// Uses wrap-aware interpolation to correctly handle ±180° discontinuities.
     pub fn get_phase_at_freq(&self, target_freq: f64) -> Option<f64> {
         if self.frequency_hz.len() < 2 {
             return None;
@@ -165,7 +166,7 @@ impl TransferFunctionResult {
             idx += 1;
         }
 
-        // Linear interpolation
+        // Wrap-aware phase interpolation
         let f1 = self.frequency_hz[idx];
         let f2 = self.frequency_hz[idx + 1];
         let p1 = self.phase_deg[idx];
@@ -176,7 +177,7 @@ impl TransferFunctionResult {
         } else {
             0.5
         };
-        Some(p1 + t * (p2 - p1))
+        Some(interpolate_phase(p1, p2, t))
     }
 
     /// Get coherence at a specific frequency
@@ -484,6 +485,47 @@ pub fn calculate_stability_margins(
 /// Find the first crossing of a target value with linear interpolation
 ///
 /// Returns (frequency, value_at_crossing) if found
+/// Interpolates phase values using wrap-aware shortest-path interpolation
+///
+/// Handles ±180° discontinuities correctly by:
+/// 1. Computing the signed shortest angular difference between p1 and p2
+/// 2. Adjusting diff by ±360° if abs(diff) > 180° to take the shortest path
+/// 3. Interpolating along that shortest path using parameter t
+/// 4. Re-wrapping the result back into [-180.0, 180.0]
+///
+/// # Arguments
+/// * `p1` - First phase value (degrees) in [-180.0, 180.0]
+/// * `p2` - Second phase value (degrees) in [-180.0, 180.0]
+/// * `t` - Interpolation parameter (0.0 = p1, 1.0 = p2)
+///
+/// # Returns
+/// Interpolated phase value in [-180.0, 180.0]
+fn interpolate_phase(p1: f64, p2: f64, t: f64) -> f64 {
+    // Compute signed shortest angular difference
+    let mut diff = p2 - p1;
+
+    // Adjust diff by ±360° if abs(diff) > 180° to take shortest path
+    if diff > 180.0 {
+        diff -= 360.0;
+    } else if diff < -180.0 {
+        diff += 360.0;
+    }
+
+    // Interpolate along shortest path
+    let interpolated = p1 + t * diff;
+
+    // Re-wrap result back into [-180.0, 180.0]
+    let mut wrapped = interpolated;
+    while wrapped > 180.0 {
+        wrapped -= 360.0;
+    }
+    while wrapped < -180.0 {
+        wrapped += 360.0;
+    }
+
+    wrapped
+}
+
 fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f64, f64)> {
     if frequencies.len() < 2 || frequencies.len() != values.len() {
         return None;
@@ -493,16 +535,48 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
         let v1 = values[i];
         let v2 = values[i + 1];
 
-        // Check if target is between v1 and v2
-        if (v1 <= target && target <= v2) || (v2 <= target && target <= v1) {
+        // For phase-like values (abs(target) > 90°, especially at ±180°), use wrap-aware comparison
+        let crosses_target = if target.abs() > 90.0 {
+            // Compute shortest angular path from v1 to v2
+            let mut diff = v2 - v1;
+            if diff > 180.0 {
+                diff -= 360.0;
+            } else if diff < -180.0 {
+                diff += 360.0;
+            }
+            // Check if target is along this shortest path
+            let v_end = v1 + diff;
+            (v1 <= target && target <= v_end) || (v_end <= target && target <= v1)
+        } else {
+            // Standard case: magnitude or mid-range phase
+            (v1 <= target && target <= v2) || (v2 <= target && target <= v1)
+        };
+
+        if crosses_target {
             let f1 = frequencies[i];
             let f2 = frequencies[i + 1];
 
-            // Linear interpolation
-            let t = if (v2 - v1).abs() > VALUE_EPSILON {
-                (target - v1) / (v2 - v1)
+            // Calculate interpolation parameter, using wrap-aware phase difference if needed
+            let t = if target.abs() > 90.0 {
+                // Phase crossover: use wrap-aware difference
+                let mut diff = v2 - v1;
+                if diff > 180.0 {
+                    diff -= 360.0;
+                } else if diff < -180.0 {
+                    diff += 360.0;
+                }
+                if diff.abs() > VALUE_EPSILON {
+                    (target - v1) / diff
+                } else {
+                    0.5
+                }
             } else {
-                0.5
+                // Standard interpolation
+                if (v2 - v1).abs() > VALUE_EPSILON {
+                    (target - v1) / (v2 - v1)
+                } else {
+                    0.5
+                }
             };
 
             let f_cross = f1 + t * (f2 - f1);
