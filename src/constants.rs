@@ -130,6 +130,11 @@ pub const COLOR_SETPOINT_DERIVATIVE: &RGBColor = &PURPLE;
 // Based on analysis of 146 flight logs: P95 of all P95 values = 3175 deg/s².
 // P95-based scaling provides better visualization for typical flights while preserving outliers.
 
+// Y-axis headroom scale factor for percentile-based scaling.
+// Applies to both unified (gyro/setpoint) and setpoint derivative plots.
+// P95 * 1.2 provides cushion to avoid clipping high-rate maneuvers while preserving typical flight visualization.
+pub const UNIFIED_Y_AXIS_HEADROOM_SCALE: f64 = 1.2;
+
 // Minimum Y-axis scale for setpoint derivative plots (deg/s², symmetric range).
 // Recommended minimum based on P95 analysis: 3175 * 1.2 = 3810 deg/s².
 pub const SETPOINT_DERIVATIVE_Y_AXIS_MIN: f64 = 3810.0;
@@ -137,10 +142,6 @@ pub const SETPOINT_DERIVATIVE_Y_AXIS_MIN: f64 = 3810.0;
 // Percentile for robust expansion detection (95th is standard statistical practice).
 // Captures 95% of normal data, excludes top 5% (acro/freestyle).
 pub const SETPOINT_DERIVATIVE_EXPANSION_PERCENTILE: f64 = 0.95;
-
-// Headroom scale factor for percentile-based expansion (p95 * SCALE).
-// 1.2 provides cushion to avoid clipping high-rate maneuvers.
-pub const SETPOINT_DERIVATIVE_HEADROOM_SCALE: f64 = 1.2;
 
 // Visual headroom added to final Y-axis range (multiplier: 1.0 + FACTOR).
 // 5% avoids tight cramped plots.
@@ -172,8 +173,8 @@ pub const UNIFIED_Y_AXIS_MIN_SCALE: f64 = 200.0;
 // Using 95th percentile provides better visualization for typical flight data
 // while outliers (crashes, hard landings) still visible but don't compress normal data
 // Analysis of 148 flight logs shows P95 is typically only 27% of absolute max
+// Headroom scale factor (UNIFIED_Y_AXIS_HEADROOM_SCALE) applied to P95 values
 pub const UNIFIED_Y_AXIS_PERCENTILE: f64 = 0.95; // Use 95th percentile for Y-axis scaling
-pub const UNIFIED_Y_AXIS_HEADROOM_SCALE: f64 = 1.2; // Headroom scale factor: P95 * 1.2 provides cushion
 
 // Minimum Y-axis scale for P, I, D activity plots (symmetric range)
 // 200.0 provides good visibility for human interpretation

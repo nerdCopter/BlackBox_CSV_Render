@@ -147,7 +147,7 @@ pub fn plot_setpoint_derivative(
         let idx = ((all_abs_vals.len() - 1) as f64
             * crate::constants::SETPOINT_DERIVATIVE_EXPANSION_PERCENTILE)
             .floor() as usize;
-        p95_candidate = all_abs_vals[idx] * crate::constants::SETPOINT_DERIVATIVE_HEADROOM_SCALE;
+        p95_candidate = all_abs_vals[idx] * crate::constants::UNIFIED_Y_AXIS_HEADROOM_SCALE;
     }
 
     let global_half = global_val_min.abs().max(global_val_max.abs());
