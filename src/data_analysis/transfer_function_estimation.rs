@@ -549,14 +549,17 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
                 diff += 360.0;
             }
 
-            // Compute the absolute step in modular space
-            let diff_mod = (diff + 360.0) % 360.0;
-
-            // Compute target offset from v1 in the direction of v2
+            // Compute target offset from v1 to target in the [0, 360) modular space
             let target_offset = (target_norm - v1_norm + 360.0) % 360.0;
 
-            // True crossing if target_offset is within the shortest path [0, diff_mod]
-            0.0 <= target_offset && target_offset <= diff_mod
+            // Test crossing based on traversal direction:
+            // If diff >= 0 (clockwise): target is crossed if 0 <= target_offset <= diff
+            // If diff < 0 (counterclockwise): target is crossed if target_offset >= (360.0 + diff)
+            if diff >= 0.0 {
+                0.0 <= target_offset && target_offset <= diff
+            } else {
+                target_offset >= (360.0 + diff)
+            }
         } else {
             // Standard case: magnitude or mid-range phase
             (v1 <= target && target <= v2) || (v2 <= target && target <= v1)
