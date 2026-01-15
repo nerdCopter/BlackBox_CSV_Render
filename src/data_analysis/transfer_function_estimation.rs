@@ -8,7 +8,7 @@ use crate::constants::{
     VALUE_EPSILON,
 };
 use crate::data_analysis::spectral_analysis::{
-    coherence, to_magnitude_db, to_phase_deg, unwrap_phase, welch_cpsd, welch_psd, WelchConfig,
+    coherence, to_magnitude_db, to_phase_deg, welch_cpsd, welch_psd, WelchConfig,
 };
 use crate::data_input::log_data::LogRowData;
 
@@ -238,28 +238,33 @@ pub fn estimate_transfer_function_h1(
     let config = WelchConfig::default();
 
     // Compute spectral estimates
-    let cpsd_xy = welch_cpsd(
-        &setpoint_data,
-        &gyro_data,
+    // H(f) = Output/Input = Gyro/Setpoint
+    // H1 estimator: H1(f) = Syx(f) / Sxx(f) where Syx = conj(X) * Y = conj(Setpoint) * Gyro
+    let cpsd_yx = welch_cpsd(
+        &gyro_data,     // signal1 (output Y)
+        &setpoint_data, // signal2 (input X)
         sample_rate,
         Some(config.clone()),
     )?;
     let psd_xx = welch_psd(&setpoint_data, sample_rate, Some(config.clone()))?;
     let psd_yy = welch_psd(&gyro_data, sample_rate, Some(config))?;
 
-    // Compute H1 estimator: H1(f) = Sxy(f) / Sxx(f)
-    let mut h1_complex = Vec::with_capacity(cpsd_xy.len());
-    let mut frequency_hz = Vec::with_capacity(cpsd_xy.len());
-    let mut coherence_values = Vec::with_capacity(cpsd_xy.len());
+    // Compute H1 estimator: H1(f) = Syx(f) / Sxx(f)
+    let mut h1_complex = Vec::with_capacity(cpsd_yx.len());
+    let mut frequency_hz = Vec::with_capacity(cpsd_yx.len());
+    let mut coherence_values = Vec::with_capacity(cpsd_yx.len());
 
     // Calculate coherence for quality assessment
-    let coherence_result = coherence(&cpsd_xy, &psd_xx, &psd_yy)?;
+    let coherence_result = coherence(&cpsd_yx, &psd_xx, &psd_yy)?;
 
-    for (i, (freq, cpsd)) in cpsd_xy.iter().enumerate() {
+    for (i, (freq, cpsd)) in cpsd_yx.iter().enumerate() {
         let psd_input = psd_xx[i].1;
 
         if psd_input > PSD_EPSILON {
-            let h1 = cpsd / psd_input;
+            // cpsd_yx from welch_cpsd computes: Gyro(f) * conj(Setpoint(f))
+            // But we need: conj(Setpoint(f)) * Gyro(f) for correct phase
+            // These differ by conjugation, so conjugate cpsd to get correct phase sign
+            let h1 = cpsd.conj() / psd_input;
             h1_complex.push(h1);
             frequency_hz.push(*freq);
             // Keep coherence value aligned with frequency and magnitude
@@ -280,12 +285,13 @@ pub fn estimate_transfer_function_h1(
 
     let phase_rad: Vec<f64> = h1_complex.iter().map(|h| h.arg()).collect();
     let phase_deg: Vec<f64> = phase_rad.iter().map(|&p| to_phase_deg(p)).collect();
-    let phase_deg_unwrapped = unwrap_phase(&phase_deg);
+    // Note: Phase is kept wrapped in -180° to +180° range for typical Bode plot display
+    // Unwrapping can cause issues with noisy/low-coherence data from non-ideal test signals
 
     Ok(TransferFunctionResult {
         frequency_hz,
         magnitude_db,
-        phase_deg: phase_deg_unwrapped,
+        phase_deg, // Use wrapped phase instead of unwrapped
         coherence: coherence_values,
         sample_rate_hz: sample_rate,
         axis_name,

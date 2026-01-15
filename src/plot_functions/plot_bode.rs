@@ -33,6 +33,7 @@ pub fn plot_bode_analysis(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
+    debug_mode: bool,
 ) -> Result<(), Box<dyn Error>> {
     let sr_value = if let Some(sr) = sample_rate {
         sr
@@ -69,6 +70,83 @@ pub fn plot_bode_analysis(
 
         tf_results.push(tf_result);
         margins_results.push(margins);
+    }
+
+    // Print debug information if requested
+    if debug_mode && !tf_results.is_empty() {
+        println!("\n--- Bode Analysis Debug Information ---");
+        for (idx, tf) in tf_results.iter().enumerate() {
+            let margins = &margins_results[idx];
+            println!("\n  {}:", tf.axis_name);
+            println!("    Data points: {}", tf.len());
+            if !tf.frequency_hz.is_empty() {
+                println!(
+                    "    Frequency range: {:.2} Hz to {:.2} Hz",
+                    tf.frequency_hz.first().unwrap(),
+                    tf.frequency_hz.last().unwrap()
+                );
+            }
+            if !tf.phase_deg.is_empty() {
+                let phase_min = tf.phase_deg.iter().copied().fold(f64::INFINITY, f64::min);
+                let phase_max = tf
+                    .phase_deg
+                    .iter()
+                    .copied()
+                    .fold(f64::NEG_INFINITY, f64::max);
+                println!(
+                    "    Phase range (all): {:.1}° to {:.1}°",
+                    phase_min, phase_max
+                );
+
+                // Show filtered phase range (coherence > 0.1)
+                let (_, _, filtered_phase, _) = filter_by_coherence(tf, MIN_COHERENCE_FOR_PLOT);
+                if !filtered_phase.is_empty() {
+                    let filt_phase_min =
+                        filtered_phase.iter().copied().fold(f64::INFINITY, f64::min);
+                    let filt_phase_max = filtered_phase
+                        .iter()
+                        .copied()
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    println!(
+                        "    Phase range (filtered, coh>0.1): {:.1}° to {:.1}°",
+                        filt_phase_min, filt_phase_max
+                    );
+                }
+            }
+            if !tf.magnitude_db.is_empty() {
+                let mag_min = tf
+                    .magnitude_db
+                    .iter()
+                    .copied()
+                    .fold(f64::INFINITY, f64::min);
+                let mag_max = tf
+                    .magnitude_db
+                    .iter()
+                    .copied()
+                    .fold(f64::NEG_INFINITY, f64::max);
+                println!(
+                    "    Magnitude range: {:.1} dB to {:.1} dB",
+                    mag_min, mag_max
+                );
+            }
+            if let Some(f_c) = margins.gain_crossover_hz {
+                println!("    Gain crossover: {:.2} Hz", f_c);
+            }
+            if let Some(pm) = margins.phase_margin_deg {
+                println!("    Phase margin: {:.1}°", pm);
+            }
+            if let Some(f_p) = margins.phase_crossover_hz {
+                println!("    Phase crossover: {:.2} Hz", f_p);
+            }
+            if let Some(gm) = margins.gain_margin_db {
+                println!("    Gain margin: {:.1} dB", gm);
+            }
+            if let Some(bw) = margins.bandwidth_hz {
+                println!("    Bandwidth (-3dB): {:.2} Hz", bw);
+            }
+            println!("    Confidence: {:?}", margins.confidence);
+        }
+        println!();
     }
 
     // Early exit if no valid axes

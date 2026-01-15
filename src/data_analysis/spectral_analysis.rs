@@ -53,6 +53,7 @@ pub fn to_phase_deg(phase_rad: f64) -> f64 {
 }
 
 /// Unwraps phase to remove 360° discontinuities
+#[allow(dead_code)]
 pub fn unwrap_phase(phase_deg: &[f64]) -> Vec<f64> {
     if phase_deg.is_empty() {
         return Vec::new();
