@@ -499,15 +499,8 @@ pub fn calculate_stability_margins(
 /// # Returns
 /// Interpolated phase value in [-180.0, 180.0]
 fn interpolate_phase(p1: f64, p2: f64, t: f64) -> f64 {
-    // Compute signed shortest angular difference
-    let mut diff = p2 - p1;
-
-    // Adjust diff by ±360° if abs(diff) > 180° to take shortest path
-    if diff > 180.0 {
-        diff -= 360.0;
-    } else if diff < -180.0 {
-        diff += 360.0;
-    }
+    // Use helper for shortest angular difference
+    let diff = wrap_aware_diff(p1, p2);
 
     // Interpolate along shortest path
     let interpolated = p1 + t * diff;
