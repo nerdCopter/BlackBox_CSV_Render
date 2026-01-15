@@ -6,7 +6,7 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, LINE_WIDTH_PLOT,
-    UNIFIED_Y_AXIS_MIN_SCALE,
+    UNIFIED_Y_AXIS_HEADROOM_SCALE, UNIFIED_Y_AXIS_MIN_SCALE, UNIFIED_Y_AXIS_PERCENTILE,
 };
 use crate::data_analysis::filter_delay;
 use crate::data_analysis::filter_delay::DelayAnalysisResult;
@@ -63,28 +63,36 @@ pub fn plot_gyro_vs_unfilt(
     let color_gyro_filt: RGBColor = *COLOR_GYRO_VS_UNFILT_FILT;
     let line_stroke_plot = LINE_WIDTH_PLOT;
 
-    // Pre-calculate min/max across ALL axes for unified Y-axis scaling
-    let mut global_val_min = f64::INFINITY;
-    let mut global_val_max = f64::NEG_INFINITY;
+    // Collect all absolute values for percentile calculation (issue #125)
+    let mut all_abs_vals = Vec::new();
 
     #[allow(clippy::needless_range_loop)]
     for axis_index in 0..AXIS_NAMES.len() {
         let data = &axis_plot_data[axis_index];
         for (_, gyro_filt, gyro_unfilt) in data {
             if let Some(gf) = gyro_filt {
-                global_val_min = global_val_min.min(*gf);
-                global_val_max = global_val_max.max(*gf);
+                all_abs_vals.push(gf.abs());
             }
             if let Some(gu) = gyro_unfilt {
-                global_val_min = global_val_min.min(*gu);
-                global_val_max = global_val_max.max(*gu);
+                all_abs_vals.push(gu.abs());
             }
         }
     }
 
-    // Determine symmetric half-range with minimum scale
-    let global_half = global_val_min.abs().max(global_val_max.abs());
-    let half_range = global_half.max(UNIFIED_Y_AXIS_MIN_SCALE);
+    // Calculate 95th percentile for Y-axis scaling
+    // This provides better visualization by not letting outliers (crashes, hard landings)
+    // compress the normal flight data. Analysis of 148 logs shows P95 is typically
+    // only 27% of absolute max, meaning outliers dominate current scaling.
+    let half_range = if !all_abs_vals.is_empty() {
+        all_abs_vals.sort_by(|a, b| a.total_cmp(b));
+        let p95_idx =
+            ((all_abs_vals.len() - 1) as f64 * UNIFIED_Y_AXIS_PERCENTILE).floor() as usize;
+        let p95_val = all_abs_vals[p95_idx];
+        let scaled_p95 = p95_val * UNIFIED_Y_AXIS_HEADROOM_SCALE;
+        scaled_p95.max(UNIFIED_Y_AXIS_MIN_SCALE)
+    } else {
+        UNIFIED_Y_AXIS_MIN_SCALE
+    };
 
     draw_stacked_plot(
         &output_file_gyro,
