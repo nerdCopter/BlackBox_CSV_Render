@@ -378,7 +378,7 @@ pub fn calculate_stability_margins(
     let mut margins = StabilityMargins::default();
 
     // Find gain crossover frequency (magnitude crosses 0 dB)
-    let gain_crossover = find_crossover(&tf.frequency_hz, &tf.magnitude_db, 0.0);
+    let gain_crossover = find_crossover(&tf.frequency_hz, &tf.magnitude_db, 0.0, WrapMode::Linear);
 
     if let Some((f_c, _)) = gain_crossover {
         margins.gain_crossover_hz = Some(f_c);
@@ -408,7 +408,8 @@ pub fn calculate_stability_margins(
     }
 
     // Find phase crossover frequency (phase crosses -180°)
-    let phase_crossover = find_crossover(&tf.frequency_hz, &tf.phase_deg, -180.0);
+    let phase_crossover =
+        find_crossover(&tf.frequency_hz, &tf.phase_deg, -180.0, WrapMode::Circular);
 
     if let Some((f_p, _)) = phase_crossover {
         margins.phase_crossover_hz = Some(f_p);
@@ -532,6 +533,18 @@ fn interpolate_phase(p1: f64, p2: f64, t: f64) -> f64 {
 /// # Returns
 /// `Some((crossover_frequency, target_value))` if a crossing is found,
 /// or `None` if no crossing found or arrays are invalid.
+/// Mode for phase crossing detection
+///
+/// Controls whether to use wrap-aware circular arithmetic (for phase values)
+/// or standard linear comparison (for magnitude values).
+#[derive(Debug, Clone, Copy)]
+enum WrapMode {
+    /// Standard linear interval testing for magnitude-like values
+    Linear,
+    /// Wrap-aware circular comparison for phase values at ±180° boundary
+    Circular,
+}
+
 /// Compute shortest signed angular difference from v1 to v2
 ///
 /// Normalizes the difference to stay within [-180.0, 180.0] to represent
@@ -553,7 +566,12 @@ fn wrap_aware_diff(v1: f64, v2: f64) -> f64 {
     diff
 }
 
-fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f64, f64)> {
+fn find_crossover(
+    frequencies: &[f64],
+    values: &[f64],
+    target: f64,
+    mode: WrapMode,
+) -> Option<(f64, f64)> {
     if frequencies.len() < 2 || frequencies.len() != values.len() {
         return None;
     }
@@ -562,67 +580,73 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
         let v1 = values[i];
         let v2 = values[i + 1];
 
-        // For phase-like values (abs(target) > 90°, especially at ±180°), use wrap-aware circular comparison
-        let crosses_target = if target.abs() > 90.0 {
-            // Normalize angles to [0, 360) for circular arithmetic
-            let normalize = |angle: f64| {
-                let mut a = angle % 360.0;
-                if a < 0.0 {
-                    a += 360.0;
+        // Determine crossing logic based on WrapMode
+        let crosses_target = match mode {
+            WrapMode::Circular => {
+                // Normalize angles to [0, 360) for circular arithmetic
+                let normalize = |angle: f64| {
+                    let mut a = angle % 360.0;
+                    if a < 0.0 {
+                        a += 360.0;
+                    }
+                    a
+                };
+
+                let v1_norm = normalize(v1);
+                let target_norm = normalize(target);
+
+                // Compute shortest signed angular difference from v1 to v2
+                let diff = wrap_aware_diff(v1, v2);
+
+                // Compute target offset from v1 to target in the [0, 360) modular space
+                let target_offset = (target_norm - v1_norm + 360.0) % 360.0;
+
+                // Test crossing based on traversal direction:
+                // If diff >= 0 (clockwise): target is crossed if 0 <= target_offset <= diff
+                // If diff < 0 (counterclockwise): target is crossed if target_offset >= (360.0 + diff)
+                if diff >= 0.0 {
+                    0.0 <= target_offset && target_offset <= diff
+                } else {
+                    target_offset >= (360.0 + diff)
                 }
-                a
-            };
-
-            let v1_norm = normalize(v1);
-            let target_norm = normalize(target);
-
-            // Compute shortest signed angular difference from v1 to v2
-            let diff = wrap_aware_diff(v1, v2);
-
-            // Compute target offset from v1 to target in the [0, 360) modular space
-            let target_offset = (target_norm - v1_norm + 360.0) % 360.0;
-
-            // Test crossing based on traversal direction:
-            // If diff >= 0 (clockwise): target is crossed if 0 <= target_offset <= diff
-            // If diff < 0 (counterclockwise): target is crossed if target_offset >= (360.0 + diff)
-            if diff >= 0.0 {
-                0.0 <= target_offset && target_offset <= diff
-            } else {
-                target_offset >= (360.0 + diff)
             }
-        } else {
-            // Standard case: magnitude or mid-range phase
-            (v1 <= target && target <= v2) || (v2 <= target && target <= v1)
+            WrapMode::Linear => {
+                // Standard case: magnitude or mid-range phase
+                (v1 <= target && target <= v2) || (v2 <= target && target <= v1)
+            }
         };
 
         if crosses_target {
             let f1 = frequencies[i];
             let f2 = frequencies[i + 1];
 
-            // Calculate interpolation parameter, using wrap-aware phase difference if needed
-            let t = if target.abs() > 90.0 {
-                // Phase crossover: use wrap-aware numerator and denominator
-                let diff = wrap_aware_diff(v1, v2);
+            // Calculate interpolation parameter based on WrapMode
+            let t = match mode {
+                WrapMode::Circular => {
+                    // Phase crossover: use wrap-aware numerator and denominator
+                    let diff = wrap_aware_diff(v1, v2);
 
-                // Compute wrap-aware numerator (distance from v1 to target)
-                let mut num = target - v1;
-                if num > 180.0 {
-                    num -= 360.0;
-                } else if num < -180.0 {
-                    num += 360.0;
-                }
+                    // Compute wrap-aware numerator (distance from v1 to target)
+                    let mut num = target - v1;
+                    if num > 180.0 {
+                        num -= 360.0;
+                    } else if num < -180.0 {
+                        num += 360.0;
+                    }
 
-                if diff.abs() > VALUE_EPSILON {
-                    num / diff
-                } else {
-                    0.5
+                    if diff.abs() > VALUE_EPSILON {
+                        num / diff
+                    } else {
+                        0.5
+                    }
                 }
-            } else {
-                // Standard interpolation
-                if (v2 - v1).abs() > VALUE_EPSILON {
-                    (target - v1) / (v2 - v1)
-                } else {
-                    0.5
+                WrapMode::Linear => {
+                    // Standard interpolation
+                    if (v2 - v1).abs() > VALUE_EPSILON {
+                        (target - v1) / (v2 - v1)
+                    } else {
+                        0.5
+                    }
                 }
             };
 
