@@ -573,6 +573,11 @@ fn find_crossover(
         let v1 = values[i];
         let v2 = values[i + 1];
 
+        // Skip pairs containing NaN to prevent silent comparison failures
+        if v1.is_nan() || v2.is_nan() {
+            continue;
+        }
+
         // Determine crossing logic based on WrapMode
         let crosses_target = match mode {
             WrapMode::Circular => {
