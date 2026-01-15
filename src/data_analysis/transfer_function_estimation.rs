@@ -535,18 +535,36 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
         let v1 = values[i];
         let v2 = values[i + 1];
 
-        // For phase-like values (abs(target) > 90°, especially at ±180°), use wrap-aware comparison
+        // For phase-like values (abs(target) > 90°, especially at ±180°), use wrap-aware circular comparison
         let crosses_target = if target.abs() > 90.0 {
-            // Compute shortest angular path from v1 to v2
+            // Normalize angles to [0, 360) for circular arithmetic
+            let normalize = |angle: f64| {
+                let mut a = angle % 360.0;
+                if a < 0.0 {
+                    a += 360.0;
+                }
+                a
+            };
+
+            let v1_norm = normalize(v1);
+            let target_norm = normalize(target);
+
+            // Compute shortest signed angular difference from v1 to v2
             let mut diff = v2 - v1;
             if diff > 180.0 {
                 diff -= 360.0;
             } else if diff < -180.0 {
                 diff += 360.0;
             }
-            // Check if target is along this shortest path
-            let v_end = v1 + diff;
-            (v1 <= target && target <= v_end) || (v_end <= target && target <= v1)
+
+            // Compute the absolute step in modular space
+            let diff_mod = (diff + 360.0) % 360.0;
+
+            // Compute target offset from v1 in the direction of v2
+            let target_offset = (target_norm - v1_norm + 360.0) % 360.0;
+
+            // True crossing if target_offset is within the shortest path [0, diff_mod]
+            0.0 <= target_offset && target_offset <= diff_mod
         } else {
             // Standard case: magnitude or mid-range phase
             (v1 <= target && target <= v2) || (v2 <= target && target <= v1)
