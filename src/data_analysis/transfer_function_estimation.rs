@@ -571,15 +571,24 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
 
             // Calculate interpolation parameter, using wrap-aware phase difference if needed
             let t = if target.abs() > 90.0 {
-                // Phase crossover: use wrap-aware difference
+                // Phase crossover: use wrap-aware numerator and denominator
                 let mut diff = v2 - v1;
                 if diff > 180.0 {
                     diff -= 360.0;
                 } else if diff < -180.0 {
                     diff += 360.0;
                 }
+
+                // Compute wrap-aware numerator (distance from v1 to target)
+                let mut num = target - v1;
+                if num > 180.0 {
+                    num -= 360.0;
+                } else if num < -180.0 {
+                    num += 360.0;
+                }
+
                 if diff.abs() > VALUE_EPSILON {
-                    (target - v1) / diff
+                    num / diff
                 } else {
                     0.5
                 }
