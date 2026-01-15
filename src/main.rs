@@ -1060,7 +1060,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             "    For normal flight log analysis, use spectrum plots (default behavior) instead."
         );
         eprintln!();
-        plot_bode_analysis(&all_log_data, &root_name_string, sample_rate)?;
+        plot_bode_analysis(&all_log_data, &root_name_string, sample_rate, debug_mode)?;
     }
 
     if plot_config.psd_db_heatmap {

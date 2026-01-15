@@ -53,7 +53,11 @@ pub fn to_phase_deg(phase_rad: f64) -> f64 {
 }
 
 /// Unwraps phase to remove 360° discontinuities
-pub fn unwrap_phase(phase_deg: &[f64]) -> Vec<f64> {
+///
+/// Note: Currently unused. Kept for potential future use with improved unwrapping algorithms.
+/// The Bode plot implementation uses wrapped phase [-180°, +180°] as it handles noisy data better.
+#[allow(dead_code)]
+fn unwrap_phase(phase_deg: &[f64]) -> Vec<f64> {
     if phase_deg.is_empty() {
         return Vec::new();
     }
