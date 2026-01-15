@@ -514,16 +514,8 @@ fn interpolate_phase(p1: f64, p2: f64, t: f64) -> f64 {
     // Interpolate along shortest path
     let interpolated = p1 + t * diff;
 
-    // Re-wrap result back into [-180.0, 180.0]
-    let mut wrapped = interpolated;
-    while wrapped > 180.0 {
-        wrapped -= 360.0;
-    }
-    while wrapped < -180.0 {
-        wrapped += 360.0;
-    }
-
-    wrapped
+    // Re-wrap result back into [-180.0, 180.0] using modular arithmetic
+    ((interpolated + 180.0).rem_euclid(360.0)) - 180.0
 }
 
 fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f64, f64)> {
