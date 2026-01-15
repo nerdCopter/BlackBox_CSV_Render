@@ -532,6 +532,27 @@ fn interpolate_phase(p1: f64, p2: f64, t: f64) -> f64 {
 /// # Returns
 /// `Some((crossover_frequency, target_value))` if a crossing is found,
 /// or `None` if no crossing found or arrays are invalid.
+/// Compute shortest signed angular difference from v1 to v2
+///
+/// Normalizes the difference to stay within [-180.0, 180.0] to represent
+/// the shortest angular path. Used for wrap-aware phase comparisons and interpolations.
+///
+/// # Arguments
+/// * `v1` - First angle (degrees)
+/// * `v2` - Second angle (degrees)
+///
+/// # Returns
+/// Shortest signed angular difference in [-180.0, 180.0]
+fn wrap_aware_diff(v1: f64, v2: f64) -> f64 {
+    let mut diff = v2 - v1;
+    if diff > 180.0 {
+        diff -= 360.0;
+    } else if diff < -180.0 {
+        diff += 360.0;
+    }
+    diff
+}
+
 fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f64, f64)> {
     if frequencies.len() < 2 || frequencies.len() != values.len() {
         return None;
@@ -556,12 +577,7 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
             let target_norm = normalize(target);
 
             // Compute shortest signed angular difference from v1 to v2
-            let mut diff = v2 - v1;
-            if diff > 180.0 {
-                diff -= 360.0;
-            } else if diff < -180.0 {
-                diff += 360.0;
-            }
+            let diff = wrap_aware_diff(v1, v2);
 
             // Compute target offset from v1 to target in the [0, 360) modular space
             let target_offset = (target_norm - v1_norm + 360.0) % 360.0;
@@ -586,12 +602,7 @@ fn find_crossover(frequencies: &[f64], values: &[f64], target: f64) -> Option<(f
             // Calculate interpolation parameter, using wrap-aware phase difference if needed
             let t = if target.abs() > 90.0 {
                 // Phase crossover: use wrap-aware numerator and denominator
-                let mut diff = v2 - v1;
-                if diff > 180.0 {
-                    diff -= 360.0;
-                } else if diff < -180.0 {
-                    diff += 360.0;
-                }
+                let diff = wrap_aware_diff(v1, v2);
 
                 // Compute wrap-aware numerator (distance from v1 to target)
                 let mut num = target - v1;
