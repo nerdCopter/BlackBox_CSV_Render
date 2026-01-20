@@ -262,10 +262,10 @@ pub fn estimate_transfer_function_h1(
         let psd_input = psd_xx[i].1;
 
         if psd_input > PSD_EPSILON {
-            // cpsd_yx from welch_cpsd computes: Gyro(f) * conj(Setpoint(f))
-            // But we need: conj(Setpoint(f)) * Gyro(f) for correct phase
-            // These differ by conjugation, so conjugate cpsd to get correct phase sign
-            let h1 = cpsd.conj() / psd_input;
+            // welch_cpsd already computes Syx = Gyro(f) * conj(Setpoint(f))
+            // H1 estimator: H1(f) = Syx(f) / Sxx(f)
+            // Phase: ∠H1 = ∠Gyro - ∠Setpoint (negative for systems with delay)
+            let h1 = cpsd / psd_input;
             h1_complex.push(h1);
             frequency_hz.push(*freq);
             // Keep coherence value aligned with frequency and magnitude
