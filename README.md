@@ -26,7 +26,7 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
+Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--frame-class <size>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
   <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).
             Can mix files and directories in a single command.
             - Individual CSV file: path/to/file.csv
@@ -44,6 +44,11 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory
   --dps <value>: Optional. Enables detailed step response plots with the specified
                  deg/s threshold value. Must be a positive number.
                  If --dps is omitted, a general step-response is shown.
+  --estimate-optimal-p: Optional. Enable optimal P estimation with physics-aware recommendations.
+                        Analyzes response time vs. frame-class targets and noise levels.
+  --frame-class <size>: Optional. Specify frame class for optimal P estimation.
+                        Valid options: 3inch, 5inch, 7inch, 10inch
+                        Defaults to 5inch if --estimate-optimal-p is used without this flag.
   --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
   --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).
   -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.
@@ -63,6 +68,9 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ```
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500 --butterworth
+```
+```shell
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --frame-class 5inch
 ```
 ```shell
 ./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --output-dir ./plots --butterworth
@@ -98,6 +106,10 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 - Current P:D ratio and peak analysis with response assessment
 - Conservative and Moderate tuning recommendations (with D/D-Min/D-Max values)
 - Warning indicators for severe overshoot or unreasonable ratios
+- Optimal P estimation (when --estimate-optimal-p is used):
+  - Frame-class-aware Td (time to 50%) analysis
+  - Response consistency metrics (CV, std dev)
+  - Physics-based P gain recommendations
 - Gyro filtering delay estimates (filtered vs. unfiltered, with confidence)
 - Filter configuration parsing and spectrum peak detection summaries
 - Use `--debug` flag for additional metadata: header information, flight data key mapping, sample header values, and debug mode identification

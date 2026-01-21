@@ -389,6 +389,13 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
         "
 Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns."
     );
+    eprintln!();
+    eprintln!("Examples:");
+    eprintln!("  {program_name} flight.csv");
+    eprintln!("  {program_name} flight.csv --dps 200");
+    eprintln!("  {program_name} flight.csv --step --estimate-optimal-p --frame-class 5inch");
+    eprintln!("  {program_name} input/*.csv -O ./output/");
+    eprintln!("  {program_name} logs/ -R --step");
     std::process::exit(1);
 }
 

@@ -189,6 +189,41 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 - Shows recommendations only when the step response needs improvement (skips optimal peak 0.95–1.04)
 - **Note:** Peak value measures the first maximum after crossing the setpoint; the initial transient dip is normal system behavior
 
+#### Optimal P Estimation (Optional)
+
+Physics-aware P gain optimization based on response timing analysis:
+
+- **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag
+- **Frame Class Selection:** Use `--frame-class <size>` to specify aircraft size (3inch, 5inch, 7inch, 10inch)
+  - Defaults to 5inch if not specified
+  - Each frame class has physics-determined optimal Td (time to 50%) targets based on power-to-rotational-inertia ratio
+- **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal
+- **Frame-Class Targets:**
+  - 3" toothpick/cinewhoop: 30ms ± 7.5ms
+  - 5" freestyle/racing: 20ms ± 5.0ms
+  - 7" long-range: 37.5ms ± 9.5ms
+  - 10" cinelifter: 65ms ± 16.25ms
+- **Analysis Components:**
+  - Collects individual Td measurements from all valid step response windows
+  - Calculates response consistency metrics (mean, std dev, coefficient of variation)
+  - Compares measured Td against frame-class targets
+  - Classifies Td deviation (significantly slower, moderately slower, within target, faster)
+  - Provides P gain recommendations based on deviation and noise levels
+- **Recommendation Types:**
+  - **P Increase:** When Td is slower than target with acceptable noise levels
+  - **Optimal:** When Td is within target range or at physical limits
+  - **P Decrease:** When Td is faster than target with high noise (rare)
+  - **Investigate:** When measurements suggest mechanical issues or incorrect frame class
+- **Output Format:** Detailed console report with:
+  - Current P gain and measured Td statistics
+  - Frame class comparison and deviation percentage
+  - Physical limit indicators (response speed, noise level, consistency)
+  - Clear recommendation with reasoning
+- **Relationship to P:D Recommendations:**
+  - P:D ratio recommendations (existing feature): Analyze peak overshoot → adjust D-term
+  - Optimal P estimation (new feature): Analyze response timing → adjust P magnitude
+  - Both features are complementary and can run simultaneously for complete tuning guidance
+
 ### Step-Response Comparison with Other Analysis Tools
 
 This implementation provides detailed and configurable analysis of flight controller performance. The modular design and centralized configuration system make it adaptable for various analysis requirements.
