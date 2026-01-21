@@ -36,6 +36,8 @@ pub fn plot_step_response(
     recommended_d_aggressive: &[Option<u32>; 3],
     recommended_d_min_aggressive: &[Option<u32>; 3],
     recommended_d_max_aggressive: &[Option<u32>; 3],
+    optimal_p_analyses: &[Option<crate::data_analysis::optimal_p_estimation::OptimalPAnalysis>; 3],
+    estimate_optimal_p: bool,
 ) -> Result<(), Box<dyn Error>> {
     let step_response_plot_duration_s = RESPONSE_LENGTH_S;
     let steady_state_start_s_const = STEADY_STATE_START_S; // from constants
@@ -414,6 +416,79 @@ pub fn plot_step_response(
                         color: RGBColor(70, 70, 70), // Darker gray for moderate
                         stroke_width: 0,             // Invisible legend line
                     });
+                }
+
+                // Optimal P estimation results (if enabled and available)
+                if estimate_optimal_p {
+                    if let Some(analysis) = &optimal_p_analyses[axis_index] {
+                        // Add separator line
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: "─────────────────────".to_string(),
+                            color: RGBColor(40, 40, 40),
+                            stroke_width: 0,
+                        });
+
+                        // Optimal P header
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!("Optimal P ({})", analysis.frame_class.name()),
+                            color: RGBColor(0, 100, 200), // Blue for section header
+                            stroke_width: 0,
+                        });
+
+                        // Td measurement
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!(
+                                "  Td: {:.1}ms (target: {:.1}ms)",
+                                analysis.td_stats.mean_ms,
+                                analysis.frame_class.td_target().0
+                            ),
+                            color: RGBColor(80, 80, 80),
+                            stroke_width: 0,
+                        });
+
+                        // Deviation
+                        let deviation_sign = if analysis.td_deviation_percent < 0.0 {
+                            ""
+                        } else {
+                            "+"
+                        };
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!(
+                                "  Deviation: {}{:.1}% ({})",
+                                deviation_sign,
+                                analysis.td_deviation_percent,
+                                analysis.td_deviation.name()
+                            ),
+                            color: RGBColor(80, 80, 80),
+                            stroke_width: 0,
+                        });
+
+                        // Recommendation summary
+                        let rec_summary = match &analysis.recommendation {
+                            crate::data_analysis::optimal_p_estimation::PRecommendation::Increase { conservative_p, .. } => {
+                                format!("  Rec: P≈{} (+{})", conservative_p, conservative_p - analysis.current_p)
+                            },
+                            crate::data_analysis::optimal_p_estimation::PRecommendation::Optimal { .. } => {
+                                "  Rec: Current P optimal".to_string()
+                            },
+                            crate::data_analysis::optimal_p_estimation::PRecommendation::Decrease { recommended_p, .. } => {
+                                format!("  Rec: P≈{} ({})", recommended_p, *recommended_p as i32 - analysis.current_p as i32)
+                            },
+                            crate::data_analysis::optimal_p_estimation::PRecommendation::Investigate { .. } => {
+                                "  Rec: Investigate (see console)".to_string()
+                            },
+                        };
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: rec_summary,
+                            color: RGBColor(0, 150, 0), // Green for recommendation
+                            stroke_width: 0,
+                        });
+                    }
                 }
             }
 

@@ -948,6 +948,11 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     }
 
     // Optimal P Estimation Analysis (if enabled)
+    // Store results for both console output and PNG overlay
+    let mut optimal_p_analyses: [Option<
+        crate::data_analysis::optimal_p_estimation::OptimalPAnalysis,
+    >; 3] = [None, None, None];
+
     if estimate_optimal_p {
         if let Some(sr) = sample_rate {
             println!("\n--- Optimal P Estimation ---");
@@ -1006,6 +1011,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             frame_class,
                             hf_energy_ratio,
                         ) {
+                            // Store for PNG overlay
+                            optimal_p_analyses[axis_index] = Some(analysis.clone());
+                            // Print console output
                             println!("{}", analysis.format_console_output(axis_name));
                         }
                         } else {
@@ -1055,6 +1063,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &recommended_d_aggressive,
             &recommended_d_min_aggressive,
             &recommended_d_max_aggressive,
+            &optimal_p_analyses,
+            estimate_optimal_p,
         )?;
     }
 
