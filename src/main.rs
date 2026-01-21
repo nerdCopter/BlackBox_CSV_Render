@@ -658,6 +658,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     if sample_rate.is_some() {
         println!("\n--- Step Response Analysis & P:D Ratio Recommendations ---");
         println!("NOTE: These are STARTING POINTS based on step response analysis.");
+        println!("      These recommendations focus on D-term tuning (P:D ratio).");
+        if estimate_optimal_p {
+            println!(
+                "      See 'Optimal P Estimation' below for P gain magnitude recommendations."
+            );
+        }
         println!("      Always test in a safe environment. Conservative = safer first step.");
         println!("      Moderate = for experienced pilots (test carefully to avoid hot motors).");
         println!();
@@ -934,6 +940,11 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     if estimate_optimal_p {
         if let Some(sr) = sample_rate {
             println!("\n--- Optimal P Estimation ---");
+            println!(
+                "Frame class: {} (use --frame-class to override)",
+                frame_class.name()
+            );
+            println!();
 
             #[allow(clippy::needless_range_loop)]
             for axis_index in 0..2 {
@@ -1340,6 +1351,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Exit if only --version flag was set
     if version_flag_set {
         return Ok(());
+    }
+
+    // Warn if --frame-class is specified without --estimate-optimal-p
+    if frame_class_override.is_some() && !estimate_optimal_p {
+        eprintln!("Warning: --frame-class specified without --estimate-optimal-p.");
+        eprintln!("         The frame class setting will be ignored.");
+        eprintln!("         Use --estimate-optimal-p to enable optimal P estimation.");
+        eprintln!();
     }
 
     if input_paths.is_empty() {
