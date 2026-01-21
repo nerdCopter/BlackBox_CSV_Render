@@ -35,20 +35,26 @@ pub enum FrameClass {
 impl FrameClass {
     /// Get Td target and tolerance for this frame class
     pub fn td_target(&self) -> (f64, f64) {
+        let spec = &TD_TARGETS[self.array_index()];
+        (spec.target_ms, spec.tolerance_ms)
+    }
+
+    /// Get array index for this frame class (0-12)
+    fn array_index(&self) -> usize {
         match self {
-            FrameClass::OneInch => (TD_TARGET_1INCH, TD_TARGET_1INCH_TOLERANCE),
-            FrameClass::TwoInch => (TD_TARGET_2INCH, TD_TARGET_2INCH_TOLERANCE),
-            FrameClass::ThreeInch => (TD_TARGET_3INCH, TD_TARGET_3INCH_TOLERANCE),
-            FrameClass::FourInch => (TD_TARGET_4INCH, TD_TARGET_4INCH_TOLERANCE),
-            FrameClass::FiveInch => (TD_TARGET_5INCH, TD_TARGET_5INCH_TOLERANCE),
-            FrameClass::SixInch => (TD_TARGET_6INCH, TD_TARGET_6INCH_TOLERANCE),
-            FrameClass::SevenInch => (TD_TARGET_7INCH, TD_TARGET_7INCH_TOLERANCE),
-            FrameClass::EightInch => (TD_TARGET_8INCH, TD_TARGET_8INCH_TOLERANCE),
-            FrameClass::NineInch => (TD_TARGET_9INCH, TD_TARGET_9INCH_TOLERANCE),
-            FrameClass::TenInch => (TD_TARGET_10INCH, TD_TARGET_10INCH_TOLERANCE),
-            FrameClass::ElevenInch => (TD_TARGET_11INCH, TD_TARGET_11INCH_TOLERANCE),
-            FrameClass::TwelveInch => (TD_TARGET_12INCH, TD_TARGET_12INCH_TOLERANCE),
-            FrameClass::ThirteenInch => (TD_TARGET_13INCH, TD_TARGET_13INCH_TOLERANCE),
+            FrameClass::OneInch => 0,
+            FrameClass::TwoInch => 1,
+            FrameClass::ThreeInch => 2,
+            FrameClass::FourInch => 3,
+            FrameClass::FiveInch => 4,
+            FrameClass::SixInch => 5,
+            FrameClass::SevenInch => 6,
+            FrameClass::EightInch => 7,
+            FrameClass::NineInch => 8,
+            FrameClass::TenInch => 9,
+            FrameClass::ElevenInch => 10,
+            FrameClass::TwelveInch => 11,
+            FrameClass::ThirteenInch => 12,
         }
     }
 

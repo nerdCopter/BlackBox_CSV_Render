@@ -1011,10 +1011,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             frame_class,
                             hf_energy_ratio,
                         ) {
-                            // Store for PNG overlay
-                            optimal_p_analyses[axis_index] = Some(analysis.clone());
                             // Print console output
                             println!("{}", analysis.format_console_output(axis_name));
+                            // Store for PNG overlay (move instead of clone)
+                            optimal_p_analyses[axis_index] = Some(analysis);
                         }
                         } else {
                             println!("  P gain not available for {axis_name}. Skipping optimal P analysis.");

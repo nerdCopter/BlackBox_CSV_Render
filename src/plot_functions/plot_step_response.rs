@@ -11,6 +11,7 @@ use crate::constants::{
     RESPONSE_LENGTH_S, STEADY_STATE_END_S, STEADY_STATE_START_S,
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
+use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
 use crate::data_input::pid_metadata::PidMetadata;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 use crate::types::{AllStepResponsePlotData, StepResponseResults};
@@ -36,7 +37,7 @@ pub fn plot_step_response(
     recommended_d_aggressive: &[Option<u32>; 3],
     recommended_d_min_aggressive: &[Option<u32>; 3],
     recommended_d_max_aggressive: &[Option<u32>; 3],
-    optimal_p_analyses: &[Option<crate::data_analysis::optimal_p_estimation::OptimalPAnalysis>; 3],
+    optimal_p_analyses: &[Option<OptimalPAnalysis>; 3],
     estimate_optimal_p: bool,
 ) -> Result<(), Box<dyn Error>> {
     let step_response_plot_duration_s = RESPONSE_LENGTH_S;
@@ -469,18 +470,20 @@ pub fn plot_step_response(
 
                         // Recommendation summary
                         let rec_summary = match &analysis.recommendation {
-                            crate::data_analysis::optimal_p_estimation::PRecommendation::Increase { conservative_p, .. } => {
-                                format!("  Rec: P≈{} (+{})", conservative_p, conservative_p - analysis.current_p)
-                            },
-                            crate::data_analysis::optimal_p_estimation::PRecommendation::Optimal { .. } => {
+                            PRecommendation::Increase { conservative_p, .. } => {
+                                let delta = *conservative_p as i32 - analysis.current_p as i32;
+                                format!("  Rec: P≈{} ({:+})", conservative_p, delta)
+                            }
+                            PRecommendation::Optimal { .. } => {
                                 "  Rec: Current P optimal".to_string()
-                            },
-                            crate::data_analysis::optimal_p_estimation::PRecommendation::Decrease { recommended_p, .. } => {
-                                format!("  Rec: P≈{} ({})", recommended_p, *recommended_p as i32 - analysis.current_p as i32)
-                            },
-                            crate::data_analysis::optimal_p_estimation::PRecommendation::Investigate { .. } => {
+                            }
+                            PRecommendation::Decrease { recommended_p, .. } => {
+                                let delta = *recommended_p as i32 - analysis.current_p as i32;
+                                format!("  Rec: P≈{} ({:+})", recommended_p, delta)
+                            }
+                            PRecommendation::Investigate { .. } => {
                                 "  Rec: Investigate (see console)".to_string()
-                            },
+                            }
                         };
                         series.push(PlotSeries {
                             data: vec![],

@@ -263,44 +263,41 @@ pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data f
 // Frame-class-aware Td (time to 50%) targets in milliseconds
 // Provisional estimates based on torque-to-rotational-inertia scaling: Td ∝ 1/(mass × radius²)
 // TODO: Validate with bench tests and actual flight data across all frame classes
-pub const TD_TARGET_1INCH: f64 = 40.0; // 1" tiny whoop typical range: 30-50ms
-pub const TD_TARGET_1INCH_TOLERANCE: f64 = 10.0; // ±25% tolerance
 
-pub const TD_TARGET_2INCH: f64 = 35.0; // 2" micro typical range: 26-44ms
-pub const TD_TARGET_2INCH_TOLERANCE: f64 = 8.75; // ±25% tolerance
+/// Td target specification for a frame class
+#[derive(Debug, Clone, Copy)]
+pub struct TdTargetSpec {
+    pub target_ms: f64,
+    pub tolerance_ms: f64,
+}
 
-pub const TD_TARGET_3INCH: f64 = 30.0; // 3" toothpick/cinewhoop typical range: 23-38ms
-pub const TD_TARGET_3INCH_TOLERANCE: f64 = 7.5; // ±25% tolerance
+impl TdTargetSpec {
+    /// Create a new TdTargetSpec with automatic 25% tolerance calculation
+    pub const fn new(target_ms: f64) -> Self {
+        Self {
+            target_ms,
+            tolerance_ms: target_ms * 0.25,
+        }
+    }
+}
 
-pub const TD_TARGET_4INCH: f64 = 25.0; // 4" racing typical range: 19-31ms
-pub const TD_TARGET_4INCH_TOLERANCE: f64 = 6.25; // ±25% tolerance
-
-pub const TD_TARGET_5INCH: f64 = 20.0; // 5" freestyle/racing typical range: 15-25ms (common baseline)
-pub const TD_TARGET_5INCH_TOLERANCE: f64 = 5.0; // ±25% tolerance
-
-pub const TD_TARGET_6INCH: f64 = 28.0; // 6" long-range typical range: 21-35ms
-pub const TD_TARGET_6INCH_TOLERANCE: f64 = 7.0; // ±25% tolerance
-
-pub const TD_TARGET_7INCH: f64 = 37.5; // 7" long-range typical range: 28-47ms
-pub const TD_TARGET_7INCH_TOLERANCE: f64 = 9.375; // ±25% tolerance (37.5 * 0.25 = 9.375)
-
-pub const TD_TARGET_8INCH: f64 = 47.0; // 8" long-range typical range: 35-59ms
-pub const TD_TARGET_8INCH_TOLERANCE: f64 = 11.75; // ±25% tolerance
-
-pub const TD_TARGET_9INCH: f64 = 56.0; // 9" cinelifter typical range: 42-70ms
-pub const TD_TARGET_9INCH_TOLERANCE: f64 = 14.0; // ±25% tolerance
-
-pub const TD_TARGET_10INCH: f64 = 65.0; // 10" cinelifter typical range: 49-81ms
-pub const TD_TARGET_10INCH_TOLERANCE: f64 = 16.25; // ±25% tolerance
-
-pub const TD_TARGET_11INCH: f64 = 75.0; // 11" heavy-lift typical range: 56-94ms
-pub const TD_TARGET_11INCH_TOLERANCE: f64 = 18.75; // ±25% tolerance
-
-pub const TD_TARGET_12INCH: f64 = 85.0; // 12" heavy-lift typical range: 64-106ms
-pub const TD_TARGET_12INCH_TOLERANCE: f64 = 21.25; // ±25% tolerance
-
-pub const TD_TARGET_13INCH: f64 = 95.0; // 13" heavy-lift typical range: 71-119ms
-pub const TD_TARGET_13INCH_TOLERANCE: f64 = 23.75; // ±25% tolerance
+/// Td targets for all frame classes (1" through 13")
+/// Index: 0=1", 1=2", ..., 12=13"
+pub const TD_TARGETS: [TdTargetSpec; 13] = [
+    TdTargetSpec::new(40.0), // 1" tiny whoop (30-50ms)
+    TdTargetSpec::new(35.0), // 2" micro (26-44ms)
+    TdTargetSpec::new(30.0), // 3" toothpick/cinewhoop (23-38ms)
+    TdTargetSpec::new(25.0), // 4" racing (19-31ms)
+    TdTargetSpec::new(20.0), // 5" freestyle/racing (15-25ms, common baseline)
+    TdTargetSpec::new(28.0), // 6" long-range (21-35ms)
+    TdTargetSpec::new(37.5), // 7" long-range (28-47ms)
+    TdTargetSpec::new(47.0), // 8" long-range (35-59ms)
+    TdTargetSpec::new(56.0), // 9" cinelifter (42-70ms)
+    TdTargetSpec::new(65.0), // 10" cinelifter (49-81ms)
+    TdTargetSpec::new(75.0), // 11" heavy-lift (56-94ms)
+    TdTargetSpec::new(85.0), // 12" heavy-lift (64-106ms)
+    TdTargetSpec::new(95.0), // 13" heavy-lift (71-119ms)
+];
 
 // High-frequency noise analysis for P headroom estimation
 // D-term energy above this frequency threshold indicates noise constraints
