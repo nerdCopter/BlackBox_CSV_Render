@@ -557,15 +557,29 @@ impl OptimalPAnalysis {
                 reasoning,
             } => {
                 output.push_str("P increase recommended:\n\n");
+                let conservative_pct = if self.current_p == 0 {
+                    "N/A".to_string()
+                } else {
+                    format!(
+                        "+{:.0}%",
+                        (((*conservative_p as f64) / (self.current_p as f64)) - 1.0) * 100.0
+                    )
+                };
                 output.push_str(&format!(
-                    "  • Conservative: P = {} (+{:.0}%)\n",
-                    conservative_p,
-                    (((*conservative_p as f64) / (self.current_p as f64)) - 1.0) * 100.0
+                    "  • Conservative: P = {} ({})\n",
+                    conservative_p, conservative_pct
                 ));
+                let moderate_pct = if self.current_p == 0 {
+                    "N/A".to_string()
+                } else {
+                    format!(
+                        "+{:.0}%",
+                        (((*moderate_p as f64) / (self.current_p as f64)) - 1.0) * 100.0
+                    )
+                };
                 output.push_str(&format!(
-                    "  • Moderate: P = {} (+{:.0}%)\n\n",
-                    moderate_p,
-                    (((*moderate_p as f64) / (self.current_p as f64)) - 1.0) * 100.0
+                    "  • Moderate: P = {} ({})\n\n",
+                    moderate_p, moderate_pct
                 ));
                 output.push_str(&format!("{}\n\n", reasoning));
                 output.push_str("⚠ Always test incrementally and monitor motor temperatures.\n");
@@ -575,10 +589,17 @@ impl OptimalPAnalysis {
                 reasoning,
             } => {
                 output.push_str("P reduction recommended:\n\n");
+                let decrease_pct = if self.current_p == 0 {
+                    "N/A".to_string()
+                } else {
+                    format!(
+                        "{:.0}%",
+                        (((*recommended_p as f64) / (self.current_p as f64)) - 1.0) * 100.0
+                    )
+                };
                 output.push_str(&format!(
-                    "  • Recommended: P = {} ({:.0}%)\n\n",
-                    recommended_p,
-                    (((*recommended_p as f64) / (self.current_p as f64)) - 1.0) * 100.0
+                    "  • Recommended: P = {} ({})\n\n",
+                    recommended_p, decrease_pct
                 ));
                 output.push_str(&format!("{}\n", reasoning));
             }

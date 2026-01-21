@@ -261,8 +261,8 @@ pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data f
 
 // Optimal P Estimation Constants
 // Frame-class-aware Td (time to 50%) targets in milliseconds
-// Based on power-to-rotational-inertia characteristics of different frame sizes
-// Note: 5" has optimal power/weight ratio, resulting in fastest response time
+// Provisional estimates based on torque-to-rotational-inertia scaling: Td ∝ 1/(mass × radius²)
+// TODO: Validate with bench tests and actual flight data across all frame classes
 pub const TD_TARGET_1INCH: f64 = 40.0; // 1" tiny whoop typical range: 30-50ms
 pub const TD_TARGET_1INCH_TOLERANCE: f64 = 10.0; // ±25% tolerance
 
@@ -275,14 +275,14 @@ pub const TD_TARGET_3INCH_TOLERANCE: f64 = 7.5; // ±25% tolerance
 pub const TD_TARGET_4INCH: f64 = 25.0; // 4" racing typical range: 19-31ms
 pub const TD_TARGET_4INCH_TOLERANCE: f64 = 6.25; // ±25% tolerance
 
-pub const TD_TARGET_5INCH: f64 = 20.0; // 5" freestyle/racing typical range: 15-25ms (optimal)
+pub const TD_TARGET_5INCH: f64 = 20.0; // 5" freestyle/racing typical range: 15-25ms (common baseline)
 pub const TD_TARGET_5INCH_TOLERANCE: f64 = 5.0; // ±25% tolerance
 
 pub const TD_TARGET_6INCH: f64 = 28.0; // 6" long-range typical range: 21-35ms
 pub const TD_TARGET_6INCH_TOLERANCE: f64 = 7.0; // ±25% tolerance
 
 pub const TD_TARGET_7INCH: f64 = 37.5; // 7" long-range typical range: 28-47ms
-pub const TD_TARGET_7INCH_TOLERANCE: f64 = 9.5; // ±25% tolerance
+pub const TD_TARGET_7INCH_TOLERANCE: f64 = 9.375; // ±25% tolerance (37.5 * 0.25 = 9.375)
 
 pub const TD_TARGET_8INCH: f64 = 47.0; // 8" long-range typical range: 35-59ms
 pub const TD_TARGET_8INCH_TOLERANCE: f64 = 11.75; // ±25% tolerance
@@ -325,5 +325,3 @@ pub const P_HEADROOM_AGGRESSIVE_MULTIPLIER: f64 = 1.15; // +15% from current P
 pub const P_REDUCTION_MODERATE_MULTIPLIER: f64 = 0.95; // -5% from current P
 #[allow(dead_code)]
 pub const P_REDUCTION_AGGRESSIVE_MULTIPLIER: f64 = 0.90; // -10% from current P
-
-// src/constants.rs
