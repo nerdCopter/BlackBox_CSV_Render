@@ -262,17 +262,45 @@ pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data f
 // Optimal P Estimation Constants
 // Frame-class-aware Td (time to 50%) targets in milliseconds
 // Based on power-to-rotational-inertia characteristics of different frame sizes
-pub const TD_TARGET_3INCH: f64 = 30.0; // 3" toothpick/cinewhoop typical range: 25-35ms
+// Note: 5" has optimal power/weight ratio, resulting in fastest response time
+pub const TD_TARGET_1INCH: f64 = 40.0; // 1" tiny whoop typical range: 30-50ms
+pub const TD_TARGET_1INCH_TOLERANCE: f64 = 10.0; // ±25% tolerance
+
+pub const TD_TARGET_2INCH: f64 = 35.0; // 2" micro typical range: 26-44ms
+pub const TD_TARGET_2INCH_TOLERANCE: f64 = 8.75; // ±25% tolerance
+
+pub const TD_TARGET_3INCH: f64 = 30.0; // 3" toothpick/cinewhoop typical range: 23-38ms
 pub const TD_TARGET_3INCH_TOLERANCE: f64 = 7.5; // ±25% tolerance
 
-pub const TD_TARGET_5INCH: f64 = 20.0; // 5" freestyle/racing typical range: 15-25ms
+pub const TD_TARGET_4INCH: f64 = 25.0; // 4" racing typical range: 19-31ms
+pub const TD_TARGET_4INCH_TOLERANCE: f64 = 6.25; // ±25% tolerance
+
+pub const TD_TARGET_5INCH: f64 = 20.0; // 5" freestyle/racing typical range: 15-25ms (optimal)
 pub const TD_TARGET_5INCH_TOLERANCE: f64 = 5.0; // ±25% tolerance
 
-pub const TD_TARGET_7INCH: f64 = 37.5; // 7" long-range typical range: 30-45ms
+pub const TD_TARGET_6INCH: f64 = 28.0; // 6" long-range typical range: 21-35ms
+pub const TD_TARGET_6INCH_TOLERANCE: f64 = 7.0; // ±25% tolerance
+
+pub const TD_TARGET_7INCH: f64 = 37.5; // 7" long-range typical range: 28-47ms
 pub const TD_TARGET_7INCH_TOLERANCE: f64 = 9.5; // ±25% tolerance
 
-pub const TD_TARGET_10INCH: f64 = 65.0; // 10" cinelifter typical range: 50-80ms
+pub const TD_TARGET_8INCH: f64 = 47.0; // 8" long-range typical range: 35-59ms
+pub const TD_TARGET_8INCH_TOLERANCE: f64 = 11.75; // ±25% tolerance
+
+pub const TD_TARGET_9INCH: f64 = 56.0; // 9" cinelifter typical range: 42-70ms
+pub const TD_TARGET_9INCH_TOLERANCE: f64 = 14.0; // ±25% tolerance
+
+pub const TD_TARGET_10INCH: f64 = 65.0; // 10" cinelifter typical range: 49-81ms
 pub const TD_TARGET_10INCH_TOLERANCE: f64 = 16.25; // ±25% tolerance
+
+pub const TD_TARGET_11INCH: f64 = 75.0; // 11" heavy-lift typical range: 56-94ms
+pub const TD_TARGET_11INCH_TOLERANCE: f64 = 18.75; // ±25% tolerance
+
+pub const TD_TARGET_12INCH: f64 = 85.0; // 12" heavy-lift typical range: 64-106ms
+pub const TD_TARGET_12INCH_TOLERANCE: f64 = 21.25; // ±25% tolerance
+
+pub const TD_TARGET_13INCH: f64 = 95.0; // 13" heavy-lift typical range: 71-119ms
+pub const TD_TARGET_13INCH_TOLERANCE: f64 = 23.75; // ±25% tolerance
 
 // High-frequency noise analysis for P headroom estimation
 // D-term energy above this frequency threshold indicates noise constraints

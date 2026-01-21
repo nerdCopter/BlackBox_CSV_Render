@@ -13,34 +13,61 @@
 use crate::constants::*;
 use std::f64;
 
-/// Frame class for Td target selection
+/// Frame class for Td target selection (prop size in inches)
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FrameClass {
+    OneInch,
+    TwoInch,
     ThreeInch,
+    FourInch,
     FiveInch,
+    SixInch,
     SevenInch,
+    EightInch,
+    NineInch,
     TenInch,
+    ElevenInch,
+    TwelveInch,
+    ThirteenInch,
 }
 
 impl FrameClass {
     /// Get Td target and tolerance for this frame class
     pub fn td_target(&self) -> (f64, f64) {
         match self {
+            FrameClass::OneInch => (TD_TARGET_1INCH, TD_TARGET_1INCH_TOLERANCE),
+            FrameClass::TwoInch => (TD_TARGET_2INCH, TD_TARGET_2INCH_TOLERANCE),
             FrameClass::ThreeInch => (TD_TARGET_3INCH, TD_TARGET_3INCH_TOLERANCE),
+            FrameClass::FourInch => (TD_TARGET_4INCH, TD_TARGET_4INCH_TOLERANCE),
             FrameClass::FiveInch => (TD_TARGET_5INCH, TD_TARGET_5INCH_TOLERANCE),
+            FrameClass::SixInch => (TD_TARGET_6INCH, TD_TARGET_6INCH_TOLERANCE),
             FrameClass::SevenInch => (TD_TARGET_7INCH, TD_TARGET_7INCH_TOLERANCE),
+            FrameClass::EightInch => (TD_TARGET_8INCH, TD_TARGET_8INCH_TOLERANCE),
+            FrameClass::NineInch => (TD_TARGET_9INCH, TD_TARGET_9INCH_TOLERANCE),
             FrameClass::TenInch => (TD_TARGET_10INCH, TD_TARGET_10INCH_TOLERANCE),
+            FrameClass::ElevenInch => (TD_TARGET_11INCH, TD_TARGET_11INCH_TOLERANCE),
+            FrameClass::TwelveInch => (TD_TARGET_12INCH, TD_TARGET_12INCH_TOLERANCE),
+            FrameClass::ThirteenInch => (TD_TARGET_13INCH, TD_TARGET_13INCH_TOLERANCE),
         }
     }
 
     /// Get name for display
     pub fn name(&self) -> &str {
         match self {
+            FrameClass::OneInch => "1\"",
+            FrameClass::TwoInch => "2\"",
             FrameClass::ThreeInch => "3\"",
+            FrameClass::FourInch => "4\"",
             FrameClass::FiveInch => "5\"",
+            FrameClass::SixInch => "6\"",
             FrameClass::SevenInch => "7\"",
+            FrameClass::EightInch => "8\"",
+            FrameClass::NineInch => "9\"",
             FrameClass::TenInch => "10\"",
+            FrameClass::ElevenInch => "11\"",
+            FrameClass::TwelveInch => "12\"",
+            FrameClass::ThirteenInch => "13\"",
         }
     }
 }

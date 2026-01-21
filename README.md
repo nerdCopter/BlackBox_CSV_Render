@@ -46,9 +46,9 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory
                  If --dps is omitted, a general step-response is shown.
   --estimate-optimal-p: Optional. Enable optimal P estimation with physics-aware recommendations.
                         Analyzes response time vs. frame-class targets and noise levels.
-  --frame-class <size>: Optional. Specify frame class for optimal P estimation.
-                        Valid options: 3inch, 5inch, 7inch, 10inch
-                        Defaults to 5inch if --estimate-optimal-p is used without this flag.
+  --frame-class <size>: Optional. Specify prop size in inches for optimal P estimation.
+                        Valid options: 1-13
+                        Defaults to 5 if --estimate-optimal-p is used without this flag.
   --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
   --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).
   -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.
@@ -70,7 +70,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500 --butterworth
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --frame-class 5inch
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --frame-class 5
 ```
 ```shell
 ./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --output-dir ./plots --butterworth

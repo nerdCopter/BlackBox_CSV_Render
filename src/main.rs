@@ -371,9 +371,13 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     eprintln!(
         "                        Analyzes response time vs. frame-class targets and noise levels."
     );
-    eprintln!("  --frame-class <size>: Optional. Specify frame class for optimal P estimation.");
-    eprintln!("                        Valid options: 3inch, 5inch, 7inch, 10inch");
-    eprintln!("                        Defaults to 5inch if --estimate-optimal-p is used without this flag.");
+    eprintln!(
+        "  --frame-class <size>: Optional. Specify prop size in inches for optimal P estimation."
+    );
+    eprintln!("                        Valid options: 1-13");
+    eprintln!(
+        "                        Defaults to 5 if --estimate-optimal-p is used without this flag."
+    );
     eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
     );
@@ -393,7 +397,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
     eprintln!("Examples:");
     eprintln!("  {program_name} flight.csv");
     eprintln!("  {program_name} flight.csv --dps 200");
-    eprintln!("  {program_name} flight.csv --step --estimate-optimal-p --frame-class 5inch");
+    eprintln!("  {program_name} flight.csv --step --estimate-optimal-p --frame-class 5");
     eprintln!("  {program_name} input/*.csv -O ./output/");
     eprintln!("  {program_name} logs/ -R --step");
     std::process::exit(1);
@@ -1296,29 +1300,68 @@ fn main() -> Result<(), Box<dyn Error>> {
                 print_usage_and_exit(program_name);
             }
             if i + 1 >= args.len() {
-                eprintln!("Error: --frame-class requires a value (3inch, 5inch, 7inch, 10inch).");
+                eprintln!(
+                    "Error: --frame-class requires a numeric value (prop size in inches: 1-13)."
+                );
                 print_usage_and_exit(program_name);
             } else {
-                let fc_str = args[i + 1].to_lowercase();
-                match fc_str.as_str() {
-                    "3inch" | "3\"" => {
+                let fc_str = args[i + 1].trim();
+                match fc_str {
+                    "1" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::OneInch)
+                    }
+                    "2" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::TwoInch)
+                    }
+                    "3" => {
                         frame_class_override =
                             Some(crate::data_analysis::optimal_p_estimation::FrameClass::ThreeInch)
                     }
-                    "5inch" | "5\"" => {
+                    "4" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::FourInch)
+                    }
+                    "5" => {
                         frame_class_override =
                             Some(crate::data_analysis::optimal_p_estimation::FrameClass::FiveInch)
                     }
-                    "7inch" | "7\"" => {
+                    "6" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::SixInch)
+                    }
+                    "7" => {
                         frame_class_override =
                             Some(crate::data_analysis::optimal_p_estimation::FrameClass::SevenInch)
                     }
-                    "10inch" | "10\"" => {
+                    "8" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::EightInch)
+                    }
+                    "9" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::NineInch)
+                    }
+                    "10" => {
                         frame_class_override =
                             Some(crate::data_analysis::optimal_p_estimation::FrameClass::TenInch)
                     }
+                    "11" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::ElevenInch)
+                    }
+                    "12" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::TwelveInch)
+                    }
+                    "13" => {
+                        frame_class_override = Some(
+                            crate::data_analysis::optimal_p_estimation::FrameClass::ThirteenInch,
+                        )
+                    }
                     _ => {
-                        eprintln!("Error: Invalid frame class '{}'. Valid options: 3inch, 5inch, 7inch, 10inch", fc_str);
+                        eprintln!("Error: Invalid frame class '{}'. Valid options: 1-13 (prop size in inches)", fc_str);
                         print_usage_and_exit(program_name);
                     }
                 }

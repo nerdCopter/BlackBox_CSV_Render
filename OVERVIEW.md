@@ -194,15 +194,25 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 Physics-aware P gain optimization based on response timing analysis:
 
 - **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag
-- **Frame Class Selection:** Use `--frame-class <size>` to specify aircraft size (3inch, 5inch, 7inch, 10inch)
-  - Defaults to 5inch if not specified
+- **Frame Class Selection:** Use `--frame-class <size>` to specify prop size in inches (1-13)
+  - Defaults to 5 if not specified
   - Each frame class has physics-determined optimal Td (time to 50%) targets based on power-to-rotational-inertia ratio
+  - Note: 5" has optimal power/weight ratio, resulting in fastest response time
 - **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal
 - **Frame-Class Targets:**
+  - 1" tiny whoop: 40ms ± 10.0ms
+  - 2" micro: 35ms ± 8.75ms
   - 3" toothpick/cinewhoop: 30ms ± 7.5ms
-  - 5" freestyle/racing: 20ms ± 5.0ms
+  - 4" racing: 25ms ± 6.25ms
+  - 5" freestyle/racing: 20ms ± 5.0ms (optimal)
+  - 6" long-range: 28ms ± 7.0ms
   - 7" long-range: 37.5ms ± 9.5ms
+  - 8" long-range: 47ms ± 11.75ms
+  - 9" cinelifter: 56ms ± 14.0ms
   - 10" cinelifter: 65ms ± 16.25ms
+  - 11" heavy-lift: 75ms ± 18.75ms
+  - 12" heavy-lift: 85ms ± 21.25ms
+  - 13" heavy-lift: 95ms ± 23.75ms
 - **Analysis Components:**
   - Collects individual Td measurements from all valid step response windows
   - Calculates response consistency metrics (mean, std dev, coefficient of variation)
