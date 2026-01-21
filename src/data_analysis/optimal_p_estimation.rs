@@ -11,7 +11,6 @@
 // is aircraft-specific, determined by power-to-rotational-inertia ratio.
 
 use crate::constants::*;
-use std::f64;
 
 /// Frame class for Td target selection (prop size in inches)
 #[allow(clippy::enum_variant_names)]
@@ -35,8 +34,15 @@ pub enum FrameClass {
 impl FrameClass {
     /// Get Td target and tolerance for this frame class
     pub fn td_target(&self) -> (f64, f64) {
-        let spec = &TD_TARGETS[self.array_index()];
-        (spec.target_ms, spec.tolerance_ms)
+        // Convert to 1-based frame size (inches) for the helper method
+        let frame_size = self.array_index() + 1;
+        // Safe indexing via helper (should always succeed given valid FrameClass)
+        if let Some(spec) = crate::constants::TdTargetSpec::for_frame_inches(frame_size) {
+            (spec.target_ms, spec.tolerance_ms)
+        } else {
+            // This should never happen for valid FrameClass variants
+            (0.0, 0.0)
+        }
     }
 
     /// Get array index for this frame class (0-12)
@@ -74,6 +80,26 @@ impl FrameClass {
             FrameClass::ElevenInch => "11\"",
             FrameClass::TwelveInch => "12\"",
             FrameClass::ThirteenInch => "13\"",
+        }
+    }
+
+    /// Create a FrameClass from prop size in inches (1-13)
+    pub fn from_inches(size: u8) -> Option<Self> {
+        match size {
+            1 => Some(FrameClass::OneInch),
+            2 => Some(FrameClass::TwoInch),
+            3 => Some(FrameClass::ThreeInch),
+            4 => Some(FrameClass::FourInch),
+            5 => Some(FrameClass::FiveInch),
+            6 => Some(FrameClass::SixInch),
+            7 => Some(FrameClass::SevenInch),
+            8 => Some(FrameClass::EightInch),
+            9 => Some(FrameClass::NineInch),
+            10 => Some(FrameClass::TenInch),
+            11 => Some(FrameClass::ElevenInch),
+            12 => Some(FrameClass::TwelveInch),
+            13 => Some(FrameClass::ThirteenInch),
+            _ => None,
         }
     }
 }
@@ -160,6 +186,8 @@ pub struct TdStatistics {
 impl TdStatistics {
     /// Calculate statistics from array of Td values (in milliseconds)
     pub fn from_samples(td_samples_ms: &[f64]) -> Option<Self> {
+        const MEAN_EPSILON: f64 = 1e-12; // Threshold for near-zero mean values
+
         if td_samples_ms.is_empty() {
             return None;
         }
@@ -167,17 +195,25 @@ impl TdStatistics {
         let n = td_samples_ms.len() as f64;
         let mean = td_samples_ms.iter().sum::<f64>() / n;
 
-        if mean == 0.0 {
+        // Use epsilon-based comparison to avoid division by near-zero values
+        if mean.abs() <= MEAN_EPSILON {
             return None;
         }
 
-        let variance = td_samples_ms
-            .iter()
-            .map(|&x| (x - mean).powi(2))
-            .sum::<f64>()
-            / n;
-        let std_dev = variance.sqrt();
-        let coefficient_of_variation = std_dev / mean;
+        // Calculate sample variance with Bessel's correction (divide by n-1)
+        // For small samples (n < 2), set std_dev to 0.0 to avoid division by zero
+        let (std_dev, coefficient_of_variation) = if td_samples_ms.len() < 2 {
+            (0.0, 0.0)
+        } else {
+            let sum_sq_dev = td_samples_ms
+                .iter()
+                .map(|&x| (x - mean).powi(2))
+                .sum::<f64>();
+            let variance = sum_sq_dev / (n - 1.0);
+            let std_dev = variance.sqrt();
+            let coefficient_of_variation = std_dev / mean;
+            (std_dev, coefficient_of_variation)
+        };
 
         // Calculate consistency: fraction within ±1 std dev
         let within_range = td_samples_ms
@@ -599,7 +635,7 @@ impl OptimalPAnalysis {
                     "N/A".to_string()
                 } else {
                     format!(
-                        "{:.0}%",
+                        "{:+.0}%",
                         (((*recommended_p as f64) / (self.current_p as f64)) - 1.0) * 100.0
                     )
                 };

@@ -196,9 +196,10 @@ Physics-aware P gain optimization based on response timing analysis:
 - **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag
 - **Frame Class Selection:** Use `--frame-class <size>` to specify prop size in inches (1-13)
   - Defaults to 5 if not specified
-  - Each frame class has physics-determined optimal Td (time to 50%) targets based on torque-to-rotational-inertia ratio
-- **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal. Response speed scales with torque-to-rotational-inertia ratio: Td ∝ (rotational inertia)⁻¹ ≈ 1/(mass × radius²) for comparable motor torque. Targets below are provisional estimates derived from flight community empirical observations and must be validated against actual flight logs.
+  - Each frame class has physics-informed, empirically-derived Td (time to 50%) targets based on torque-to-rotational-inertia ratio
+- **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal. Response speed scales with torque-to-rotational-inertia ratio: Td ∝ (rotational inertia)⁻¹. For simple models (point mass or thin ring) rotational inertia scales as mass × radius²; real quad inertias depend on mass distribution (frame, motors, battery, props). Targets below are provisional empirical estimates guided by this physics-inspired scaling relation and must be validated against actual flight logs.
 - **Frame-Class Targets (Provisional - requires flight validation):**
+  - **Tolerance Ranges:** The (±) values represent acceptable response timing bands for each frame class—use these as recommended tuning acceptance ranges during flight validation, not measurement uncertainty or statistical confidence intervals.
   - 1" tiny whoop: 40ms ± 10.0ms (low power/torque)
   - 2" micro: 35ms ± 8.75ms
   - 3" toothpick/cinewhoop: 30ms ± 7.5ms
@@ -212,7 +213,14 @@ Physics-aware P gain optimization based on response timing analysis:
   - 11" heavy-lift: 75ms ± 18.75ms
   - 12" heavy-lift: 85ms ± 21.25ms
   - 13" heavy-lift: 95ms ± 23.75ms
-  - **TODO:** Validate targets with bench tests and actual flight data across frame classes
+  - **Validation Plan (Provisional Targets):** These targets require systematic validation via flight data collection. 
+    * **Target Metrics:** Per frame class, measure Td mean and std dev across ≥10 flights (manual setpoint inputs or step-sticks); confidence threshold: Td within ±10% of predicted target.
+    * **Data Collection Protocol:**
+      - **Flight Logs:** Controlled stick inputs on tethered or low-altitude flights; log format: Betaflight CSV with gyro, setpoint, P/D gains recorded; sample ≥3 distinct P settings per frame class.
+      - **System Documentation:** Record complete system specs (frame, motors, props, battery, AUW) for each test aircraft to correlate Td measurements with physical parameters.
+      - **Note:** Bench testing isolated motors cannot validate Td targets—Td represents full system response including frame rotational inertia, which is absent in component-level tests.
+    * **Test Matrix:** One representative aircraft per frame class (1", 3", 5", 7", 10"—minimum coverage); repeat with 2 different motor/prop combos per class to validate robustness.
+    * **Tracking & Results:** Create GitHub issue template for each frame class linking to uploaded flight log summaries (mean Td, actual P setting, pilot feedback, system specs). Include pass/fail criteria: predicted Td ±10%, pass/fail per class. Owner: TBD. Timeline: complete by [YYYY-MM-DD].
 - **Analysis Components:**
   - Collects individual Td measurements from all valid step response windows
   - Calculates response consistency metrics (mean, std dev, coefficient of variation)

@@ -92,6 +92,17 @@ impl PlotConfig {
     }
 }
 
+// Analysis options struct to group related analysis parameters
+#[derive(Debug, Clone, Copy)]
+struct AnalysisOptions {
+    pub setpoint_threshold: f64,
+    pub show_legend: bool,
+    pub debug_mode: bool,
+    pub show_butterworth: bool,
+    pub estimate_optimal_p: bool,
+    pub frame_class: crate::data_analysis::optimal_p_estimation::FrameClass,
+}
+
 use crate::constants::{
     DEFAULT_SETPOINT_THRESHOLD, EXCLUDE_END_S, EXCLUDE_START_S, FRAME_LENGTH_S,
 };
@@ -379,6 +390,13 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
         "                        Defaults to 5 if --estimate-optimal-p is used without this flag."
     );
     eprintln!(
+        "                        Note: This flag is only applied when --estimate-optimal-p is enabled."
+    );
+    eprintln!(
+        "                        If --frame-class is provided without --estimate-optimal-p, a warning"
+    );
+    eprintln!("                        will be shown and the frame class setting will be ignored.");
+    eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
     );
     eprintln!("  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).");
@@ -403,18 +421,12 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
     std::process::exit(1);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn process_file(
     input_file_str: &str,
-    setpoint_threshold: f64,
-    show_legend: bool,
     use_dir_prefix: bool,
     output_dir: Option<&Path>,
-    debug_mode: bool,
-    show_butterworth: bool,
     plot_config: PlotConfig,
-    estimate_optimal_p: bool,
-    frame_class: crate::data_analysis::optimal_p_estimation::FrameClass,
+    analysis_opts: AnalysisOptions,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -466,7 +478,7 @@ fn process_file(
         gyro_unfilt_header_found,
         debug_header_found,
         header_metadata,
-    ) = match parse_log_file(input_path, debug_mode) {
+    ) = match parse_log_file(input_path, analysis_opts.debug_mode) {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Error parsing log file {input_file_str}: {e}");
@@ -670,7 +682,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         println!("\n--- Step Response Analysis & P:D Ratio Recommendations ---");
         println!("NOTE: These are STARTING POINTS based on step response analysis.");
         println!("      These recommendations focus on D-term tuning (P:D ratio).");
-        if estimate_optimal_p {
+        if analysis_opts.estimate_optimal_p {
             println!(
                 "      See 'Optimal P Estimation' below for P gain magnitude recommendations."
             );
@@ -953,12 +965,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         crate::data_analysis::optimal_p_estimation::OptimalPAnalysis,
     >; 3] = [None, None, None];
 
-    if estimate_optimal_p {
+    if analysis_opts.estimate_optimal_p {
         if let Some(sr) = sample_rate {
             println!("\n--- Optimal P Estimation ---");
             println!(
                 "Frame class: {} (use --frame-class to override)",
-                frame_class.name()
+                analysis_opts.frame_class.name()
             );
             println!();
 
@@ -1008,7 +1020,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             if let Some(analysis) = crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
                             &td_samples_ms,
                             p_gain,
-                            frame_class,
+                            analysis_opts.frame_class,
                             hf_energy_ratio,
                         ) {
                             // Print console output
@@ -1049,8 +1061,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             &has_nonzero_f_term_data,
-            setpoint_threshold,
-            show_legend,
+            analysis_opts.setpoint_threshold,
+            analysis_opts.show_legend,
             &pid_context.pid_metadata,
             &peak_values,
             &current_pd_ratios,
@@ -1064,7 +1076,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &recommended_d_min_aggressive,
             &recommended_d_max_aggressive,
             &optimal_p_analyses,
-            estimate_optimal_p,
+            analysis_opts.estimate_optimal_p,
         )?;
     }
 
@@ -1118,7 +1130,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             Some(&header_metadata),
-            show_butterworth,
+            analysis_opts.show_butterworth,
             using_debug_fallback,
             debug_mode_label,
         )?;
@@ -1130,7 +1142,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             Some(&header_metadata),
-            debug_mode,
+            analysis_opts.debug_mode,
             using_debug_fallback,
             debug_mode_label,
         )?;
@@ -1142,7 +1154,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             Some(&header_metadata),
-            show_butterworth,
+            analysis_opts.show_butterworth,
             using_debug_fallback,
             debug_mode_label,
         )?;
@@ -1169,7 +1181,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             "    For normal flight log analysis, use spectrum plots (default behavior) instead."
         );
         eprintln!();
-        plot_bode_analysis(&all_log_data, &root_name_string, sample_rate, debug_mode)?;
+        plot_bode_analysis(
+            &all_log_data,
+            &root_name_string,
+            sample_rate,
+            analysis_opts.debug_mode,
+        )?;
     }
 
     if plot_config.psd_db_heatmap {
@@ -1316,61 +1333,19 @@ fn main() -> Result<(), Box<dyn Error>> {
                 print_usage_and_exit(program_name);
             } else {
                 let fc_str = args[i + 1].trim();
-                match fc_str {
-                    "1" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::OneInch)
+                match fc_str.parse::<u8>() {
+                    Ok(size) => {
+                        match crate::data_analysis::optimal_p_estimation::FrameClass::from_inches(
+                            size,
+                        ) {
+                            Some(fc) => frame_class_override = Some(fc),
+                            None => {
+                                eprintln!("Error: Invalid frame class '{}'. Valid options: 1-13 (prop size in inches)", fc_str);
+                                print_usage_and_exit(program_name);
+                            }
+                        }
                     }
-                    "2" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::TwoInch)
-                    }
-                    "3" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::ThreeInch)
-                    }
-                    "4" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::FourInch)
-                    }
-                    "5" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::FiveInch)
-                    }
-                    "6" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::SixInch)
-                    }
-                    "7" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::SevenInch)
-                    }
-                    "8" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::EightInch)
-                    }
-                    "9" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::NineInch)
-                    }
-                    "10" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::TenInch)
-                    }
-                    "11" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::ElevenInch)
-                    }
-                    "12" => {
-                        frame_class_override =
-                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::TwelveInch)
-                    }
-                    "13" => {
-                        frame_class_override = Some(
-                            crate::data_analysis::optimal_p_estimation::FrameClass::ThirteenInch,
-                        )
-                    }
-                    _ => {
+                    Err(_) => {
                         eprintln!("Error: Invalid frame class '{}'. Valid options: 1-13 (prop size in inches)", fc_str);
                         print_usage_and_exit(program_name);
                     }
@@ -1469,6 +1444,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    // Construct AnalysisOptions once before the loop (Copy type, reusable across all files)
+    let analysis_opts = AnalysisOptions {
+        setpoint_threshold,
+        show_legend,
+        debug_mode,
+        show_butterworth,
+        estimate_optimal_p,
+        frame_class: frame_class_override
+            .unwrap_or(crate::data_analysis::optimal_p_estimation::FrameClass::FiveInch),
+    };
+
     let mut overall_success = true;
     for input_file_str in &input_files {
         // Determine the actual output directory for this file
@@ -1482,16 +1468,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         if let Err(e) = process_file(
             input_file_str,
-            setpoint_threshold,
-            show_legend,
             use_dir_prefix_for_root_name,
             actual_output_dir,
-            debug_mode,
-            show_butterworth,
             plot_config,
-            estimate_optimal_p,
-            frame_class_override
-                .unwrap_or(crate::data_analysis::optimal_p_estimation::FrameClass::FiveInch),
+            analysis_opts,
         ) {
             eprintln!("An error occurred while processing {input_file_str}: {e}");
             overall_success = false;

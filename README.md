@@ -49,6 +49,9 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory
   --frame-class <size>: Optional. Specify prop size in inches for optimal P estimation.
                         Valid options: 1-13
                         Defaults to 5 if --estimate-optimal-p is used without this flag.
+                        Note: This flag is only applied when --estimate-optimal-p is enabled.
+                        If --frame-class is provided without --estimate-optimal-p, a warning
+                        will be shown and the frame class setting will be ignored.
   --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
   --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).
   -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.

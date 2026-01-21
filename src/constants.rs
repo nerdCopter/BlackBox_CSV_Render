@@ -279,6 +279,16 @@ impl TdTargetSpec {
             tolerance_ms: target_ms * 0.25,
         }
     }
+
+    /// Get TdTargetSpec for a given frame size in inches (1-13)
+    /// Returns None if the size is out of valid range
+    pub fn for_frame_inches(inches: usize) -> Option<&'static TdTargetSpec> {
+        if (1..=13).contains(&inches) {
+            Some(&TD_TARGETS[inches - 1])
+        } else {
+            None
+        }
+    }
 }
 
 /// Td targets for all frame classes (1" through 13")
