@@ -259,4 +259,43 @@ pub const PSD_EPSILON: f64 = 1e-12; // Guard against division by zero for PSD va
 pub const MAGNITUDE_PLOT_MARGIN_DB: f64 = 10.0; // Padding above/below magnitude data for plot range
 pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data for plot range
 
+// Optimal P Estimation Constants
+// Frame-class-aware Td (time to 50%) targets in milliseconds
+// Based on power-to-rotational-inertia characteristics of different frame sizes
+pub const TD_TARGET_3INCH: f64 = 30.0; // 3" toothpick/cinewhoop typical range: 25-35ms
+pub const TD_TARGET_3INCH_TOLERANCE: f64 = 7.5; // ±25% tolerance
+
+pub const TD_TARGET_5INCH: f64 = 20.0; // 5" freestyle/racing typical range: 15-25ms
+pub const TD_TARGET_5INCH_TOLERANCE: f64 = 5.0; // ±25% tolerance
+
+pub const TD_TARGET_7INCH: f64 = 37.5; // 7" long-range typical range: 30-45ms
+pub const TD_TARGET_7INCH_TOLERANCE: f64 = 9.5; // ±25% tolerance
+
+pub const TD_TARGET_10INCH: f64 = 65.0; // 10" cinelifter typical range: 50-80ms
+pub const TD_TARGET_10INCH_TOLERANCE: f64 = 16.25; // ±25% tolerance
+
+// High-frequency noise analysis for P headroom estimation
+// D-term energy above this frequency threshold indicates noise constraints
+pub const DTERM_HF_CUTOFF_HZ: f64 = 200.0; // Frequency above which high-frequency noise is measured
+pub const DTERM_HF_ENERGY_THRESHOLD: f64 = 0.15; // 15% of total D-term energy (high noise level)
+pub const DTERM_HF_ENERGY_MODERATE: f64 = 0.10; // 10% of total D-term energy (moderate noise level)
+
+// Response consistency quality control
+// Ensures Td measurements are reliable across multiple step responses
+pub const TD_CONSISTENCY_MIN_THRESHOLD: f64 = 0.85; // 85% of responses should be within ±1 std dev
+pub const TD_COEFFICIENT_OF_VARIATION_MAX: f64 = 0.20; // 20% CV (std/mean) is acceptable
+
+// P headroom estimation multipliers
+// Conservative approach for users who want safe incremental improvements
+pub const P_HEADROOM_CONSERVATIVE_MULTIPLIER: f64 = 1.05; // +5% from current P
+                                                          // Moderate approach for experienced pilots
+pub const P_HEADROOM_MODERATE_MULTIPLIER: f64 = 1.10; // +10% from current P
+                                                      // Aggressive approach for optimization (use with caution)
+pub const P_HEADROOM_AGGRESSIVE_MULTIPLIER: f64 = 1.15; // +15% from current P
+
+// P reduction multipliers (when Td is too fast or noise is too high)
+pub const P_REDUCTION_MODERATE_MULTIPLIER: f64 = 0.95; // -5% from current P
+#[allow(dead_code)]
+pub const P_REDUCTION_AGGRESSIVE_MULTIPLIER: f64 = 0.90; // -10% from current P
+
 // src/constants.rs

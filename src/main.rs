@@ -341,7 +341,7 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
+Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--frame-class <size>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
     eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
     eprintln!("            Can mix files and directories in a single command.");
     eprintln!("            - Individual CSV file: path/to/file.csv");
@@ -365,6 +365,15 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
     eprintln!("                 deg/s threshold value. Must be a positive number.");
     eprintln!("                 If --dps is omitted, a general step-response is shown.");
+    eprintln!(
+        "  --estimate-optimal-p: Optional. Enable optimal P estimation with physics-aware recommendations."
+    );
+    eprintln!(
+        "                        Analyzes response time vs. frame-class targets and noise levels."
+    );
+    eprintln!("  --frame-class <size>: Optional. Specify frame class for optimal P estimation.");
+    eprintln!("                        Valid options: 3inch, 5inch, 7inch, 10inch");
+    eprintln!("                        Defaults to 5inch if --estimate-optimal-p is used without this flag.");
     eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
     );
@@ -393,6 +402,8 @@ fn process_file(
     debug_mode: bool,
     show_butterworth: bool,
     plot_config: PlotConfig,
+    estimate_optimal_p: bool,
+    frame_class: crate::data_analysis::optimal_p_estimation::FrameClass,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -919,6 +930,72 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         println!();
     }
 
+    // Optimal P Estimation Analysis (if enabled)
+    if estimate_optimal_p {
+        if let Some(sr) = sample_rate {
+            println!("\n--- Optimal P Estimation ---");
+
+            #[allow(clippy::needless_range_loop)]
+            for axis_index in 0..2 {
+                // Only Roll (0) and Pitch (1)
+                let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
+
+                if let Some((response_time, valid_stacked_responses, _valid_window_max_setpoints)) =
+                    &step_response_calculation_results[axis_index]
+                {
+                    if valid_stacked_responses.shape()[0] > 0 && !response_time.is_empty() {
+                        // Collect individual Td samples from each valid response window
+                        let mut td_samples_ms: Vec<f64> = Vec::new();
+
+                        for window_idx in 0..valid_stacked_responses.shape()[0] {
+                            let response = valid_stacked_responses.row(window_idx);
+                            let response_f64: Vec<f64> =
+                                response.iter().map(|&x| x as f64).collect();
+                            let response_arr = Array1::from_vec(response_f64);
+
+                            if let Some(td_seconds) =
+                                calc_step_response::calculate_delay_time(&response_arr, sr)
+                            {
+                                td_samples_ms.push(td_seconds * 1000.0); // Convert to milliseconds
+                            }
+                        }
+
+                        if td_samples_ms.is_empty() {
+                            println!("  No valid Td measurements for {axis_name}. Skipping optimal P analysis.");
+                            continue;
+                        }
+
+                        // Get current P gain
+                        let current_p = if axis_index == 0 {
+                            pid_metadata.roll.p
+                        } else {
+                            pid_metadata.pitch.p
+                        };
+
+                        if let Some(p_gain) = current_p {
+                            // Calculate HF noise energy if D-term data is available
+                            // For now, pass None (future enhancement: analyze D-term spectrum)
+                            let hf_energy_ratio: Option<f64> = None;
+
+                            // Perform optimal P analysis
+                            if let Some(analysis) = crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
+                            &td_samples_ms,
+                            p_gain,
+                            frame_class,
+                            hf_energy_ratio,
+                        ) {
+                            println!("{}", analysis.format_console_output(axis_name));
+                        }
+                        } else {
+                            println!("  P gain not available for {axis_name}. Skipping optimal P analysis.");
+                        }
+                    }
+                }
+            }
+            println!();
+        }
+    }
+
     // Create RAII guard BEFORE changing directory if needed
     let _cwd_guard = if let Some(output_dir) = output_dir {
         // Create guard to save current directory BEFORE changing it
@@ -1123,6 +1200,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut bode_requested = false;
     let mut pid_requested = false;
     let mut recursive = false;
+    let mut estimate_optimal_p = false;
+    let mut frame_class_override: Option<crate::data_analysis::optimal_p_estimation::FrameClass> =
+        None;
 
     let mut version_flag_set = false;
 
@@ -1190,6 +1270,42 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--pid" {
             has_only_flags = true;
             pid_requested = true;
+        } else if arg == "--estimate-optimal-p" {
+            estimate_optimal_p = true;
+        } else if arg == "--frame-class" {
+            if frame_class_override.is_some() {
+                eprintln!("Error: --frame-class argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --frame-class requires a value (3inch, 5inch, 7inch, 10inch).");
+                print_usage_and_exit(program_name);
+            } else {
+                let fc_str = args[i + 1].to_lowercase();
+                match fc_str.as_str() {
+                    "3inch" | "3\"" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::ThreeInch)
+                    }
+                    "5inch" | "5\"" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::FiveInch)
+                    }
+                    "7inch" | "7\"" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::SevenInch)
+                    }
+                    "10inch" | "10\"" => {
+                        frame_class_override =
+                            Some(crate::data_analysis::optimal_p_estimation::FrameClass::TenInch)
+                    }
+                    _ => {
+                        eprintln!("Error: Invalid frame class '{}'. Valid options: 3inch, 5inch, 7inch, 10inch", fc_str);
+                        print_usage_and_exit(program_name);
+                    }
+                }
+                i += 1;
+            }
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1294,6 +1410,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             debug_mode,
             show_butterworth,
             plot_config,
+            estimate_optimal_p,
+            frame_class_override
+                .unwrap_or(crate::data_analysis::optimal_p_estimation::FrameClass::FiveInch),
         ) {
             eprintln!("An error occurred while processing {input_file_str}: {e}");
             overall_success = false;
