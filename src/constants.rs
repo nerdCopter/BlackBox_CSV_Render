@@ -333,3 +333,16 @@ pub const P_HEADROOM_AGGRESSIVE_MULTIPLIER: f64 = 1.15; // +15% from current P (
 pub const P_REDUCTION_MODERATE_MULTIPLIER: f64 = 0.95; // -5% from current P
 #[allow(dead_code)]
 pub const P_REDUCTION_AGGRESSIVE_MULTIPLIER: f64 = 0.90; // -10% from current P
+
+// Td statistics computation constants
+pub const TD_MEAN_EPSILON: f64 = 1e-12; // Threshold for near-zero mean values (avoid division by zero)
+pub const TD_SAMPLES_MIN_FOR_STDDEV: usize = 2; // Minimum samples needed for std dev calculation
+
+// Td deviation thresholds (percentage deviation from target)
+pub const TD_DEVIATION_SIGNIFICANTLY_SLOWER_THRESHOLD: f64 = 30.0; // > 30% slower
+pub const TD_DEVIATION_MODERATELY_SLOWER_THRESHOLD: f64 = 15.0; // > 15% slower
+pub const TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD: f64 = -15.0; // < -15% faster
+
+// Optimal P estimation data collection thresholds
+pub const OPTIMAL_P_MS_TO_SECONDS_MULTIPLIER: f64 = 1000.0; // Convert seconds to milliseconds
+pub const OPTIMAL_P_MIN_DTERM_SAMPLES: usize = 100; // Minimum D-term samples for noise analysis

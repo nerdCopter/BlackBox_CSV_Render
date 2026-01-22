@@ -187,8 +187,6 @@ pub struct TdStatistics {
 impl TdStatistics {
     /// Calculate statistics from array of Td values (in milliseconds)
     pub fn from_samples(td_samples_ms: &[f64]) -> Option<Self> {
-        const MEAN_EPSILON: f64 = 1e-12; // Threshold for near-zero mean values
-
         if td_samples_ms.is_empty() {
             return None;
         }
@@ -197,13 +195,14 @@ impl TdStatistics {
         let mean = td_samples_ms.iter().sum::<f64>() / n;
 
         // Use epsilon-based comparison to avoid division by near-zero values
-        if mean.abs() <= MEAN_EPSILON {
+        if mean.abs() <= TD_MEAN_EPSILON {
             return None;
         }
 
         // Calculate sample variance with Bessel's correction (divide by n-1)
-        // For small samples (n < 2), set std_dev to 0.0 to avoid division by zero
-        let (std_dev, coefficient_of_variation) = if td_samples_ms.len() < 2 {
+        // For small samples, set std_dev to 0.0 to avoid division by zero
+        let (std_dev, coefficient_of_variation) = if td_samples_ms.len() < TD_SAMPLES_MIN_FOR_STDDEV
+        {
             (0.0, 0.0)
         } else {
             let sum_sq_dev = td_samples_ms
@@ -281,11 +280,11 @@ impl OptimalPAnalysis {
         let td_deviation_percent = ((td_stats.mean_ms - td_target_ms) / td_target_ms) * 100.0;
 
         // Classify deviation
-        let td_deviation = if td_deviation_percent > 30.0 {
+        let td_deviation = if td_deviation_percent > TD_DEVIATION_SIGNIFICANTLY_SLOWER_THRESHOLD {
             TdDeviation::SignificantlySlower
-        } else if td_deviation_percent > 15.0 {
+        } else if td_deviation_percent > TD_DEVIATION_MODERATELY_SLOWER_THRESHOLD {
             TdDeviation::ModeratelySlower
-        } else if td_deviation_percent < -15.0 {
+        } else if td_deviation_percent < TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD {
             TdDeviation::SignificantlyFaster
         } else {
             TdDeviation::WithinTarget

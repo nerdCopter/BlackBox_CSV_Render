@@ -996,7 +996,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             if let Some(td_seconds) =
                                 calc_step_response::calculate_delay_time(&response_arr, sr)
                             {
-                                td_samples_ms.push(td_seconds * 1000.0); // Convert to milliseconds
+                                td_samples_ms.push(
+                                    td_seconds
+                                        * crate::constants::OPTIMAL_P_MS_TO_SECONDS_MULTIPLIER,
+                                );
                             }
                         }
 
@@ -1029,7 +1032,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     .collect();
 
                                 // Only analyze if we have sufficient D-term data and sample rate
-                                if !d_term_data.is_empty() && d_term_data.len() > 100 {
+                                if !d_term_data.is_empty()
+                                    && d_term_data.len()
+                                        > crate::constants::OPTIMAL_P_MIN_DTERM_SAMPLES
+                                {
                                     crate::data_analysis::spectral_analysis::calculate_hf_energy_ratio(
                                         &d_term_data,
                                         sr,
