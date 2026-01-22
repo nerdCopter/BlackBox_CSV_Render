@@ -555,12 +555,14 @@ impl OptimalPAnalysis {
                 if let (Some(current_d), Some(rec_pd)) =
                     (self.current_d, self.recommended_pd_conservative)
                 {
-                    let conservative_d = ((*conservative_p as f64) / rec_pd).round() as u32;
-                    let conservative_d_delta = conservative_d as i32 - current_d as i32;
-                    output.push_str(&format!(
-                        ", D≈{} ({:+})",
-                        conservative_d, conservative_d_delta
-                    ));
+                    if rec_pd > 0.0 && current_d > 0 {
+                        let conservative_d = ((*conservative_p as f64) / rec_pd).round() as u32;
+                        let conservative_d_delta = conservative_d as i32 - current_d as i32;
+                        output.push_str(&format!(
+                            ", D≈{} ({:+})",
+                            conservative_d, conservative_d_delta
+                        ));
+                    }
                 }
                 output.push('\n');
 
@@ -579,9 +581,11 @@ impl OptimalPAnalysis {
                 if let (Some(current_d), Some(rec_pd)) =
                     (self.current_d, self.recommended_pd_conservative)
                 {
-                    let recommended_d = ((*recommended_p as f64) / rec_pd).round() as u32;
-                    let d_delta = recommended_d as i32 - current_d as i32;
-                    output.push_str(&format!(", D≈{} ({:+})", recommended_d, d_delta));
+                    if rec_pd > 0.0 && current_d > 0 {
+                        let recommended_d = ((*recommended_p as f64) / rec_pd).round() as u32;
+                        let d_delta = recommended_d as i32 - current_d as i32;
+                        output.push_str(&format!(", D≈{} ({:+})", recommended_d, d_delta));
+                    }
                 }
                 output.push('\n');
 

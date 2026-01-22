@@ -506,10 +506,15 @@ pub fn plot_step_response(
                                 if let (Some(current_d), Some(rec_pd)) =
                                     (analysis.current_d, analysis.recommended_pd_conservative)
                                 {
-                                    let recommended_d =
-                                        ((*conservative_p as f64) / rec_pd).round() as u32;
-                                    let d_delta = recommended_d as i32 - current_d as i32;
-                                    rec.push_str(&format!(", D≈{} ({:+})", recommended_d, d_delta));
+                                    if rec_pd > 0.0 && current_d > 0 {
+                                        let recommended_d =
+                                            ((*conservative_p as f64) / rec_pd).round() as u32;
+                                        let d_delta = recommended_d as i32 - current_d as i32;
+                                        rec.push_str(&format!(
+                                            ", D≈{} ({:+})",
+                                            recommended_d, d_delta
+                                        ));
+                                    }
                                 }
                                 rec
                             }
@@ -526,10 +531,15 @@ pub fn plot_step_response(
                                 if let (Some(current_d), Some(rec_pd)) =
                                     (analysis.current_d, analysis.recommended_pd_conservative)
                                 {
-                                    let recommended_d =
-                                        ((*recommended_p as f64) / rec_pd).round() as u32;
-                                    let d_delta = recommended_d as i32 - current_d as i32;
-                                    rec.push_str(&format!(", D≈{} ({:+})", recommended_d, d_delta));
+                                    if rec_pd > 0.0 && current_d > 0 {
+                                        let recommended_d =
+                                            ((*recommended_p as f64) / rec_pd).round() as u32;
+                                        let d_delta = recommended_d as i32 - current_d as i32;
+                                        rec.push_str(&format!(
+                                            ", D≈{} ({:+})",
+                                            recommended_d, d_delta
+                                        ));
+                                    }
                                 }
                                 rec
                             }
