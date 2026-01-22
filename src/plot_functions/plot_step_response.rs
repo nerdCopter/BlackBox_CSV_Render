@@ -499,7 +499,7 @@ pub fn plot_step_response(
                             PRecommendation::Increase { conservative_p, .. } => {
                                 let p_delta = *conservative_p as i32 - analysis.current_p as i32;
                                 let mut rec = format!(
-                                    "  Recommendation: P≈{} ({:+})",
+                                    "  Recommendation (Conservative): P≈{} ({:+})",
                                     conservative_p, p_delta
                                 );
                                 // Add D recommendation using recommended P:D ratio (not current!)

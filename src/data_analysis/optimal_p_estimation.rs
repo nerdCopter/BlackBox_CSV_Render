@@ -547,7 +547,7 @@ impl OptimalPAnalysis {
 
                 // Show P recommendation (conservative only for simplicity)
                 output.push_str(&format!(
-                    "      P≈{} ({:+})",
+                    "      Conservative: P≈{} ({:+})",
                     conservative_p, conservative_delta
                 ));
 
