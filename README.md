@@ -26,7 +26,7 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--frame-class <size>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
+Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
   <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).
             Can mix files and directories in a single command.
             - Individual CSV file: path/to/file.csv
@@ -111,7 +111,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 - Conservative and Moderate tuning recommendations (with D/D-Min/D-Max values)
 - Warning indicators for severe overshoot or unreasonable ratios
 - Optimal P estimation (when --estimate-optimal-p is used):
-  - Frame-class-aware Td (time to 50%) analysis
+  - Prop-size-aware Td (time to 50%) analysis
   - Response consistency metrics (CV, std dev)
   - Physics-based P gain recommendations
 - Gyro filtering delay estimates (filtered vs. unfiltered, with confidence)

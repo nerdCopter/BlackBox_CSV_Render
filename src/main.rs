@@ -352,7 +352,7 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--frame-class <size>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
+Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
     eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
     eprintln!("            Can mix files and directories in a single command.");
     eprintln!("            - Individual CSV file: path/to/file.csv");
@@ -416,7 +416,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
     eprintln!("Examples:");
     eprintln!("  {program_name} flight.csv");
     eprintln!("  {program_name} flight.csv --dps 200");
-    eprintln!("  {program_name} flight.csv --step --estimate-optimal-p --frame-class 5");
+    eprintln!("  {program_name} flight.csv --step --estimate-optimal-p --prop-size 5");
     eprintln!("  {program_name} input/*.csv -O ./output/");
     eprintln!("  {program_name} logs/ -R --step");
     std::process::exit(1);
