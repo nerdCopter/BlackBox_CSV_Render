@@ -249,8 +249,6 @@ pub struct OptimalPAnalysis {
     #[allow(dead_code)]
     pub current_pd_ratio: Option<f64>,
     pub recommended_pd_conservative: Option<f64>,
-    #[allow(dead_code)]
-    pub recommended_pd_moderate: Option<f64>,
     pub td_stats: TdStatistics,
     pub td_deviation: TdDeviation,
     pub td_deviation_percent: f64,
@@ -270,7 +268,6 @@ impl OptimalPAnalysis {
     /// * `frame_class` - Aircraft frame class
     /// * `hf_energy_ratio` - Optional: ratio of D-term energy above DTERM_HF_CUTOFF_HZ (0.0-1.0)
     /// * `recommended_pd_conservative` - Optional: recommended P:D ratio from step response (conservative)
-    /// * `recommended_pd_moderate` - Optional: recommended P:D ratio from step response (moderate/aggressive)
     pub fn analyze(
         td_samples_ms: &[f64],
         current_p: u32,
@@ -278,7 +275,6 @@ impl OptimalPAnalysis {
         frame_class: FrameClass,
         hf_energy_ratio: Option<f64>,
         recommended_pd_conservative: Option<f64>,
-        recommended_pd_moderate: Option<f64>,
     ) -> Option<Self> {
         // Calculate Td statistics
         let td_stats = TdStatistics::from_samples(td_samples_ms)?;
@@ -333,7 +329,6 @@ impl OptimalPAnalysis {
             current_d,
             current_pd_ratio,
             recommended_pd_conservative,
-            recommended_pd_moderate,
             td_stats,
             td_deviation,
             td_deviation_percent,
