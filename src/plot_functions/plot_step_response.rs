@@ -376,14 +376,17 @@ pub fn plot_step_response(
                         let d_max_str = recommended_d_max_conservative[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Conservative: P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "Conservative recommendation: P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
                     } else if let Some(rec_d) = recommended_d_conservative[axis_index] {
                         // D-Min/D-Max disabled: show only base D
-                        format!("Conservative: P:D={:.2} (D≈{})", rec_pd, rec_d)
+                        format!(
+                            "Conservative recommendation: P:D={:.2} (D≈{})",
+                            rec_pd, rec_d
+                        )
                     } else {
-                        format!("Conservative: P:D={:.2}", rec_pd)
+                        format!("Conservative recommendation: P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
@@ -402,14 +405,17 @@ pub fn plot_step_response(
                         let d_max_str = recommended_d_max_aggressive[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Moderate:     P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "Moderate recommendation:     P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
                     } else if let Some(rec_d) = recommended_d_aggressive[axis_index] {
                         // D-Min/D-Max disabled: show only base D
-                        format!("Moderate:     P:D={:.2} (D≈{})", rec_pd, rec_d)
+                        format!(
+                            "Moderate recommendation:     P:D={:.2} (D≈{})",
+                            rec_pd, rec_d
+                        )
                     } else {
-                        format!("Moderate:     P:D={:.2}", rec_pd)
+                        format!("Moderate recommendation:     P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
@@ -492,21 +498,47 @@ pub fn plot_step_response(
                         // Recommendation summary
                         let rec_summary = match &analysis.recommendation {
                             PRecommendation::Increase { conservative_p, .. } => {
-                                let delta = *conservative_p as i32 - analysis.current_p as i32;
-                                format!(
-                                    "  Recommendation: Increase P to {} ({:+})",
-                                    conservative_p, delta
-                                )
+                                let p_delta = *conservative_p as i32 - analysis.current_p as i32;
+                                let mut rec = format!(
+                                    "  Recommendation: P to {} ({:+})",
+                                    conservative_p, p_delta
+                                );
+                                // Add D recommendation if available
+                                if let (Some(current_d), Some(pd_ratio)) =
+                                    (analysis.current_d, analysis.current_pd_ratio)
+                                {
+                                    let recommended_d =
+                                        ((*conservative_p as f64) / pd_ratio).round() as u32;
+                                    let d_delta = recommended_d as i32 - current_d as i32;
+                                    rec.push_str(&format!(
+                                        ", D to {} ({:+})",
+                                        recommended_d, d_delta
+                                    ));
+                                }
+                                rec
                             }
                             PRecommendation::Optimal { .. } => {
                                 "  Recommendation: Current P is optimal".to_string()
                             }
                             PRecommendation::Decrease { recommended_p, .. } => {
-                                let delta = *recommended_p as i32 - analysis.current_p as i32;
-                                format!(
-                                    "  Recommendation: Decrease P to {} ({:+})",
-                                    recommended_p, delta
-                                )
+                                let p_delta = *recommended_p as i32 - analysis.current_p as i32;
+                                let mut rec = format!(
+                                    "  Recommendation: P to {} ({:+})",
+                                    recommended_p, p_delta
+                                );
+                                // Add D recommendation if available
+                                if let (Some(current_d), Some(pd_ratio)) =
+                                    (analysis.current_d, analysis.current_pd_ratio)
+                                {
+                                    let recommended_d =
+                                        ((*recommended_p as f64) / pd_ratio).round() as u32;
+                                    let d_delta = recommended_d as i32 - current_d as i32;
+                                    rec.push_str(&format!(
+                                        ", D to {} ({:+})",
+                                        recommended_d, d_delta
+                                    ));
+                                }
+                                rec
                             }
                             PRecommendation::Investigate { .. } => {
                                 "  Recommendation: See console output for details".to_string()

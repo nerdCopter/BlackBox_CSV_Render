@@ -898,7 +898,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             let d_max_str = recommended_d_max_conservative
                                                 [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("    Conservative: P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                            println!("    Conservative recommendation: P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
                                                 recommended_pd_conservative[axis_index].unwrap(),
                                                 d_min_str, d_max_str, p_val);
                                         } else if let Some(recommended_d) =
@@ -906,7 +906,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         {
                                             // D-Min/D-Max disabled: show only base D
                                             println!(
-                                                "    Conservative: P:D={:.2} → D≈{} (P={})",
+                                                "    Conservative recommendation: P:D={:.2} → D≈{} (P={})",
                                                 recommended_pd_conservative[axis_index].unwrap(),
                                                 recommended_d,
                                                 p_val
@@ -926,7 +926,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             let d_max_str = recommended_d_max_aggressive
                                                 [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("    Moderate:     P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                            println!("    Moderate recommendation:     P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
                                                 recommended_pd_aggressive[axis_index].unwrap(),
                                                 d_min_str, d_max_str, p_val);
                                         } else if let Some(recommended_d_mod) =
@@ -934,7 +934,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         {
                                             // D-Min/D-Max disabled: show only base D
                                             println!(
-                                                "    Moderate:     P:D={:.2} → D≈{} (P={})",
+                                                "    Moderate recommendation:     P:D={:.2} → D≈{} (P={})",
                                                 recommended_pd_aggressive[axis_index].unwrap(),
                                                 recommended_d_mod,
                                                 p_val
@@ -1012,6 +1012,13 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             pid_metadata.pitch.p
                         };
 
+                        // Get current D gain
+                        let current_d = if axis_index == 0 {
+                            pid_metadata.roll.d
+                        } else {
+                            pid_metadata.pitch.d
+                        };
+
                         if let Some(p_gain) = current_p {
                             // Calculate HF noise energy from D-term data if available
                             let hf_energy_ratio: Option<f64> = {
@@ -1037,6 +1044,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             if let Some(analysis) = crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
                             &td_samples_ms,
                             p_gain,
+                            current_d,
                             analysis_opts.frame_class,
                             hf_energy_ratio,
                         ) {

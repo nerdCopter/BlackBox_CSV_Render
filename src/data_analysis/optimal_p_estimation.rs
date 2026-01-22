@@ -245,6 +245,8 @@ impl TdStatistics {
 pub struct OptimalPAnalysis {
     pub frame_class: FrameClass,
     pub current_p: u32,
+    pub current_d: Option<u32>,
+    pub current_pd_ratio: Option<f64>,
     pub td_stats: TdStatistics,
     pub td_deviation: TdDeviation,
     pub td_deviation_percent: f64,
@@ -260,16 +262,21 @@ impl OptimalPAnalysis {
     /// # Arguments
     /// * `td_samples_ms` - Array of Td measurements from multiple step responses (milliseconds)
     /// * `current_p` - Current P gain
+    /// * `current_d` - Current D gain (optional)
     /// * `frame_class` - Aircraft frame class
     /// * `hf_energy_ratio` - Optional: ratio of D-term energy above DTERM_HF_CUTOFF_HZ (0.0-1.0)
     pub fn analyze(
         td_samples_ms: &[f64],
         current_p: u32,
+        current_d: Option<u32>,
         frame_class: FrameClass,
         hf_energy_ratio: Option<f64>,
     ) -> Option<Self> {
         // Calculate Td statistics
         let td_stats = TdStatistics::from_samples(td_samples_ms)?;
+
+        // Calculate current P:D ratio if D is available
+        let current_pd_ratio = current_d.map(|d| (current_p as f64) / (d as f64));
 
         // Get target Td for frame class
         let (td_target_ms, _td_tolerance_ms) = frame_class.td_target();
@@ -315,6 +322,8 @@ impl OptimalPAnalysis {
         Some(OptimalPAnalysis {
             frame_class,
             current_p,
+            current_d,
+            current_pd_ratio,
             td_stats,
             td_deviation,
             td_deviation_percent,
@@ -550,13 +559,41 @@ impl OptimalPAnalysis {
                 reasoning,
             } => {
                 output.push_str("    → Increase recommended:\n");
-                let conservative_pct =
-                    (((*conservative_p as f64) / (self.current_p as f64)) - 1.0) * 100.0;
-                let moderate_pct = (((*moderate_p as f64) / (self.current_p as f64)) - 1.0) * 100.0;
+
+                // Calculate P deltas
+                let conservative_delta = *conservative_p as i32 - self.current_p as i32;
+                let moderate_delta = *moderate_p as i32 - self.current_p as i32;
+
+                // Show P recommendations
                 output.push_str(&format!(
-                    "      Conservative: P={} (+{:.0}%), Moderate: P={} (+{:.0}%)\n",
-                    conservative_p, conservative_pct, moderate_p, moderate_pct
+                    "      Conservative: P to {} ({:+})",
+                    conservative_p, conservative_delta
                 ));
+
+                // Add D recommendation if ratio available
+                if let (Some(current_d), Some(pd_ratio)) = (self.current_d, self.current_pd_ratio) {
+                    let conservative_d = ((*conservative_p as f64) / pd_ratio).round() as u32;
+                    let conservative_d_delta = conservative_d as i32 - current_d as i32;
+                    output.push_str(&format!(
+                        ", D to {} ({:+})",
+                        conservative_d, conservative_d_delta
+                    ));
+                }
+                output.push('\n');
+
+                // Moderate recommendation
+                output.push_str(&format!(
+                    "      Moderate: P to {} ({:+})",
+                    moderate_p, moderate_delta
+                ));
+
+                if let (Some(current_d), Some(pd_ratio)) = (self.current_d, self.current_pd_ratio) {
+                    let moderate_d = ((*moderate_p as f64) / pd_ratio).round() as u32;
+                    let moderate_d_delta = moderate_d as i32 - current_d as i32;
+                    output.push_str(&format!(", D to {} ({:+})", moderate_d, moderate_d_delta));
+                }
+                output.push('\n');
+
                 output.push_str(&format!("    {}\n", reasoning));
             }
             PRecommendation::Decrease {
@@ -564,12 +601,20 @@ impl OptimalPAnalysis {
                 reasoning,
             } => {
                 output.push_str("    → Decrease recommended:\n");
-                let decrease_pct =
-                    (((*recommended_p as f64) / (self.current_p as f64)) - 1.0) * 100.0;
+                let decrease_delta = *recommended_p as i32 - self.current_p as i32;
                 output.push_str(&format!(
-                    "      P={} ({:+.0}%)\n",
-                    recommended_p, decrease_pct
+                    "      P to {} ({:+})",
+                    recommended_p, decrease_delta
                 ));
+
+                // Add D recommendation if ratio available
+                if let (Some(current_d), Some(pd_ratio)) = (self.current_d, self.current_pd_ratio) {
+                    let recommended_d = ((*recommended_p as f64) / pd_ratio).round() as u32;
+                    let d_delta = recommended_d as i32 - current_d as i32;
+                    output.push_str(&format!(", D to {} ({:+})", recommended_d, d_delta));
+                }
+                output.push('\n');
+
                 output.push_str(&format!("    {}\n", reasoning));
             }
             PRecommendation::Investigate { issue } => {
