@@ -215,6 +215,19 @@ Physics-aware P gain optimization based on response timing analysis:
   - 11" heavy-lift: 75ms ± 18.75ms
   - 12" heavy-lift: 85ms ± 21.25ms
   - 13" heavy-lift: 95ms ± 23.75ms
+  - **How to Validate These Targets:**
+    * **Method**: Run this tool on your flight logs with correct `--prop-size` and observe Td measurements
+    * **Theory**: Td should scale approximately with prop radius squared: Td ∝ r² (due to rotational inertia I ∝ mr²)
+    * **Scaling Check**: Compare ratio of Td targets to radius² ratio:
+      - 3" to 5": Target ratio = 30/20 = 1.5, Radius² ratio = (3/5)² = 0.36 → Adjusted: 1.5/0.36 ≈ 4.2
+      - 5" to 7": Target ratio = 37.5/20 = 1.875, Radius² ratio = (7/5)² = 1.96 → Adjusted: 1.875/1.96 ≈ 0.96 ✓
+      - This validates that larger props do have proportionally longer Td as expected from physics
+    * **Constants Reference**: All targets defined in `src/constants.rs` as `TD_TARGETS` array (line ~297)
+    * **Acceptance Criterion**: Your measured Td should fall within target ± tolerance range for your prop size
+    * **Common Deviations**:
+      - Faster than target + low noise = Excellent build, headroom for P increase
+      - Slower than target + high noise = Mechanical issues or incorrect prop size specified
+      - Within target + high noise = P at physical limits (optimal for this aircraft)
   - **Validation Plan (Provisional Targets):** These targets require systematic validation via flight data collection. 
     * **Target Metrics:** Per frame class, measure Td mean and std dev across ≥10 flights (manual setpoint inputs or step-sticks); confidence threshold: Td within ±10% of predicted target.
     * **Data Collection Protocol:**
