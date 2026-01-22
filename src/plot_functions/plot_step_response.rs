@@ -500,20 +500,17 @@ pub fn plot_step_response(
                             PRecommendation::Increase { conservative_p, .. } => {
                                 let p_delta = *conservative_p as i32 - analysis.current_p as i32;
                                 let mut rec = format!(
-                                    "  Recommendation: P to {} ({:+})",
+                                    "  Recommendation: P≈{} ({:+})",
                                     conservative_p, p_delta
                                 );
-                                // Add D recommendation if available
-                                if let (Some(current_d), Some(pd_ratio)) =
-                                    (analysis.current_d, analysis.current_pd_ratio)
+                                // Add D recommendation using recommended P:D ratio (not current!)
+                                if let (Some(current_d), Some(rec_pd)) =
+                                    (analysis.current_d, analysis.recommended_pd_conservative)
                                 {
                                     let recommended_d =
-                                        ((*conservative_p as f64) / pd_ratio).round() as u32;
+                                        ((*conservative_p as f64) / rec_pd).round() as u32;
                                     let d_delta = recommended_d as i32 - current_d as i32;
-                                    rec.push_str(&format!(
-                                        ", D to {} ({:+})",
-                                        recommended_d, d_delta
-                                    ));
+                                    rec.push_str(&format!(", D≈{} ({:+})", recommended_d, d_delta));
                                 }
                                 rec
                             }
@@ -523,20 +520,17 @@ pub fn plot_step_response(
                             PRecommendation::Decrease { recommended_p, .. } => {
                                 let p_delta = *recommended_p as i32 - analysis.current_p as i32;
                                 let mut rec = format!(
-                                    "  Recommendation: P to {} ({:+})",
+                                    "  Recommendation: P≈{} ({:+})",
                                     recommended_p, p_delta
                                 );
-                                // Add D recommendation if available
-                                if let (Some(current_d), Some(pd_ratio)) =
-                                    (analysis.current_d, analysis.current_pd_ratio)
+                                // Add D recommendation using recommended P:D ratio (not current!)
+                                if let (Some(current_d), Some(rec_pd)) =
+                                    (analysis.current_d, analysis.recommended_pd_conservative)
                                 {
                                     let recommended_d =
-                                        ((*recommended_p as f64) / pd_ratio).round() as u32;
+                                        ((*recommended_p as f64) / rec_pd).round() as u32;
                                     let d_delta = recommended_d as i32 - current_d as i32;
-                                    rec.push_str(&format!(
-                                        ", D to {} ({:+})",
-                                        recommended_d, d_delta
-                                    ));
+                                    rec.push_str(&format!(", D≈{} ({:+})", recommended_d, d_delta));
                                 }
                                 rec
                             }

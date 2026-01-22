@@ -1047,6 +1047,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             current_d,
                             analysis_opts.frame_class,
                             hf_energy_ratio,
+                            recommended_pd_conservative[axis_index],
+                            recommended_pd_aggressive[axis_index],
                         ) {
                             // Print console output
                             println!("{}", analysis.format_console_output(axis_name));
