@@ -383,14 +383,17 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
         "                        Analyzes response time vs. frame-class targets and noise levels."
     );
     eprintln!(
-        "  --frame-class <size>: Optional. Specify prop size in inches for optimal P estimation."
+        "  --frame-class <size>: Optional. Specify PROP SIZE in inches for optimal P estimation."
     );
-    eprintln!("                        Valid options: 1-13");
+    eprintln!("                        Valid options: 1-13 (match your PROPELLER diameter, not frame size)");
     eprintln!(
         "                        Defaults to 5 if --estimate-optimal-p is used without this flag."
     );
     eprintln!(
         "                        Note: This flag is only applied when --estimate-optimal-p is enabled."
+    );
+    eprintln!(
+        "                        Example: 6-inch frame with 5-inch props → use --frame-class 5"
     );
     eprintln!(
         "                        If --frame-class is provided without --estimate-optimal-p, a warning"

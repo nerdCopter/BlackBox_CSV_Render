@@ -46,9 +46,10 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory
                  If --dps is omitted, a general step-response is shown.
   --estimate-optimal-p: Optional. Enable optimal P estimation with physics-aware recommendations.
                         Analyzes response time vs. frame-class targets and noise levels.
-  --frame-class <size>: Optional. Specify prop size in inches for optimal P estimation.
-                        Valid options: 1-13
+  --frame-class <size>: Optional. Specify PROP SIZE in inches for optimal P estimation.
+                        Valid options: 1-13 (match your PROPELLER diameter, not frame size)
                         Defaults to 5 if --estimate-optimal-p is used without this flag.
+                        Example: 6-inch frame with 5-inch props → use --frame-class 5
                         Note: This flag is only applied when --estimate-optimal-p is enabled.
                         If --frame-class is provided without --estimate-optimal-p, a warning
                         will be shown and the frame class setting will be ignored.

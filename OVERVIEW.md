@@ -194,10 +194,12 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 Physics-aware P gain optimization based on response timing analysis:
 
 - **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag
-- **Frame Class Selection:** Use `--frame-class <size>` to specify prop size in inches (1-13)
+- **Frame Class Selection:** Use `--frame-class <size>` to specify **PROPELLER SIZE** in inches (1-13)
+  - **Critical:** Match your actual PROP diameter, NOT frame size (e.g., 6" frame with 5" props → use `--frame-class 5`)
   - Defaults to 5 if not specified
+  - Prop size determines rotational inertia (I ∝ radius²) which directly affects response time
   - Each frame class has physics-informed, empirically-derived Td (time to 50%) targets based on torque-to-rotational-inertia ratio
-- **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal. Response speed scales with torque-to-rotational-inertia ratio: Td ∝ (rotational inertia)⁻¹. For simple models (point mass or thin ring) rotational inertia scales as mass × radius²; real quad inertias depend on mass distribution (frame, motors, battery, props). Targets below are provisional empirical estimates guided by this physics-inspired scaling relation and must be validated against actual flight logs.
+- **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal. Response speed scales with torque-to-rotational-inertia ratio: Td ∝ (rotational inertia)⁻¹. For simple models (point mass or thin ring) rotational inertia scales as mass × radius²; real quad inertias depend on mass distribution (frame, motors, battery, props). **Propeller size is the primary determinant of rotational inertia**, not frame size. Targets below are provisional empirical estimates guided by this physics-inspired scaling relation and must be validated against actual flight logs.
 - **Frame-Class Targets (Provisional - requires flight validation):**
   - **Tolerance Ranges:** The (±) values represent acceptable response timing bands for each frame class—use these as recommended tuning acceptance ranges during flight validation, not measurement uncertainty or statistical confidence intervals.
   - 1" tiny whoop: 40ms ± 10.0ms (low power/torque)
