@@ -249,6 +249,7 @@ pub struct OptimalPAnalysis {
     #[allow(dead_code)]
     pub current_pd_ratio: Option<f64>,
     pub recommended_pd_conservative: Option<f64>,
+    #[allow(dead_code)]
     pub recommended_pd_moderate: Option<f64>,
     pub td_stats: TdStatistics,
     pub td_deviation: TdDeviation,
@@ -564,18 +565,17 @@ impl OptimalPAnalysis {
             }
             PRecommendation::Increase {
                 conservative_p,
-                moderate_p,
+                moderate_p: _,
                 reasoning,
             } => {
                 output.push_str("    → Increase recommended:\n");
 
-                // Calculate P deltas
+                // Calculate P delta
                 let conservative_delta = *conservative_p as i32 - self.current_p as i32;
-                let moderate_delta = *moderate_p as i32 - self.current_p as i32;
 
-                // Show P recommendations
+                // Show P recommendation (conservative only for simplicity)
                 output.push_str(&format!(
-                    "      Conservative: P≈{} ({:+})",
+                    "      P≈{} ({:+})",
                     conservative_p, conservative_delta
                 ));
 
@@ -589,21 +589,6 @@ impl OptimalPAnalysis {
                         ", D≈{} ({:+})",
                         conservative_d, conservative_d_delta
                     ));
-                }
-                output.push('\n');
-
-                // Moderate recommendation
-                output.push_str(&format!(
-                    "      Moderate: P≈{} ({:+})",
-                    moderate_p, moderate_delta
-                ));
-
-                if let (Some(current_d), Some(rec_pd)) =
-                    (self.current_d, self.recommended_pd_moderate)
-                {
-                    let moderate_d = ((*moderate_p as f64) / rec_pd).round() as u32;
-                    let moderate_d_delta = moderate_d as i32 - current_d as i32;
-                    output.push_str(&format!(", D≈{} ({:+})", moderate_d, moderate_d_delta));
                 }
                 output.push('\n');
 
