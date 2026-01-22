@@ -123,6 +123,7 @@ impl NoiseLevel {
         }
     }
 
+    #[allow(dead_code)]
     pub fn assessment(&self) -> &str {
         match self {
             NoiseLevel::Low => "Noise levels are acceptable, P has headroom",
@@ -177,6 +178,7 @@ pub enum PRecommendation {
 #[derive(Debug, Clone)]
 pub struct TdStatistics {
     pub mean_ms: f64,
+    #[allow(dead_code)]
     pub std_dev_ms: f64,
     pub coefficient_of_variation: f64,
     pub num_samples: usize,
@@ -247,6 +249,7 @@ pub struct OptimalPAnalysis {
     pub td_deviation: TdDeviation,
     pub td_deviation_percent: f64,
     pub noise_level: NoiseLevel,
+    #[allow(dead_code)]
     pub hf_energy_percent: Option<f64>,
     pub recommendation: PRecommendation,
 }
@@ -490,168 +493,72 @@ impl OptimalPAnalysis {
     /// Format analysis as human-readable console output
     pub fn format_console_output(&self, axis_name: &str) -> String {
         let (td_target, td_tolerance) = self.frame_class.td_target();
-
         let mut output = String::new();
-        output.push_str(&format!("\n{}\n", "=".repeat(70)));
-        output.push_str(&format!("OPTIMAL P ESTIMATION ({} Axis)\n", axis_name));
-        output.push_str(&format!("{}\n", "=".repeat(70)));
 
-        // Current configuration
-        output.push_str("Current Configuration:\n");
-        output.push_str(&format!("  P Gain: {}\n", self.current_p));
-
-        // Step response analysis
-        output.push_str("\nStep Response Analysis:\n");
+        // Compact header - axis name and basic info
         output.push_str(&format!(
-            "  Time to 50% (Td): {:.1}ms (± {:.1}ms, CV: {:.1}%)\n",
+            "{}: Td={:.1}ms (target {:.1}±{:.1}ms, {:+.0}% dev), Noise={}, Consistency={:.0}%\n",
+            axis_name,
             self.td_stats.mean_ms,
-            self.td_stats.std_dev_ms,
-            self.td_stats.coefficient_of_variation * 100.0
-        ));
-        output.push_str(&format!(
-            "  Response Consistency: {:.0}% ({}/{} valid responses)\n",
-            self.td_stats.consistency * 100.0,
-            (self.td_stats.consistency * self.td_stats.num_samples as f64) as usize,
-            self.td_stats.num_samples
-        ));
-
-        if !self.td_stats.is_consistent() {
-            output.push_str("  ⚠ WARNING: Low consistency - results may be unreliable\n");
-        }
-
-        // Frame class comparison
-        output.push_str(&format!(
-            "\nFrame Class: {} (Target Td: {:.1}ms ± {:.1}ms)\n",
-            self.frame_class.name(),
             td_target,
-            td_tolerance
-        ));
-        output.push_str(&format!(
-            "  Td Deviation: {:.1}% ({})\n",
+            td_tolerance,
             self.td_deviation_percent,
-            self.td_deviation.name()
+            self.noise_level.name(),
+            self.td_stats.consistency * 100.0
         ));
 
-        let assessment = if self.td_deviation_percent.abs() <= 15.0 {
-            "Response is appropriately fast for frame class"
-        } else if self.td_deviation_percent > 0.0 {
-            "Response is slower than typical for frame class"
-        } else {
-            "Response is faster than typical for frame class"
-        };
-        output.push_str(&format!("  Assessment: {}\n", assessment));
-
-        // Noise analysis
-        output.push_str("\nNoise Analysis:\n");
-        if let Some(hf_percent) = self.hf_energy_percent {
+        // Warning for low consistency (inline)
+        if !self.td_stats.is_consistent() {
             output.push_str(&format!(
-                "  D-term HF Energy (>{}Hz): {:.1}% of total\n",
-                DTERM_HF_CUTOFF_HZ, hf_percent
+                "  ⚠ WARNING: Low consistency (CV={:.1}%, {}/{} responses) - results may be unreliable\n",
+                self.td_stats.coefficient_of_variation * 100.0,
+                (self.td_stats.consistency * self.td_stats.num_samples as f64) as usize,
+                self.td_stats.num_samples
             ));
         }
-        output.push_str(&format!("  Noise Level: {}\n", self.noise_level.name()));
-        output.push_str(&format!(
-            "  Assessment: {}\n",
-            self.noise_level.assessment()
-        ));
 
-        // Physical limit indicators
-        output.push_str("\nPhysical Limit Indicators:\n");
-        let response_indicator = match self.td_deviation {
-            TdDeviation::WithinTarget => "GOOD (within target range)",
-            TdDeviation::ModeratelySlower => "IMPROVABLE (slower than target)",
-            TdDeviation::SignificantlySlower => "SUBOPTIMAL (significantly slower)",
-            TdDeviation::SignificantlyFaster => "VERY FAST (faster than typical)",
-        };
-        output.push_str(&format!("  ├─ Response speed: {}\n", response_indicator));
-
-        let noise_indicator = match self.noise_level {
-            NoiseLevel::Low => "GOOD (low noise)",
-            NoiseLevel::Moderate => "ACCEPTABLE (moderate noise)",
-            NoiseLevel::High => "AT LIMIT (high noise)",
-            NoiseLevel::Unknown => "UNKNOWN (no D-term data)",
-        };
-        output.push_str(&format!("  ├─ Noise level: {}\n", noise_indicator));
-
-        let consistency_indicator = if self.td_stats.is_consistent() {
-            "GOOD (low variation)"
-        } else {
-            "POOR (high variation)"
-        };
-        output.push_str(&format!("  └─ Consistency: {}\n", consistency_indicator));
-
-        // Recommendation
-        output.push_str(&format!("\n{}\n", "=".repeat(70)));
-        output.push_str("P OPTIMIZATION RECOMMENDATION\n");
-        output.push_str(&format!("{}\n", "=".repeat(70)));
+        // Compact recommendation
+        output.push_str(&format!("  Current P={}\n", self.current_p));
 
         match &self.recommendation {
             PRecommendation::Optimal { reasoning } => {
-                output.push_str(&format!(
-                    "Current P ({}) appears OPTIMAL for this aircraft.\n\n",
-                    self.current_p
-                ));
-                output.push_str(&format!("{}\n", reasoning));
+                output.push_str("    → Optimal (no change recommended)\n");
+                output.push_str(&format!("    {}\n", reasoning));
             }
             PRecommendation::Increase {
                 conservative_p,
                 moderate_p,
                 reasoning,
             } => {
-                output.push_str("P increase recommended:\n\n");
-                let conservative_pct = if self.current_p == 0 {
-                    "N/A".to_string()
-                } else {
-                    format!(
-                        "+{:.0}%",
-                        (((*conservative_p as f64) / (self.current_p as f64)) - 1.0) * 100.0
-                    )
-                };
+                output.push_str("    → Increase recommended:\n");
+                let conservative_pct =
+                    (((*conservative_p as f64) / (self.current_p as f64)) - 1.0) * 100.0;
+                let moderate_pct = (((*moderate_p as f64) / (self.current_p as f64)) - 1.0) * 100.0;
                 output.push_str(&format!(
-                    "  • Conservative: P = {} ({})\n",
-                    conservative_p, conservative_pct
+                    "      Conservative: P={} (+{:.0}%), Moderate: P={} (+{:.0}%)\n",
+                    conservative_p, conservative_pct, moderate_p, moderate_pct
                 ));
-                let moderate_pct = if self.current_p == 0 {
-                    "N/A".to_string()
-                } else {
-                    format!(
-                        "+{:.0}%",
-                        (((*moderate_p as f64) / (self.current_p as f64)) - 1.0) * 100.0
-                    )
-                };
-                output.push_str(&format!(
-                    "  • Moderate: P = {} ({})\n\n",
-                    moderate_p, moderate_pct
-                ));
-                output.push_str(&format!("{}\n\n", reasoning));
-                output.push_str("⚠ Always test incrementally and monitor motor temperatures.\n");
+                output.push_str(&format!("    {}\n", reasoning));
             }
             PRecommendation::Decrease {
                 recommended_p,
                 reasoning,
             } => {
-                output.push_str("P reduction recommended:\n\n");
-                let decrease_pct = if self.current_p == 0 {
-                    "N/A".to_string()
-                } else {
-                    format!(
-                        "{:+.0}%",
-                        (((*recommended_p as f64) / (self.current_p as f64)) - 1.0) * 100.0
-                    )
-                };
+                output.push_str("    → Decrease recommended:\n");
+                let decrease_pct =
+                    (((*recommended_p as f64) / (self.current_p as f64)) - 1.0) * 100.0;
                 output.push_str(&format!(
-                    "  • Recommended: P = {} ({})\n\n",
+                    "      P={} ({:+.0}%)\n",
                     recommended_p, decrease_pct
                 ));
-                output.push_str(&format!("{}\n", reasoning));
+                output.push_str(&format!("    {}\n", reasoning));
             }
             PRecommendation::Investigate { issue } => {
-                output.push_str("⚠ INVESTIGATION RECOMMENDED\n\n");
-                output.push_str(&format!("{}\n", issue));
+                output.push_str("    → ⚠ INVESTIGATION RECOMMENDED\n");
+                output.push_str(&format!("    {}\n", issue));
             }
         }
 
-        output.push_str(&format!("{}\n", "=".repeat(70)));
         output
     }
 }
