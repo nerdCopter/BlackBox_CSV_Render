@@ -162,7 +162,6 @@ pub enum PRecommendation {
     },
     Increase {
         conservative_p: u32,
-        moderate_p: u32,
         reasoning: String,
     },
     Decrease {
@@ -246,15 +245,11 @@ pub struct OptimalPAnalysis {
     pub frame_class: FrameClass,
     pub current_p: u32,
     pub current_d: Option<u32>,
-    #[allow(dead_code)]
-    pub current_pd_ratio: Option<f64>,
     pub recommended_pd_conservative: Option<f64>,
     pub td_stats: TdStatistics,
     pub td_deviation: TdDeviation,
     pub td_deviation_percent: f64,
     pub noise_level: NoiseLevel,
-    #[allow(dead_code)]
-    pub hf_energy_percent: Option<f64>,
     pub recommendation: PRecommendation,
 }
 
@@ -279,9 +274,6 @@ impl OptimalPAnalysis {
         // Calculate Td statistics
         let td_stats = TdStatistics::from_samples(td_samples_ms)?;
 
-        // Calculate current P:D ratio if D is available (for reference, not used in calculations)
-        let current_pd_ratio = current_d.map(|d| (current_p as f64) / (d as f64));
-
         // Get target Td for frame class
         let (td_target_ms, _td_tolerance_ms) = frame_class.td_target();
 
@@ -300,18 +292,16 @@ impl OptimalPAnalysis {
         };
 
         // Classify noise level
-        let (noise_level, hf_energy_percent) = if let Some(hf_ratio) = hf_energy_ratio {
-            let hf_percent = hf_ratio * 100.0;
-            let level = if hf_ratio < DTERM_HF_ENERGY_MODERATE {
+        let noise_level = if let Some(hf_ratio) = hf_energy_ratio {
+            if hf_ratio < DTERM_HF_ENERGY_MODERATE {
                 NoiseLevel::Low
             } else if hf_ratio < DTERM_HF_ENERGY_THRESHOLD {
                 NoiseLevel::Moderate
             } else {
                 NoiseLevel::High
-            };
-            (level, Some(hf_percent))
+            }
         } else {
-            (NoiseLevel::Unknown, None)
+            NoiseLevel::Unknown
         };
 
         // Generate recommendation based on Td deviation and noise level
@@ -327,13 +317,11 @@ impl OptimalPAnalysis {
             frame_class,
             current_p,
             current_d,
-            current_pd_ratio,
             recommended_pd_conservative,
             td_stats,
             td_deviation,
             td_deviation_percent,
             noise_level,
-            hf_energy_percent,
             recommendation,
         })
     }
@@ -350,10 +338,8 @@ impl OptimalPAnalysis {
             // Case 1: Td significantly slower + low noise = clear headroom to increase P
             (TdDeviation::SignificantlySlower, NoiseLevel::Low) => {
                 let conservative = ((current_p as f64) * P_HEADROOM_MODERATE_MULTIPLIER) as u32;
-                let moderate = ((current_p as f64) * P_HEADROOM_AGGRESSIVE_MULTIPLIER) as u32;
                 PRecommendation::Increase {
                     conservative_p: conservative,
-                    moderate_p: moderate,
                     reasoning: format!(
                         "Response is {:.1}% slower than target with low noise levels. \
                          P can be increased significantly for faster response.",
@@ -365,10 +351,8 @@ impl OptimalPAnalysis {
             // Case 2: Td moderately slower + low/moderate noise = modest headroom
             (TdDeviation::ModeratelySlower, NoiseLevel::Low | NoiseLevel::Moderate) => {
                 let conservative = ((current_p as f64) * P_HEADROOM_CONSERVATIVE_MULTIPLIER) as u32;
-                let moderate = ((current_p as f64) * P_HEADROOM_MODERATE_MULTIPLIER) as u32;
                 PRecommendation::Increase {
                     conservative_p: conservative,
-                    moderate_p: moderate,
                     reasoning: format!(
                         "Response is {:.1}% slower than target. Modest P increase recommended.",
                         td_deviation_percent
@@ -389,11 +373,9 @@ impl OptimalPAnalysis {
             // Case 3: Td within target + low noise = slight headroom available
             (TdDeviation::WithinTarget, NoiseLevel::Low) => {
                 let conservative = ((current_p as f64) * P_HEADROOM_CONSERVATIVE_MULTIPLIER) as u32;
-                let moderate = ((current_p as f64) * P_HEADROOM_MODERATE_MULTIPLIER) as u32;
                 if conservative > current_p {
                     PRecommendation::Increase {
                         conservative_p: conservative,
-                        moderate_p: moderate,
                         reasoning: "Response time is in target range with low noise. \
                              Minor P increase possible if seeking faster response.".to_string(),
                     }
@@ -454,11 +436,9 @@ impl OptimalPAnalysis {
             // Either way, there's headroom to push P higher if desired.
             (TdDeviation::SignificantlyFaster, NoiseLevel::Low) => {
                 let conservative = ((current_p as f64) * P_HEADROOM_CONSERVATIVE_MULTIPLIER) as u32;
-                let moderate = ((current_p as f64) * P_HEADROOM_MODERATE_MULTIPLIER) as u32;
                 if conservative > current_p {
                     PRecommendation::Increase {
                         conservative_p: conservative,
-                        moderate_p: moderate,
                         reasoning: format!(
                             "Response is {:.1}% faster than target with low noise levels. \
                              This indicates excellent build quality with headroom for P increase. \
@@ -494,10 +474,8 @@ impl OptimalPAnalysis {
                 TdDeviation::SignificantlySlower | TdDeviation::ModeratelySlower => {
                     let conservative =
                         ((current_p as f64) * P_HEADROOM_CONSERVATIVE_MULTIPLIER) as u32;
-                    let moderate = ((current_p as f64) * P_HEADROOM_MODERATE_MULTIPLIER) as u32;
                     PRecommendation::Increase {
                         conservative_p: conservative,
-                        moderate_p: moderate,
                         reasoning: format!(
                             "Response is {:.1}% slower than target. P increase recommended, \
                              but monitor motor temperatures (D-term data unavailable for noise analysis).",
@@ -560,7 +538,6 @@ impl OptimalPAnalysis {
             }
             PRecommendation::Increase {
                 conservative_p,
-                moderate_p: _,
                 reasoning,
             } => {
                 output.push_str("    → Increase recommended:\n");

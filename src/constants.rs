@@ -326,7 +326,8 @@ pub const P_HEADROOM_CONSERVATIVE_MULTIPLIER: f64 = 1.05; // +5% from current P
                                                           // Moderate approach for experienced pilots
 pub const P_HEADROOM_MODERATE_MULTIPLIER: f64 = 1.10; // +10% from current P
                                                       // Aggressive approach for optimization (use with caution)
-pub const P_HEADROOM_AGGRESSIVE_MULTIPLIER: f64 = 1.15; // +15% from current P
+#[allow(dead_code)]
+pub const P_HEADROOM_AGGRESSIVE_MULTIPLIER: f64 = 1.15; // +15% from current P (reserved for future use)
 
 // P reduction multipliers (when Td is too fast or noise is too high)
 pub const P_REDUCTION_MODERATE_MULTIPLIER: f64 = 0.95; // -5% from current P
