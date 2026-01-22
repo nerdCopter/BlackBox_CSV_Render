@@ -383,22 +383,20 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
         "                        Analyzes response time vs. frame-class targets and noise levels."
     );
     eprintln!(
-        "  --frame-class <size>: Optional. Specify PROP SIZE in inches for optimal P estimation."
+        "  --prop-size <size>: Optional. Specify propeller diameter in inches for optimal P estimation."
     );
-    eprintln!("                        Valid options: 1-13 (match your PROPELLER diameter, not frame size)");
+    eprintln!("                      Valid options: 1-13 (match your actual PROPELLER size)");
     eprintln!(
-        "                        Defaults to 5 if --estimate-optimal-p is used without this flag."
-    );
-    eprintln!(
-        "                        Note: This flag is only applied when --estimate-optimal-p is enabled."
+        "                      Defaults to 5 if --estimate-optimal-p is used without this flag."
     );
     eprintln!(
-        "                        Example: 6-inch frame with 5-inch props → use --frame-class 5"
+        "                      Note: This flag is only applied when --estimate-optimal-p is enabled."
     );
+    eprintln!("                      Example: 6-inch frame with 5-inch props → use --prop-size 5");
     eprintln!(
-        "                        If --frame-class is provided without --estimate-optimal-p, a warning"
+        "                      If --prop-size is provided without --estimate-optimal-p, a warning"
     );
-    eprintln!("                        will be shown and the frame class setting will be ignored.");
+    eprintln!("                      will be shown and the prop size setting will be ignored.");
     eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
     );
@@ -972,7 +970,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         if let Some(sr) = sample_rate {
             println!("\n--- Optimal P Estimation ---");
             println!(
-                "Frame class: {} (use --frame-class to override)",
+                "Prop size: {} (use --prop-size to override)",
                 analysis_opts.frame_class.name()
             );
             println!();
@@ -1340,14 +1338,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             pid_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
-        } else if arg == "--frame-class" {
+        } else if arg == "--prop-size" {
             if frame_class_override.is_some() {
-                eprintln!("Error: --frame-class argument specified more than once.");
+                eprintln!("Error: --prop-size argument specified more than once.");
                 print_usage_and_exit(program_name);
             }
             if i + 1 >= args.len() {
                 eprintln!(
-                    "Error: --frame-class requires a numeric value (prop size in inches: 1-13)."
+                    "Error: --prop-size requires a numeric value (propeller diameter in inches: 1-13)."
                 );
                 print_usage_and_exit(program_name);
             } else {
@@ -1359,13 +1357,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         ) {
                             Some(fc) => frame_class_override = Some(fc),
                             None => {
-                                eprintln!("Error: Invalid frame class '{}'. Valid options: 1-13 (prop size in inches)", fc_str);
+                                eprintln!("Error: Invalid prop size '{}'. Valid options: 1-13 (propeller diameter in inches)", fc_str);
                                 print_usage_and_exit(program_name);
                             }
                         }
                     }
                     Err(_) => {
-                        eprintln!("Error: Invalid frame class '{}'. Valid options: 1-13 (prop size in inches)", fc_str);
+                        eprintln!("Error: Invalid prop size '{}'. Valid options: 1-13 (propeller diameter in inches)", fc_str);
                         print_usage_and_exit(program_name);
                     }
                 }
@@ -1407,10 +1405,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    // Warn if --frame-class is specified without --estimate-optimal-p
+    // Warn if --prop-size is specified without --estimate-optimal-p
     if frame_class_override.is_some() && !estimate_optimal_p {
-        eprintln!("Warning: --frame-class specified without --estimate-optimal-p.");
-        eprintln!("         The frame class setting will be ignored.");
+        eprintln!("Warning: --prop-size specified without --estimate-optimal-p.");
+        eprintln!("         The prop size setting will be ignored.");
         eprintln!("         Use --estimate-optimal-p to enable optimal P estimation.");
         eprintln!();
     }

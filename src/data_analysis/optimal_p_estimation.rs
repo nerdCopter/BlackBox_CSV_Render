@@ -434,15 +434,34 @@ impl OptimalPAnalysis {
                 ),
             },
 
-            // Case 8: Td faster than target + low noise = unusual, may indicate issue
-            (TdDeviation::SignificantlyFaster, NoiseLevel::Low) => PRecommendation::Investigate {
-                issue: format!(
-                    "Response is {:.1}% faster than typical for frame class, \
-                     but noise is low. This may indicate incorrect frame class selection \
-                     or unusual power-to-inertia ratio. Verify frame class and check build specs.",
-                    td_deviation_percent
-                ),
-            },
+            // Case 8: Td faster than target + low noise = headroom available for P increase
+            // This is GOOD - faster response + low noise means the prop size might be 
+            // slightly smaller than specified, or the build is exceptionally clean.
+            // Either way, there's headroom to push P higher if desired.
+            (TdDeviation::SignificantlyFaster, NoiseLevel::Low) => {
+                let conservative = ((current_p as f64) * P_HEADROOM_CONSERVATIVE_MULTIPLIER) as u32;
+                let moderate = ((current_p as f64) * P_HEADROOM_MODERATE_MULTIPLIER) as u32;
+                if conservative > current_p {
+                    PRecommendation::Increase {
+                        conservative_p: conservative,
+                        moderate_p: moderate,
+                        reasoning: format!(
+                            "Response is {:.1}% faster than target with low noise levels. \
+                             This indicates excellent build quality with headroom for P increase. \
+                             Note: Verify prop size is correct (may be smaller than specified).",
+                            td_deviation_percent
+                        ),
+                    }
+                } else {
+                    PRecommendation::Optimal {
+                        reasoning: format!(
+                            "Response is {:.1}% faster than target with low noise. \
+                             Current P ({}) is optimal. Excellent build quality or prop size may differ from spec.",
+                            td_deviation_percent, current_p
+                        ),
+                    }
+                }
+            }
 
             // Case 9: Td significantly slower + moderate/high noise = investigate
             (TdDeviation::SignificantlySlower, NoiseLevel::Moderate | NoiseLevel::High) => {

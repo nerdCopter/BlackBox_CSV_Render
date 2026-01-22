@@ -45,14 +45,14 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory
                  deg/s threshold value. Must be a positive number.
                  If --dps is omitted, a general step-response is shown.
   --estimate-optimal-p: Optional. Enable optimal P estimation with physics-aware recommendations.
-                        Analyzes response time vs. frame-class targets and noise levels.
-  --frame-class <size>: Optional. Specify PROP SIZE in inches for optimal P estimation.
-                        Valid options: 1-13 (match your PROPELLER diameter, not frame size)
-                        Defaults to 5 if --estimate-optimal-p is used without this flag.
-                        Example: 6-inch frame with 5-inch props → use --frame-class 5
-                        Note: This flag is only applied when --estimate-optimal-p is enabled.
-                        If --frame-class is provided without --estimate-optimal-p, a warning
-                        will be shown and the frame class setting will be ignored.
+                        Analyzes response time vs. prop-size targets and noise levels.
+  --prop-size <size>: Optional. Specify propeller diameter in inches for optimal P estimation.
+                      Valid options: 1-13 (match your actual PROPELLER size)
+                      Defaults to 5 if --estimate-optimal-p is used without this flag.
+                      Example: 6-inch frame with 5-inch props → use --prop-size 5
+                      Note: This flag is only applied when --estimate-optimal-p is enabled.
+                      If --prop-size is provided without --estimate-optimal-p, a warning
+                      will be shown and the prop size setting will be ignored.
   --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
   --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).
   -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.
