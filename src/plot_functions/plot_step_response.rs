@@ -468,6 +468,27 @@ pub fn plot_step_response(
                             stroke_width: 0,
                         });
 
+                        // Noise level
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!("  Noise: {}", analysis.noise_level.name()),
+                            color: RGBColor(80, 80, 80),
+                            stroke_width: 0,
+                        });
+
+                        // Consistency (if poor, show warning)
+                        if !analysis.td_stats.is_consistent() {
+                            series.push(PlotSeries {
+                                data: vec![],
+                                label: format!(
+                                    "  ⚠ Consistency: {:.0}% (CV={:.1}%)",
+                                    analysis.td_stats.consistency * 100.0,
+                                    analysis.td_stats.coefficient_of_variation * 100.0
+                                ),
+                                color: RGBColor(200, 100, 0), // Orange for warning
+                                stroke_width: 0,
+                            });
+                        }
                         // Recommendation summary
                         let rec_summary = match &analysis.recommendation {
                             PRecommendation::Increase { conservative_p, .. } => {
