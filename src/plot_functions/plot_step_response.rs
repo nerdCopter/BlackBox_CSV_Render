@@ -481,7 +481,7 @@ pub fn plot_step_response(
                             series.push(PlotSeries {
                                 data: vec![],
                                 label: format!(
-                                    "  ⚠ Consistency: {:.0}% (CV={:.1}%)",
+                                    "  [LOW CONSISTENCY] {:.0}% (CV={:.1}%)",
                                     analysis.td_stats.consistency * 100.0,
                                     analysis.td_stats.coefficient_of_variation * 100.0
                                 ),
@@ -493,17 +493,23 @@ pub fn plot_step_response(
                         let rec_summary = match &analysis.recommendation {
                             PRecommendation::Increase { conservative_p, .. } => {
                                 let delta = *conservative_p as i32 - analysis.current_p as i32;
-                                format!("  Rec: P≈{} ({:+})", conservative_p, delta)
+                                format!(
+                                    "  Recommendation: Increase P to {} ({:+})",
+                                    conservative_p, delta
+                                )
                             }
                             PRecommendation::Optimal { .. } => {
-                                "  Rec: Current P optimal".to_string()
+                                "  Recommendation: Current P is optimal".to_string()
                             }
                             PRecommendation::Decrease { recommended_p, .. } => {
                                 let delta = *recommended_p as i32 - analysis.current_p as i32;
-                                format!("  Rec: P≈{} ({:+})", recommended_p, delta)
+                                format!(
+                                    "  Recommendation: Decrease P to {} ({:+})",
+                                    recommended_p, delta
+                                )
                             }
                             PRecommendation::Investigate { .. } => {
-                                "  Rec: Investigate (see console)".to_string()
+                                "  Recommendation: See console output for details".to_string()
                             }
                         };
                         series.push(PlotSeries {
