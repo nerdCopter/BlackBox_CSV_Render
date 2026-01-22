@@ -975,9 +975,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             );
             println!();
 
-            #[allow(clippy::needless_range_loop)]
-            for axis_index in 0..2 {
-                // Only Roll (0) and Pitch (1)
+            for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {
+                // Only Roll (0) and Pitch (1) - Yaw excluded by ROLL_PITCH_AXIS_COUNT
                 let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
 
                 if let Some((response_time, valid_stacked_responses, _valid_window_max_setpoints)) =

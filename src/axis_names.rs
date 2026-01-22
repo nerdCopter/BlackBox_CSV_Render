@@ -27,6 +27,9 @@ pub fn axis_name(index: usize) -> &'static str {
 /// Number of axes (Roll, Pitch, Yaw)
 pub const AXIS_COUNT: usize = 3;
 
+/// Number of primary control axes (Roll, Pitch only - excludes Yaw)
+pub const ROLL_PITCH_AXIS_COUNT: usize = 2;
+
 /// Get all axis names as a static array
 pub const AXIS_NAMES: [&str; AXIS_COUNT] = ["Roll", "Pitch", "Yaw"];
 
