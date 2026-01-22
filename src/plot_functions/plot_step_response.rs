@@ -487,8 +487,7 @@ pub fn plot_step_response(
                             series.push(PlotSeries {
                                 data: vec![],
                                 label: format!(
-                                    "  [LOW CONSISTENCY] {:.0}% (CV={:.1}%)",
-                                    analysis.td_stats.consistency * 100.0,
+                                    "  [WARNING] High variability (CV={:.1}%) - results may be unreliable",
                                     analysis.td_stats.coefficient_of_variation * 100.0
                                 ),
                                 color: RGBColor(200, 100, 0), // Orange for warning
