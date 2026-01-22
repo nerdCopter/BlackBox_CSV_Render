@@ -998,7 +998,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             {
                                 td_samples_ms.push(
                                     td_seconds
-                                        * crate::constants::OPTIMAL_P_MS_TO_SECONDS_MULTIPLIER,
+                                        * crate::constants::OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER,
                                 );
                             }
                         }
@@ -1034,7 +1034,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 // Only analyze if we have sufficient D-term data and sample rate
                                 if !d_term_data.is_empty()
                                     && d_term_data.len()
-                                        > crate::constants::OPTIMAL_P_MIN_DTERM_SAMPLES
+                                        >= crate::constants::OPTIMAL_P_MIN_DTERM_SAMPLES
                                 {
                                     crate::data_analysis::spectral_analysis::calculate_hf_energy_ratio(
                                         &d_term_data,

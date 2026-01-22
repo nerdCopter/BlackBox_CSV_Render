@@ -233,7 +233,9 @@ impl TdStatistics {
 
     /// Check if measurements are consistent enough for reliable analysis
     pub fn is_consistent(&self) -> bool {
-        self.consistency >= TD_CONSISTENCY_MIN_THRESHOLD
+        // Need at least 2 samples for meaningful consistency check
+        self.num_samples >= TD_SAMPLES_MIN_FOR_STDDEV
+            && self.consistency >= TD_CONSISTENCY_MIN_THRESHOLD
             && self.coefficient_of_variation <= TD_COEFFICIENT_OF_VARIATION_MAX
     }
 }
