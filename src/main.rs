@@ -1012,9 +1012,25 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                         };
 
                         if let Some(p_gain) = current_p {
-                            // Calculate HF noise energy if D-term data is available
-                            // For now, pass None (future enhancement: analyze D-term spectrum)
-                            let hf_energy_ratio: Option<f64> = None;
+                            // Calculate HF noise energy from D-term data if available
+                            let hf_energy_ratio: Option<f64> = {
+                                // Collect D-term data for this axis from the log
+                                let d_term_data: Vec<f32> = all_log_data
+                                    .iter()
+                                    .filter_map(|row| row.d_term[axis_index].map(|v| v as f32))
+                                    .collect();
+
+                                // Only analyze if we have sufficient D-term data and sample rate
+                                if !d_term_data.is_empty() && d_term_data.len() > 100 {
+                                    crate::data_analysis::spectral_analysis::calculate_hf_energy_ratio(
+                                        &d_term_data,
+                                        sr,
+                                        crate::constants::DTERM_HF_CUTOFF_HZ,
+                                    )
+                                } else {
+                                    None
+                                }
+                            };
 
                             // Perform optimal P analysis
                             if let Some(analysis) = crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(

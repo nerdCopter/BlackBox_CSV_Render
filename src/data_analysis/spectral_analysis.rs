@@ -330,3 +330,48 @@ pub fn coherence(
 
     Ok(coh)
 }
+
+/// Calculate high-frequency energy ratio for D-term noise analysis
+///
+/// Returns the ratio of energy above DTERM_HF_CUTOFF_HZ to total energy.
+/// Used for optimal P estimation to assess noise headroom.
+///
+/// # Arguments
+/// * `data` - D-term time series data
+/// * `sample_rate` - Sample rate in Hz
+/// * `hf_cutoff` - High-frequency cutoff threshold in Hz
+///
+/// # Returns
+/// * `Some(ratio)` - Ratio of HF energy (0.0 to 1.0) if analysis succeeds
+/// * `None` - If data is insufficient or analysis fails
+pub fn calculate_hf_energy_ratio(data: &[f32], sample_rate: f64, hf_cutoff: f64) -> Option<f64> {
+    if data.is_empty() || sample_rate <= 0.0 {
+        return None;
+    }
+
+    // Use Welch's method for robust PSD estimation
+    let config = WelchConfig::default();
+    let psd = welch_psd(data, sample_rate, Some(config)).ok()?;
+
+    if psd.is_empty() {
+        return None;
+    }
+
+    // Calculate total energy and HF energy
+    let mut total_energy = 0.0;
+    let mut hf_energy = 0.0;
+
+    for &(freq, power) in &psd {
+        total_energy += power;
+        if freq >= hf_cutoff {
+            hf_energy += power;
+        }
+    }
+
+    // Return ratio if total energy is significant
+    if total_energy > 1e-12 {
+        Some((hf_energy / total_energy).clamp(0.0, 1.0))
+    } else {
+        None
+    }
+}
