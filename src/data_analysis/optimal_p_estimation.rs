@@ -29,6 +29,8 @@ pub enum FrameClass {
     ElevenInch,
     TwelveInch,
     ThirteenInch,
+    FourteenInch,
+    FifteenInch,
 }
 
 impl FrameClass {
@@ -45,7 +47,7 @@ impl FrameClass {
         }
     }
 
-    /// Get array index for this frame class (0-12)
+    /// Get array index for this frame class (0-14)
     fn array_index(&self) -> usize {
         match self {
             FrameClass::OneInch => 0,
@@ -61,6 +63,8 @@ impl FrameClass {
             FrameClass::ElevenInch => 10,
             FrameClass::TwelveInch => 11,
             FrameClass::ThirteenInch => 12,
+            FrameClass::FourteenInch => 13,
+            FrameClass::FifteenInch => 14,
         }
     }
 
@@ -80,10 +84,12 @@ impl FrameClass {
             FrameClass::ElevenInch => "11\"",
             FrameClass::TwelveInch => "12\"",
             FrameClass::ThirteenInch => "13\"",
+            FrameClass::FourteenInch => "14\"",
+            FrameClass::FifteenInch => "15\"",
         }
     }
 
-    /// Create a FrameClass from prop size in inches (1-13)
+    /// Create a FrameClass from prop size in inches (1-15)
     pub fn from_inches(size: u8) -> Option<Self> {
         match size {
             1 => Some(FrameClass::OneInch),
@@ -99,6 +105,8 @@ impl FrameClass {
             11 => Some(FrameClass::ElevenInch),
             12 => Some(FrameClass::TwelveInch),
             13 => Some(FrameClass::ThirteenInch),
+            14 => Some(FrameClass::FourteenInch),
+            15 => Some(FrameClass::FifteenInch),
             _ => None,
         }
     }

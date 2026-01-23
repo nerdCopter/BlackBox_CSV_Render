@@ -385,7 +385,7 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     eprintln!(
         "  --prop-size <size>: Optional. Specify propeller diameter in inches for optimal P estimation."
     );
-    eprintln!("                      Valid options: 1-13 (match your actual PROPELLER size)");
+    eprintln!("                      Valid options: 1-15 (match your actual PROPELLER size)");
     eprintln!(
         "                      Defaults to 5 if --estimate-optimal-p is used without this flag."
     );
@@ -1371,13 +1371,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         ) {
                             Some(fc) => frame_class_override = Some(fc),
                             None => {
-                                eprintln!("Error: Invalid prop size '{}'. Valid options: 1-13 (propeller diameter in inches)", fc_str);
+                                eprintln!("Error: Invalid prop size '{}'. Valid options: 1-15 (propeller diameter in inches)", fc_str);
                                 print_usage_and_exit(program_name);
                             }
                         }
                     }
                     Err(_) => {
-                        eprintln!("Error: Invalid prop size '{}'. Valid options: 1-13 (propeller diameter in inches)", fc_str);
+                        eprintln!("Error: Invalid prop size '{}'. Valid options: 1-15 (propeller diameter in inches)", fc_str);
                         print_usage_and_exit(program_name);
                     }
                 }

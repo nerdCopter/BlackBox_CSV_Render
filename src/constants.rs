@@ -280,10 +280,10 @@ impl TdTargetSpec {
         }
     }
 
-    /// Get TdTargetSpec for a given frame size in inches (1-13)
+    /// Get TdTargetSpec for a given frame size in inches (1-15)
     /// Returns None if the size is out of valid range
     pub fn for_frame_inches(inches: usize) -> Option<&'static TdTargetSpec> {
-        if (1..=13).contains(&inches) {
+        if (1..=15).contains(&inches) {
             Some(&TD_TARGETS[inches - 1])
         } else {
             None
@@ -291,22 +291,24 @@ impl TdTargetSpec {
     }
 }
 
-/// Td targets for all frame classes (1" through 13")
-/// Index: 0=1", 1=2", ..., 12=13"
-pub const TD_TARGETS: [TdTargetSpec; 13] = [
-    TdTargetSpec::new(40.0), // 1" tiny whoop (30-50ms)
-    TdTargetSpec::new(35.0), // 2" micro (26-44ms)
-    TdTargetSpec::new(30.0), // 3" toothpick/cinewhoop (23-38ms)
-    TdTargetSpec::new(25.0), // 4" racing (19-31ms)
-    TdTargetSpec::new(20.0), // 5" freestyle/racing (15-25ms, common baseline)
-    TdTargetSpec::new(28.0), // 6" long-range (21-35ms)
-    TdTargetSpec::new(37.5), // 7" long-range (28-47ms)
-    TdTargetSpec::new(47.0), // 8" long-range (35-59ms)
-    TdTargetSpec::new(56.0), // 9" cinelifter (42-70ms)
-    TdTargetSpec::new(65.0), // 10" cinelifter (49-81ms)
-    TdTargetSpec::new(75.0), // 11" heavy-lift (56-94ms)
-    TdTargetSpec::new(85.0), // 12" heavy-lift (64-106ms)
-    TdTargetSpec::new(95.0), // 13" heavy-lift (71-119ms)
+/// Td targets for all frame classes (1" through 15")
+/// Index: 0=1", 1=2", ..., 14=15"
+pub const TD_TARGETS: [TdTargetSpec; 15] = [
+    TdTargetSpec::new(40.0),  // 1" tiny whoop (30-50ms)
+    TdTargetSpec::new(35.0),  // 2" micro (26-44ms)
+    TdTargetSpec::new(30.0),  // 3" toothpick/cinewhoop (23-38ms)
+    TdTargetSpec::new(25.0),  // 4" racing (19-31ms)
+    TdTargetSpec::new(20.0),  // 5" freestyle/racing (15-25ms, common baseline)
+    TdTargetSpec::new(28.0),  // 6" long-range (21-35ms)
+    TdTargetSpec::new(37.5),  // 7" long-range (28-47ms)
+    TdTargetSpec::new(47.0),  // 8" long-range (35-59ms)
+    TdTargetSpec::new(56.0),  // 9" cinelifter (42-70ms)
+    TdTargetSpec::new(65.0),  // 10" cinelifter (49-81ms)
+    TdTargetSpec::new(75.0),  // 11" heavy-lift (56-94ms)
+    TdTargetSpec::new(85.0),  // 12" heavy-lift (64-106ms)
+    TdTargetSpec::new(95.0),  // 13" heavy-lift (71-119ms)
+    TdTargetSpec::new(105.0), // 14" heavy-lift (79-131ms)
+    TdTargetSpec::new(115.0), // 15" heavy-lift (86-144ms)
 ];
 
 // High-frequency noise analysis for P headroom estimation
