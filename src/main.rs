@@ -1721,6 +1721,44 @@ fn main() -> Result<(), Box<dyn Error>> {
         craft_weight_g: craft_weight_override,
     };
 
+    // Check if physics parameters are partially provided (validate completeness)
+    let has_any_physics_param = motor_size.is_some()
+        || motor_kv.is_some()
+        || lipo_cells.is_some()
+        || motor_diagonal_mm.is_some()
+        || motor_width_mm.is_some();
+
+    let has_all_required_physics = motor_size.is_some()
+        && motor_kv.is_some()
+        && lipo_cells.is_some()
+        && motor_diagonal_mm.is_some()
+        && motor_width_mm.is_some();
+
+    // Warn if physics parameters are incomplete
+    if has_any_physics_param && !has_all_required_physics {
+        eprintln!("\n⚠️  WARNING: Incomplete physics parameters detected!");
+        eprintln!("    For physics-based analysis, ALL of the following are required:");
+        if motor_size.is_none() {
+            eprintln!("    ❌ --motor-size <size>    (e.g., 2207, 2306.5, 2407)");
+        }
+        if motor_kv.is_none() {
+            eprintln!("    ❌ --motor-kv <kv>        (e.g., 1900, 2400)");
+        }
+        if lipo_cells.is_none() {
+            eprintln!("    ❌ --lipo <cells>         (e.g., 4S, 5S, 6S)");
+        }
+        if motor_diagonal_mm.is_none() {
+            eprintln!("    ❌ --motor-diagonal <mm>  (M1→M4 diagonal distance)");
+        }
+        if motor_width_mm.is_none() {
+            eprintln!("    ❌ --motor-width <mm>     (M1→M3 side-to-side distance)");
+        }
+        eprintln!("    Optional but recommended:");
+        eprintln!("    ⚬  --weight <grams>       (total aircraft weight)");
+        eprintln!("\n    Physics parameters will be ignored for this analysis.");
+        eprintln!("    Analysis will continue using frame-class targets only.\n");
+    }
+
     // Build physics model if all parameters provided
     let physics_model: Option<crate::data_analysis::physics_model::QuadcopterPhysics> =
         if let (Some(motor_size_str), Some(kv), Some(_cells), Some(diag), Some(width)) = (

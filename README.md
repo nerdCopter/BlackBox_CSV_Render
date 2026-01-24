@@ -82,28 +82,26 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ```
 ### Example execution commands
 ```shell
+# Basic analysis
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv
-```
-```shell
+
+# With detailed step response and filter display
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500 --butterworth
-```
-```shell
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5 --prop-pitch 4.0
-```
-```shell
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --estimate-optimal-p --prop-size 5.1 --prop-pitch 4.0 --motor-size 2207 --motor-kv 1900 --lipo 6S --motor-diagonal 265 --motor-width 216 --weight 756
-```
-```shell
-./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --output-dir ./plots --butterworth
-```
-```shell
+
+# Basic optimal P estimation
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5
+
+# Optimal P with pitch parameter
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --estimate-optimal-p --prop-size 5.1 --prop-pitch 4.0
+
+# Multiple files with output directory
+./target/release/BlackBox_CSV_Render path1/*.csv path2/*.csv --output-dir ./plots
+
+# Recursive directory processing
 ./target/release/BlackBox_CSV_Render path/to/ -R --step --output-dir ./step-only
-```
-```shell
-./target/release/BlackBox_CSV_Render path/to/ --setpoint --output-dir ./setpoint-only
-```
-```shell
-./target/release/BlackBox_CSV_Render path/to/ --step --setpoint --motor --output-dir ./all-selective
+
+# Selective plot generation
+./target/release/BlackBox_CSV_Render path/to/ --step --setpoint --motor --output-dir ./selective
 ```
 
 ### Output
