@@ -387,37 +387,51 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     eprintln!(
         "  --prop-size <size>: Optional. Specify propeller diameter in inches for optimal P estimation."
     );
-    eprintln!("                      Valid options: 1-15 (match your actual PROPELLER size)");
+    eprintln!("                      Valid range: 1.0-15.0 (decimals allowed, e.g., 5.1 or 5.5)");
     eprintln!(
-        "                      Defaults to 5 if --estimate-optimal-p is used without this flag."
+        "                      Defaults to 5.0 if --estimate-optimal-p is used without this flag."
     );
     eprintln!(
         "                      Note: This flag is only applied when --estimate-optimal-p is enabled."
     );
     eprintln!("                      Example: 6-inch frame with 5-inch props → use --prop-size 5");
     eprintln!(
+        "                      Example: 6-inch frame with 5.5-inch props → use --prop-size 5.5"
+    );
+    eprintln!(
         "                      If --prop-size is provided without --estimate-optimal-p, a warning"
     );
     eprintln!("                      will be shown and the prop size setting will be ignored.");
     eprintln!(
-        "  --weight <grams>: Optional. Specify craft weight in grams for refined optimal P estimation."
+        "  --weight <grams>: All-up weight in grams (total craft weight from scale reading)."
     );
     eprintln!(
-        "                    Adjusts Td targets based on mass (heavier = slower target response)."
+        "                    NOTE: In physics, weight = force (mass × gravity), but scale readings"
     );
-    eprintln!("                    Requires --estimate-optimal-p to be enabled.");
-    eprintln!("                    Example: 450g 5-inch freestyle → --weight 450");
+    eprintln!(
+        "                    show mass. This parameter accepts what your scale displays in grams."
+    );
+    eprintln!(
+        "                    Includes everything: frame, motors, props, battery, camera, VTX, etc."
+    );
+    eprintln!(
+        "                    Also adjusts optimal P targets for mass-dependent response times."
+    );
+    eprintln!("                    Example: 741g HELIOV1 quad → --weight 741");
     eprintln!();
-    eprintln!("  Physics-Based Td Calculation (requires all 5 parameters):");
+    eprintln!("  Physics-Based Td Calculation (requires 5 parameters + optional --weight):");
     eprintln!("  --motor-size <size>: Motor stator size (e.g., 2207, 2306.5, 2407).");
     eprintln!("  --motor-kv <kv>: Motor KV rating (e.g., 1900, 2400).");
     eprintln!("  --lipo <cells>: Battery cell count (e.g., 4S, 6S).");
     eprintln!("  --motor-diagonal <mm>: M1→M4 diagonal measurement in mm.");
     eprintln!("  --motor-width <mm>: M1→M3 side-to-side measurement in mm.");
+    eprintln!("  --weight <grams>: [Optional] All-up weight (camera, VTX, everything flown).");
     eprintln!(
-        "                    When all 5 parameters provided, calculates expected Td from physics."
+        "                    If provided: uses exact all-up weight for accurate Td prediction."
     );
-    eprintln!("                    Example: --motor-size 2207 --motor-kv 1900 --lipo 6S --motor-diagonal 226 --motor-width 173");
+    eprintln!("                    If omitted: estimates from battery + motor + components.");
+    eprintln!("                    Recommended: always provide --weight for best accuracy.");
+    eprintln!("                    Example: --motor-size 2207 --motor-kv 1900 --lipo 6S --motor-diagonal 452 --motor-width 346 --weight 741");
     eprintln!();
     eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
@@ -1317,6 +1331,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut estimate_optimal_p = false;
     let mut frame_class_override: Option<crate::data_analysis::optimal_p_estimation::FrameClass> =
         None;
+    let mut prop_size_override: Option<f32> = None; // Decimal prop size for physics calculations
     let mut craft_weight_override: Option<u32> = None; // Optional craft weight in grams
 
     // Physics-based calculation parameters
@@ -1395,31 +1410,36 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg == "--prop-size" {
-            if frame_class_override.is_some() {
+            if prop_size_override.is_some() {
                 eprintln!("Error: --prop-size argument specified more than once.");
                 print_usage_and_exit(program_name);
             }
             if i + 1 >= args.len() {
                 eprintln!(
-                    "Error: --prop-size requires a numeric value (propeller diameter in inches: 1-13)."
+                    "Error: --prop-size requires a numeric value (propeller diameter in inches: 1-15, decimals allowed)."
                 );
                 print_usage_and_exit(program_name);
             } else {
-                let fc_str = args[i + 1].trim();
-                match fc_str.parse::<u8>() {
+                let prop_str = args[i + 1].trim();
+                match prop_str.parse::<f32>() {
+                    Ok(size) if (1.0..=15.0).contains(&size) => {
+                        prop_size_override = Some(size);
+                        // Also set FrameClass for Td targets (round to nearest inch)
+                        let rounded_size = size.round() as u8;
+                        frame_class_override =
+                            crate::data_analysis::optimal_p_estimation::FrameClass::from_inches(
+                                rounded_size,
+                            );
+                    }
                     Ok(size) => {
-                        match crate::data_analysis::optimal_p_estimation::FrameClass::from_inches(
-                            size,
-                        ) {
-                            Some(fc) => frame_class_override = Some(fc),
-                            None => {
-                                eprintln!("Error: Invalid prop size '{}'. Valid options: 1-15 (propeller diameter in inches)", fc_str);
-                                print_usage_and_exit(program_name);
-                            }
-                        }
+                        eprintln!(
+                            "Error: Prop size '{}' out of range. Valid range: 1.0-15.0 inches",
+                            size
+                        );
+                        print_usage_and_exit(program_name);
                     }
                     Err(_) => {
-                        eprintln!("Error: Invalid prop size '{}'. Valid options: 1-15 (propeller diameter in inches)", fc_str);
+                        eprintln!("Error: Invalid prop size '{}'. Must be a number between 1.0 and 15.0 (decimals allowed)", prop_str);
                         print_usage_and_exit(program_name);
                     }
                 }
@@ -1588,7 +1608,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Warn if --prop-size is specified without --estimate-optimal-p
-    if frame_class_override.is_some() && !estimate_optimal_p {
+    if prop_size_override.is_some() && !estimate_optimal_p {
         eprintln!("Warning: --prop-size specified without --estimate-optimal-p.");
         eprintln!("         The prop size setting will be ignored.");
         eprintln!("         Use --estimate-optimal-p to enable optimal P estimation.");
@@ -1665,7 +1685,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Build physics model if all parameters provided
     let physics_model: Option<crate::data_analysis::physics_model::QuadcopterPhysics> =
-        if let (Some(motor_size_str), Some(kv), Some(cells), Some(diag), Some(width)) = (
+        if let (Some(motor_size_str), Some(kv), Some(_cells), Some(diag), Some(width)) = (
             &motor_size,
             motor_kv,
             lipo_cells,
@@ -1688,17 +1708,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                 diag, width,
             );
 
-            // Get prop size as f32 (convert from frame class)
-            let prop_size_f32 = analysis_opts.frame_class.array_index() as f32 + 1.0;
+            // Get prop size as f32 (use actual decimal value if provided, else convert from frame class)
+            let prop_size_f32 = prop_size_override
+                .unwrap_or_else(|| analysis_opts.frame_class.array_index() as f32 + 1.0);
 
             // Build complete physics model
-            match crate::data_analysis::physics_model::QuadcopterPhysicsBuilder::new()
+            let mut builder = crate::data_analysis::physics_model::QuadcopterPhysicsBuilder::new()
                 .geometry(geom)
                 .motor_spec(motor_spec)
-                .prop_diameter_inch(prop_size_f32)
-                .lipo_cells(cells)
-                .build()
-            {
+                .prop_diameter_inch(prop_size_f32);
+
+            // Add all-up weight if provided via --weight
+            if let Some(all_up_weight) = analysis_opts.craft_weight_g {
+                builder = builder.total_mass_g(all_up_weight as f64);
+            }
+
+            match builder.build() {
                 Ok(model) => {
                     eprintln!("\n--- Physics-Based Configuration ---");
                     eprintln!(
@@ -1717,11 +1742,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                             "asymmetric"
                         }
                     );
-                    eprintln!("Battery: {}S", cells);
                     eprintln!("Props: {:.1}\"", prop_size_f32);
                     eprintln!(
-                        "Estimated total mass: {:.0}g",
-                        model.estimated_total_mass_g()
+                        "Total mass: {:.0}g (from --weight parameter)",
+                        model.total_mass_g
                     );
                     eprintln!();
                     Some(model)

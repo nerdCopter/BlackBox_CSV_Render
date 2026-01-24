@@ -135,40 +135,46 @@ impl FrameGeometry {
 pub struct QuadcopterPhysics {
     pub geometry: FrameGeometry,
     pub motor_spec: MotorSpec,
-    pub prop_diameter_inch: f32, // Supports decimal sizes (5.1", 6.5", etc.)
-    pub battery_mass_g: f64,
-    pub frame_mass_g: f64,
-    pub central_components_mass_g: f64,
+    pub prop_diameter_inch: f32,
+    pub total_mass_g: f64, // All-up weight (everything that flies)
 }
 
 impl QuadcopterPhysics {
-    /// Calculate rotational inertia for specific axis
+    /// Calculate rotational inertia for specific axis using mass distribution
     /// I = Σ(mᵢ × rᵢ²) for each component
     /// axis: 0=Roll, 1=Pitch, 2=Yaw
+    ///
+    /// NOTE: Pilot provides total weight via --weight (scale reading in grams).
+    /// In physics: weight = force (mass × gravity), but scale readings represent mass.
+    /// We distribute total_mass_g across components using constants from src/constants.rs
     pub fn calculate_rotational_inertia(&self, axis: usize) -> f64 {
+        use crate::constants::*;
+
         let arm_length_m = self.geometry.arm_length_for_axis(axis) / 1000.0;
+        let total_mass_kg = self.total_mass_g / 1000.0;
 
-        // 4 motors at arm tips: I = 4 × m_motor × r²
-        let motor_mass_kg = self.motor_spec.estimated_mass_g() / 1000.0;
-        let i_motors = 4.0 * motor_mass_kg * arm_length_m.powi(2);
+        // Distribute total mass across components
+        let motors_mass_kg = total_mass_kg * MASS_FRACTION_MOTORS;
+        let props_mass_kg = total_mass_kg * MASS_FRACTION_PROPS;
+        let frame_mass_kg = total_mass_kg * MASS_FRACTION_FRAME;
+        let battery_mass_kg = total_mass_kg * MASS_FRACTION_BATTERY;
+        // Central and misc components at r≈0 contribute negligibly to I
 
-        // 4 props at arm tips: I = 4 × m_prop × r²
-        // Prop mass scales with area (diameter²)
-        let prop_mass_kg = ((self.prop_diameter_inch as f64 / 5.0).powi(2) * 5.0) / 1000.0;
-        let i_props = 4.0 * prop_mass_kg * arm_length_m.powi(2);
+        // 4 motors at arm tips: I = 4 × (m_motor/4) × r² = m_motors × r²
+        let i_motors = motors_mass_kg * arm_length_m.powi(2);
 
-        // Frame arms (4 uniform rods from center to tip): I = 4 × (1/3) × m_arm × r²
-        // Assume frame mass distributed equally across 4 arms
-        let arm_mass_kg = (self.frame_mass_g / 4.0) / 1000.0;
-        let i_frame_arms = 4.0 * (1.0 / 3.0) * arm_mass_kg * arm_length_m.powi(2);
+        // 4 props at arm tips: I = 4 × (m_props/4) × r² = m_props × r²
+        let i_props = props_mass_kg * arm_length_m.powi(2);
 
-        // Central components (FC, ESC, VTX, camera) at rotation center
-        // Negligible contribution to rotational inertia (r ≈ 0)
+        // Frame arms (4 uniform rods from center to tip): I = 4 × (1/3) × (m_frame/4) × r²
+        // For rod rotating about end: I = (1/3)×m×L²
+        let i_frame_arms = (1.0 / 3.0) * frame_mass_kg * arm_length_m.powi(2);
+
+        // Central components (FC, ESC, VTX, camera) at rotation center: r ≈ 0
         let _i_central = 0.0;
 
-        // Battery (rear-mounted, typically 30mm behind center for COG balance)
-        let battery_offset_m: f64 = 0.030;
-        let battery_mass_kg = self.battery_mass_g / 1000.0;
+        // Battery (rear-mounted for COG balance)
+        let battery_offset_m = BATTERY_OFFSET_FROM_CENTER_MM / 1000.0;
         let i_battery = battery_mass_kg * battery_offset_m.powi(2);
 
         i_motors + i_props + i_frame_arms + i_battery
@@ -193,18 +199,6 @@ impl QuadcopterPhysics {
         let omega_n_target = PI / (2.0 * target_td_s);
         inertia * omega_n_target.powi(2)
     }
-
-    /// Estimate total mass from components
-    pub fn estimated_total_mass_g(&self) -> f64 {
-        let motors_total = self.motor_spec.estimated_mass_g() * 4.0;
-        let props_total = ((self.prop_diameter_inch as f64 / 5.0).powi(2) * 5.0) * 4.0;
-
-        motors_total
-            + props_total
-            + self.frame_mass_g
-            + self.battery_mass_g
-            + self.central_components_mass_g
-    }
 }
 
 /// Builder for quadcopter physics with sensible defaults
@@ -212,10 +206,7 @@ pub struct QuadcopterPhysicsBuilder {
     geometry: Option<FrameGeometry>,
     motor_spec: Option<MotorSpec>,
     prop_diameter_inch: Option<f32>,
-    lipo_cells: Option<u8>,
-    battery_mass_g: Option<f64>,
-    frame_mass_g: Option<f64>,
-    central_components_mass_g: Option<f64>,
+    total_mass_g: Option<f64>, // All-up weight (total mass including everything flown)
 }
 
 impl QuadcopterPhysicsBuilder {
@@ -224,10 +215,7 @@ impl QuadcopterPhysicsBuilder {
             geometry: None,
             motor_spec: None,
             prop_diameter_inch: None,
-            lipo_cells: None,
-            battery_mass_g: None,
-            frame_mass_g: None,
-            central_components_mass_g: None,
+            total_mass_g: None,
         }
     }
 
@@ -246,63 +234,26 @@ impl QuadcopterPhysicsBuilder {
         self
     }
 
-    pub fn lipo_cells(mut self, cells: u8) -> Self {
-        self.lipo_cells = Some(cells);
+    pub fn total_mass_g(mut self, mass: f64) -> Self {
+        self.total_mass_g = Some(mass);
         self
     }
 
-    pub fn battery_mass_g(mut self, mass: f64) -> Self {
-        self.battery_mass_g = Some(mass);
-        self
-    }
-
-    pub fn frame_mass_g(mut self, mass: f64) -> Self {
-        self.frame_mass_g = Some(mass);
-        self
-    }
-
-    pub fn central_components_mass_g(mut self, mass: f64) -> Self {
-        self.central_components_mass_g = Some(mass);
-        self
-    }
-
-    /// Build with automatic estimation of missing parameters
     pub fn build(self) -> Result<QuadcopterPhysics, String> {
         let geometry = self
             .geometry
             .ok_or("Frame geometry is required (arm lengths)")?;
         let motor_spec = self.motor_spec.ok_or("Motor specification is required")?;
         let prop_diameter_inch = self.prop_diameter_inch.ok_or("Prop diameter is required")?;
-
-        // Estimate battery mass if not provided
-        let battery_mass_g = if let Some(mass) = self.battery_mass_g {
-            mass
-        } else if let Some(cells) = self.lipo_cells {
-            estimate_battery_mass(cells, prop_diameter_inch)
-        } else {
-            return Err("Either battery mass or LiPo cell count is required".to_string());
-        };
-
-        // Estimate frame mass if not provided
-        let frame_mass_g = self.frame_mass_g.unwrap_or_else(|| {
-            estimate_frame_mass(
-                geometry.arm_length_diagonal_mm,
-                geometry.arm_length_width_mm,
-            )
-        });
-
-        // Estimate central components mass if not provided
-        let central_components_mass_g = self
-            .central_components_mass_g
-            .unwrap_or_else(|| estimate_central_components_mass(prop_diameter_inch));
+        let total_mass_g = self
+            .total_mass_g
+            .ok_or("Total mass (all-up weight) is required")?;
 
         Ok(QuadcopterPhysics {
             geometry,
             motor_spec,
             prop_diameter_inch,
-            battery_mass_g,
-            frame_mass_g,
-            central_components_mass_g,
+            total_mass_g,
         })
     }
 }
@@ -310,52 +261,6 @@ impl QuadcopterPhysicsBuilder {
 impl Default for QuadcopterPhysicsBuilder {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Estimate battery mass from cell count and prop size
-/// Uses empirical data from common battery configurations
-fn estimate_battery_mass(cells: u8, prop_size_inch: f32) -> f64 {
-    let prop_size = prop_size_inch.round() as u8;
-    // Typical capacity by cell count and application
-    let typical_capacity_mah = match (cells, prop_size) {
-        (1, _) => 400.0,       // Tiny whoop
-        (2, _) => 450.0,       // 2" micro
-        (3, _) => 550.0,       // 3" toothpick
-        (4, 1..=3) => 650.0,   // Small 4S
-        (4, 4..=5) => 1500.0,  // 5" 4S freestyle
-        (4, 6..=7) => 1800.0,  // 7" 4S long-range
-        (6, 1..=4) => 850.0,   // Small 6S
-        (6, 5) => 1300.0,      // 5" 6S racing/freestyle
-        (6, 6..=7) => 1800.0,  // 7" 6S long-range
-        (6, 8..=10) => 3500.0, // 10" 6S cinelifter
-        (12, _) => 5000.0,     // 12S heavy-lift
-        _ => 1500.0,           // Default
-    };
-
-    // Mass estimation: ~0.12 g per mAh (typical LiPo energy density ~140 Wh/kg)
-    typical_capacity_mah * 0.12
-}
-
-/// Estimate frame mass from arm lengths
-/// Larger frames with longer arms are heavier
-fn estimate_frame_mass(arm_length_diagonal_mm: f64, arm_length_width_mm: f64) -> f64 {
-    let avg_arm_length = (arm_length_diagonal_mm + arm_length_width_mm) / 2.0;
-    // Empirical formula: frame mass ≈ 15g base + 0.35g per mm of arm length
-    15.0 + (avg_arm_length * 0.35)
-}
-
-/// Estimate central component mass (FC, ESC, VTX, camera, RX, wiring)
-/// Scales slightly with quad size
-fn estimate_central_components_mass(prop_size_inch: f32) -> f64 {
-    let prop_size = prop_size_inch.round() as u8;
-    match prop_size {
-        1..=2 => 10.0,   // Tiny AIO boards
-        3..=4 => 40.0,   // Lightweight stack
-        5 => 70.0,       // Standard 5" stack
-        6..=7 => 90.0,   // Long-range with GPS
-        8..=10 => 120.0, // Cinelifter with HD system
-        _ => 150.0,      // Heavy-lift
     }
 }
 
@@ -419,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn test_physics_builder_with_estimates() {
+    fn test_physics_builder() {
         let geom = FrameGeometry::from_motor_measurements(450.0, 450.0);
         let mut motor = MotorSpec::from_string("2207").unwrap();
         motor.kv = 2400;
@@ -428,21 +333,14 @@ mod tests {
             .geometry(geom)
             .motor_spec(motor)
             .prop_diameter_inch(5.0)
-            .lipo_cells(4)
+            .total_mass_g(650.0) // Typical 5" 4S quad
             .build()
             .unwrap();
 
-        // Check that estimates were applied
-        assert!(physics.battery_mass_g > 100.0); // 4S battery
-        assert!(physics.frame_mass_g > 50.0); // Frame
-        assert!(physics.central_components_mass_g > 30.0); // Electronics
-
-        let total = physics.estimated_total_mass_g();
-        println!("Total estimated mass: {:.1}g", total);
-        assert!(
-            total > 300.0 && total < 800.0,
-            "5\" 4S should be 300-800g, got {:.1}g",
-            total
+        assert_eq!(physics.total_mass_g, 650.0);
+        println!(
+            "Built physics model with total mass: {}g",
+            physics.total_mass_g
         );
     }
 
@@ -456,7 +354,7 @@ mod tests {
             .geometry(geom)
             .motor_spec(motor)
             .prop_diameter_inch(5.0)
-            .lipo_cells(4)
+            .total_mass_g(650.0) // Typical 5" 4S quad
             .build()
             .unwrap();
 
@@ -480,7 +378,7 @@ mod tests {
             .geometry(geom)
             .motor_spec(motor)
             .prop_diameter_inch(5.0)
-            .lipo_cells(6)
+            .total_mass_g(741.0) // HELIO typical weight
             .build()
             .unwrap();
 

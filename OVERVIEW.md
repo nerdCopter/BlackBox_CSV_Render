@@ -194,9 +194,10 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 Physics-aware P gain optimization based on response timing analysis:
 
 - **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag
-- **Prop Size Selection:** Use `--prop-size <size>` to specify **propeller diameter** in inches (1-13)
+- **Prop Size Selection:** Use `--prop-size <size>` to specify **propeller diameter** in inches (1.0-15.0, decimals allowed)
   - **Critical:** Match your actual prop size (e.g., 6" frame with 5" props → use `--prop-size 5`)
-  - Defaults to 5 if not specified
+  - Supports decimal values (e.g., `--prop-size 5.5` for 5.5" props)
+  - Defaults to 5.0 if not specified
   - Prop size determines rotational inertia (I ∝ radius²) which directly affects response time
   - Each prop size has physics-informed, empirically-derived Td (time to 50%) targets based on torque-to-rotational-inertia ratio
 - **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal. Response speed scales with torque-to-rotational-inertia ratio: Td ∝ (rotational inertia)⁻¹. For simple models (point mass or thin ring) rotational inertia scales as mass × radius²; real quad inertias depend on mass distribution (frame, motors, battery, props). **Propeller size is the primary determinant of rotational inertia**, not frame size. Targets below are provisional empirical estimates guided by this physics-inspired scaling relation and must be validated against actual flight logs.
@@ -215,6 +216,8 @@ Physics-aware P gain optimization based on response timing analysis:
   - 11" heavy-lift: 75ms ± 18.75ms
   - 12" heavy-lift: 85ms ± 21.25ms
   - 13" heavy-lift: 95ms ± 23.75ms
+  - 14" heavy-lift: 105ms ± 26.25ms
+  - 15" heavy-lift: 115ms ± 28.75ms
   - **How to Validate These Targets:**
     * **Method**: Run this tool on your flight logs with correct `--prop-size` and observe Td measurements
     * **Theory**: Td should scale approximately with prop radius squared: Td ∝ r² (due to rotational inertia I ∝ mr²)

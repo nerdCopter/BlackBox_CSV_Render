@@ -361,3 +361,18 @@ pub const TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD: f64 = -15.0; // < -15% fa
 // Optimal P estimation data collection thresholds
 pub const OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER: f64 = 1000.0; // Convert seconds to milliseconds
 pub const OPTIMAL_P_MIN_DTERM_SAMPLES: usize = 100; // Minimum D-term samples for noise analysis
+
+// Mass distribution constants for physics-based calculations
+// NOTE: Pilot provides total weight via --weight (scale reading in grams).
+// In physics: weight = mass × gravity (force), but scale readings represent mass.
+// We distribute total mass across components for rotational inertia I = Σ(m·r²).
+pub const MASS_FRACTION_MOTORS: f64 = 0.16; // Motors: ~16% of total (4 motors, ~40g each on 5")
+pub const MASS_FRACTION_PROPS: f64 = 0.02; // Props: ~2% of total (4 props, ~5g each on 5")
+pub const MASS_FRACTION_FRAME: f64 = 0.12; // Frame: ~12% of total (carbon arms, hardware)
+pub const MASS_FRACTION_BATTERY: f64 = 0.30; // Battery: ~30% of total (most concentrated mass)
+pub const _MASS_FRACTION_CENTRAL: f64 = 0.10; // Central electronics: ~10% (FC, ESCs, VTX, camera)
+pub const _MASS_FRACTION_MISC: f64 = 0.30; // Remaining: ~30% (wiring, props screws, straps, etc.)
+                                           // Total should equal 1.0 (validated at compile time via assertion in code)
+
+// Battery offset from center for COG balance (typically rear-mounted)
+pub const BATTERY_OFFSET_FROM_CENTER_MM: f64 = 30.0; // 30mm behind FC center

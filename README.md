@@ -47,9 +47,10 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory
   --estimate-optimal-p: Optional. Enable optimal P estimation with physics-aware recommendations.
                         Analyzes response time vs. prop-size targets and noise levels.
   --prop-size <size>: Optional. Specify propeller diameter in inches for optimal P estimation.
-                      Valid options: 1-13 (match your actual PROPELLER size)
-                      Defaults to 5 if --estimate-optimal-p is used without this flag.
+                      Valid range: 1.0-15.0 (decimals allowed, e.g., 5.1 or 5.5)
+                      Defaults to 5.0 if --estimate-optimal-p is used without this flag.
                       Example: 6-inch frame with 5-inch props → use --prop-size 5
+                      Example: 6-inch frame with 5.5-inch props → use --prop-size 5.5
                       Note: This flag is only applied when --estimate-optimal-p is enabled.
                       If --prop-size is provided without --estimate-optimal-p, a warning
                       will be shown and the prop size setting will be ignored.
