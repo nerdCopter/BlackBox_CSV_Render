@@ -354,7 +354,7 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--weight <grams>] [--motor-size <size>] [--motor-kv <kv>] [--lipo <cells>] [--motor-diagonal <mm>] [--motor-width <mm>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
+Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--prop-pitch <pitch>] [--weight <grams>] [--motor-size <size>] [--motor-kv <kv>] [--lipo <cells>] [--motor-diagonal <mm>] [--motor-width <mm>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
     eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
     eprintln!("            Can mix files and directories in a single command.");
     eprintln!("            - Individual CSV file: path/to/file.csv");
@@ -402,6 +402,20 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
         "                      If --prop-size is provided without --estimate-optimal-p, a warning"
     );
     eprintln!("                      will be shown and the prop size setting will be ignored.");
+    eprintln!(
+        "  --prop-pitch <pitch>: Optional. Specify propeller pitch in inches (affects aerodynamic loading)."
+    );
+    eprintln!("                        Valid range: 1.0-10.0 (decimals allowed, e.g., 3.7 or 4.5)");
+    eprintln!(
+        "                        Defaults to 4.5\" if not specified (typical freestyle props)."
+    );
+    eprintln!("                        Higher pitch = more drag = slower angular response.");
+    eprintln!(
+        "                        Example: 5.1×4.0 props → use --prop-size 5.1 --prop-pitch 4.0"
+    );
+    eprintln!(
+        "                        Only used with physics-based calculations (requires motor parameters)."
+    );
     eprintln!(
         "  --weight <grams>: All-up weight in grams (total craft weight from scale reading)."
     );
@@ -1332,6 +1346,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut frame_class_override: Option<crate::data_analysis::optimal_p_estimation::FrameClass> =
         None;
     let mut prop_size_override: Option<f32> = None; // Decimal prop size for physics calculations
+    let mut prop_pitch_override: Option<f32> = None; // Propeller pitch in inches
     let mut craft_weight_override: Option<u32> = None; // Optional craft weight in grams
 
     // Physics-based calculation parameters
@@ -1468,6 +1483,34 @@ fn main() -> Result<(), Box<dyn Error>> {
                             "Error: Invalid weight '{}'. Must be a positive whole number (grams).",
                             weight_str
                         );
+                        print_usage_and_exit(program_name);
+                    }
+                }
+                i += 1;
+            }
+        } else if arg == "--prop-pitch" {
+            if prop_pitch_override.is_some() {
+                eprintln!("Error: --prop-pitch argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --prop-pitch requires a numeric value (propeller pitch in inches: 1.0-10.0, decimals allowed).");
+                print_usage_and_exit(program_name);
+            } else {
+                let pitch_str = args[i + 1].trim();
+                match pitch_str.parse::<f32>() {
+                    Ok(pitch) if (1.0..=10.0).contains(&pitch) => {
+                        prop_pitch_override = Some(pitch);
+                    }
+                    Ok(pitch) => {
+                        eprintln!(
+                            "Error: Prop pitch '{}' out of range. Valid range: 1.0-10.0 inches",
+                            pitch
+                        );
+                        print_usage_and_exit(program_name);
+                    }
+                    Err(_) => {
+                        eprintln!("Error: Invalid prop pitch '{}'. Must be a number between 1.0 and 10.0 (decimals allowed)", pitch_str);
                         print_usage_and_exit(program_name);
                     }
                 }
@@ -1718,6 +1761,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .motor_spec(motor_spec)
                 .prop_diameter_inch(prop_size_f32);
 
+            // Add pitch if provided
+            if let Some(pitch) = prop_pitch_override {
+                builder = builder.prop_pitch_inch(pitch);
+            }
+
             // Add all-up weight if provided via --weight
             if let Some(all_up_weight) = analysis_opts.craft_weight_g {
                 builder = builder.total_mass_g(all_up_weight as f64);
@@ -1733,6 +1781,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                         model.motor_spec.kv
                     );
                     eprintln!(
+                        "Propeller: {:.1}\" × {:.1}\" pitch",
+                        model.prop_diameter_inch, model.prop_pitch_inch
+                    );
+                    eprintln!(
                         "Frame: diagonal={:.0}mm, width={:.0}mm ({})",
                         geom.arm_length_diagonal_mm * 2.0,
                         geom.arm_length_width_mm * 2.0,
@@ -1742,7 +1794,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                             "asymmetric"
                         }
                     );
-                    eprintln!("Props: {:.1}\"", prop_size_f32);
                     eprintln!(
                         "Total mass: {:.0}g (from --weight parameter)",
                         model.total_mass_g

@@ -136,7 +136,8 @@ pub struct QuadcopterPhysics {
     pub geometry: FrameGeometry,
     pub motor_spec: MotorSpec,
     pub prop_diameter_inch: f32,
-    pub total_mass_g: f64, // All-up weight (everything that flies)
+    pub prop_pitch_inch: f32, // Propeller pitch (affects aerodynamic loading)
+    pub total_mass_g: f64,    // All-up weight (everything that flies)
 }
 
 impl QuadcopterPhysics {
@@ -181,13 +182,23 @@ impl QuadcopterPhysics {
     }
 
     /// Calculate expected Td (time to 50%) for given P gain
-    /// Td = (π/2) × √(I/P)
+    /// Td = (π/2) × √(I/P) × pitch_factor
     /// axis: 0=Roll, 1=Pitch, 2=Yaw
+    ///
+    /// Pitch loading factor: Higher pitch = more aerodynamic drag = slower response
+    /// Normalized to 4.5" pitch baseline (typical freestyle props)
     pub fn calculate_expected_td_ms(&self, current_p_gain: f64, axis: usize) -> f64 {
         let inertia = self.calculate_rotational_inertia(axis);
         let omega_n = (current_p_gain / inertia).sqrt();
         let td_seconds = PI / (2.0 * omega_n);
-        td_seconds * 1000.0 // Convert to milliseconds
+
+        // Pitch loading factor: empirically tuned exponent 1.3
+        // Low pitch (3.0"): faster response (factor ~0.84)
+        // Medium pitch (4.5"): baseline (factor = 1.0)
+        // High pitch (6.0"): slower response (factor ~1.23)
+        let pitch_factor = (self.prop_pitch_inch as f64 / 4.5).powf(1.3);
+
+        td_seconds * pitch_factor * 1000.0 // Convert to milliseconds
     }
 
     /// Calculate optimal P gain for target Td
@@ -206,6 +217,7 @@ pub struct QuadcopterPhysicsBuilder {
     geometry: Option<FrameGeometry>,
     motor_spec: Option<MotorSpec>,
     prop_diameter_inch: Option<f32>,
+    prop_pitch_inch: Option<f32>,
     total_mass_g: Option<f64>, // All-up weight (total mass including everything flown)
 }
 
@@ -215,6 +227,7 @@ impl QuadcopterPhysicsBuilder {
             geometry: None,
             motor_spec: None,
             prop_diameter_inch: None,
+            prop_pitch_inch: None,
             total_mass_g: None,
         }
     }
@@ -234,6 +247,11 @@ impl QuadcopterPhysicsBuilder {
         self
     }
 
+    pub fn prop_pitch_inch(mut self, pitch: f32) -> Self {
+        self.prop_pitch_inch = Some(pitch);
+        self
+    }
+
     pub fn total_mass_g(mut self, mass: f64) -> Self {
         self.total_mass_g = Some(mass);
         self
@@ -249,10 +267,14 @@ impl QuadcopterPhysicsBuilder {
             .total_mass_g
             .ok_or("Total mass (all-up weight) is required")?;
 
+        // Default pitch to 4.5" if not specified (typical freestyle props)
+        let prop_pitch_inch = self.prop_pitch_inch.unwrap_or(4.5);
+
         Ok(QuadcopterPhysics {
             geometry,
             motor_spec,
             prop_diameter_inch,
+            prop_pitch_inch,
             total_mass_g,
         })
     }
@@ -333,14 +355,16 @@ mod tests {
             .geometry(geom)
             .motor_spec(motor)
             .prop_diameter_inch(5.0)
+            .prop_pitch_inch(4.5)
             .total_mass_g(650.0) // Typical 5" 4S quad
             .build()
             .unwrap();
 
         assert_eq!(physics.total_mass_g, 650.0);
+        assert_eq!(physics.prop_pitch_inch, 4.5);
         println!(
-            "Built physics model with total mass: {}g",
-            physics.total_mass_g
+            "Built physics model with total mass: {}g, pitch: {}\"",
+            physics.total_mass_g, physics.prop_pitch_inch
         );
     }
 
