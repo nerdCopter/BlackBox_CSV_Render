@@ -269,14 +269,27 @@ pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data f
 pub struct TdTargetSpec {
     pub target_ms: f64,
     pub tolerance_ms: f64,
+    #[allow(dead_code)] // Will be used in Phase 2 physics-based calculations
+    pub typical_weight_g: f64,
 }
 
 impl TdTargetSpec {
-    /// Create a new TdTargetSpec with automatic 25% tolerance calculation
-    pub const fn new(target_ms: f64) -> Self {
+    /// Create a new TdTargetSpec with automatic 25% tolerance calculation and typical weight
+    #[allow(dead_code)] // Will be used in Phase 2 physics-based calculations
+    pub const fn new(target_ms: f64, typical_weight_g: f64) -> Self {
         Self {
             target_ms,
             tolerance_ms: target_ms * 0.25,
+            typical_weight_g,
+        }
+    }
+
+    /// Create without typical weight (for existing empirical targets)
+    pub const fn new_simple(target_ms: f64) -> Self {
+        Self {
+            target_ms,
+            tolerance_ms: target_ms * 0.25,
+            typical_weight_g: 0.0, // Not used for empirical targets
         }
     }
 
@@ -294,21 +307,21 @@ impl TdTargetSpec {
 /// Td targets for all frame classes (1" through 15")
 /// Index: 0=1", 1=2", ..., 14=15"
 pub const TD_TARGETS: [TdTargetSpec; 15] = [
-    TdTargetSpec::new(40.0),  // 1" tiny whoop (30-50ms)
-    TdTargetSpec::new(35.0),  // 2" micro (26-44ms)
-    TdTargetSpec::new(30.0),  // 3" toothpick/cinewhoop (23-38ms)
-    TdTargetSpec::new(25.0),  // 4" racing (19-31ms)
-    TdTargetSpec::new(20.0),  // 5" freestyle/racing (15-25ms, common baseline)
-    TdTargetSpec::new(28.0),  // 6" long-range (21-35ms)
-    TdTargetSpec::new(37.5),  // 7" long-range (28-47ms)
-    TdTargetSpec::new(47.0),  // 8" long-range (35-59ms)
-    TdTargetSpec::new(56.0),  // 9" cinelifter (42-70ms)
-    TdTargetSpec::new(65.0),  // 10" cinelifter (49-81ms)
-    TdTargetSpec::new(75.0),  // 11" heavy-lift (56-94ms)
-    TdTargetSpec::new(85.0),  // 12" heavy-lift (64-106ms)
-    TdTargetSpec::new(95.0),  // 13" heavy-lift (71-119ms)
-    TdTargetSpec::new(105.0), // 14" heavy-lift (79-131ms)
-    TdTargetSpec::new(115.0), // 15" heavy-lift (86-144ms)
+    TdTargetSpec::new_simple(40.0),  // 1" tiny whoop (30-50ms)
+    TdTargetSpec::new_simple(35.0),  // 2" micro (26-44ms)
+    TdTargetSpec::new_simple(30.0),  // 3" toothpick/cinewhoop (23-38ms)
+    TdTargetSpec::new_simple(25.0),  // 4" racing (19-31ms)
+    TdTargetSpec::new_simple(20.0),  // 5" freestyle/racing (15-25ms, common baseline)
+    TdTargetSpec::new_simple(28.0),  // 6" long-range (21-35ms)
+    TdTargetSpec::new_simple(37.5),  // 7" long-range (28-47ms)
+    TdTargetSpec::new_simple(47.0),  // 8" long-range (35-59ms)
+    TdTargetSpec::new_simple(56.0),  // 9" cinelifter (42-70ms)
+    TdTargetSpec::new_simple(65.0),  // 10" cinelifter (49-81ms)
+    TdTargetSpec::new_simple(75.0),  // 11" heavy-lift (56-94ms)
+    TdTargetSpec::new_simple(85.0),  // 12" heavy-lift (64-106ms)
+    TdTargetSpec::new_simple(95.0),  // 13" heavy-lift (71-119ms)
+    TdTargetSpec::new_simple(105.0), // 14" heavy-lift (79-131ms)
+    TdTargetSpec::new_simple(115.0), // 15" heavy-lift (86-144ms)
 ];
 
 // High-frequency noise analysis for P headroom estimation

@@ -48,7 +48,7 @@ impl FrameClass {
     }
 
     /// Get array index for this frame class (0-14)
-    fn array_index(&self) -> usize {
+    pub fn array_index(&self) -> usize {
         match self {
             FrameClass::OneInch => 0,
             FrameClass::TwoInch => 1,
@@ -279,12 +279,18 @@ impl OptimalPAnalysis {
         frame_class: FrameClass,
         hf_energy_ratio: Option<f64>,
         recommended_pd_conservative: Option<f64>,
+        physics_td_target_ms: Option<(f64, f64)>, // Optional (td_target, tolerance) from physics
     ) -> Option<Self> {
         // Calculate Td statistics
         let td_stats = TdStatistics::from_samples(td_samples_ms)?;
 
-        // Get target Td for frame class
-        let (td_target_ms, _td_tolerance_ms) = frame_class.td_target();
+        // Get target Td - use physics-based if available, otherwise frame class
+        let (td_target_ms, _td_tolerance_ms) =
+            if let Some((phys_target, _phys_tol)) = physics_td_target_ms {
+                (phys_target, _phys_tol)
+            } else {
+                frame_class.td_target()
+            };
 
         // Calculate deviation from target
         let td_deviation_percent = ((td_stats.mean_ms - td_target_ms) / td_target_ms) * 100.0;

@@ -7,6 +7,7 @@ pub mod fft_utils;
 pub mod filter_delay;
 pub mod filter_response;
 pub mod optimal_p_estimation;
+pub mod physics_model;
 pub mod spectral_analysis;
 pub mod transfer_function_estimation;
 

@@ -101,6 +101,8 @@ struct AnalysisOptions {
     pub show_butterworth: bool,
     pub estimate_optimal_p: bool,
     pub frame_class: crate::data_analysis::optimal_p_estimation::FrameClass,
+    #[allow(dead_code)] // Will be used in Phase 2 physics-based calculations
+    pub craft_weight_g: Option<u32>,
 }
 
 use crate::constants::{
@@ -352,7 +354,7 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
+Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--weight <grams>] [--motor-size <size>] [--motor-kv <kv>] [--lipo <cells>] [--motor-diagonal <mm>] [--motor-width <mm>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
     eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
     eprintln!("            Can mix files and directories in a single command.");
     eprintln!("            - Individual CSV file: path/to/file.csv");
@@ -398,6 +400,26 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     );
     eprintln!("                      will be shown and the prop size setting will be ignored.");
     eprintln!(
+        "  --weight <grams>: Optional. Specify craft weight in grams for refined optimal P estimation."
+    );
+    eprintln!(
+        "                    Adjusts Td targets based on mass (heavier = slower target response)."
+    );
+    eprintln!("                    Requires --estimate-optimal-p to be enabled.");
+    eprintln!("                    Example: 450g 5-inch freestyle → --weight 450");
+    eprintln!();
+    eprintln!("  Physics-Based Td Calculation (requires all 5 parameters):");
+    eprintln!("  --motor-size <size>: Motor stator size (e.g., 2207, 2306.5, 2407).");
+    eprintln!("  --motor-kv <kv>: Motor KV rating (e.g., 1900, 2400).");
+    eprintln!("  --lipo <cells>: Battery cell count (e.g., 4S, 6S).");
+    eprintln!("  --motor-diagonal <mm>: M1→M4 diagonal measurement in mm.");
+    eprintln!("  --motor-width <mm>: M1→M3 side-to-side measurement in mm.");
+    eprintln!(
+        "                    When all 5 parameters provided, calculates expected Td from physics."
+    );
+    eprintln!("                    Example: --motor-size 2207 --motor-kv 1900 --lipo 6S --motor-diagonal 226 --motor-width 173");
+    eprintln!();
+    eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
     );
     eprintln!("  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).");
@@ -428,6 +450,7 @@ fn process_file(
     output_dir: Option<&Path>,
     plot_config: PlotConfig,
     analysis_opts: AnalysisOptions,
+    physics_model: &Option<crate::data_analysis::physics_model::QuadcopterPhysics>,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -1045,6 +1068,16 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 }
                             };
 
+                            // Calculate physics-based Td target if model available
+                            let physics_td_target: Option<(f64, f64)> =
+                                physics_model.as_ref().map(|model| {
+                                    let expected_td_ms =
+                                        model.calculate_expected_td_ms(p_gain as f64, axis_index);
+                                    // Use 15% tolerance for physics-based targets
+                                    let tolerance_ms = expected_td_ms * 0.15;
+                                    (expected_td_ms, tolerance_ms)
+                                });
+
                             // Perform optimal P analysis
                             if let Some(analysis) = crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
                             &td_samples_ms,
@@ -1053,6 +1086,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             analysis_opts.frame_class,
                             hf_energy_ratio,
                             recommended_pd_conservative[axis_index],
+                            physics_td_target,
                         ) {
                             // Print console output
                             println!("{}", analysis.format_console_output(axis_name));
@@ -1283,6 +1317,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut estimate_optimal_p = false;
     let mut frame_class_override: Option<crate::data_analysis::optimal_p_estimation::FrameClass> =
         None;
+    let mut craft_weight_override: Option<u32> = None; // Optional craft weight in grams
+
+    // Physics-based calculation parameters
+    let mut motor_size: Option<String> = None;
+    let mut motor_kv: Option<u16> = None;
+    let mut lipo_cells: Option<u8> = None;
+    let mut motor_diagonal_mm: Option<f64> = None; // M1→M4 diagonal measurement
+    let mut motor_width_mm: Option<f64> = None; // M1→M3 side-to-side measurement
 
     let mut version_flag_set = false;
 
@@ -1383,6 +1425,132 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 i += 1;
             }
+        } else if arg == "--weight" {
+            if craft_weight_override.is_some() {
+                eprintln!("Error: --weight argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --weight requires a numeric value (craft weight in grams, whole numbers only).");
+                print_usage_and_exit(program_name);
+            } else {
+                let weight_str = args[i + 1].trim();
+                match weight_str.parse::<u32>() {
+                    Ok(weight) if weight > 0 => {
+                        craft_weight_override = Some(weight);
+                    }
+                    Ok(_) => {
+                        eprintln!("Error: Craft weight must be greater than 0 grams.");
+                        print_usage_and_exit(program_name);
+                    }
+                    Err(_) => {
+                        eprintln!(
+                            "Error: Invalid weight '{}'. Must be a positive whole number (grams).",
+                            weight_str
+                        );
+                        print_usage_and_exit(program_name);
+                    }
+                }
+                i += 1;
+            }
+        } else if arg == "--motor-size" {
+            if motor_size.is_some() {
+                eprintln!("Error: --motor-size argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --motor-size requires a value (e.g., 2207, 2306.5, 2407).");
+                print_usage_and_exit(program_name);
+            } else {
+                motor_size = Some(args[i + 1].trim().to_string());
+                i += 1;
+            }
+        } else if arg == "--motor-kv" {
+            if motor_kv.is_some() {
+                eprintln!("Error: --motor-kv argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --motor-kv requires a numeric value (e.g., 1900, 2400).");
+                print_usage_and_exit(program_name);
+            } else {
+                match args[i + 1].trim().parse::<u16>() {
+                    Ok(kv) if kv > 0 => motor_kv = Some(kv),
+                    _ => {
+                        eprintln!(
+                            "Error: Invalid motor KV '{}'. Must be a positive number.",
+                            args[i + 1]
+                        );
+                        print_usage_and_exit(program_name);
+                    }
+                }
+                i += 1;
+            }
+        } else if arg == "--lipo" {
+            if lipo_cells.is_some() {
+                eprintln!("Error: --lipo argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --lipo requires cell count (e.g., 4S or 6S).");
+                print_usage_and_exit(program_name);
+            } else {
+                let lipo_str = args[i + 1].trim().to_uppercase();
+                let cells_str = lipo_str.trim_end_matches('S');
+                match cells_str.parse::<u8>() {
+                    Ok(cells) if (1..=12).contains(&cells) => lipo_cells = Some(cells),
+                    _ => {
+                        eprintln!(
+                            "Error: Invalid lipo '{}'. Use format like 4S or 6S (1-12 cells).",
+                            args[i + 1]
+                        );
+                        print_usage_and_exit(program_name);
+                    }
+                }
+                i += 1;
+            }
+        } else if arg == "--motor-diagonal" {
+            if motor_diagonal_mm.is_some() {
+                eprintln!("Error: --motor-diagonal argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --motor-diagonal requires measurement in mm (M1→M4 diagonal).");
+                print_usage_and_exit(program_name);
+            } else {
+                match args[i + 1].trim().parse::<f64>() {
+                    Ok(val) if val > 0.0 => motor_diagonal_mm = Some(val),
+                    _ => {
+                        eprintln!(
+                            "Error: Invalid motor diagonal '{}'. Must be positive number in mm.",
+                            args[i + 1]
+                        );
+                        print_usage_and_exit(program_name);
+                    }
+                }
+                i += 1;
+            }
+        } else if arg == "--motor-width" {
+            if motor_width_mm.is_some() {
+                eprintln!("Error: --motor-width argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --motor-width requires measurement in mm (M1→M3 side-to-side).");
+                print_usage_and_exit(program_name);
+            } else {
+                match args[i + 1].trim().parse::<f64>() {
+                    Ok(val) if val > 0.0 => motor_width_mm = Some(val),
+                    _ => {
+                        eprintln!(
+                            "Error: Invalid motor width '{}'. Must be positive number in mm.",
+                            args[i + 1]
+                        );
+                        print_usage_and_exit(program_name);
+                    }
+                }
+                i += 1;
+            }
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1423,6 +1591,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     if frame_class_override.is_some() && !estimate_optimal_p {
         eprintln!("Warning: --prop-size specified without --estimate-optimal-p.");
         eprintln!("         The prop size setting will be ignored.");
+        eprintln!("         Use --estimate-optimal-p to enable optimal P estimation.");
+        eprintln!();
+    }
+
+    // Warn if --weight is specified without --estimate-optimal-p
+    if craft_weight_override.is_some() && !estimate_optimal_p {
+        eprintln!("Warning: --weight specified without --estimate-optimal-p.");
+        eprintln!("         The weight setting will be ignored.");
         eprintln!("         Use --estimate-optimal-p to enable optimal P estimation.");
         eprintln!();
     }
@@ -1484,7 +1660,80 @@ fn main() -> Result<(), Box<dyn Error>> {
         estimate_optimal_p,
         frame_class: frame_class_override
             .unwrap_or(crate::data_analysis::optimal_p_estimation::FrameClass::FiveInch),
+        craft_weight_g: craft_weight_override,
     };
+
+    // Build physics model if all parameters provided
+    let physics_model: Option<crate::data_analysis::physics_model::QuadcopterPhysics> =
+        if let (Some(motor_size_str), Some(kv), Some(cells), Some(diag), Some(width)) = (
+            &motor_size,
+            motor_kv,
+            lipo_cells,
+            motor_diagonal_mm,
+            motor_width_mm,
+        ) {
+            // Parse motor size
+            let mut motor_spec =
+                match crate::data_analysis::physics_model::MotorSpec::from_string(motor_size_str) {
+                    Ok(spec) => spec,
+                    Err(e) => {
+                        eprintln!("Error: Failed to parse motor size: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+            motor_spec.kv = kv;
+
+            // Build frame geometry
+            let geom = crate::data_analysis::physics_model::FrameGeometry::from_motor_measurements(
+                diag, width,
+            );
+
+            // Get prop size as f32 (convert from frame class)
+            let prop_size_f32 = analysis_opts.frame_class.array_index() as f32 + 1.0;
+
+            // Build complete physics model
+            match crate::data_analysis::physics_model::QuadcopterPhysicsBuilder::new()
+                .geometry(geom)
+                .motor_spec(motor_spec)
+                .prop_diameter_inch(prop_size_f32)
+                .lipo_cells(cells)
+                .build()
+            {
+                Ok(model) => {
+                    eprintln!("\n--- Physics-Based Configuration ---");
+                    eprintln!(
+                        "Motor: {}mm×{:.1}mm {}KV",
+                        model.motor_spec.stator_diameter_mm,
+                        model.motor_spec.stator_height_mm,
+                        model.motor_spec.kv
+                    );
+                    eprintln!(
+                        "Frame: diagonal={:.0}mm, width={:.0}mm ({})",
+                        geom.arm_length_diagonal_mm * 2.0,
+                        geom.arm_length_width_mm * 2.0,
+                        if geom.is_symmetric() {
+                            "symmetric"
+                        } else {
+                            "asymmetric"
+                        }
+                    );
+                    eprintln!("Battery: {}S", cells);
+                    eprintln!("Props: {:.1}\"", prop_size_f32);
+                    eprintln!(
+                        "Estimated total mass: {:.0}g",
+                        model.estimated_total_mass_g()
+                    );
+                    eprintln!();
+                    Some(model)
+                }
+                Err(e) => {
+                    eprintln!("Error: Failed to build physics model: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        } else {
+            None
+        };
 
     let mut overall_success = true;
     for input_file_str in &input_files {
@@ -1503,6 +1752,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             actual_output_dir,
             plot_config,
             analysis_opts,
+            &physics_model,
         ) {
             eprintln!("An error occurred while processing {input_file_str}: {e}");
             overall_success = false;
