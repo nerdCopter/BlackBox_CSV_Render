@@ -478,7 +478,7 @@ fn process_file(
     output_dir: Option<&Path>,
     plot_config: PlotConfig,
     analysis_opts: AnalysisOptions,
-    physics_model: &Option<crate::data_analysis::physics_model::QuadcopterPhysics>,
+    _physics_model: &Option<crate::data_analysis::physics_model::QuadcopterPhysics>,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -1096,15 +1096,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 }
                             };
 
-                            // Calculate physics-based Td target if model available
-                            let physics_td_target: Option<(f64, f64)> =
-                                physics_model.as_ref().map(|model| {
-                                    let expected_td_ms =
-                                        model.calculate_expected_td_ms(p_gain as f64, axis_index);
-                                    // Use 15% tolerance for physics-based targets
-                                    let tolerance_ms = expected_td_ms * 0.15;
-                                    (expected_td_ms, tolerance_ms)
-                                });
+                            // Don't use physics-based Td targets - causes circular logic
+                            // Let optimal_p_estimation use frame-class targets only
+                            // Physics model will still be used for display/information
+                            let physics_td_target: Option<(f64, f64)> = None;
 
                             // Perform optimal P analysis
                             if let Some(analysis) = crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
