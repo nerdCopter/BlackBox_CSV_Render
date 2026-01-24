@@ -182,10 +182,16 @@ impl QuadcopterPhysics {
     }
 
     /// Calculate expected Td (time to 50%) for given P gain
-    /// Td = (π/2) × √(I/P) × pitch_factor
+    ///
+    /// Formula: Td = (π/2) × √(I/P) / pitch_factor
     /// axis: 0=Roll, 1=Pitch, 2=Yaw
     ///
-    /// Pitch loading factor: Higher pitch = more aerodynamic drag = slower response
+    /// Pitch loading factor: Higher pitch = more aerodynamic drag = slower actual response
+    /// We DIVIDE by pitch_factor so that:
+    /// - Low pitch (3.0"): expect FASTER measured Td (factor ~0.606 → Td_expected SMALLER)
+    /// - Medium pitch (4.5"): baseline (factor = 1.0)
+    /// - High pitch (6.0"): expect SLOWER measured Td (factor ~1.23 → Td_expected LARGER)
+    ///
     /// Normalized to 4.5" pitch baseline (typical freestyle props)
     pub fn calculate_expected_td_ms(&self, current_p_gain: f64, axis: usize) -> f64 {
         let inertia = self.calculate_rotational_inertia(axis);
@@ -193,12 +199,13 @@ impl QuadcopterPhysics {
         let td_seconds = PI / (2.0 * omega_n);
 
         // Pitch loading factor: empirically tuned exponent 1.3
-        // Low pitch (3.0"): faster response (factor ~0.84)
+        // Low pitch (3.0"): faster response → larger expected Td target (factor ~0.606, divide → 1/0.606 = 1.65×)
         // Medium pitch (4.5"): baseline (factor = 1.0)
-        // High pitch (6.0"): slower response (factor ~1.23)
+        // High pitch (6.0"): slower response → smaller expected Td target (factor ~1.23, divide → 1/1.23 = 0.81×)
         let pitch_factor = (self.prop_pitch_inch as f64 / 4.5).powf(1.3);
 
-        td_seconds * pitch_factor * 1000.0 // Convert to milliseconds
+        // DIVIDE by pitch_factor so low-pitch props get HIGHER target (expect faster actual Td)
+        (td_seconds / pitch_factor) * 1000.0 // Convert to milliseconds
     }
 
     /// Calculate optimal P gain for target Td
