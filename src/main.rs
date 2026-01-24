@@ -1359,7 +1359,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             if i + 1 >= args.len() {
                 eprintln!(
-                    "Error: --prop-size requires a numeric value (propeller diameter in inches: 1-13)."
+                    "Error: --prop-size requires a numeric value (propeller diameter in inches: 1-15)."
                 );
                 print_usage_and_exit(program_name);
             } else {
