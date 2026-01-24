@@ -200,6 +200,22 @@ Physics-aware P gain optimization based on response timing analysis:
   - Defaults to 5.0 if not specified
   - Prop size determines rotational inertia (I ∝ radius²) which directly affects response time
   - Each prop size has physics-informed, empirically-derived Td (time to 50%) targets based on torque-to-rotational-inertia ratio
+- **Prop Pitch Parameter:** Use `--prop-pitch <pitch>` to specify propeller pitch in inches (1.0-10.0)
+  - Accounts for aerodynamic loading differences between prop pitches
+  - Low pitch (e.g., 3.0"): Less drag → faster angular acceleration → faster response
+  - High pitch (e.g., 6.0"): More drag → slower angular acceleration → slower response
+  - Defaults to 4.5" (typical freestyle props) if not specified
+  - Formula: pitch loading factor = (pitch / 4.5)^1.3
+  - Example: 3.7" pitch has ~21% less drag than 4.5" baseline
+  - **Note:** Currently used for information display only. Physics-based Td adjustment disabled to prevent circular logic issues. Uses empirically-validated frame-class targets for all comparisons.
+- **Physics Model Parameters (Optional):** Additional parameters for detailed physics modeling
+  - `--motor-size <size>`: Motor stator dimensions (e.g., 2207)
+  - `--motor-kv <kv>`: Motor KV rating
+  - `--lipo <cells>`: Battery cell count (4S, 5S, 6S)
+  - `--motor-diagonal <mm>`: Frame diagonal motor spacing
+  - `--motor-width <mm>`: Frame width motor spacing
+  - `--weight <grams>`: Total aircraft weight
+  - When provided, enables asymmetric frame geometry calculations (Roll vs Pitch differences)
 - **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal. Response speed scales with torque-to-rotational-inertia ratio: Td ∝ (rotational inertia)⁻¹. For simple models (point mass or thin ring) rotational inertia scales as mass × radius²; real quad inertias depend on mass distribution (frame, motors, battery, props). **Propeller size is the primary determinant of rotational inertia**, not frame size. Targets below are provisional empirical estimates guided by this physics-inspired scaling relation and must be validated against actual flight logs.
 - **Frame-Class Targets (Provisional - requires flight validation):**
   - **Tolerance Ranges:** The (±) values represent acceptable response timing bands for each frame class—use these as recommended tuning acceptance ranges during flight validation, not measurement uncertainty or statistical confidence intervals.

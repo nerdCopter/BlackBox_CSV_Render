@@ -26,7 +26,7 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
+Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--prop-pitch <pitch>] [--motor-size <size>] [--motor-kv <kv>] [--lipo <cells>] [--motor-diagonal <mm>] [--motor-width <mm>] [--weight <grams>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
   <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).
             Can mix files and directories in a single command.
             - Individual CSV file: path/to/file.csv
@@ -54,6 +54,19 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory
                       Note: This flag is only applied when --estimate-optimal-p is enabled.
                       If --prop-size is provided without --estimate-optimal-p, a warning
                       will be shown and the prop size setting will be ignored.
+  --prop-pitch <pitch>: Optional. Specify propeller pitch in inches (e.g., 3.7 for 3.7" pitch).
+                        Valid range: 1.0-10.0. Used with --estimate-optimal-p to account for
+                        aerodynamic loading differences. Low pitch props have faster response,
+                        high pitch props have slower response. Defaults to 4.5" if not specified.
+  --motor-size <size>: Optional. Motor stator size (e.g., 2207 for 22mm diameter, 07mm height).
+  --motor-kv <kv>: Optional. Motor KV rating (RPM per volt).
+  --lipo <cells>: Optional. Battery cell count (e.g., 4S, 5S, 6S).
+  --motor-diagonal <mm>: Optional. Frame motor-to-motor diagonal distance in mm.
+  --motor-width <mm>: Optional. Frame motor-to-motor width distance in mm.
+  --weight <grams>: Optional. Total aircraft weight in grams.
+                    Note: All physics parameters (motor, weight, dimensions) are only used
+                    when --estimate-optimal-p is enabled. Warnings will be shown if provided
+                    without optimal P estimation enabled.
   --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
   --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).
   -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.
@@ -75,7 +88,10 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500 --butterworth
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5 --prop-pitch 4.0
+```
+```shell
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --estimate-optimal-p --prop-size 5.1 --prop-pitch 4.0 --motor-size 2207 --motor-kv 1900 --lipo 6S --motor-diagonal 265 --motor-width 216 --weight 756
 ```
 ```shell
 ./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --output-dir ./plots --butterworth
