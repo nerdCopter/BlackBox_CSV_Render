@@ -358,139 +358,42 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [-R|
     eprintln!();
     eprintln!("=== A. INPUT/OUTPUT OPTIONS ===");
     eprintln!();
-    eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
-    eprintln!("            Can mix files and directories in a single command.");
-    eprintln!("            - Individual CSV file: path/to/file.csv");
-    eprintln!("            - Directory: path/to/dir/ (finds CSV files only in that directory)");
-    eprintln!("            - Wildcards: *.csv, *LOG*.csv (shell-expanded; works with mixed file and directory patterns)");
     eprintln!(
-        "            Note: Header files (.header.csv, .headers.csv) are automatically excluded."
+        "  <inputX>: CSV files, directories, or wildcards (*.csv). Header files auto-excluded."
     );
-    eprintln!();
-    eprintln!(
-        "  -O, --output-dir <directory>: Optional. Specifies the output directory for generated plots."
-    );
-    eprintln!("                              If omitted, plots are saved in the source folder (input directory).");
-    eprintln!();
-    eprintln!("  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.");
+    eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
+    eprintln!("  -R, --recursive: Recursively find CSV files in subdirectories.");
     eprintln!();
     eprintln!();
     eprintln!("=== B. PLOT TYPE SELECTION ===");
     eprintln!();
-    eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
-    eprintln!(
-        "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
-    );
-    eprintln!(
-        "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
-    );
-    eprintln!("  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).");
-    eprintln!("  --bode: Optional. Generate Bode plot analysis (magnitude, phase, coherence).");
+    eprintln!("  --step: Generate only step response plots.");
+    eprintln!("  --motor: Generate only motor spectrum plots.");
+    eprintln!("  --setpoint: Generate only setpoint-related plots.");
+    eprintln!("  --pid: Generate only P, I, D activity plot.");
+    eprintln!("  --bode: Generate Bode plot analysis.");
     eprintln!();
-    eprintln!("Note: --step, --motor, --setpoint, --bode, and --pid are non-mutually exclusive and can be combined");
-    eprintln!("      to generate multiple plot types in a single run. Without any plot flags, all available plots");
-    eprintln!("      are generated.");
+    eprintln!("Note: Plot flags are combinable. Without flags, all plots generated.");
     eprintln!();
     eprintln!("=== C. ANALYSIS OPTIONS ===");
     eprintln!();
-    eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
-    eprintln!();
+    eprintln!("  --debug: Shows detailed metadata during processing.");
+    eprintln!("  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
     eprintln!(
-        "  --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters"
+        "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
     );
-    eprintln!("                 as gray curves/lines on gyro and D-term spectrum plots.");
-    eprintln!();
-    eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
-    eprintln!("                 deg/s threshold value. Must be a positive number.");
-    eprintln!("                 If --dps is omitted, a general step-response is shown.");
-    eprintln!();
-    eprintln!(
-        "  --estimate-optimal-p: Optional. Enable optimal P estimation with physics-aware recommendations."
-    );
-    eprintln!(
-        "                        Analyzes response time vs. frame-class targets and noise levels."
-    );
-    eprintln!(
-        "                        NOTE: Requires controlled test flights with system-identification inputs"
-    );
-    eprintln!("                        (chirp/PRBS). Not recommended for normal flight logs.");
-    eprintln!();
-    eprintln!(
-        "  --prop-size <size>: Optional. Specify propeller diameter in inches for optimal P estimation."
-    );
-    eprintln!("                      Valid range: 1.0-15.0 (decimals allowed, e.g., 5.1 or 5.5)");
-    eprintln!(
-        "                      Defaults to 5.0 if --estimate-optimal-p is used without this flag."
-    );
-    eprintln!(
-        "                      Note: This flag is only applied when --estimate-optimal-p is enabled."
-    );
-    eprintln!("                      Example: 6-inch frame with 5-inch props → use --prop-size 5");
-    eprintln!(
-        "                      Example: 6-inch frame with 5.5-inch props → use --prop-size 5.5"
-    );
-    eprintln!(
-        "                      If --prop-size is provided without --estimate-optimal-p, a warning"
-    );
-    eprintln!("                      will be shown and the prop size setting will be ignored.");
-    eprintln!(
-        "  --prop-pitch <pitch>: Optional. Specify propeller pitch in inches (affects aerodynamic loading)."
-    );
-    eprintln!("                        Valid range: 1.0-10.0 (decimals allowed, e.g., 3.7 or 4.5)");
-    eprintln!(
-        "                        Defaults to 4.5\" if not specified (typical freestyle props)."
-    );
-    eprintln!("                        Higher pitch = more drag = slower angular response.");
-    eprintln!(
-        "                        Example: 5.1×4.0 props → use --prop-size 5.1 --prop-pitch 4.0"
-    );
-    eprintln!(
-        "                        Only used with physics-based calculations (requires motor parameters)."
-    );
-    eprintln!(
-        "  --weight <grams>: All-up weight in grams (total craft weight from scale reading)."
-    );
-    eprintln!(
-        "                    NOTE: In physics, weight = force (mass × gravity), but scale readings"
-    );
-    eprintln!(
-        "                    show mass. This parameter accepts what your scale displays in grams."
-    );
-    eprintln!(
-        "                    Includes everything: frame, motors, props, battery, camera, VTX, etc."
-    );
-    eprintln!(
-        "                    Also adjusts optimal P targets for mass-dependent response times."
-    );
-    eprintln!("                    Example: 741g HELIOV1 quad → --weight 741");
-    eprintln!();
-    eprintln!("  Frame Geometry (optional - enables asymmetric Roll vs Pitch calculations):");
-    eprintln!("  --motor-diagonal <mm>: M1→M4 diagonal measurement in mm.");
-    eprintln!("  --motor-width <mm>: M1→M3 side-to-side measurement in mm.");
-    eprintln!(
-        "                    When provided with --weight, enables rotational inertia calculations."
-    );
-    eprintln!("                    Example: --motor-diagonal 452 --motor-width 346 --weight 741");
+    eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.");
+    eprintln!("  --prop-size <size>: Propeller diameter in inches (1.0-15.0, default: 5.0).");
+    eprintln!("  --prop-pitch <pitch>: Propeller pitch in inches (1.0-10.0, default: 4.5).");
+    eprintln!("  --weight <grams>: Total aircraft weight in grams.");
+    eprintln!("  --motor-diagonal <mm>: Frame diagonal motor spacing in mm.");
+    eprintln!("  --motor-width <mm>: Frame width motor spacing in mm.");
     eprintln!();
     eprintln!();
     eprintln!("=== D. GENERAL ===");
     eprintln!();
-    eprintln!("  -h, --help: Show this help message and exit.");
-    eprintln!("  -V, --version: Show version information and exit.");
-    eprintln!();
-    eprintln!();
-    eprintln!("NOTES:");
-    eprintln!(
-        "  • Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work"
-    );
-    eprintln!("    with mixed file/directory patterns.");
-    eprintln!();
-    eprintln!("Examples:");
-    eprintln!("  {program_name} flight.csv");
-    eprintln!("  {program_name} flight.csv --dps 200");
-    eprintln!("  {program_name} flight.csv --step --estimate-optimal-p --prop-size 5");
-    eprintln!("  {program_name} input/*.csv -O ./output/");
-    eprintln!("  {program_name} logs/ -R --step");
+    eprintln!("  -h, --help: Show this help message.");
+    eprintln!("  -V, --version: Show version information.");
     std::process::exit(1);
 }
 
