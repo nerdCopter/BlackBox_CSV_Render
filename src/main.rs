@@ -383,12 +383,13 @@ Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     eprintln!(
         "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
     );
+    eprintln!();
     eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.");
-    eprintln!("  --prop-size <size>: Propeller diameter in inches (1.0-15.0, default: 5.0).");
-    eprintln!("  --prop-pitch <pitch>: Propeller pitch in inches (1.0-10.0, default: 4.5).");
-    eprintln!("  --weight <grams>: Total aircraft weight in grams.");
-    eprintln!("  --motor-diagonal <mm>: Frame diagonal motor spacing in mm.");
-    eprintln!("  --motor-width <mm>: Frame width motor spacing in mm.");
+    eprintln!("    --prop-size <size>: Propeller diameter in inches (1.0-15.0, default: 5.0).");
+    eprintln!("    --prop-pitch <pitch>: Propeller pitch in inches (1.0-10.0, default: 4.5).");
+    eprintln!("    --weight <grams>: Total aircraft weight in grams.");
+    eprintln!("    --motor-diagonal <mm>: Frame diagonal motor spacing in mm.");
+    eprintln!("    --motor-width <mm>: Frame width motor spacing in mm.");
     eprintln!();
     eprintln!();
     eprintln!("=== D. GENERAL ===");
