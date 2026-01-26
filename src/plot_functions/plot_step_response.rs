@@ -405,17 +405,14 @@ pub fn plot_step_response(
                         let d_max_str = recommended_d_max_aggressive[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Moderate recommendation:     P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "Moderate recommendation: P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
                     } else if let Some(rec_d) = recommended_d_aggressive[axis_index] {
                         // D-Min/D-Max disabled: show only base D
-                        format!(
-                            "Moderate recommendation:     P:D={:.2} (D≈{})",
-                            rec_pd, rec_d
-                        )
+                        format!("Moderate recommendation: P:D={:.2} (D≈{})", rec_pd, rec_d)
                     } else {
-                        format!("Moderate recommendation:     P:D={:.2}", rec_pd)
+                        format!("Moderate recommendation: P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
