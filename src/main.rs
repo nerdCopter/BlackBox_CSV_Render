@@ -1653,11 +1653,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         eprintln!();
     }
 
-    // Warn if --weight is specified without --estimate-optimal-p
-    if craft_weight_override.is_some() && !estimate_optimal_p {
-        eprintln!("Warning: --weight specified without --estimate-optimal-p.");
+    // Check if we'll have a complete physics model (calculate early for warning check)
+    let has_all_required_physics = motor_size.is_some()
+        && motor_kv.is_some()
+        && motor_diagonal_mm.is_some()
+        && motor_width_mm.is_some();
+
+    // Warn if --weight is specified but won't be used
+    // Weight is used when: estimate_optimal_p is enabled OR we have all physics params
+    if craft_weight_override.is_some() && !estimate_optimal_p && !has_all_required_physics {
+        eprintln!("Warning: --weight specified without --estimate-optimal-p or complete physics parameters.");
         eprintln!("         The weight setting will be ignored.");
-        eprintln!("         Use --estimate-optimal-p to enable optimal P estimation.");
+        eprintln!("         Use --estimate-optimal-p or provide all physics parameters.");
         eprintln!();
     }
 
@@ -1727,10 +1734,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         || motor_diagonal_mm.is_some()
         || motor_width_mm.is_some();
 
-    let has_all_required_physics = motor_size.is_some()
-        && motor_kv.is_some()
-        && motor_diagonal_mm.is_some()
-        && motor_width_mm.is_some();
+    // Note: has_all_required_physics already calculated above for warning check
 
     // Warn if physics parameters are incomplete
     if has_any_physics_param && !has_all_required_physics {
