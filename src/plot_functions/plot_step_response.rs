@@ -497,7 +497,8 @@ pub fn plot_step_response(
                         // Recommendation summary
                         let rec_summary = match &analysis.recommendation {
                             PRecommendation::Increase { conservative_p, .. } => {
-                                let p_delta = *conservative_p as i32 - analysis.current_p as i32;
+                                let p_delta =
+                                    (*conservative_p as i64) - (analysis.current_p as i64);
                                 let mut rec = format!(
                                     "  Recommendation (Conservative): P≈{} ({:+})",
                                     conservative_p, p_delta
@@ -509,7 +510,7 @@ pub fn plot_step_response(
                                     if rec_pd > 0.0 && current_d > 0 {
                                         let recommended_d =
                                             ((*conservative_p as f64) / rec_pd).round() as u32;
-                                        let d_delta = recommended_d as i32 - current_d as i32;
+                                        let d_delta = (recommended_d as i64) - (current_d as i64);
                                         rec.push_str(&format!(
                                             ", D≈{} ({:+})",
                                             recommended_d, d_delta
@@ -522,7 +523,7 @@ pub fn plot_step_response(
                                 "  Recommendation: Current P is optimal".to_string()
                             }
                             PRecommendation::Decrease { recommended_p, .. } => {
-                                let p_delta = *recommended_p as i32 - analysis.current_p as i32;
+                                let p_delta = (*recommended_p as i64) - (analysis.current_p as i64);
                                 let mut rec = format!(
                                     "  Recommendation: P≈{} ({:+})",
                                     recommended_p, p_delta
@@ -534,7 +535,7 @@ pub fn plot_step_response(
                                     if rec_pd > 0.0 && current_d > 0 {
                                         let recommended_d =
                                             ((*recommended_p as f64) / rec_pd).round() as u32;
-                                        let d_delta = recommended_d as i32 - current_d as i32;
+                                        let d_delta = (recommended_d as i64) - (current_d as i64);
                                         rec.push_str(&format!(
                                             ", D≈{} ({:+})",
                                             recommended_d, d_delta
