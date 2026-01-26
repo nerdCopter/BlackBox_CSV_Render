@@ -67,9 +67,15 @@ impl MotorSpec {
 
     /// Calculate motor torque constant (Kt) in N·m/A
     /// Kt = 60/(2π·KV)
+    ///
+    /// Returns None if kv is zero (from_string may leave kv uninitialized at 0)
     #[allow(dead_code)]
-    pub fn torque_constant(&self) -> f64 {
-        60.0 / (2.0 * PI * self.kv as f64)
+    pub fn torque_constant(&self) -> Option<f64> {
+        if self.kv == 0 {
+            None
+        } else {
+            Some(60.0 / (2.0 * PI * self.kv as f64))
+        }
     }
 }
 
@@ -125,8 +131,13 @@ impl FrameGeometry {
     }
 
     /// Get asymmetry ratio (diagonal / width)
-    pub fn asymmetry_ratio(&self) -> f64 {
-        self.arm_length_diagonal_mm / self.arm_length_width_mm
+    /// Returns None if width is near zero (would cause division by zero)
+    pub fn asymmetry_ratio(&self) -> Option<f64> {
+        if self.arm_length_width_mm.abs() <= f64::EPSILON {
+            None
+        } else {
+            Some(self.arm_length_diagonal_mm / self.arm_length_width_mm)
+        }
     }
 }
 
@@ -349,7 +360,7 @@ mod tests {
         assert!(!geom.is_symmetric());
         assert_eq!(geom.arm_length_diagonal_mm, 226.0);
         assert_eq!(geom.arm_length_width_mm, 173.0);
-        assert!((geom.asymmetry_ratio() - 1.31).abs() < 0.01);
+        assert!((geom.asymmetry_ratio().unwrap() - 1.31).abs() < 0.01);
     }
 
     #[test]
