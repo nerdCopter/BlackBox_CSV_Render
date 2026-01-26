@@ -377,6 +377,7 @@ Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     eprintln!();
     eprintln!("Note: Plot flags are combinable. Without flags, all plots generated.");
     eprintln!();
+    eprintln!();
     eprintln!("=== C. ANALYSIS OPTIONS ===");
     eprintln!();
     eprintln!("  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
