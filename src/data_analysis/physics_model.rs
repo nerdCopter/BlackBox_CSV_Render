@@ -210,8 +210,9 @@ impl QuadcopterPhysics {
     /// Formula: Td = (π/2) × √(I/P) / pitch_factor
     /// axis: 0=Roll, 1=Pitch, 2=Yaw
     ///
-    /// **Precondition:** current_p_gain must be positive (> 0)
-    /// Returns 0.0 for non-positive current_p_gain (invalid input)
+    /// **Preconditions:**
+    /// - current_p_gain must be positive (> 0); returns 0.0 if invalid
+    /// - inertia must be positive; returns 0.0 if invalid (prevents division by zero)
     ///
     /// Pitch loading factor: Higher pitch = more aerodynamic drag = slower actual response
     /// We DIVIDE by pitch_factor so that:
@@ -225,6 +226,17 @@ impl QuadcopterPhysics {
             return 0.0;
         }
         let inertia = self.calculate_rotational_inertia(axis);
+
+        // Defensive check: inertia must be positive to avoid division by zero
+        if inertia <= f64::EPSILON {
+            return 0.0;
+        }
+        debug_assert!(
+            inertia > 0.0,
+            "Rotational inertia must be positive, got {}",
+            inertia
+        );
+
         let omega_n = (current_p_gain / inertia).sqrt();
         let td_seconds = PI / (2.0 * omega_n);
 
