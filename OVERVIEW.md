@@ -189,11 +189,12 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 - Shows recommendations only when the step response needs improvement (skips optimal peak 0.95–1.04)
 - **Note:** Peak value measures the first maximum after crossing the setpoint; the initial transient dip is normal system behavior
 
-#### Optimal P Estimation (Optional)
+#### Optimal P Estimation (Optional, Experimental)
 
 Physics-aware P gain optimization based on response timing analysis:
 
 - **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag
+- **⚠️ Status:** This feature is **experimental**. Frame-class Td targets are provisional empirical estimates requiring flight validation. Use as initial guidelines only; validation data collection is ongoing.
 - **Prop Size Selection:** Use `--prop-size <size>` to specify **propeller diameter** in inches (1.0-15.0, decimals allowed)
   - **Critical:** Match your actual prop size (e.g., 6" frame with 5" props → use `--prop-size 5`)
   - Supports decimal values (e.g., `--prop-size 5.5` for 5.5" props)

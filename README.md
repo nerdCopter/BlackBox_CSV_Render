@@ -65,15 +65,7 @@ Note: Plot flags are combinable. Without flags, all plots generated.
   -h, --help: Show this help message.
   -V, --version: Show version information.
 ```
-=== D. GENERAL ===
 
-  -h, --help: Show this help message and exit.
-  -V, --version: Show version information and exit.
-
-
-NOTES:
-  • Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns.
-```
 ### Example execution commands
 ```shell
 # Basic analysis
@@ -82,11 +74,11 @@ NOTES:
 # With detailed step response and filter display
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500 --butterworth
 
-# Basic optimal P estimation
+# Basic optimal P estimation (Experimental)
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5
 
-# Optimal P with pitch parameter
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --estimate-optimal-p --prop-size 5.1 --prop-pitch 4.0
+# Optimal P with weight and pitch parameter (Experimental)
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --estimate-optimal-p --weight 740 --prop-size 5.1 --prop-pitch 4.0
 
 # Multiple files with output directory
 ./target/release/BlackBox_CSV_Render path1/*.csv path2/*.csv --output-dir ./plots
