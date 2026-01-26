@@ -38,13 +38,10 @@ impl FrameClass {
     pub fn td_target(&self) -> (f64, f64) {
         // Convert to 1-based frame size (inches) for the helper method
         let frame_size = self.array_index() + 1;
-        // Safe indexing via helper (should always succeed given valid FrameClass)
-        if let Some(spec) = crate::constants::TdTargetSpec::for_frame_inches(frame_size) {
-            (spec.target_ms, spec.tolerance_ms)
-        } else {
-            // This should never happen for valid FrameClass variants
-            (0.0, 0.0)
-        }
+        // Fail-fast if TdTargetSpec is missing (invariant violation)
+        let spec = crate::constants::TdTargetSpec::for_frame_inches(frame_size)
+            .expect("TdTargetSpec missing for valid FrameClass - this should never happen");
+        (spec.target_ms, spec.tolerance_ms)
     }
 
     /// Get array index for this frame class (0-14)
