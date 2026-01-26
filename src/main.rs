@@ -1724,13 +1724,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Check if physics parameters are partially provided (validate completeness)
     let has_any_physics_param = motor_size.is_some()
         || motor_kv.is_some()
-        || lipo_cells.is_some()
         || motor_diagonal_mm.is_some()
         || motor_width_mm.is_some();
 
     let has_all_required_physics = motor_size.is_some()
         && motor_kv.is_some()
-        && lipo_cells.is_some()
         && motor_diagonal_mm.is_some()
         && motor_width_mm.is_some();
 
@@ -1743,9 +1741,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         if motor_kv.is_none() {
             eprintln!("    ❌ --motor-kv <kv>        (e.g., 1900, 2400)");
-        }
-        if lipo_cells.is_none() {
-            eprintln!("    ❌ --lipo <cells>         (e.g., 4S, 5S, 6S)");
         }
         if motor_diagonal_mm.is_none() {
             eprintln!("    ❌ --motor-diagonal <mm>  (M1→M4 diagonal distance)");
@@ -1761,13 +1756,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Build physics model if all parameters provided
     let physics_model: Option<crate::data_analysis::physics_model::QuadcopterPhysics> =
-        if let (Some(motor_size_str), Some(kv), Some(_cells), Some(diag), Some(width)) = (
-            &motor_size,
-            motor_kv,
-            lipo_cells,
-            motor_diagonal_mm,
-            motor_width_mm,
-        ) {
+        if let (Some(motor_size_str), Some(kv), Some(diag), Some(width)) =
+            (&motor_size, motor_kv, motor_diagonal_mm, motor_width_mm)
+        {
             // Parse motor size
             let mut motor_spec =
                 match crate::data_analysis::physics_model::MotorSpec::from_string(motor_size_str) {
