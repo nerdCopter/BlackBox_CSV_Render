@@ -439,9 +439,7 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     eprintln!(
         "                    When provided with --weight, enables rotational inertia calculations."
     );
-    eprintln!("                    If omitted: estimates from battery + motor + components.");
-    eprintln!("                    Recommended: always provide --weight for best accuracy.");
-    eprintln!("                    Example: --motor-size 2207 --motor-kv 1900 --lipo 6S --motor-diagonal 452 --motor-width 346 --weight 741");
+    eprintln!("                    Example: --motor-diagonal 452 --motor-width 346 --weight 741");
     eprintln!();
     eprintln!(
         "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
