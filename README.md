@@ -26,56 +26,81 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--prop-pitch <pitch>] [--motor-diagonal <mm>] [--motor-width <mm>] [--weight <grams>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
+Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [-R|--recursive] [--step] [--motor] [--setpoint] [--pid] [--bode] [--butterworth] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--prop-pitch <pitch>] [--motor-diagonal <mm>] [--motor-width <mm>] [--weight <grams>] [--debug] [-h|--help] [-V|--version]
+
+=== A. INPUT/OUTPUT OPTIONS ===
+
   <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).
             Can mix files and directories in a single command.
             - Individual CSV file: path/to/file.csv
             - Directory: path/to/dir/ (finds CSV files only in that directory)
             - Wildcards: *.csv, *LOG*.csv (shell-expanded; works with mixed file and directory patterns)
             Note: Header files (.header.csv, .headers.csv) are automatically excluded.
+
   -O, --output-dir <directory>: Optional. Specifies the output directory for generated plots.
                               If omitted, plots are saved in the source folder (input directory).
+
+  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.
+
+
+=== B. PLOT TYPE SELECTION ===
+
+  --step: Optional. Generate only step response plots, skipping all other graphs.
+  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
+  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative).
+  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).
   --bode: Optional. Generate Bode plot analysis (magnitude, phase, coherence).
-          NOTE: Requires controlled test flights with system-identification inputs
-          (chirp/PRBS). Not recommended for normal flight logs.
+
+Note: --step, --motor, --setpoint, --bode, and --pid are non-mutually exclusive and can be combined
+      to generate multiple plot types in a single run. Without any plot flags, all available plots
+      are generated.
+
+
+=== C. ANALYSIS OPTIONS ===
+
+  --debug: Optional. Shows detailed metadata information during processing.
+
   --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters
                  as gray curves/lines on gyro and D-term spectrum plots.
-  --debug: Optional. Shows detailed metadata information during processing.
+
   --dps <value>: Optional. Enables detailed step response plots with the specified
                  deg/s threshold value. Must be a positive number.
                  If --dps is omitted, a general step-response is shown.
+
   --estimate-optimal-p: Optional. Enable optimal P estimation with physics-aware recommendations.
-                        Analyzes response time vs. prop-size targets and noise levels.
+                        Analyzes response time vs. frame-class targets and noise levels.
+                        NOTE: Requires controlled test flights with system-identification inputs
+                        (chirp/PRBS). Not recommended for normal flight logs.
+
   --prop-size <size>: Optional. Specify propeller diameter in inches for optimal P estimation.
                       Valid range: 1.0-15.0 (decimals allowed, e.g., 5.1 or 5.5)
                       Defaults to 5.0 if --estimate-optimal-p is used without this flag.
                       Example: 6-inch frame with 5-inch props → use --prop-size 5
-                      Example: 6-inch frame with 5.5-inch props → use --prop-size 5.5
-                      Note: This flag is only applied when --estimate-optimal-p is enabled.
-                      If --prop-size is provided without --estimate-optimal-p, a warning
-                      will be shown and the prop size setting will be ignored.
+
   --prop-pitch <pitch>: Optional. Specify propeller pitch in inches (e.g., 3.7 for 3.7" pitch).
                         Valid range: 1.0-10.0. Used with --estimate-optimal-p to account for
                         aerodynamic loading differences. Low pitch props have faster response,
                         high pitch props have slower response. Defaults to 4.5" if not specified.
-  --motor-diagonal <mm>: Optional. Frame motor-to-motor diagonal distance in mm.
-  --motor-width <mm>: Optional. Frame motor-to-motor width distance in mm.
-  --weight <grams>: Optional. Total aircraft weight in grams.
-                    Note: All physics parameters (motor, weight, dimensions) are only used
-                    when --estimate-optimal-p is enabled. Warnings will be shown if provided
-                    without optimal P estimation enabled.
-  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
-  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).
-  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.
-  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative).
-  --step: Optional. Generate only step response plots, skipping all other graphs.
+
+  --weight <grams>: Optional. Total aircraft weight in grams (everything that flies).
+                    Includes frame, motors, props, battery, camera, VTX, etc.
+                    Also adjusts optimal P targets for mass-dependent response times.
+                    Example: 741g HELIOV1 quad → --weight 741
+
+  --motor-diagonal <mm>: Optional. M1→M4 diagonal measurement in mm (frame geometry).
+  --motor-width <mm>: Optional. M1→M3 side-to-side measurement in mm (frame geometry).
+                    When provided with --weight, enables asymmetric Roll vs Pitch calculations.
+                    Example: --motor-diagonal 452 --motor-width 346 --weight 741
+
+
+=== D. GENERAL ===
+
   -h, --help: Show this help message and exit.
   -V, --version: Show version information and exit.
 
-Note: --step, --motor, --setpoint, --bode, and --pid are non-mutually exclusive and can be combined
-(e.g., --step --setpoint --pid generates step response, setpoint, and PID activity plots).
 
-Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns.
+NOTES:
+  • Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns.
 ```
 ### Example execution commands
 ```shell

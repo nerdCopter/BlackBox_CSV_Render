@@ -354,7 +354,10 @@ fn find_csv_files_in_dir_impl(
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--prop-pitch <pitch>] [--weight <grams>] [--motor-size <size>] [--motor-kv <kv>] [--lipo <cells>] [--motor-diagonal <mm>] [--motor-width <mm>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
+Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [-R|--recursive] [--step] [--motor] [--setpoint] [--pid] [--bode] [--butterworth] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--prop-pitch <pitch>] [--motor-diagonal <mm>] [--motor-width <mm>] [--weight <grams>] [--debug] [-h|--help] [-V|--version]");
+    eprintln!();
+    eprintln!("=== A. INPUT/OUTPUT OPTIONS ===");
+    eprintln!();
     eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
     eprintln!("            Can mix files and directories in a single command.");
     eprintln!("            - Individual CSV file: path/to/file.csv");
@@ -363,27 +366,55 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     eprintln!(
         "            Note: Header files (.header.csv, .headers.csv) are automatically excluded."
     );
+    eprintln!();
     eprintln!(
         "  -O, --output-dir <directory>: Optional. Specifies the output directory for generated plots."
     );
     eprintln!("                              If omitted, plots are saved in the source folder (input directory).");
+    eprintln!();
+    eprintln!("  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.");
+    eprintln!();
+    eprintln!();
+    eprintln!("=== B. PLOT TYPE SELECTION ===");
+    eprintln!();
+    eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
+    eprintln!(
+        "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
+    );
+    eprintln!(
+        "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
+    );
+    eprintln!("  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).");
     eprintln!("  --bode: Optional. Generate Bode plot analysis (magnitude, phase, coherence).");
-    eprintln!("          NOTE: Requires controlled test flights with system-identification inputs");
-    eprintln!("          (chirp/PRBS). Not recommended for normal flight logs.");
+    eprintln!();
+    eprintln!("Note: --step, --motor, --setpoint, --bode, and --pid are non-mutually exclusive and can be combined");
+    eprintln!("      to generate multiple plot types in a single run. Without any plot flags, all available plots");
+    eprintln!("      are generated.");
+    eprintln!();
+    eprintln!("=== C. ANALYSIS OPTIONS ===");
+    eprintln!();
+    eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
+    eprintln!();
     eprintln!(
         "  --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters"
     );
     eprintln!("                 as gray curves/lines on gyro and D-term spectrum plots.");
-    eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
+    eprintln!();
     eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
     eprintln!("                 deg/s threshold value. Must be a positive number.");
     eprintln!("                 If --dps is omitted, a general step-response is shown.");
+    eprintln!();
     eprintln!(
         "  --estimate-optimal-p: Optional. Enable optimal P estimation with physics-aware recommendations."
     );
     eprintln!(
         "                        Analyzes response time vs. frame-class targets and noise levels."
     );
+    eprintln!(
+        "                        NOTE: Requires controlled test flights with system-identification inputs"
+    );
+    eprintln!("                        (chirp/PRBS). Not recommended for normal flight logs.");
+    eprintln!();
     eprintln!(
         "  --prop-size <size>: Optional. Specify propeller diameter in inches for optimal P estimation."
     );
@@ -441,21 +472,18 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     );
     eprintln!("                    Example: --motor-diagonal 452 --motor-width 346 --weight 741");
     eprintln!();
-    eprintln!(
-        "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
-    );
-    eprintln!("  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).");
-    eprintln!("  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.");
-    eprintln!(
-        "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
-    );
-    eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
+    eprintln!();
+    eprintln!("=== D. GENERAL ===");
+    eprintln!();
     eprintln!("  -h, --help: Show this help message and exit.");
     eprintln!("  -V, --version: Show version information and exit.");
+    eprintln!();
+    eprintln!();
+    eprintln!("NOTES:");
     eprintln!(
-        "
-Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns."
+        "  • Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work"
     );
+    eprintln!("    with mixed file/directory patterns.");
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  {program_name} flight.csv");
