@@ -110,7 +110,7 @@ impl FrameClass {
 }
 
 /// Noise level classification
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NoiseLevel {
     Low,      // < 10% HF energy
     Moderate, // 10-15% HF energy
