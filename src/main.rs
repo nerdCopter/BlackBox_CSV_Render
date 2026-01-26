@@ -353,8 +353,10 @@ fn find_csv_files_in_dir_impl(
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
-    eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [-R|--recursive] [--step] [--motor] [--setpoint] [--pid] [--bode] [--butterworth] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--prop-pitch <pitch>] [--motor-diagonal <mm>] [--motor-width <mm>] [--weight <grams>] [--debug] [-h|--help] [-V|--version]");
+    eprintln!(
+        "
+Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
+    );
     eprintln!();
     eprintln!("=== A. INPUT/OUTPUT OPTIONS ===");
     eprintln!();
@@ -377,7 +379,6 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [-R|
     eprintln!();
     eprintln!("=== C. ANALYSIS OPTIONS ===");
     eprintln!();
-    eprintln!("  --debug: Shows detailed metadata during processing.");
     eprintln!("  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
     eprintln!(
         "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
@@ -392,6 +393,7 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [-R|
     eprintln!();
     eprintln!("=== D. GENERAL ===");
     eprintln!();
+    eprintln!("  --debug: Show detailed metadata during processing.");
     eprintln!("  -h, --help: Show this help message.");
     eprintln!("  -V, --version: Show version information.");
     std::process::exit(1);
