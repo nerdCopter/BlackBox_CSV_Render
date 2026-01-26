@@ -221,13 +221,19 @@ impl TdStatistics {
         };
 
         // Calculate consistency: fraction within ±1 std dev
-        // Use max(std_dev, f64::EPSILON) to avoid missing values when std_dev == 0.0
-        let tolerance = std_dev.max(f64::EPSILON);
-        let within_range = td_samples_ms
-            .iter()
-            .filter(|&&x| (x - mean).abs() <= tolerance)
-            .count();
-        let consistency = within_range as f64 / n;
+        // When std_dev == 0.0 (identical samples), consistency is perfect (1.0)
+        // Otherwise, tolerance = std_dev and calculate fraction within range
+        let consistency = if std_dev == 0.0 {
+            // All samples identical → perfect consistency
+            1.0
+        } else {
+            let tolerance = std_dev;
+            let within_range = td_samples_ms
+                .iter()
+                .filter(|&&x| (x - mean).abs() <= tolerance)
+                .count();
+            within_range as f64 / n
+        };
 
         Some(TdStatistics {
             mean_ms: mean,
