@@ -1072,27 +1072,52 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
 
     if plot_config.step_response {
+        // Group related parameters into structs for cleaner API
+        use crate::plot_functions::plot_step_response::{
+            ConservativeRecommendations, CurrentPeakAndRatios, ModerateRecommendations,
+            OptimalPConfig, PlotDisplayConfig,
+        };
+
+        let current = CurrentPeakAndRatios {
+            peak_values,
+            pd_ratios: current_pd_ratios,
+            assessments,
+        };
+
+        let conservative = ConservativeRecommendations {
+            pd_ratios: recommended_pd_conservative,
+            d_values: recommended_d_conservative,
+            d_min_values: recommended_d_min_conservative,
+            d_max_values: recommended_d_max_conservative,
+        };
+
+        let moderate = ModerateRecommendations {
+            pd_ratios: recommended_pd_aggressive,
+            d_values: recommended_d_aggressive,
+            d_min_values: recommended_d_min_aggressive,
+            d_max_values: recommended_d_max_aggressive,
+        };
+
+        let display = PlotDisplayConfig {
+            has_nonzero_f_term: has_nonzero_f_term_data,
+            setpoint_threshold: analysis_opts.setpoint_threshold,
+            show_legend: analysis_opts.show_legend,
+        };
+
+        let optimal_p = OptimalPConfig {
+            analyses: optimal_p_analyses,
+        };
+
         plot_step_response(
             &step_response_calculation_results,
             &root_name_string,
             sample_rate,
-            &has_nonzero_f_term_data,
-            analysis_opts.setpoint_threshold,
-            analysis_opts.show_legend,
             &pid_context.pid_metadata,
-            &peak_values,
-            &current_pd_ratios,
-            &assessments,
-            &recommended_pd_conservative,
-            &recommended_d_conservative,
-            &recommended_d_min_conservative,
-            &recommended_d_max_conservative,
-            &recommended_pd_aggressive,
-            &recommended_d_aggressive,
-            &recommended_d_min_aggressive,
-            &recommended_d_max_aggressive,
-            &optimal_p_analyses,
-            analysis_opts.estimate_optimal_p,
+            &current,
+            &conservative,
+            &moderate,
+            &display,
+            &optimal_p,
         )?;
     }
 
