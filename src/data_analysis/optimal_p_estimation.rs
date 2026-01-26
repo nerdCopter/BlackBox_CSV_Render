@@ -14,7 +14,7 @@ use crate::constants::*;
 
 /// Frame class for Td target selection (prop size in inches)
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameClass {
     OneInch,
     TwoInch,
