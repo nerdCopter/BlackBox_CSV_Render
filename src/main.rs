@@ -1819,8 +1819,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                     );
                     eprintln!(
-                        "Total mass: {:.0}g (from --weight parameter)",
-                        model.total_mass_g
+                        "Total mass: {:.0}g {}",
+                        model.total_mass_g,
+                        if craft_weight_override.is_some() {
+                            "(from --weight parameter)"
+                        } else {
+                            "(estimated from components)"
+                        }
                     );
                     eprintln!();
                     Some(model)
