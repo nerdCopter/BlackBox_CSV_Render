@@ -197,6 +197,9 @@ impl QuadcopterPhysics {
     /// Formula: Td = (π/2) × √(I/P) / pitch_factor
     /// axis: 0=Roll, 1=Pitch, 2=Yaw
     ///
+    /// **Precondition:** current_p_gain must be positive (> 0)
+    /// Returns 0.0 for non-positive current_p_gain (invalid input)
+    ///
     /// Pitch loading factor: Higher pitch = more aerodynamic drag = slower actual response
     /// We DIVIDE by pitch_factor so that:
     /// - Low pitch (3.0"): expect FASTER measured Td (factor ~0.606 → Td_expected SMALLER)
@@ -205,6 +208,9 @@ impl QuadcopterPhysics {
     ///
     /// Normalized to 4.5" pitch baseline (typical freestyle props)
     pub fn calculate_expected_td_ms(&self, current_p_gain: f64, axis: usize) -> f64 {
+        if current_p_gain <= 0.0 {
+            return 0.0;
+        }
         let inertia = self.calculate_rotational_inertia(axis);
         let omega_n = (current_p_gain / inertia).sqrt();
         let td_seconds = PI / (2.0 * omega_n);
