@@ -312,6 +312,7 @@ impl QuadcopterPhysicsBuilder {
     }
 
     pub fn build(self) -> Result<QuadcopterPhysics, String> {
+        // Extract all required fields
         let geometry = self
             .geometry
             .ok_or("Frame geometry is required (arm lengths)")?;
@@ -324,6 +325,56 @@ impl QuadcopterPhysicsBuilder {
         // Default pitch to 4.5" if not specified (typical freestyle props)
         let prop_pitch_inch = self.prop_pitch_inch.unwrap_or(4.5);
 
+        // Validate numeric ranges
+        if total_mass_g <= 0.0 {
+            return Err(format!(
+                "Total mass must be positive, got {:.0}g",
+                total_mass_g
+            ));
+        }
+
+        if prop_diameter_inch <= 0.0 {
+            return Err(format!(
+                "Prop diameter must be positive, got {:.1}\"",
+                prop_diameter_inch
+            ));
+        }
+
+        if prop_pitch_inch <= 0.0 {
+            return Err(format!(
+                "Prop pitch must be positive, got {:.1}\"",
+                prop_pitch_inch
+            ));
+        }
+
+        // Validate geometry (arm lengths)
+        if geometry.arm_length_diagonal_mm <= 0.0 {
+            return Err(format!(
+                "Frame diagonal arm length must be positive, got {:.1}mm",
+                geometry.arm_length_diagonal_mm
+            ));
+        }
+
+        if geometry.arm_length_width_mm <= 0.0 {
+            return Err(format!(
+                "Frame width arm length must be positive, got {:.1}mm",
+                geometry.arm_length_width_mm
+            ));
+        }
+
+        // Validate motor spec
+        if motor_spec.stator_diameter_mm == 0 {
+            return Err("Motor stator diameter must be non-zero".to_string());
+        }
+
+        if motor_spec.stator_height_mm <= 0.0 {
+            return Err(format!(
+                "Motor stator height must be positive, got {:.1}mm",
+                motor_spec.stator_height_mm
+            ));
+        }
+
+        // All validations passed, construct the model
         Ok(QuadcopterPhysics {
             geometry,
             motor_spec,
