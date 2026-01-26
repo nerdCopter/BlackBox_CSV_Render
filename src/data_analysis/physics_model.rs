@@ -22,26 +22,40 @@ impl MotorSpec {
             return Err("Motor size must be at least 4 characters".to_string());
         }
 
-        let diameter: u8 = s[0..2]
+        // Validate ASCII-only input to avoid UTF-8 multi-byte issues
+        if !s.is_ascii() {
+            return Err("Motor size must contain only ASCII characters".to_string());
+        }
+
+        // Extract first two characters for diameter (char-safe)
+        let chars: Vec<char> = s.chars().collect();
+        if chars.len() < 4 {
+            return Err("Motor size must be at least 4 characters".to_string());
+        }
+
+        let diameter_str: String = chars[0..2].iter().collect();
+        let diameter: u8 = diameter_str
             .parse()
             .map_err(|_| "Invalid stator diameter (first 2 digits)")?;
 
-        let height_str = &s[2..];
-        let height: f32 = if height_str.contains('.') {
+        // Extract remaining characters for height (char-safe)
+        let height_chars: String = chars[2..].iter().collect();
+
+        let height: f32 = if height_chars.contains('.') {
             // Format: "2306.5"
-            height_str
+            height_chars
                 .parse()
                 .map_err(|_| "Invalid stator height (fractional)")?
-        } else if height_str.len() == 2 {
+        } else if height_chars.len() == 2 {
             // Format: "2207"
-            height_str
+            height_chars
                 .parse::<u8>()
                 .map(|h| h as f32)
                 .map_err(|_| "Invalid stator height (2 digits)")?
-        } else if height_str.len() == 3 {
+        } else if height_chars.len() == 3 {
             // Format: "23065" → interpret as 2306.5
-            let whole = &height_str[0..2];
-            let frac = &height_str[2..3];
+            let whole: String = chars[2..4].iter().collect();
+            let frac: String = chars[4..5].iter().collect();
             format!("{}.{}", whole, frac)
                 .parse()
                 .map_err(|_| "Invalid stator height (3 digits)")?
