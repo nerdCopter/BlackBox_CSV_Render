@@ -222,7 +222,12 @@ impl QuadcopterPhysics {
     /// Calculate optimal P gain for target Td
     /// P = I × (π / (2 × Td))²
     /// axis: 0=Roll, 1=Pitch, 2=Yaw
+    ///
+    /// Returns f64::INFINITY for non-positive target_td_ms (invalid input)
     pub fn calculate_optimal_p_for_target_td(&self, target_td_ms: f64, axis: usize) -> f64 {
+        if target_td_ms <= 0.0 {
+            return f64::INFINITY;
+        }
         let inertia = self.calculate_rotational_inertia(axis);
         let target_td_s = target_td_ms / 1000.0;
         let omega_n_target = PI / (2.0 * target_td_s);
