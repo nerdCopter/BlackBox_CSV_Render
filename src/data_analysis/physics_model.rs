@@ -196,8 +196,7 @@ impl QuadcopterPhysics {
         // For rod rotating about end: I = (1/3)×m×L²
         let i_frame_arms = (1.0 / 3.0) * frame_mass_kg * arm_length_m.powi(2);
 
-        // Central components (FC, ESC, VTX, camera) at rotation center: r ≈ 0
-        let _i_central = 0.0;
+        // Central components (FC, ESC, VTX, camera) at rotation center: r ≈ 0, so I ≈ 0
 
         // Battery (rear-mounted for COG balance)
         let battery_offset_m = BATTERY_OFFSET_FROM_CENTER_MM / 1000.0;
