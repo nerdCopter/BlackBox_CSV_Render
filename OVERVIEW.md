@@ -208,14 +208,16 @@ Physics-aware P gain optimization based on response timing analysis:
   - Formula: pitch loading factor = (pitch / 4.5)^1.3
   - Example: 3.7" pitch has ~21% less drag than 4.5" baseline
   - **Note:** Currently used for information display only. Physics-based Td adjustment disabled to prevent circular logic issues. Uses empirically-validated frame-class targets for all comparisons.
-- **Physics Model Parameters (Optional):** Additional parameters for detailed physics modeling
-  - `--motor-size <size>`: Motor stator dimensions (e.g., 2207)
-  - `--motor-kv <kv>`: Motor KV rating
-  - `--lipo <cells>`: Battery cell count (4S, 5S, 6S)
-  - `--motor-diagonal <mm>`: Frame diagonal motor spacing
-  - `--motor-width <mm>`: Frame width motor spacing
-  - `--weight <grams>`: Total aircraft weight
-  - When provided, enables asymmetric frame geometry calculations (Roll vs Pitch differences)
+- **Frame Geometry Parameters (Optional):** For asymmetric frame calculations (Roll vs Pitch response differences)
+  - `--motor-diagonal <mm>`: M1→M4 diagonal motor spacing (rear-right to front-left)
+  - `--motor-width <mm>`: M1→M3 side-to-side motor spacing (rear-right to rear-left)
+  - `--weight <grams>`: Total aircraft weight (everything that flies)
+  - When all provided, enables rotational inertia calculations accounting for frame asymmetry
+- **Reserved Parameters (Not Currently Used):** The following parameters are parsed but not used in calculations. Reserved for potential future motor torque calculations:
+  - `--motor-size <size>`: Motor stator dimensions (e.g., 2207) — reserved
+  - `--motor-kv <kv>`: Motor KV rating — reserved
+  - `--lipo <cells>`: Battery cell count (e.g., 4S, 5S, 6S) — reserved
+  - **Why reserved:** Motor torque calculations would require voltage/current data not available in flight logs and could reintroduce circular logic issues. Current physics model uses rotational inertia only (mass distribution + geometry), which provides accurate results without these parameters.
 - **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal. The relationship between Td (time to 50%) and rotational inertia is **Td ∝ √(I/torque)**. While rotational inertia scales with mass × radius² (I ∝ mr²) for simple models, **actual Td is affected by many factors**: mass distribution (frame, motors, battery, props placement), motor torque characteristics, propeller aerodynamics, battery voltage, and ESC response. The frame-class targets below are **empirical estimates derived from flight data**, not pure physics calculations. Propeller size is used as a practical proxy for rotational inertia, but targets must be validated against actual flight logs for each specific build configuration.
 - **Frame-Class Targets (Provisional - requires flight validation):**
   - **⚠️ IMPORTANT DISCLAIMER:** These targets are provisional empirical estimates and **MUST be validated through systematic flight testing**. They are derived from limited flight data and physics-informed intuition. Use as initial guidelines only. Validation data collection is ongoing.

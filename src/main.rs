@@ -433,15 +433,11 @@ Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--b
     );
     eprintln!("                    Example: 741g HELIOV1 quad → --weight 741");
     eprintln!();
-    eprintln!("  Physics-Based Td Calculation (requires 5 parameters + optional --weight):");
-    eprintln!("  --motor-size <size>: Motor stator size (e.g., 2207, 2306.5, 2407).");
-    eprintln!("  --motor-kv <kv>: Motor KV rating (e.g., 1900, 2400).");
-    eprintln!("  --lipo <cells>: Battery cell count (e.g., 4S, 6S).");
+    eprintln!("  Frame Geometry (optional - enables asymmetric Roll vs Pitch calculations):");
     eprintln!("  --motor-diagonal <mm>: M1→M4 diagonal measurement in mm.");
     eprintln!("  --motor-width <mm>: M1→M3 side-to-side measurement in mm.");
-    eprintln!("  --weight <grams>: [Optional] All-up weight (camera, VTX, everything flown).");
     eprintln!(
-        "                    If provided: uses exact all-up weight for accurate Td prediction."
+        "                    When provided with --weight, enables rotational inertia calculations."
     );
     eprintln!("                    If omitted: estimates from battery + motor + components.");
     eprintln!("                    Recommended: always provide --weight for best accuracy.");
@@ -1511,6 +1507,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 i += 1;
             }
+        // Reserved parameters (parsed but not currently used in physics calculations)
+        // These are kept for potential future motor torque calculations
         } else if arg == "--motor-size" {
             if motor_size.is_some() {
                 eprintln!("Error: --motor-size argument specified more than once.");

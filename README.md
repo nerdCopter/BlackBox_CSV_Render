@@ -26,7 +26,7 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--prop-pitch <pitch>] [--motor-size <size>] [--motor-kv <kv>] [--lipo <cells>] [--motor-diagonal <mm>] [--motor-width <mm>] [--weight <grams>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
+Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--prop-pitch <pitch>] [--motor-diagonal <mm>] [--motor-width <mm>] [--weight <grams>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
   <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).
             Can mix files and directories in a single command.
             - Individual CSV file: path/to/file.csv
@@ -58,9 +58,6 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory
                         Valid range: 1.0-10.0. Used with --estimate-optimal-p to account for
                         aerodynamic loading differences. Low pitch props have faster response,
                         high pitch props have slower response. Defaults to 4.5" if not specified.
-  --motor-size <size>: Optional. Motor stator size (e.g., 2207 for 22mm diameter, 07mm height).
-  --motor-kv <kv>: Optional. Motor KV rating (RPM per volt).
-  --lipo <cells>: Optional. Battery cell count (e.g., 4S, 5S, 6S).
   --motor-diagonal <mm>: Optional. Frame motor-to-motor diagonal distance in mm.
   --motor-width <mm>: Optional. Frame motor-to-motor width distance in mm.
   --weight <grams>: Optional. Total aircraft weight in grams.
