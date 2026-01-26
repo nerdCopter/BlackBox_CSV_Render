@@ -221,9 +221,11 @@ impl TdStatistics {
         };
 
         // Calculate consistency: fraction within ±1 std dev
+        // Use max(std_dev, f64::EPSILON) to avoid missing values when std_dev == 0.0
+        let tolerance = std_dev.max(f64::EPSILON);
         let within_range = td_samples_ms
             .iter()
-            .filter(|&&x| (x - mean).abs() <= std_dev)
+            .filter(|&&x| (x - mean).abs() <= tolerance)
             .count();
         let consistency = within_range as f64 / n;
 
