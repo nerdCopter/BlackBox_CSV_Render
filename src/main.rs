@@ -1272,10 +1272,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut prop_pitch_override: Option<f32> = None; // Propeller pitch in inches
     let mut craft_weight_override: Option<u32> = None; // Optional craft weight in grams
 
-    // Physics-based calculation parameters
-    let mut motor_size: Option<String> = None;
-    let mut motor_kv: Option<u16> = None;
-    let mut lipo_cells: Option<u8> = None;
+    // Frame geometry parameters
     let mut motor_diagonal_mm: Option<f64> = None; // M1→M4 diagonal measurement
     let mut motor_width_mm: Option<f64> = None; // M1→M3 side-to-side measurement
 
@@ -1439,64 +1436,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 i += 1;
             }
-        // Reserved parameters (parsed but not currently used in physics calculations)
-        // These are kept for potential future motor torque calculations
-        } else if arg == "--motor-size" {
-            if motor_size.is_some() {
-                eprintln!("Error: --motor-size argument specified more than once.");
-                print_usage_and_exit(program_name);
-            }
-            if i + 1 >= args.len() {
-                eprintln!("Error: --motor-size requires a value (e.g., 2207, 2306.5, 2407).");
-                print_usage_and_exit(program_name);
-            } else {
-                motor_size = Some(args[i + 1].trim().to_string());
-                i += 1;
-            }
-        } else if arg == "--motor-kv" {
-            if motor_kv.is_some() {
-                eprintln!("Error: --motor-kv argument specified more than once.");
-                print_usage_and_exit(program_name);
-            }
-            if i + 1 >= args.len() {
-                eprintln!("Error: --motor-kv requires a numeric value (e.g., 1900, 2400).");
-                print_usage_and_exit(program_name);
-            } else {
-                match args[i + 1].trim().parse::<u16>() {
-                    Ok(kv) if kv > 0 => motor_kv = Some(kv),
-                    _ => {
-                        eprintln!(
-                            "Error: Invalid motor KV '{}'. Must be a positive number.",
-                            args[i + 1]
-                        );
-                        print_usage_and_exit(program_name);
-                    }
-                }
-                i += 1;
-            }
-        } else if arg == "--lipo" {
-            if lipo_cells.is_some() {
-                eprintln!("Error: --lipo argument specified more than once.");
-                print_usage_and_exit(program_name);
-            }
-            if i + 1 >= args.len() {
-                eprintln!("Error: --lipo requires cell count (e.g., 4S or 6S).");
-                print_usage_and_exit(program_name);
-            } else {
-                let lipo_str = args[i + 1].trim().to_uppercase();
-                let cells_str = lipo_str.trim_end_matches('S');
-                match cells_str.parse::<u8>() {
-                    Ok(cells) if (1..=12).contains(&cells) => lipo_cells = Some(cells),
-                    _ => {
-                        eprintln!(
-                            "Error: Invalid lipo '{}'. Use format like 4S or 6S (1-12 cells).",
-                            args[i + 1]
-                        );
-                        print_usage_and_exit(program_name);
-                    }
-                }
-                i += 1;
-            }
         } else if arg == "--motor-diagonal" {
             if motor_diagonal_mm.is_some() {
                 eprintln!("Error: --motor-diagonal argument specified more than once.");
@@ -1583,18 +1522,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         eprintln!();
     }
 
-    // Check if we'll have a complete physics model (calculate early for warning check)
-    let has_all_required_physics = motor_size.is_some()
-        && motor_kv.is_some()
-        && motor_diagonal_mm.is_some()
-        && motor_width_mm.is_some();
-
-    // Warn if --weight is specified but won't be used
-    // Weight is used when: estimate_optimal_p is enabled OR we have all physics params
-    if craft_weight_override.is_some() && !estimate_optimal_p && !has_all_required_physics {
-        eprintln!("Warning: --weight specified without --estimate-optimal-p or complete physics parameters.");
+    // Warn if --weight is specified but won't be used with --estimate-optimal-p
+    if craft_weight_override.is_some() && !estimate_optimal_p {
+        eprintln!("Warning: --weight specified without --estimate-optimal-p.");
         eprintln!("         The weight setting will be ignored.");
-        eprintln!("         Use --estimate-optimal-p or provide all physics parameters.");
+        eprintln!("         Use --estimate-optimal-p to enable optimal P estimation with weight.");
         eprintln!();
     }
 
@@ -1658,53 +1590,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         craft_weight_g: craft_weight_override,
     };
 
-    // Check if physics parameters are partially provided (validate completeness)
-    let has_any_physics_param = motor_size.is_some()
-        || motor_kv.is_some()
-        || motor_diagonal_mm.is_some()
-        || motor_width_mm.is_some();
-
-    // Note: has_all_required_physics already calculated above for warning check
-
-    // Warn if physics parameters are incomplete
-    if has_any_physics_param && !has_all_required_physics {
-        eprintln!("\n⚠️  WARNING: Incomplete physics parameters detected!");
-        eprintln!("    For physics-based analysis, ALL of the following are required:");
-        if motor_size.is_none() {
-            eprintln!("    ❌ --motor-size <size>    (e.g., 2207, 2306.5, 2407)");
-        }
-        if motor_kv.is_none() {
-            eprintln!("    ❌ --motor-kv <kv>        (e.g., 1900, 2400)");
-        }
-        if motor_diagonal_mm.is_none() {
-            eprintln!("    ❌ --motor-diagonal <mm>  (M1→M4 diagonal distance)");
-        }
-        if motor_width_mm.is_none() {
-            eprintln!("    ❌ --motor-width <mm>     (M1→M3 side-to-side distance)");
-        }
-        eprintln!("    Optional but recommended:");
-        eprintln!("    ⚬  --weight <grams>       (total aircraft weight)");
-        eprintln!("\n    Physics parameters will be ignored for this analysis.");
-        eprintln!("    Analysis will continue using frame-class targets only.\n");
-    }
-
-    // Build physics model if all parameters provided
+    // Build physics model if frame geometry parameters provided
+    // NOTE: Physics model is currently reserved for future enhancement (motor torque calculations).
+    // Core optimal P estimation uses frame-class targets which don't require motor parameters.
     let physics_model: Option<crate::data_analysis::physics_model::QuadcopterPhysics> =
-        if let (Some(motor_size_str), Some(kv), Some(diag), Some(width)) =
-            (&motor_size, motor_kv, motor_diagonal_mm, motor_width_mm)
-        {
-            // Parse motor size
-            let mut motor_spec =
-                match crate::data_analysis::physics_model::MotorSpec::from_string(motor_size_str) {
-                    Ok(spec) => spec,
-                    Err(e) => {
-                        eprintln!("Error: Failed to parse motor size: {}", e);
-                        std::process::exit(1);
-                    }
-                };
-            motor_spec.kv = kv;
-
-            // Build frame geometry
+        if let (Some(diag), Some(width)) = (motor_diagonal_mm, motor_width_mm) {
+            // Frame geometry available - build physics model
             let geom = crate::data_analysis::physics_model::FrameGeometry::from_motor_measurements(
                 diag, width,
             );
@@ -1713,10 +1604,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             let prop_size_f32 = prop_size_override
                 .unwrap_or_else(|| analysis_opts.frame_class.array_index() as f32 + 1.0);
 
-            // Build complete physics model
+            // Build complete physics model (frame geometry only - motor params reserved for future use)
             let mut builder = crate::data_analysis::physics_model::QuadcopterPhysicsBuilder::new()
                 .geometry(geom)
-                .motor_spec(motor_spec)
                 .prop_diameter_inch(prop_size_f32);
 
             // Add pitch if provided
@@ -1731,13 +1621,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             match builder.build() {
                 Ok(model) => {
-                    eprintln!("\n--- Physics-Based Configuration ---");
-                    eprintln!(
-                        "Motor: {}mm×{:.1}mm {}KV",
-                        model.motor_spec.stator_diameter_mm,
-                        model.motor_spec.stator_height_mm,
-                        model.motor_spec.kv
-                    );
+                    eprintln!("\n--- Physics-Based Configuration (Frame Geometry) ---");
                     eprintln!(
                         "Propeller: {:.1}\" × {:.1}\" pitch",
                         model.prop_diameter_inch, model.prop_pitch_inch
