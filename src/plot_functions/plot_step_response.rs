@@ -32,9 +32,23 @@ pub struct PdRecommendations {
 #[derive(Debug, Clone)]
 pub struct ConservativeRecommendations(pub PdRecommendations);
 
+impl std::ops::Deref for ConservativeRecommendations {
+    type Target = PdRecommendations;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// Moderate P:D ratio recommendations (aggressive, experienced pilots)
 #[derive(Debug, Clone)]
 pub struct ModerateRecommendations(pub PdRecommendations);
+
+impl std::ops::Deref for ModerateRecommendations {
+    type Target = PdRecommendations;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 /// Current peak values and P:D ratios from step response analysis
 #[derive(Debug, Clone)]
