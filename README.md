@@ -77,8 +77,8 @@ Note: Plot flags are combinable. Without flags, all plots generated.
 # Basic optimal P estimation (Experimental)
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5
 
-# Optimal P with weight and pitch parameter (Experimental)
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --estimate-optimal-p --weight 740 --prop-size 5.1 --prop-pitch 4.0
+# Optimal P with all physics parameters (Experimental)
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --estimate-optimal-p --prop-size 5.1 --prop-pitch 4.0 --weight 740 --motor-diagonal 226 --motor-width 173
 
 # Multiple files with output directory
 ./target/release/BlackBox_CSV_Render path1/*.csv path2/*.csv --output-dir ./plots

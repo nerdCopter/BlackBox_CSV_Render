@@ -219,7 +219,7 @@ Physics-aware P gain optimization based on response timing analysis:
 - **Frame-Class Targets (Provisional - requires flight validation):**
   - **⚠️ IMPORTANT DISCLAIMER:** These targets are provisional empirical estimates and **MUST be validated through systematic flight testing**. They are derived from limited flight data and physics-informed intuition. Use as initial guidelines only. Validation data collection is ongoing.
   - **Constants Reference:** All targets are defined in `src/constants.rs` as the `TD_TARGETS` array (starting around line 309).
-  - **Tolerance Ranges:** The (±) values represent acceptable response timing bands for each frame class—use these as recommended tuning acceptance ranges during flight validation, not measurement uncertainty or statistical confidence intervals.
+  - **User Acceptance Ranges (TD_TARGETS):** The (±) values listed below represent recommended tuning acceptance bands for pilots. If your measured Td falls within target ± tolerance for your prop size, the tune is acceptable for flight. These are NOT measurement uncertainty values; they define the acceptable range for practical tuning purposes.
   - 1" tiny whoop: 40ms ± 10.0ms (low power/torque)
   - 2" micro: 35ms ± 8.75ms
   - 3" toothpick/cinewhoop: 30ms ± 7.5ms
@@ -242,7 +242,7 @@ Physics-aware P gain optimization based on response timing analysis:
       - Faster than target + low noise = Excellent build, headroom for P increase
       - Slower than target + high noise = Mechanical issues or incorrect prop size specified
       - Within target + high noise = P at physical limits (optimal for this aircraft)
-  - **Validation Plan (Provisional Targets):** These targets require systematic validation via flight data collection.
+  - **Validation Threshold (Target Metrics):** The provisional targets themselves require statistical validation to confirm accuracy. This uses a stricter ±10% criterion for confirming that predicted targets match actual measurements across multiple flights. This threshold is for developers/researchers validating the model, not for pilots checking their tune.
     * **Target Metrics:** Per frame class, measure Td mean and std dev across ≥10 flights (manual setpoint inputs or step-sticks); confidence threshold: Td within ±10% of predicted target.
     * **Data Collection Protocol:**
       - **Flight Logs:** Controlled stick inputs on tethered or low-altitude flights; log format: Betaflight CSV with gyro, setpoint, P/D gains recorded; sample ≥3 distinct P settings per frame class.

@@ -297,7 +297,16 @@ impl OptimalPAnalysis {
                 frame_class.td_target()
             };
 
-        // Calculate deviation from target
+        // Defensive check: td_target_ms must be positive to avoid division by zero
+        if td_target_ms <= f64::EPSILON {
+            eprintln!(
+                "Warning: Invalid Td target ({:.3}ms) for optimal P analysis. Skipping.",
+                td_target_ms
+            );
+            return None;
+        }
+
+        // Calculate deviation from target (safe: td_target_ms validated above)
         let td_deviation_percent = ((td_stats.mean_ms - td_target_ms) / td_target_ms) * 100.0;
 
         // Classify deviation

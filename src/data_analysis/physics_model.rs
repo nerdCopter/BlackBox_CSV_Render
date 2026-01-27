@@ -241,9 +241,10 @@ impl QuadcopterPhysics {
         let td_seconds = PI / (2.0 * omega_n);
 
         // Pitch loading factor: empirically tuned exponent 1.3
-        // Low pitch (3.0"): faster response → larger expected Td target (factor ~0.606, divide → 1/0.606 = 1.65×)
-        // Medium pitch (4.5"): baseline (factor = 1.0)
-        // High pitch (6.0"): slower response → smaller expected Td target (factor ~1.23, divide → 1/1.23 = 0.81×)
+        // Low pitch (3.0"): factor = (3.0/4.5)^1.3 ≈ 0.55 → less drag → faster angular accel → HIGHER Td target
+        // Medium pitch (4.5"): factor = (4.5/4.5)^1.3 = 1.0 (baseline)
+        // High pitch (6.0"): factor = (6.0/4.5)^1.3 ≈ 1.51 → more drag → slower angular accel → LOWER Td target
+        // We DIVIDE by pitch_factor: low pitch increases target (td/0.55), high pitch decreases target (td/1.51)
         let pitch_factor = (self.prop_pitch_inch as f64 / 4.5).powf(1.3);
 
         // DIVIDE by pitch_factor so low-pitch props get HIGHER target (expect faster actual Td)
