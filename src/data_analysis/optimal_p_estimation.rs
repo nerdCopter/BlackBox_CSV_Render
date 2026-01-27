@@ -15,6 +15,19 @@ use crate::constants::*;
 /// Minimum valid Td (time to 50%) in milliseconds (domain-appropriate threshold)
 const MIN_TD_MS: f64 = 0.1;
 
+/// Safe conversion from scaled f64 to u32 with saturation
+/// Computes (base * multiplier), clamps to u32::MAX, and returns saturated result
+fn safe_scaled_p(base: u32, multiplier: f64) -> u32 {
+    let scaled = (base as f64) * multiplier;
+    if scaled >= (u32::MAX as f64) {
+        u32::MAX
+    } else if scaled <= 0.0 {
+        0
+    } else {
+        scaled as u32
+    }
+}
+
 /// Frame class for Td target selection (prop size in inches)
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -375,7 +388,7 @@ impl OptimalPAnalysis {
         match (td_deviation, noise_level) {
             // Case 1: Td significantly slower + low noise = clear headroom to increase P
             (TdDeviation::SignificantlySlower, NoiseLevel::Low) => {
-                let conservative = ((current_p as f64) * P_HEADROOM_MODERATE_MULTIPLIER) as u32;
+                let conservative = safe_scaled_p(current_p, P_HEADROOM_MODERATE_MULTIPLIER);
                 PRecommendation::Increase {
                     conservative_p: conservative,
                     reasoning: format!(
@@ -388,7 +401,7 @@ impl OptimalPAnalysis {
 
             // Case 2: Td moderately slower + low/moderate noise = modest headroom
             (TdDeviation::ModeratelySlower, NoiseLevel::Low | NoiseLevel::Moderate) => {
-                let conservative = ((current_p as f64) * P_HEADROOM_CONSERVATIVE_MULTIPLIER) as u32;
+                let conservative = safe_scaled_p(current_p, P_HEADROOM_CONSERVATIVE_MULTIPLIER);
                 PRecommendation::Increase {
                     conservative_p: conservative,
                     reasoning: format!(
@@ -410,7 +423,7 @@ impl OptimalPAnalysis {
 
             // Case 3: Td within target + low noise = slight headroom available
             (TdDeviation::WithinTarget, NoiseLevel::Low) => {
-                let conservative = ((current_p as f64) * P_HEADROOM_CONSERVATIVE_MULTIPLIER) as u32;
+                let conservative = safe_scaled_p(current_p, P_HEADROOM_CONSERVATIVE_MULTIPLIER);
                 if conservative > current_p {
                     PRecommendation::Increase {
                         conservative_p: conservative,
@@ -448,7 +461,7 @@ impl OptimalPAnalysis {
 
             // Case 6: Td faster than target + high noise = at limit, consider reduction
             (TdDeviation::SignificantlyFaster, NoiseLevel::High) => {
-                let recommended = ((current_p as f64) * P_REDUCTION_MODERATE_MULTIPLIER) as u32;
+                let recommended = safe_scaled_p(current_p, P_REDUCTION_MODERATE_MULTIPLIER);
                 PRecommendation::Decrease {
                     recommended_p: recommended,
                     reasoning: format!(
@@ -511,7 +524,7 @@ impl OptimalPAnalysis {
             (_, NoiseLevel::Unknown) => match td_deviation {
                 TdDeviation::SignificantlySlower | TdDeviation::ModeratelySlower => {
                     let conservative =
-                        ((current_p as f64) * P_HEADROOM_CONSERVATIVE_MULTIPLIER) as u32;
+                        safe_scaled_p(current_p, P_HEADROOM_CONSERVATIVE_MULTIPLIER);
                     PRecommendation::Increase {
                         conservative_p: conservative,
                         reasoning: format!(
