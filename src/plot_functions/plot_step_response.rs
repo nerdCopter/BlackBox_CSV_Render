@@ -16,37 +16,46 @@ use crate::data_input::pid_metadata::PidMetadata;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 use crate::types::{AllStepResponsePlotData, StepResponseResults};
 
+/// Number of control axes (Roll, Pitch, Yaw)
+const AXIS_COUNT: usize = 3;
+
 /// P:D ratio recommendations with computed D values
+#[derive(Debug, Clone)]
 pub struct PdRecommendations {
-    pub pd_ratios: [Option<f64>; 3],
-    pub d_values: [Option<u32>; 3],
-    pub d_min_values: [Option<u32>; 3],
-    pub d_max_values: [Option<u32>; 3],
+    pub pd_ratios: [Option<f64>; AXIS_COUNT],
+    pub d_values: [Option<u32>; AXIS_COUNT],
+    pub d_min_values: [Option<u32>; AXIS_COUNT],
+    pub d_max_values: [Option<u32>; AXIS_COUNT],
 }
 
 /// Conservative P:D ratio recommendations (safer, incremental tuning)
-pub type ConservativeRecommendations = PdRecommendations;
+#[derive(Debug, Clone)]
+pub struct ConservativeRecommendations(pub PdRecommendations);
 
 /// Moderate P:D ratio recommendations (aggressive, experienced pilots)
-pub type ModerateRecommendations = PdRecommendations;
+#[derive(Debug, Clone)]
+pub struct ModerateRecommendations(pub PdRecommendations);
 
 /// Current peak values and P:D ratios from step response analysis
+#[derive(Debug, Clone)]
 pub struct CurrentPeakAndRatios {
-    pub peak_values: [Option<f64>; 3],
-    pub pd_ratios: [Option<f64>; 3],
-    pub assessments: [Option<&'static str>; 3],
+    pub peak_values: [Option<f64>; AXIS_COUNT],
+    pub pd_ratios: [Option<f64>; AXIS_COUNT],
+    pub assessments: [Option<&'static str>; AXIS_COUNT],
 }
 
 /// Plot display configuration
+#[derive(Debug, Clone)]
 pub struct PlotDisplayConfig {
-    pub has_nonzero_f_term: [bool; 3],
+    pub has_nonzero_f_term: [bool; AXIS_COUNT],
     pub setpoint_threshold: f64,
     pub show_legend: bool,
 }
 
 /// Optional optimal P estimation analysis results
+#[derive(Debug, Clone)]
 pub struct OptimalPConfig {
-    pub analyses: [Option<OptimalPAnalysis>; 3],
+    pub analyses: [Option<OptimalPAnalysis>; AXIS_COUNT],
 }
 
 /// Generates the Stacked Step Response Plot (Blue, Orange, Red)
@@ -399,18 +408,18 @@ pub fn plot_step_response(
                 }
 
                 // Conservative recommendation (uses dmax_enabled computed at function start)
-                if let Some(rec_pd) = conservative.pd_ratios[axis_index] {
+                if let Some(rec_pd) = conservative.0.pd_ratios[axis_index] {
                     let recommendation_label = if dmax_enabled {
                         // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
-                        let d_min_str = conservative.d_min_values[axis_index]
+                        let d_min_str = conservative.0.d_min_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
-                        let d_max_str = conservative.d_max_values[axis_index]
+                        let d_max_str = conservative.0.d_max_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
                             "Conservative recommendation: P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
-                    } else if let Some(rec_d) = conservative.d_values[axis_index] {
+                    } else if let Some(rec_d) = conservative.0.d_values[axis_index] {
                         // D-Min/D-Max disabled: show only base D
                         format!(
                             "Conservative recommendation: P:D={:.2} (D≈{})",
@@ -428,18 +437,18 @@ pub fn plot_step_response(
                 }
 
                 // Moderate recommendation
-                if let Some(rec_pd) = moderate.pd_ratios[axis_index] {
+                if let Some(rec_pd) = moderate.0.pd_ratios[axis_index] {
                     let recommendation_label = if dmax_enabled {
                         // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
-                        let d_min_str = moderate.d_min_values[axis_index]
+                        let d_min_str = moderate.0.d_min_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
-                        let d_max_str = moderate.d_max_values[axis_index]
+                        let d_max_str = moderate.0.d_max_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
                             "Moderate recommendation: P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
-                    } else if let Some(rec_d) = moderate.d_values[axis_index] {
+                    } else if let Some(rec_d) = moderate.0.d_values[axis_index] {
                         // D-Min/D-Max disabled: show only base D
                         format!("Moderate recommendation: P:D={:.2} (D≈{})", rec_pd, rec_d)
                     } else {

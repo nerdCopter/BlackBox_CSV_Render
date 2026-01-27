@@ -1067,7 +1067,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         // Group related parameters into structs for cleaner API
         use crate::plot_functions::plot_step_response::{
             ConservativeRecommendations, CurrentPeakAndRatios, ModerateRecommendations,
-            OptimalPConfig, PlotDisplayConfig,
+            OptimalPConfig, PdRecommendations, PlotDisplayConfig,
         };
 
         let current = CurrentPeakAndRatios {
@@ -1076,19 +1076,19 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             assessments,
         };
 
-        let conservative = ConservativeRecommendations {
+        let conservative = ConservativeRecommendations(PdRecommendations {
             pd_ratios: recommended_pd_conservative,
             d_values: recommended_d_conservative,
             d_min_values: recommended_d_min_conservative,
             d_max_values: recommended_d_max_conservative,
-        };
+        });
 
-        let moderate = ModerateRecommendations {
+        let moderate = ModerateRecommendations(PdRecommendations {
             pd_ratios: recommended_pd_aggressive,
             d_values: recommended_d_aggressive,
             d_min_values: recommended_d_min_aggressive,
             d_max_values: recommended_d_max_aggressive,
-        };
+        });
 
         let display = PlotDisplayConfig {
             has_nonzero_f_term: has_nonzero_f_term_data,
