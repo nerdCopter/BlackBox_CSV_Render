@@ -1025,9 +1025,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 }
                             };
 
-                            // Don't use physics-based Td targets - causes circular logic
-                            // Let optimal_p_estimation use frame-class targets only
-                            // Physics model will still be used for display/information
+                            // Physics-based Td calculation produces unrealistic targets (2-3× too optimistic)
+                            // because it doesn't account for ESC lag, motor efficiency, voltage sag, prop transients
+                            // Keep physics model for potential future use but don't use for Td targets
+                            // Use empirically-validated frame-class targets only
 
                             // Perform optimal P analysis
                             if let Some(analysis) = crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
@@ -1037,7 +1038,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             analysis_opts.frame_class,
                             hf_energy_ratio,
                             recommended_pd_conservative[axis_index],
-                            None,
+                            None, // Don't use physics_td_target - empirical targets more accurate
                         ) {
                             // Print console output
                             println!("{}", analysis.format_console_output(axis_name));

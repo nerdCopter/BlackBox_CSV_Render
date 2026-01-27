@@ -159,7 +159,7 @@ impl FrameGeometry {
 #[derive(Debug, Clone)]
 pub struct QuadcopterPhysics {
     pub geometry: FrameGeometry,
-    pub motor_spec: MotorSpec,
+    pub motor_spec: Option<MotorSpec>, // Optional - not used in physics calculations
     pub prop_diameter_inch: f32,
     pub prop_pitch_inch: f32, // Propeller pitch (affects aerodynamic loading)
     pub total_mass_g: f64,    // All-up weight (everything that flies)
@@ -317,7 +317,7 @@ impl QuadcopterPhysicsBuilder {
         let geometry = self
             .geometry
             .ok_or("Frame geometry is required (arm lengths)")?;
-        let motor_spec = self.motor_spec.ok_or("Motor specification is required")?;
+        let motor_spec = self.motor_spec; // Optional - not used in calculations
         let prop_diameter_inch = self.prop_diameter_inch.ok_or("Prop diameter is required")?;
         let total_mass_g = self
             .total_mass_g
@@ -363,16 +363,18 @@ impl QuadcopterPhysicsBuilder {
             ));
         }
 
-        // Validate motor spec
-        if motor_spec.stator_diameter_mm == 0 {
-            return Err("Motor stator diameter must be non-zero".to_string());
-        }
+        // Validate motor spec if provided (optional)
+        if let Some(ref motor) = motor_spec {
+            if motor.stator_diameter_mm == 0 {
+                return Err("Motor stator diameter must be non-zero".to_string());
+            }
 
-        if motor_spec.stator_height_mm <= 0.0 {
-            return Err(format!(
-                "Motor stator height must be positive, got {:.1}mm",
-                motor_spec.stator_height_mm
-            ));
+            if motor.stator_height_mm <= 0.0 {
+                return Err(format!(
+                    "Motor stator height must be positive, got {:.1}mm",
+                    motor.stator_height_mm
+                ));
+            }
         }
 
         // All validations passed, construct the model
