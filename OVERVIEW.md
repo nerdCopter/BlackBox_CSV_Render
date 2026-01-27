@@ -207,7 +207,7 @@ Physics-aware P gain optimization based on response timing analysis:
   - **Empirical Approach:** The frame-class targets below are **empirical estimates derived from flight data**, not pure physics calculations. Propeller size is used as a practical proxy for rotational inertia because it correlates strongly with frame mass and arm length. Targets must be validated against actual flight logs for each specific build configuration, as the theoretical model cannot account for all real-world complexities.
 - **Frame-Class Targets (Provisional - requires flight validation):**
   - **⚠️ IMPORTANT DISCLAIMER:** These targets are provisional empirical estimates and **MUST be validated through systematic flight testing**. They are derived from limited flight data and theoretical understanding of response dynamics. Use as initial guidelines only. Validation data collection is ongoing.
-  - **Constants Reference:** All targets are defined in `src/constants.rs` as the `TD_TARGETS` array (starting around line 309).
+  - **Constants Reference:** All targets are defined in `src/constants.rs` as the `TD_TARGETS` array (search for `TD_TARGETS`).
   - **User Acceptance Ranges (TD_TARGETS):** The (±) values listed below represent recommended tuning acceptance bands for pilots. If your measured Td falls within target ± tolerance for your prop size, the tune is acceptable for flight. These are NOT measurement uncertainty values; they define the acceptable range for practical tuning purposes.
   - 1" tiny whoop: 40ms ± 10.0ms (low power/torque)
   - 2" micro: 35ms ± 8.75ms
