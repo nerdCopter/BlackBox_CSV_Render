@@ -1376,6 +1376,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                             crate::data_analysis::optimal_p_estimation::FrameClass::from_inches(
                                 rounded_size,
                             );
+                        if frame_class_override.is_none() {
+                            eprintln!(
+                                "Warning: Prop size {} does not map to a known frame class. Default frame class will be used.",
+                                size
+                            );
+                        }
                     }
                     Ok(size) => {
                         eprintln!(
