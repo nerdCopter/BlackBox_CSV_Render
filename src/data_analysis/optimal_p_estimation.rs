@@ -12,6 +12,9 @@
 
 use crate::constants::*;
 
+/// Minimum valid Td (time to 50%) in milliseconds (domain-appropriate threshold)
+const MIN_TD_MS: f64 = 0.1;
+
 /// Frame class for Td target selection (prop size in inches)
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,13 +38,12 @@ pub enum FrameClass {
 
 impl FrameClass {
     /// Get Td target and tolerance for this frame class
-    pub fn td_target(&self) -> (f64, f64) {
+    pub fn td_target(&self) -> Option<(f64, f64)> {
         // Convert to 1-based frame size (inches) for the helper method
         let frame_size = self.array_index() + 1;
-        // Fail-fast if TdTargetSpec is missing (invariant violation)
-        let spec = crate::constants::TdTargetSpec::for_frame_inches(frame_size)
-            .expect("TdTargetSpec missing for valid FrameClass - this should never happen");
-        (spec.target_ms, spec.tolerance_ms)
+        // Return None if TdTargetSpec is missing instead of panicking
+        crate::constants::TdTargetSpec::for_frame_inches(frame_size)
+            .map(|spec| (spec.target_ms, spec.tolerance_ms))
     }
 
     /// Get array index for this frame class (0-14)
@@ -182,8 +184,9 @@ pub enum PRecommendation {
 #[derive(Debug, Clone)]
 pub struct TdStatistics {
     pub mean_ms: f64,
+    /// Standard deviation; None when samples are too few for meaningful calculation
     #[allow(dead_code)]
-    pub std_dev_ms: f64,
+    pub std_dev_ms: Option<f64>,
     pub coefficient_of_variation: f64,
     pub num_samples: usize,
     pub consistency: f64, // Fraction of samples within ±1 std dev
@@ -205,10 +208,10 @@ impl TdStatistics {
         }
 
         // Calculate sample variance with Bessel's correction (divide by n-1)
-        // For small samples, set std_dev to 0.0 to avoid division by zero
+        // For small samples, set std_dev to None to indicate insufficient data
         let (std_dev, coefficient_of_variation) = if td_samples_ms.len() < TD_SAMPLES_MIN_FOR_STDDEV
         {
-            (0.0, 0.0)
+            (None, 0.0)
         } else {
             let sum_sq_dev = td_samples_ms
                 .iter()
@@ -217,22 +220,25 @@ impl TdStatistics {
             let variance = sum_sq_dev / (n - 1.0);
             let std_dev = variance.sqrt();
             let coefficient_of_variation = std_dev / mean;
-            (std_dev, coefficient_of_variation)
+            (Some(std_dev), coefficient_of_variation)
         };
 
         // Calculate consistency: fraction within ±1 std dev
-        // When std_dev == 0.0 (identical samples), consistency is perfect (1.0)
+        // When std_dev is None or all samples identical, consistency is perfect (1.0)
         // Otherwise, tolerance = std_dev and calculate fraction within range
-        let consistency = if std_dev == 0.0 {
-            // All samples identical → perfect consistency
-            1.0
-        } else {
-            let tolerance = std_dev;
-            let within_range = td_samples_ms
-                .iter()
-                .filter(|&&x| (x - mean).abs() <= tolerance)
-                .count();
-            within_range as f64 / n
+        let consistency = match std_dev {
+            None => {
+                // Too few samples → perfect consistency (no variance can be computed)
+                1.0
+            }
+            Some(sd) => {
+                let tolerance = sd;
+                let within_range = td_samples_ms
+                    .iter()
+                    .filter(|&&x| (x - mean).abs() <= tolerance)
+                    .count();
+                within_range as f64 / n
+            }
         };
 
         Some(TdStatistics {
@@ -290,18 +296,25 @@ impl OptimalPAnalysis {
         let td_stats = TdStatistics::from_samples(td_samples_ms)?;
 
         // Get target Td - use physics-based if available, otherwise frame class
-        let (td_target_ms, _td_tolerance_ms) =
-            if let Some((phys_target, _phys_tol)) = physics_td_target_ms {
-                (phys_target, _phys_tol)
-            } else {
-                frame_class.td_target()
-            };
-
-        // Defensive check: td_target_ms must be positive to avoid division by zero
-        if td_target_ms <= f64::EPSILON {
+        let (td_target_ms, _td_tolerance_ms) = if let Some((phys_target, phys_tol)) =
+            physics_td_target_ms
+        {
+            (phys_target, phys_tol)
+        } else if let Some((frame_target, frame_tol)) = frame_class.td_target() {
+            (frame_target, frame_tol)
+        } else {
             eprintln!(
-                "Warning: Invalid Td target ({:.3}ms) for optimal P analysis. Skipping.",
-                td_target_ms
+                "Warning: No Td target available for frame class {:?}. Skipping optimal P analysis.",
+                frame_class
+            );
+            return None;
+        };
+
+        // Defensive check: td_target_ms must be above domain minimum to be physically meaningful
+        if td_target_ms <= MIN_TD_MS {
+            eprintln!(
+                "Warning: Invalid Td target ({:.3}ms, minimum {:.3}ms) for optimal P analysis. Skipping.",
+                td_target_ms, MIN_TD_MS
             );
             return None;
         }
@@ -532,16 +545,19 @@ impl OptimalPAnalysis {
 
     /// Format analysis as human-readable console output
     pub fn format_console_output(&self, axis_name: &str) -> String {
-        let (td_target, td_tolerance) = self.frame_class.td_target();
+        let target_display = if let Some((td_target, td_tolerance)) = self.frame_class.td_target() {
+            format!("{:.1}±{:.1}ms", td_target, td_tolerance)
+        } else {
+            "unknown".to_string()
+        };
         let mut output = String::new();
 
         // Compact header - axis name and basic info
         output.push_str(&format!(
-            "{}: Td={:.1}ms (target {:.1}±{:.1}ms, {:+.0}% dev), Noise={}, Consistency={:.0}%\n",
+            "{}: Td={:.1}ms (target {}, {:+.0}% dev), Noise={}, Consistency={:.0}%\n",
             axis_name,
             self.td_stats.mean_ms,
-            td_target,
-            td_tolerance,
+            target_display,
             self.td_deviation_percent,
             self.noise_level.name(),
             self.td_stats.consistency * 100.0
