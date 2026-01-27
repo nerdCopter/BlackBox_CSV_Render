@@ -361,7 +361,19 @@ pub fn calculate_hf_energy_ratio(data: &[f32], sample_rate: f64, hf_cutoff: f64)
 
     // Use Welch's method for robust PSD estimation
     let config = WelchConfig::default();
-    let psd = welch_psd(data, sample_rate, Some(config)).ok()?;
+    let psd = match welch_psd(data, sample_rate, Some(config.clone())) {
+        Ok(psd) => psd,
+        Err(e) => {
+            eprintln!(
+                "Warning: Welch PSD calculation failed (data_len={}, sample_rate={} Hz, config={:?}): {}. Skipping HF energy ratio.",
+                data.len(),
+                sample_rate,
+                config,
+                e
+            );
+            return None;
+        }
+    };
 
     if psd.is_empty() {
         return None;
