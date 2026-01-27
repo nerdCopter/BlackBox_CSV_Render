@@ -15,10 +15,28 @@ use crate::constants::*;
 /// Minimum valid Td (time to 50%) in milliseconds (domain-appropriate threshold)
 const MIN_TD_MS: f64 = 0.1;
 
-/// Safe conversion from scaled f64 to u32 with saturation
-/// Computes (base * multiplier), clamps to u32::MAX, and returns saturated result
+/// Safe conversion from scaled f64 to u32 with saturation.
+///
+/// Computes (base * multiplier) and returns a saturated `u32` result:
+/// - If `multiplier` is NaN, returns 0 (deterministic handling of invalid multiplier).
+/// - If the scaled value is >= `u32::MAX`, returns `u32::MAX`.
+/// - If the scaled value is <= 0.0, returns 0.
+/// - Otherwise returns the truncated `u32` value.
 fn safe_scaled_p(base: u32, multiplier: f64) -> u32 {
+    // Explicitly handle NaN deterministically rather than relying on cast behavior
+    if multiplier.is_nan() {
+        return 0;
+    }
+
     let scaled = (base as f64) * multiplier;
+    if scaled.is_infinite() {
+        if scaled.is_sign_positive() {
+            return u32::MAX;
+        } else {
+            return 0;
+        }
+    }
+
     if scaled >= (u32::MAX as f64) {
         u32::MAX
     } else if scaled <= 0.0 {
