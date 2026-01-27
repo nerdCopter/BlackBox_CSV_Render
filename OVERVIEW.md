@@ -189,19 +189,23 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 - Shows recommendations only when the step response needs improvement (skips optimal peak 0.95–1.04)
 - **Note:** Peak value measures the first maximum after crossing the setpoint; the initial transient dip is normal system behavior
 
-#### Optimal P Estimation (Optional)
+#### Optimal P Estimation (Optional, Experimental)
 
 Physics-aware P gain optimization based on response timing analysis:
 
 - **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag
-- **Prop Size Selection:** Use `--prop-size <size>` to specify **propeller diameter** in inches (1-13)
+- **⚠️ Status:** This feature is **experimental**. Frame-class Td targets are provisional empirical estimates requiring flight validation. Use as initial guidelines only; validation data collection is ongoing.
+- **Prop Size Selection:** Use `--prop-size <size>` to specify **propeller diameter** in inches (1.0-15.0, decimals allowed)
   - **Critical:** Match your actual prop size (e.g., 6" frame with 5" props → use `--prop-size 5`)
-  - Defaults to 5 if not specified
+  - Supports decimal values (e.g., `--prop-size 5.5` for 5.5" props)
+  - Defaults to 5.0 if not specified
   - Prop size determines rotational inertia (I ∝ radius²) which directly affects response time
-  - Each prop size has physics-informed, empirically-derived Td (time to 50%) targets based on torque-to-rotational-inertia ratio
-- **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal. Response speed scales with torque-to-rotational-inertia ratio: Td ∝ (rotational inertia)⁻¹. For simple models (point mass or thin ring) rotational inertia scales as mass × radius²; real quad inertias depend on mass distribution (frame, motors, battery, props). **Propeller size is the primary determinant of rotational inertia**, not frame size. Targets below are provisional empirical estimates guided by this physics-inspired scaling relation and must be validated against actual flight logs.
+  - Each prop size has empirically-derived Td (time to 50%) targets based on observed flight data
+- **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal. The relationship between Td (time to 50%) and rotational inertia is **Td ∝ √(I/torque)**. While rotational inertia scales with mass × radius² (I ∝ mr²) for simple models, **actual Td is affected by many factors**: mass distribution (frame, motors, battery, props placement), motor torque characteristics, propeller aerodynamics, battery voltage, and ESC response. The frame-class targets below are **empirical estimates derived from flight data**, not pure physics calculations. Propeller size is used as a practical proxy for rotational inertia, but targets must be validated against actual flight logs for each specific build configuration.
 - **Frame-Class Targets (Provisional - requires flight validation):**
-  - **Tolerance Ranges:** The (±) values represent acceptable response timing bands for each frame class—use these as recommended tuning acceptance ranges during flight validation, not measurement uncertainty or statistical confidence intervals.
+  - **⚠️ IMPORTANT DISCLAIMER:** These targets are provisional empirical estimates and **MUST be validated through systematic flight testing**. They are derived from limited flight data and theoretical understanding of response dynamics. Use as initial guidelines only. Validation data collection is ongoing.
+  - **Constants Reference:** All targets are defined in `src/constants.rs` as the `TD_TARGETS` array (starting around line 309).
+  - **User Acceptance Ranges (TD_TARGETS):** The (±) values listed below represent recommended tuning acceptance bands for pilots. If your measured Td falls within target ± tolerance for your prop size, the tune is acceptable for flight. These are NOT measurement uncertainty values; they define the acceptable range for practical tuning purposes.
   - 1" tiny whoop: 40ms ± 10.0ms (low power/torque)
   - 2" micro: 35ms ± 8.75ms
   - 3" toothpick/cinewhoop: 30ms ± 7.5ms
@@ -215,27 +219,24 @@ Physics-aware P gain optimization based on response timing analysis:
   - 11" heavy-lift: 75ms ± 18.75ms
   - 12" heavy-lift: 85ms ± 21.25ms
   - 13" heavy-lift: 95ms ± 23.75ms
+  - 14" heavy-lift: 105ms ± 26.25ms
+  - 15" heavy-lift: 115ms ± 28.75ms
   - **How to Validate These Targets:**
     * **Method**: Run this tool on your flight logs with correct `--prop-size` and observe Td measurements
-    * **Theory**: Td should scale approximately with prop radius squared: Td ∝ r² (due to rotational inertia I ∝ mr²)
-    * **Scaling Check**: Compare ratio of Td targets to radius² ratio:
-      - 3" to 5": Target ratio = 30/20 = 1.5, Radius² ratio = (3/5)² = 0.36 → Adjusted: 1.5/0.36 ≈ 4.2
-      - 5" to 7": Target ratio = 37.5/20 = 1.875, Radius² ratio = (7/5)² = 1.96 → Adjusted: 1.875/1.96 ≈ 0.96 ✓
-      - This validates that larger props do have proportionally longer Td as expected from physics
-    * **Constants Reference**: All targets defined in `src/constants.rs` as `TD_TARGETS` array (line ~297)
     * **Acceptance Criterion**: Your measured Td should fall within target ± tolerance range for your prop size
     * **Common Deviations**:
       - Faster than target + low noise = Excellent build, headroom for P increase
       - Slower than target + high noise = Mechanical issues or incorrect prop size specified
       - Within target + high noise = P at physical limits (optimal for this aircraft)
-  - **Validation Plan (Provisional Targets):** These targets require systematic validation via flight data collection. 
+  - **Validation Threshold (Target Metrics):** The provisional targets themselves require statistical validation to confirm accuracy. This uses a stricter ±10% criterion for confirming that predicted targets match actual measurements across multiple flights. This threshold is for developers/researchers validating the model, not for pilots checking their tune.
     * **Target Metrics:** Per frame class, measure Td mean and std dev across ≥10 flights (manual setpoint inputs or step-sticks); confidence threshold: Td within ±10% of predicted target.
     * **Data Collection Protocol:**
       - **Flight Logs:** Controlled stick inputs on tethered or low-altitude flights; log format: Betaflight CSV with gyro, setpoint, P/D gains recorded; sample ≥3 distinct P settings per frame class.
       - **System Documentation:** Record complete system specs (frame, motors, props, battery, AUW) for each test aircraft to correlate Td measurements with physical parameters.
       - **Note:** Bench testing isolated motors cannot validate Td targets—Td represents full system response including frame rotational inertia, which is absent in component-level tests.
     * **Test Matrix:** One representative aircraft per frame class (1", 3", 5", 7", 10"—minimum coverage); repeat with 2 different motor/prop combos per class to validate robustness.
-    * **Tracking & Results:** Create GitHub issue template for each frame class linking to uploaded flight log summaries (mean Td, actual P setting, pilot feedback, system specs). Include pass/fail criteria: predicted Td ±10%, pass/fail per class. Owner: TBD. Timeline: complete by [YYYY-MM-DD].
+    * **Tracking & Results:** Create GitHub issue template for each frame class linking to uploaded flight log summaries (mean Td, actual P setting, pilot feedback, system specs). Include pass/fail criteria: predicted Td ±10%, pass/fail per class.
+    * **Timeline:** TBD (seeking community validation data collection - see GitHub issues for current status)
 - **Analysis Components:**
   - Collects individual Td measurements from all valid step response windows
   - Calculates response consistency metrics (mean, std dev, coefficient of variation)

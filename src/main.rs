@@ -351,74 +351,47 @@ fn find_csv_files_in_dir_impl(
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
-    eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--estimate-optimal-p] [--prop-size <size>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
-    eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
-    eprintln!("            Can mix files and directories in a single command.");
-    eprintln!("            - Individual CSV file: path/to/file.csv");
-    eprintln!("            - Directory: path/to/dir/ (finds CSV files only in that directory)");
-    eprintln!("            - Wildcards: *.csv, *LOG*.csv (shell-expanded; works with mixed file and directory patterns)");
-    eprintln!(
-        "            Note: Header files (.header.csv, .headers.csv) are automatically excluded."
-    );
-    eprintln!(
-        "  -O, --output-dir <directory>: Optional. Specifies the output directory for generated plots."
-    );
-    eprintln!("                              If omitted, plots are saved in the source folder (input directory).");
-    eprintln!("  --bode: Optional. Generate Bode plot analysis (magnitude, phase, coherence).");
-    eprintln!("          NOTE: Requires controlled test flights with system-identification inputs");
-    eprintln!("          (chirp/PRBS). Not recommended for normal flight logs.");
-    eprintln!(
-        "  --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters"
-    );
-    eprintln!("                 as gray curves/lines on gyro and D-term spectrum plots.");
-    eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
-    eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
-    eprintln!("                 deg/s threshold value. Must be a positive number.");
-    eprintln!("                 If --dps is omitted, a general step-response is shown.");
-    eprintln!(
-        "  --estimate-optimal-p: Optional. Enable optimal P estimation with physics-aware recommendations."
-    );
-    eprintln!(
-        "                        Analyzes response time vs. frame-class targets and noise levels."
-    );
-    eprintln!(
-        "  --prop-size <size>: Optional. Specify propeller diameter in inches for optimal P estimation."
-    );
-    eprintln!("                      Valid options: 1-15 (match your actual PROPELLER size)");
-    eprintln!(
-        "                      Defaults to 5 if --estimate-optimal-p is used without this flag."
-    );
-    eprintln!(
-        "                      Note: This flag is only applied when --estimate-optimal-p is enabled."
-    );
-    eprintln!("                      Example: 6-inch frame with 5-inch props → use --prop-size 5");
-    eprintln!(
-        "                      If --prop-size is provided without --estimate-optimal-p, a warning"
-    );
-    eprintln!("                      will be shown and the prop size setting will be ignored.");
-    eprintln!(
-        "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
-    );
-    eprintln!("  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).");
-    eprintln!("  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.");
-    eprintln!(
-        "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
-    );
-    eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
-    eprintln!("  -h, --help: Show this help message and exit.");
-    eprintln!("  -V, --version: Show version information and exit.");
     eprintln!(
         "
-Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns."
+Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     );
     eprintln!();
-    eprintln!("Examples:");
-    eprintln!("  {program_name} flight.csv");
-    eprintln!("  {program_name} flight.csv --dps 200");
-    eprintln!("  {program_name} flight.csv --step --estimate-optimal-p --prop-size 5");
-    eprintln!("  {program_name} input/*.csv -O ./output/");
-    eprintln!("  {program_name} logs/ -R --step");
+    eprintln!("=== A. INPUT/OUTPUT OPTIONS ===");
+    eprintln!();
+    eprintln!(
+        "  <inputX>: CSV files, directories, or wildcards (*.csv). Header files auto-excluded."
+    );
+    eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
+    eprintln!("  -R, --recursive: Recursively find CSV files in subdirectories.");
+    eprintln!();
+    eprintln!();
+    eprintln!("=== B. PLOT TYPE SELECTION ===");
+    eprintln!();
+    eprintln!("  --step: Generate only step response plots.");
+    eprintln!("  --motor: Generate only motor spectrum plots.");
+    eprintln!("  --setpoint: Generate only setpoint-related plots.");
+    eprintln!("  --pid: Generate only P, I, D activity plot.");
+    eprintln!("  --bode: Generate Bode plot analysis.");
+    eprintln!();
+    eprintln!("Note: Plot flags are combinable. Without flags, all plots generated.");
+    eprintln!();
+    eprintln!();
+    eprintln!("=== C. ANALYSIS OPTIONS ===");
+    eprintln!();
+    eprintln!("  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
+    eprintln!(
+        "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
+    );
+    eprintln!();
+    eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.");
+    eprintln!("    --prop-size <size>: Propeller diameter in inches (1.0-15.0, default: 5.0).");
+    eprintln!();
+    eprintln!();
+    eprintln!("=== D. GENERAL ===");
+    eprintln!();
+    eprintln!("  --debug: Show detailed metadata during processing.");
+    eprintln!("  -h, --help: Show this help message.");
+    eprintln!("  -V, --version: Show version information.");
     std::process::exit(1);
 }
 
@@ -1045,6 +1018,11 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 }
                             };
 
+                            // Physics-based Td calculation produces unrealistic targets (2-3× too optimistic)
+                            // because it doesn't account for ESC lag, motor efficiency, voltage sag, prop transients
+                            // Keep physics model for potential future use but don't use for Td targets
+                            // Use empirically-validated frame-class targets only
+
                             // Perform optimal P analysis
                             if let Some(analysis) = crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
                             &td_samples_ms,
@@ -1053,6 +1031,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             analysis_opts.frame_class,
                             hf_energy_ratio,
                             recommended_pd_conservative[axis_index],
+                            None, // Don't use physics_td_target - empirical targets more accurate
                         ) {
                             // Print console output
                             println!("{}", analysis.format_console_output(axis_name));
@@ -1087,27 +1066,52 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
 
     if plot_config.step_response {
+        // Group related parameters into structs for cleaner API
+        use crate::plot_functions::plot_step_response::{
+            ConservativeRecommendations, CurrentPeakAndRatios, ModerateRecommendations,
+            OptimalPConfig, PlotDisplayConfig,
+        };
+
+        let current = CurrentPeakAndRatios {
+            peak_values,
+            pd_ratios: current_pd_ratios,
+            assessments,
+        };
+
+        let conservative = ConservativeRecommendations {
+            pd_ratios: recommended_pd_conservative,
+            d_values: recommended_d_conservative,
+            d_min_values: recommended_d_min_conservative,
+            d_max_values: recommended_d_max_conservative,
+        };
+
+        let moderate = ModerateRecommendations {
+            pd_ratios: recommended_pd_aggressive,
+            d_values: recommended_d_aggressive,
+            d_min_values: recommended_d_min_aggressive,
+            d_max_values: recommended_d_max_aggressive,
+        };
+
+        let display = PlotDisplayConfig {
+            has_nonzero_f_term: has_nonzero_f_term_data,
+            setpoint_threshold: analysis_opts.setpoint_threshold,
+            show_legend: analysis_opts.show_legend,
+        };
+
+        let optimal_p = OptimalPConfig {
+            analyses: optimal_p_analyses,
+        };
+
         plot_step_response(
             &step_response_calculation_results,
             &root_name_string,
             sample_rate,
-            &has_nonzero_f_term_data,
-            analysis_opts.setpoint_threshold,
-            analysis_opts.show_legend,
             &pid_context.pid_metadata,
-            &peak_values,
-            &current_pd_ratios,
-            &assessments,
-            &recommended_pd_conservative,
-            &recommended_d_conservative,
-            &recommended_d_min_conservative,
-            &recommended_d_max_conservative,
-            &recommended_pd_aggressive,
-            &recommended_d_aggressive,
-            &recommended_d_min_aggressive,
-            &recommended_d_max_aggressive,
-            &optimal_p_analyses,
-            analysis_opts.estimate_optimal_p,
+            &current,
+            &conservative,
+            &moderate,
+            &display,
+            &optimal_p,
         )?;
     }
 
@@ -1283,6 +1287,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut estimate_optimal_p = false;
     let mut frame_class_override: Option<crate::data_analysis::optimal_p_estimation::FrameClass> =
         None;
+    let mut prop_size_override: Option<f32> = None; // Decimal prop size for frame class selection
 
     let mut version_flag_set = false;
 
@@ -1353,31 +1358,36 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg == "--prop-size" {
-            if frame_class_override.is_some() {
+            if prop_size_override.is_some() {
                 eprintln!("Error: --prop-size argument specified more than once.");
                 print_usage_and_exit(program_name);
             }
             if i + 1 >= args.len() {
                 eprintln!(
-                    "Error: --prop-size requires a numeric value (propeller diameter in inches: 1-15)."
+                    "Error: --prop-size requires a numeric value (propeller diameter in inches: 1-15, decimals allowed)."
                 );
                 print_usage_and_exit(program_name);
             } else {
-                let fc_str = args[i + 1].trim();
-                match fc_str.parse::<u8>() {
+                let prop_str = args[i + 1].trim();
+                match prop_str.parse::<f32>() {
+                    Ok(size) if (1.0..=15.0).contains(&size) => {
+                        prop_size_override = Some(size);
+                        // Also set FrameClass for Td targets (round to nearest inch)
+                        let rounded_size = size.round() as u8;
+                        frame_class_override =
+                            crate::data_analysis::optimal_p_estimation::FrameClass::from_inches(
+                                rounded_size,
+                            );
+                    }
                     Ok(size) => {
-                        match crate::data_analysis::optimal_p_estimation::FrameClass::from_inches(
-                            size,
-                        ) {
-                            Some(fc) => frame_class_override = Some(fc),
-                            None => {
-                                eprintln!("Error: Invalid prop size '{}'. Valid options: 1-15 (propeller diameter in inches)", fc_str);
-                                print_usage_and_exit(program_name);
-                            }
-                        }
+                        eprintln!(
+                            "Error: Prop size '{}' out of range. Valid range: 1.0-15.0 inches",
+                            size
+                        );
+                        print_usage_and_exit(program_name);
                     }
                     Err(_) => {
-                        eprintln!("Error: Invalid prop size '{}'. Valid options: 1-15 (propeller diameter in inches)", fc_str);
+                        eprintln!("Error: Invalid prop size '{}'. Must be a number between 1.0 and 15.0 (decimals allowed)", prop_str);
                         print_usage_and_exit(program_name);
                     }
                 }
@@ -1420,7 +1430,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Warn if --prop-size is specified without --estimate-optimal-p
-    if frame_class_override.is_some() && !estimate_optimal_p {
+    if prop_size_override.is_some() && !estimate_optimal_p {
         eprintln!("Warning: --prop-size specified without --estimate-optimal-p.");
         eprintln!("         The prop size setting will be ignored.");
         eprintln!("         Use --estimate-optimal-p to enable optimal P estimation.");
