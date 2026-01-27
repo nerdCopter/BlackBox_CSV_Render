@@ -12,6 +12,32 @@
 
 use crate::constants::*;
 
+/// Error type for optimal P analysis
+#[derive(Debug, Clone)]
+pub enum AnalysisError {
+    /// No Td target available for the given frame class
+    #[allow(dead_code)]
+    MissingTdTarget {
+        frame_class: FrameClass,
+        message: String,
+    },
+}
+
+impl std::fmt::Display for AnalysisError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AnalysisError::MissingTdTarget {
+                frame_class: _,
+                message,
+            } => {
+                write!(f, "{}", message)
+            }
+        }
+    }
+}
+
+impl std::error::Error for AnalysisError {}
+
 /// Minimum valid Td (time to 50%) in milliseconds (domain-appropriate threshold)
 const MIN_TD_MS: f64 = 0.1;
 
@@ -322,32 +348,40 @@ impl OptimalPAnalysis {
         hf_energy_ratio: Option<f64>,
         recommended_pd_conservative: Option<f64>,
         physics_td_target_ms: Option<(f64, f64)>, // Optional (td_target, tolerance) from physics
-    ) -> Option<Self> {
+    ) -> Result<Self, AnalysisError> {
         // Calculate Td statistics
-        let td_stats = TdStatistics::from_samples(td_samples_ms)?;
+        let td_stats = TdStatistics::from_samples(td_samples_ms).ok_or_else(|| {
+            AnalysisError::MissingTdTarget {
+                frame_class,
+                message: "Failed to calculate Td statistics from samples.".to_string(),
+            }
+        })?;
 
         // Get target Td - use physics-based if available, otherwise frame class
-        let (td_target_ms, _td_tolerance_ms) = if let Some((phys_target, phys_tol)) =
-            physics_td_target_ms
-        {
-            (phys_target, phys_tol)
-        } else if let Some((frame_target, frame_tol)) = frame_class.td_target() {
-            (frame_target, frame_tol)
-        } else {
-            eprintln!(
-                "Warning: No Td target available for frame class {:?}. Skipping optimal P analysis.",
-                frame_class
-            );
-            return None;
-        };
+        let (td_target_ms, _td_tolerance_ms) =
+            if let Some((phys_target, phys_tol)) = physics_td_target_ms {
+                (phys_target, phys_tol)
+            } else if let Some((frame_target, frame_tol)) = frame_class.td_target() {
+                (frame_target, frame_tol)
+            } else {
+                return Err(AnalysisError::MissingTdTarget {
+                    frame_class,
+                    message: format!(
+                        "No Td target available for frame class {:?}. Skipping optimal P analysis.",
+                        frame_class
+                    ),
+                });
+            };
 
         // Defensive check: td_target_ms must be above domain minimum to be physically meaningful
         if td_target_ms <= MIN_TD_MS {
-            eprintln!(
-                "Warning: Invalid Td target ({:.3}ms, minimum {:.3}ms) for optimal P analysis. Skipping.",
-                td_target_ms, MIN_TD_MS
-            );
-            return None;
+            return Err(AnalysisError::MissingTdTarget {
+                frame_class,
+                message: format!(
+                    "Invalid Td target ({:.3}ms, minimum {:.3}ms) for optimal P analysis. Skipping.",
+                    td_target_ms, MIN_TD_MS
+                ),
+            });
         }
 
         // Calculate deviation from target (safe: td_target_ms validated above)
@@ -386,7 +420,7 @@ impl OptimalPAnalysis {
             &td_stats,
         );
 
-        Some(OptimalPAnalysis {
+        Ok(OptimalPAnalysis {
             frame_class,
             current_p,
             current_d,

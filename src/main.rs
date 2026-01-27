@@ -1022,7 +1022,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             // Use empirically-validated frame-class targets only
 
                             // Perform optimal P analysis
-                            if let Some(analysis) = crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
+                            match crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
                             &td_samples_ms,
                             p_gain,
                             current_d,
@@ -1031,11 +1031,17 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             recommended_pd_conservative[axis_index],
                             None, // Don't use physics_td_target - empirical targets more accurate
                         ) {
-                            // Print console output
-                            println!("{}", analysis.format_console_output(axis_name));
-                            // Store for PNG overlay (move instead of clone)
-                            optimal_p_analyses[axis_index] = Some(analysis);
-                        }
+                                Ok(analysis) => {
+                                    // Print console output
+                                    println!("{}", analysis.format_console_output(axis_name));
+                                    // Store for PNG overlay (move instead of clone)
+                                    optimal_p_analyses[axis_index] = Some(analysis);
+                                }
+                                Err(e) => {
+                                    // Log the error for user visibility
+                                    eprintln!("Warning: {}", e);
+                                }
+                            }
                         } else {
                             println!("  P gain not available for {axis_name}. Skipping optimal P analysis.");
                         }
