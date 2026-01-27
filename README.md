@@ -53,6 +53,7 @@ Note: Plot flags are combinable. Without flags, all plots are generated.
 
   --estimate-optimal-p: Enable optimal P estimation with frame-class targets.
     --prop-size <size>: Propeller diameter in inches (1.0-15.0, default: 5.0).
+      Note: `--prop-size` is used only when `--estimate-optimal-p` is specified (it sets the propeller diameter for the estimation).
 
 
 === D. GENERAL ===
