@@ -968,10 +968,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             if let Some(td_seconds) =
                                 calc_step_response::calculate_delay_time(&response_arr, sr)
                             {
-                                td_samples_ms.push(
-                                    td_seconds
-                                        * crate::constants::OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER,
-                                );
+                                td_samples_ms.push(td_seconds * 1000.0);
                             }
                         }
 
