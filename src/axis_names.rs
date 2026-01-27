@@ -13,15 +13,12 @@
 /// Panics if index is greater than 2
 #[allow(dead_code)]
 pub fn axis_name(index: usize) -> &'static str {
-    match index {
-        0 => "Roll",
-        1 => "Pitch",
-        2 => "Yaw",
-        _ => panic!(
+    AXIS_NAMES.get(index).copied().unwrap_or_else(|| {
+        panic!(
             "Invalid axis index: {}. Expected 0 (Roll), 1 (Pitch), or 2 (Yaw)",
             index
-        ),
-    }
+        )
+    })
 }
 
 /// Number of axes (Roll, Pitch, Yaw)
