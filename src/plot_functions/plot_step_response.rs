@@ -609,10 +609,12 @@ pub fn plot_step_response(
     // Calculate unified Y-axis range across ALL axes for symmetric scaling (issue #115)
     let (final_resp_min, final_resp_max) =
         if global_resp_min.is_finite() && global_resp_max.is_finite() {
-            // Simple symmetric range expansion with 10% padding
+            // Simple symmetric range expansion with 10% TOTAL padding (~5% per side)
             let range = (global_resp_max - global_resp_min).max(0.1);
             let mid = (global_resp_max + global_resp_min) / 2.0;
-            let half_range = range * 0.55; // 10% padding = 1.1/2 = 0.55
+            // half_range = range * 0.55 gives a total span of 1.1*range (10% total expansion)
+            // which corresponds to ≈5% padding on each side of the center.
+            let half_range = range * 0.55;
             (mid - half_range, mid + half_range)
         } else {
             // Default range if no valid data
