@@ -16,20 +16,13 @@ use crate::constants::*;
 #[derive(Debug, Clone)]
 pub enum AnalysisError {
     /// No Td target available for the given frame class
-    #[allow(dead_code)]
-    MissingTdTarget {
-        frame_class: FrameClass,
-        message: String,
-    },
+    MissingTdTarget { message: String },
 }
 
 impl std::fmt::Display for AnalysisError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AnalysisError::MissingTdTarget {
-                frame_class: _,
-                message,
-            } => {
+            AnalysisError::MissingTdTarget { message } => {
                 write!(f, "{}", message)
             }
         }
@@ -352,7 +345,6 @@ impl OptimalPAnalysis {
         // Calculate Td statistics
         let td_stats = TdStatistics::from_samples(td_samples_ms).ok_or_else(|| {
             AnalysisError::MissingTdTarget {
-                frame_class,
                 message: "Failed to calculate Td statistics from samples.".to_string(),
             }
         })?;
@@ -365,7 +357,6 @@ impl OptimalPAnalysis {
                 (frame_target, frame_tol)
             } else {
                 return Err(AnalysisError::MissingTdTarget {
-                    frame_class,
                     message: format!(
                         "No Td target available for frame class {:?}. Skipping optimal P analysis.",
                         frame_class
@@ -376,7 +367,6 @@ impl OptimalPAnalysis {
         // Defensive check: td_target_ms must be above domain minimum to be physically meaningful
         if td_target_ms <= MIN_TD_MS {
             return Err(AnalysisError::MissingTdTarget {
-                frame_class,
                 message: format!(
                     "Invalid Td target ({:.3}ms, minimum {:.3}ms) for optimal P analysis. Skipping.",
                     td_target_ms, MIN_TD_MS
