@@ -72,7 +72,7 @@ Note: Plot flags are combinable. Without flags, all plots are generated.
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500 --butterworth
 
 # Basic optimal P estimation (Experimental)
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5.0
 
 # Multiple files with output directory
 ./target/release/BlackBox_CSV_Render path1/*.csv path2/*.csv --output-dir ./plots
