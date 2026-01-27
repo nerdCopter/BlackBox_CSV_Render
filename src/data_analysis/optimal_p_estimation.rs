@@ -184,9 +184,6 @@ pub enum PRecommendation {
 #[derive(Debug, Clone)]
 pub struct TdStatistics {
     pub mean_ms: f64,
-    /// Standard deviation; None when samples are too few for meaningful calculation
-    #[allow(dead_code)]
-    pub std_dev_ms: Option<f64>,
     pub coefficient_of_variation: f64,
     pub num_samples: usize,
     pub consistency: f64, // Fraction of samples within ±1 std dev
@@ -243,7 +240,6 @@ impl TdStatistics {
 
         Some(TdStatistics {
             mean_ms: mean,
-            std_dev_ms: std_dev,
             coefficient_of_variation,
             num_samples: td_samples_ms.len(),
             consistency,
