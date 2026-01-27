@@ -269,27 +269,14 @@ pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data f
 pub struct TdTargetSpec {
     pub target_ms: f64,
     pub tolerance_ms: f64,
-    #[allow(dead_code)] // Will be used in Phase 2 physics-based calculations
-    pub typical_weight_g: f64,
 }
 
 impl TdTargetSpec {
-    /// Create a new TdTargetSpec with automatic 25% tolerance calculation and typical weight
-    #[allow(dead_code)] // Will be used in Phase 2 physics-based calculations
-    pub const fn new(target_ms: f64, typical_weight_g: f64) -> Self {
-        Self {
-            target_ms,
-            tolerance_ms: target_ms * 0.25,
-            typical_weight_g,
-        }
-    }
-
     /// Create without typical weight (for existing empirical targets)
     pub const fn new_simple(target_ms: f64) -> Self {
         Self {
             target_ms,
             tolerance_ms: target_ms * 0.25,
-            typical_weight_g: 0.0, // Not used for empirical targets
         }
     }
 
