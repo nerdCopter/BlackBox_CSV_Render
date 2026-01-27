@@ -523,6 +523,21 @@ pub fn plot_step_response(
                             });
                         }
                         // Recommendation summary
+                        // Helper closure to compute D recommendation suffix
+                        let append_d_recommendation = |recommended_p: u32| -> String {
+                            if let (Some(current_d), Some(rec_pd)) =
+                                (analysis.current_d, analysis.recommended_pd_conservative)
+                            {
+                                if rec_pd > 0.0 && current_d > 0 {
+                                    let recommended_d =
+                                        ((recommended_p as f64) / rec_pd).round() as u32;
+                                    let d_delta = (recommended_d as i64) - (current_d as i64);
+                                    return format!(", D≈{} ({:+})", recommended_d, d_delta);
+                                }
+                            }
+                            String::new()
+                        };
+
                         let rec_summary = match &analysis.recommendation {
                             PRecommendation::Increase { conservative_p, .. } => {
                                 let p_delta =
@@ -531,20 +546,7 @@ pub fn plot_step_response(
                                     "  Recommendation (Conservative): P≈{} ({:+})",
                                     conservative_p, p_delta
                                 );
-                                // Add D recommendation using recommended P:D ratio (not current!)
-                                if let (Some(current_d), Some(rec_pd)) =
-                                    (analysis.current_d, analysis.recommended_pd_conservative)
-                                {
-                                    if rec_pd > 0.0 && current_d > 0 {
-                                        let recommended_d =
-                                            ((*conservative_p as f64) / rec_pd).round() as u32;
-                                        let d_delta = (recommended_d as i64) - (current_d as i64);
-                                        rec.push_str(&format!(
-                                            ", D≈{} ({:+})",
-                                            recommended_d, d_delta
-                                        ));
-                                    }
-                                }
+                                rec.push_str(&append_d_recommendation(*conservative_p));
                                 rec
                             }
                             PRecommendation::Optimal { .. } => {
@@ -559,20 +561,8 @@ pub fn plot_step_response(
                                     "  Recommendation: P≈{} ({:+})",
                                     recommended_p, p_delta
                                 );
-                                // Add D recommendation using recommended P:D ratio (not current!)
-                                if let (Some(current_d), Some(rec_pd)) =
-                                    (analysis.current_d, analysis.recommended_pd_conservative)
-                                {
-                                    if rec_pd > 0.0 && current_d > 0 {
-                                        let recommended_d =
-                                            ((*recommended_p as f64) / rec_pd).round() as u32;
-                                        let d_delta = (recommended_d as i64) - (current_d as i64);
-                                        rec.push_str(&format!(
-                                            ", D≈{} ({:+})",
-                                            recommended_d, d_delta
-                                        ));
-                                    }
-                                }
+                                rec.push_str(&append_d_recommendation(*recommended_p));
+
                                 rec
                             }
                             PRecommendation::Investigate { .. } => {
