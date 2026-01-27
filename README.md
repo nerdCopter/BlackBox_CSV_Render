@@ -43,7 +43,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
   --pid: Generate only P, I, D activity plot.
   --bode: Generate Bode plot analysis.
 
-Note: Plot flags are combinable. Without flags, all plots generated.
+Note: Plot flags are combinable. Without flags, all plots are generated.
 
 
 === C. ANALYSIS OPTIONS ===
