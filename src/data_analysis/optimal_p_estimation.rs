@@ -486,7 +486,7 @@ impl OptimalPAnalysis {
             // slightly smaller than specified, or the build is exceptionally clean.
             // Either way, there's headroom to push P higher if desired.
             (TdDeviation::SignificantlyFaster, NoiseLevel::Low) => {
-                let conservative = ((current_p as f64) * P_HEADROOM_CONSERVATIVE_MULTIPLIER) as u32;
+                let conservative = safe_scaled_p(current_p, P_HEADROOM_CONSERVATIVE_MULTIPLIER);
                 if conservative > current_p {
                     PRecommendation::Increase {
                         conservative_p: conservative,
