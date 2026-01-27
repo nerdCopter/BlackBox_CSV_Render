@@ -36,8 +36,8 @@ pub const AXIS_NAMES: [&str; AXIS_COUNT] = ["Roll", "Pitch", "Yaw"];
 // Compile-time assertions to prevent invariant drift
 const _: [(); AXIS_COUNT] = [(); AXIS_NAMES.len()];
 const _: () = assert!(
-    ROLL_PITCH_AXIS_COUNT < AXIS_COUNT,
-    "ROLL_PITCH_AXIS_COUNT must be less than AXIS_COUNT"
+    ROLL_PITCH_AXIS_COUNT > 0 && ROLL_PITCH_AXIS_COUNT < AXIS_COUNT,
+    "ROLL_PITCH_AXIS_COUNT must be > 0 and < AXIS_COUNT"
 );
 
 #[cfg(test)]
