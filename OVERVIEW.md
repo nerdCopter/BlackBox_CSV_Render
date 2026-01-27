@@ -199,7 +199,7 @@ Physics-aware P gain optimization based on response timing analysis:
   - **Critical:** Match your actual prop size (e.g., 6" frame with 5" props → use `--prop-size 5`)
   - Supports whole numbers 1 through 15
   - Defaults to 5 if not specified
-  - Prop size determines rotational inertia (I ∝ radius²) which directly affects response time
+  - Prop size is a proxy for rotational inertia (I ∝ mass × radius²) which directly affects response time
   - Each prop size has empirically-derived Td (time to 50%) targets based on observed flight data
 - **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal.
   - **Theoretical Principle:** The relationship between response time and rotational inertia is expressed as **Td ∝ √(I/torque)**, where I is the total rotational inertia (moment of inertia) of the airframe. This principle states that faster-rotating airframes (lower I) achieve quicker response times, while heavier/larger frames (higher I) naturally respond more slowly.

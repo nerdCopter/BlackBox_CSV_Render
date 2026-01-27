@@ -385,7 +385,7 @@ Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     );
     eprintln!();
     eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.");
-    eprintln!("    --prop-size <size>: Propeller diameter in inches (1.0-15.0, default: 5.0).");
+    eprintln!("    --prop-size <size>: Propeller diameter in inches (1-15, default: 5). Requires --estimate-optimal-p to have effect.");
     eprintln!();
     eprintln!();
     eprintln!("=== D. GENERAL ===");
