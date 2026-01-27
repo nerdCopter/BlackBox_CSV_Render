@@ -548,7 +548,10 @@ pub fn plot_step_response(
                                 rec
                             }
                             PRecommendation::Optimal { .. } => {
-                                "  Recommendation: Current P is optimal".to_string()
+                                format!(
+                                    "  Recommendation: Current P is optimal (P = {})",
+                                    analysis.current_p
+                                )
                             }
                             PRecommendation::Decrease { recommended_p, .. } => {
                                 let p_delta = (*recommended_p as i64) - (analysis.current_p as i64);
