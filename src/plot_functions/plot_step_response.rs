@@ -49,8 +49,11 @@ pub struct OptimalPConfig {
     pub analyses: [Option<OptimalPAnalysis>; 3],
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Generates the Stacked Step Response Plot (Blue, Orange, Red)
+///
+/// Parameters are grouped logically (input data, metadata, display options, and analysis results),
+/// making further consolidation impractical without reducing API clarity.
+#[allow(clippy::too_many_arguments)]
 pub fn plot_step_response(
     step_response_results: &StepResponseResults,
     root_name: &str,
