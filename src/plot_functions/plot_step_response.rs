@@ -243,6 +243,17 @@ pub fn plot_step_response(
             };
 
             let mut series = Vec::new();
+
+            // Compute the combined response once (used in both branches with different labels)
+            let final_combined_response = process_response(
+                &combined_mask,
+                valid_stacked_responses,
+                response_length_samples,
+                current_ss_start_idx,
+                current_ss_end_idx,
+                post_averaging_smoothing_window,
+            );
+
             if display.show_legend {
                 let final_low_response = process_response(
                     &low_mask,
@@ -254,15 +265,6 @@ pub fn plot_step_response(
                 );
                 let final_high_response = process_response(
                     &high_mask,
-                    valid_stacked_responses,
-                    response_length_samples,
-                    current_ss_start_idx,
-                    current_ss_end_idx,
-                    post_averaging_smoothing_window,
-                );
-                // The "Combined" response uses all QC'd windows.
-                let final_combined_response = process_response(
-                    &combined_mask,
                     valid_stacked_responses,
                     response_length_samples,
                     current_ss_start_idx,
@@ -316,9 +318,9 @@ pub fn plot_step_response(
                         stroke_width: line_stroke_plot,
                     });
                 }
-                if let Some(resp) = final_combined_response {
-                    let peak_val_opt = calc_step_response::find_peak_value(&resp);
-                    let latency_opt = calc_step_response::calculate_delay_time(&resp, sr);
+                if let Some(resp) = &final_combined_response {
+                    let peak_val_opt = calc_step_response::find_peak_value(resp);
+                    let latency_opt = calc_step_response::calculate_delay_time(resp, sr);
                     let peak_str =
                         peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{p:.2}"));
                     let latency_str = latency_opt.map_or_else(
@@ -338,17 +340,9 @@ pub fn plot_step_response(
                 }
             } else {
                 // If not showing legend, only plot the "Combined" (average of all QC'd responses)
-                let final_combined_response = process_response(
-                    &combined_mask,
-                    valid_stacked_responses,
-                    response_length_samples,
-                    current_ss_start_idx,
-                    current_ss_end_idx,
-                    post_averaging_smoothing_window,
-                );
-                if let Some(resp) = final_combined_response {
-                    let peak_val_opt = calc_step_response::find_peak_value(&resp);
-                    let latency_opt = calc_step_response::calculate_delay_time(&resp, sr);
+                if let Some(resp) = &final_combined_response {
+                    let peak_val_opt = calc_step_response::find_peak_value(resp);
+                    let latency_opt = calc_step_response::calculate_delay_time(resp, sr);
                     let peak_str =
                         peak_val_opt.map_or_else(|| "N/A".to_string(), |p| format!("{p:.2}"));
                     let latency_str = latency_opt.map_or_else(
