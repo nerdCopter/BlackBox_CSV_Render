@@ -14,7 +14,7 @@ use crate::constants::*;
 
 /// Frame class for Td target selection (prop size in inches)
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameClass {
     OneInch,
     TwoInch,
@@ -38,17 +38,14 @@ impl FrameClass {
     pub fn td_target(&self) -> (f64, f64) {
         // Convert to 1-based frame size (inches) for the helper method
         let frame_size = self.array_index() + 1;
-        // Safe indexing via helper (should always succeed given valid FrameClass)
-        if let Some(spec) = crate::constants::TdTargetSpec::for_frame_inches(frame_size) {
-            (spec.target_ms, spec.tolerance_ms)
-        } else {
-            // This should never happen for valid FrameClass variants
-            (0.0, 0.0)
-        }
+        // Fail-fast if TdTargetSpec is missing (invariant violation)
+        let spec = crate::constants::TdTargetSpec::for_frame_inches(frame_size)
+            .expect("TdTargetSpec missing for valid FrameClass - this should never happen");
+        (spec.target_ms, spec.tolerance_ms)
     }
 
     /// Get array index for this frame class (0-14)
-    fn array_index(&self) -> usize {
+    pub fn array_index(&self) -> usize {
         match self {
             FrameClass::OneInch => 0,
             FrameClass::TwoInch => 1,
@@ -113,7 +110,7 @@ impl FrameClass {
 }
 
 /// Noise level classification
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NoiseLevel {
     Low,      // < 10% HF energy
     Moderate, // 10-15% HF energy
@@ -224,11 +221,19 @@ impl TdStatistics {
         };
 
         // Calculate consistency: fraction within ±1 std dev
-        let within_range = td_samples_ms
-            .iter()
-            .filter(|&&x| (x - mean).abs() <= std_dev)
-            .count();
-        let consistency = within_range as f64 / n;
+        // When std_dev == 0.0 (identical samples), consistency is perfect (1.0)
+        // Otherwise, tolerance = std_dev and calculate fraction within range
+        let consistency = if std_dev == 0.0 {
+            // All samples identical → perfect consistency
+            1.0
+        } else {
+            let tolerance = std_dev;
+            let within_range = td_samples_ms
+                .iter()
+                .filter(|&&x| (x - mean).abs() <= tolerance)
+                .count();
+            within_range as f64 / n
+        };
 
         Some(TdStatistics {
             mean_ms: mean,
@@ -279,14 +284,29 @@ impl OptimalPAnalysis {
         frame_class: FrameClass,
         hf_energy_ratio: Option<f64>,
         recommended_pd_conservative: Option<f64>,
+        physics_td_target_ms: Option<(f64, f64)>, // Optional (td_target, tolerance) from physics
     ) -> Option<Self> {
         // Calculate Td statistics
         let td_stats = TdStatistics::from_samples(td_samples_ms)?;
 
-        // Get target Td for frame class
-        let (td_target_ms, _td_tolerance_ms) = frame_class.td_target();
+        // Get target Td - use physics-based if available, otherwise frame class
+        let (td_target_ms, _td_tolerance_ms) =
+            if let Some((phys_target, _phys_tol)) = physics_td_target_ms {
+                (phys_target, _phys_tol)
+            } else {
+                frame_class.td_target()
+            };
 
-        // Calculate deviation from target
+        // Defensive check: td_target_ms must be positive to avoid division by zero
+        if td_target_ms <= f64::EPSILON {
+            eprintln!(
+                "Warning: Invalid Td target ({:.3}ms) for optimal P analysis. Skipping.",
+                td_target_ms
+            );
+            return None;
+        }
+
+        // Calculate deviation from target (safe: td_target_ms validated above)
         let td_deviation_percent = ((td_stats.mean_ms - td_target_ms) / td_target_ms) * 100.0;
 
         // Classify deviation
@@ -532,7 +552,7 @@ impl OptimalPAnalysis {
             output.push_str(&format!(
                 "  ⚠ WARNING: Low consistency (CV={:.1}%, {}/{} responses) - results may be unreliable\n",
                 self.td_stats.coefficient_of_variation * 100.0,
-                (self.td_stats.consistency * self.td_stats.num_samples as f64) as usize,
+                (self.td_stats.consistency * self.td_stats.num_samples as f64).round() as usize,
                 self.td_stats.num_samples
             ));
         }

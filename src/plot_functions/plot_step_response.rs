@@ -16,30 +16,57 @@ use crate::data_input::pid_metadata::PidMetadata;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 use crate::types::{AllStepResponsePlotData, StepResponseResults};
 
+/// Conservative P:D ratio recommendations (safer, incremental tuning)
+pub struct ConservativeRecommendations {
+    pub pd_ratios: [Option<f64>; 3],
+    pub d_values: [Option<u32>; 3],
+    pub d_min_values: [Option<u32>; 3],
+    pub d_max_values: [Option<u32>; 3],
+}
+
+/// Moderate P:D ratio recommendations (aggressive, experienced pilots)
+pub struct ModerateRecommendations {
+    pub pd_ratios: [Option<f64>; 3],
+    pub d_values: [Option<u32>; 3],
+    pub d_min_values: [Option<u32>; 3],
+    pub d_max_values: [Option<u32>; 3],
+}
+
+/// Current peak values and P:D ratios from step response analysis
+pub struct CurrentPeakAndRatios {
+    pub peak_values: [Option<f64>; 3],
+    pub pd_ratios: [Option<f64>; 3],
+    pub assessments: [Option<&'static str>; 3],
+}
+
+/// Plot display configuration
+pub struct PlotDisplayConfig {
+    pub has_nonzero_f_term: [bool; 3],
+    pub setpoint_threshold: f64,
+    pub show_legend: bool,
+}
+
+/// Optional optimal P estimation analysis results
+pub struct OptimalPConfig {
+    pub analyses: [Option<OptimalPAnalysis>; 3],
+}
+
 #[allow(clippy::too_many_arguments)]
 /// Generates the Stacked Step Response Plot (Blue, Orange, Red)
 pub fn plot_step_response(
     step_response_results: &StepResponseResults,
     root_name: &str,
     sample_rate: Option<f64>,
-    has_nonzero_f_term_data: &[bool; 3],
-    setpoint_threshold: f64,
-    show_legend: bool,
     pid_metadata: &PidMetadata,
-    peak_values: &[Option<f64>; 3],
-    current_pd_ratios: &[Option<f64>; 3],
-    assessments: &[Option<&str>; 3],
-    recommended_pd_conservative: &[Option<f64>; 3],
-    recommended_d_conservative: &[Option<u32>; 3],
-    recommended_d_min_conservative: &[Option<u32>; 3],
-    recommended_d_max_conservative: &[Option<u32>; 3],
-    recommended_pd_aggressive: &[Option<f64>; 3],
-    recommended_d_aggressive: &[Option<u32>; 3],
-    recommended_d_min_aggressive: &[Option<u32>; 3],
-    recommended_d_max_aggressive: &[Option<u32>; 3],
-    optimal_p_analyses: &[Option<OptimalPAnalysis>; 3],
-    estimate_optimal_p: bool,
+    current: &CurrentPeakAndRatios,
+    conservative: &ConservativeRecommendations,
+    moderate: &ModerateRecommendations,
+    display: &PlotDisplayConfig,
+    optimal_p: &OptimalPConfig,
 ) -> Result<(), Box<dyn Error>> {
+    // Derive estimate_optimal_p from presence of analyses (removes redundant boolean parameter)
+    let estimate_optimal_p = optimal_p.analyses.iter().any(|a| a.is_some());
+
     let step_response_plot_duration_s = RESPONSE_LENGTH_S;
     let steady_state_start_s_const = STEADY_STATE_START_S; // from constants
     let steady_state_end_s_const = STEADY_STATE_END_S; // from constants
@@ -49,9 +76,10 @@ pub fn plot_step_response(
     let color_low_sp: RGBColor = *COLOR_STEP_RESPONSE_LOW_SP;
     let line_stroke_plot = LINE_WIDTH_PLOT;
 
-    let output_file_step = if show_legend {
+    let output_file_step = if display.show_legend {
         format!(
-            "{root_name}_Step_Response_stacked_plot_{step_response_plot_duration_s}s_{setpoint_threshold}dps.png"
+            "{root_name}_Step_Response_stacked_plot_{step_response_plot_duration_s}s_{}dps.png",
+            display.setpoint_threshold
         )
     } else {
         format!("{root_name}_Step_Response_stacked_plot_{step_response_plot_duration_s}s.png")
@@ -73,7 +101,7 @@ pub fn plot_step_response(
         AXIS_NAMES.len(),
         usize::min(
             step_response_results.len(),
-            usize::min(has_nonzero_f_term_data.len(), plot_data_per_axis.len()),
+            usize::min(display.has_nonzero_f_term.len(), plot_data_per_axis.len()),
         ),
     );
 
@@ -107,14 +135,14 @@ pub fn plot_step_response(
             }
 
             let low_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| {
-                if v.abs() < setpoint_threshold as f32 {
+                if v.abs() < display.setpoint_threshold as f32 {
                     1.0
                 } else {
                     0.0
                 }
             });
             let high_mask: Array1<f32> = valid_window_max_setpoints.mapv(|v| {
-                if v.abs() >= setpoint_threshold as f32 {
+                if v.abs() >= display.setpoint_threshold as f32 {
                     1.0
                 } else {
                     0.0
@@ -205,7 +233,7 @@ pub fn plot_step_response(
             };
 
             let mut series = Vec::new();
-            if show_legend {
+            if display.show_legend {
                 let final_low_response = process_response(
                     &low_mask,
                     valid_stacked_responses,
@@ -248,7 +276,8 @@ pub fn plot_step_response(
                             .map(|(&t, &v)| (t, v))
                             .collect(),
                         label: format!(
-                            "< {setpoint_threshold} deg/s (Peak: {peak_str}, Td: {latency_str})"
+                            "< {} deg/s (Peak: {peak_str}, Td: {latency_str})",
+                            display.setpoint_threshold
                         ),
                         color: color_low_sp,
                         stroke_width: line_stroke_plot,
@@ -270,7 +299,8 @@ pub fn plot_step_response(
                             .map(|(&t, &v)| (t, v))
                             .collect(),
                         label: format!(
-                            "\u{2265} {setpoint_threshold} deg/s (Peak: {peak_str}, Td: {latency_str})"
+                            "\u{2265} {} deg/s (Peak: {peak_str}, Td: {latency_str})",
+                            display.setpoint_threshold
                         ),
                         color: color_high_sp,
                         stroke_width: line_stroke_plot,
@@ -346,9 +376,9 @@ pub fn plot_step_response(
             // Add current P:D ratio with quality assessment as legend entries for Roll/Pitch
             if axis_index < 2 {
                 // Current P:D ratio and assessment
-                if let Some(current_pd) = current_pd_ratios[axis_index] {
-                    let current_label = if let Some(assessment) = assessments[axis_index] {
-                        if let Some(peak) = peak_values[axis_index] {
+                if let Some(current_pd) = current.pd_ratios[axis_index] {
+                    let current_label = if let Some(assessment) = current.assessments[axis_index] {
+                        if let Some(peak) = current.peak_values[axis_index] {
                             format!(
                                 "Current P:D={:.2} (Peak={:.2}, {})",
                                 current_pd, peak, assessment
@@ -368,18 +398,18 @@ pub fn plot_step_response(
                 }
 
                 // Conservative recommendation (uses dmax_enabled computed at function start)
-                if let Some(rec_pd) = recommended_pd_conservative[axis_index] {
+                if let Some(rec_pd) = conservative.pd_ratios[axis_index] {
                     let recommendation_label = if dmax_enabled {
                         // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
-                        let d_min_str = recommended_d_min_conservative[axis_index]
+                        let d_min_str = conservative.d_min_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
-                        let d_max_str = recommended_d_max_conservative[axis_index]
+                        let d_max_str = conservative.d_max_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
                             "Conservative recommendation: P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
-                    } else if let Some(rec_d) = recommended_d_conservative[axis_index] {
+                    } else if let Some(rec_d) = conservative.d_values[axis_index] {
                         // D-Min/D-Max disabled: show only base D
                         format!(
                             "Conservative recommendation: P:D={:.2} (D≈{})",
@@ -397,25 +427,22 @@ pub fn plot_step_response(
                 }
 
                 // Moderate recommendation
-                if let Some(rec_pd) = recommended_pd_aggressive[axis_index] {
+                if let Some(rec_pd) = moderate.pd_ratios[axis_index] {
                     let recommendation_label = if dmax_enabled {
                         // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
-                        let d_min_str = recommended_d_min_aggressive[axis_index]
+                        let d_min_str = moderate.d_min_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
-                        let d_max_str = recommended_d_max_aggressive[axis_index]
+                        let d_max_str = moderate.d_max_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Moderate recommendation:     P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "Moderate recommendation: P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
-                    } else if let Some(rec_d) = recommended_d_aggressive[axis_index] {
+                    } else if let Some(rec_d) = moderate.d_values[axis_index] {
                         // D-Min/D-Max disabled: show only base D
-                        format!(
-                            "Moderate recommendation:     P:D={:.2} (D≈{})",
-                            rec_pd, rec_d
-                        )
+                        format!("Moderate recommendation: P:D={:.2} (D≈{})", rec_pd, rec_d)
                     } else {
-                        format!("Moderate recommendation:     P:D={:.2}", rec_pd)
+                        format!("Moderate recommendation: P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
@@ -427,7 +454,7 @@ pub fn plot_step_response(
 
                 // Optimal P estimation results (if enabled and available)
                 if estimate_optimal_p {
-                    if let Some(analysis) = &optimal_p_analyses[axis_index] {
+                    if let Some(analysis) = &optimal_p.analyses[axis_index] {
                         // Add separator line
                         series.push(PlotSeries {
                             data: vec![],
@@ -497,7 +524,8 @@ pub fn plot_step_response(
                         // Recommendation summary
                         let rec_summary = match &analysis.recommendation {
                             PRecommendation::Increase { conservative_p, .. } => {
-                                let p_delta = *conservative_p as i32 - analysis.current_p as i32;
+                                let p_delta =
+                                    (*conservative_p as i64) - (analysis.current_p as i64);
                                 let mut rec = format!(
                                     "  Recommendation (Conservative): P≈{} ({:+})",
                                     conservative_p, p_delta
@@ -509,7 +537,7 @@ pub fn plot_step_response(
                                     if rec_pd > 0.0 && current_d > 0 {
                                         let recommended_d =
                                             ((*conservative_p as f64) / rec_pd).round() as u32;
-                                        let d_delta = recommended_d as i32 - current_d as i32;
+                                        let d_delta = (recommended_d as i64) - (current_d as i64);
                                         rec.push_str(&format!(
                                             ", D≈{} ({:+})",
                                             recommended_d, d_delta
@@ -522,7 +550,7 @@ pub fn plot_step_response(
                                 "  Recommendation: Current P is optimal".to_string()
                             }
                             PRecommendation::Decrease { recommended_p, .. } => {
-                                let p_delta = *recommended_p as i32 - analysis.current_p as i32;
+                                let p_delta = (*recommended_p as i64) - (analysis.current_p as i64);
                                 let mut rec = format!(
                                     "  Recommendation: P≈{} ({:+})",
                                     recommended_p, p_delta
@@ -534,7 +562,7 @@ pub fn plot_step_response(
                                     if rec_pd > 0.0 && current_d > 0 {
                                         let recommended_d =
                                             ((*recommended_p as f64) / rec_pd).round() as u32;
-                                        let d_delta = recommended_d as i32 - current_d as i32;
+                                        let d_delta = (recommended_d as i64) - (current_d as i64);
                                         rec.push_str(&format!(
                                             ", D≈{} ({:+})",
                                             recommended_d, d_delta
@@ -566,7 +594,7 @@ pub fn plot_step_response(
                     title.push_str(&pid_info);
                 }
             }
-            if has_nonzero_f_term_data[axis_index] {
+            if display.has_nonzero_f_term[axis_index] {
                 title.push_str(" - Invalid due to Feed-Forward");
             }
 

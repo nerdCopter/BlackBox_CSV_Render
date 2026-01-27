@@ -33,8 +33,12 @@ pub const ROLL_PITCH_AXIS_COUNT: usize = 2;
 /// Get all axis names as a static array
 pub const AXIS_NAMES: [&str; AXIS_COUNT] = ["Roll", "Pitch", "Yaw"];
 
-// Compile-time check to prevent drift between AXIS_COUNT and AXIS_NAMES.len()
+// Compile-time assertions to prevent invariant drift
 const _: [(); AXIS_COUNT] = [(); AXIS_NAMES.len()];
+const _: () = assert!(
+    ROLL_PITCH_AXIS_COUNT > 0 && ROLL_PITCH_AXIS_COUNT < AXIS_COUNT,
+    "ROLL_PITCH_AXIS_COUNT must be > 0 and < AXIS_COUNT"
+);
 
 #[cfg(test)]
 mod tests {

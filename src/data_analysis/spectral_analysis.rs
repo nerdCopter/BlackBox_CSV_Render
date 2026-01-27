@@ -333,19 +333,29 @@ pub fn coherence(
 
 /// Calculate high-frequency energy ratio for D-term noise analysis
 ///
-/// Returns the ratio of energy above DTERM_HF_CUTOFF_HZ to total energy.
-/// Used for optimal P estimation to assess noise headroom.
+/// Returns the ratio of energy above the specified high-frequency cutoff to total energy.
+/// The parameter `hf_cutoff` (in Hz) defines the high-frequency cutoff used by this function.
+/// To use the project's default cutoff, pass the constant `DTERM_HF_CUTOFF_HZ` defined in
+/// `crate::constants` as the `hf_cutoff` argument. This function is used by the Optimal P
+/// estimation pipeline to assess high-frequency noise headroom.
 ///
 /// # Arguments
 /// * `data` - D-term time series data
 /// * `sample_rate` - Sample rate in Hz
-/// * `hf_cutoff` - High-frequency cutoff threshold in Hz
+/// * `hf_cutoff` - High-frequency cutoff threshold in Hz (must be > 0 and < sample_rate/2)
 ///
 /// # Returns
 /// * `Some(ratio)` - Ratio of HF energy (0.0 to 1.0) if analysis succeeds
-/// * `None` - If data is insufficient or analysis fails
+/// * `None` - If data is insufficient, hf_cutoff invalid, or analysis fails
 pub fn calculate_hf_energy_ratio(data: &[f32], sample_rate: f64, hf_cutoff: f64) -> Option<f64> {
     if data.is_empty() || sample_rate <= 0.0 {
+        return None;
+    }
+
+    // Validate high-frequency cutoff: must be positive and below Nyquist (sample_rate / 2)
+    let nyquist = sample_rate / 2.0;
+    if !(hf_cutoff > 0.0 && hf_cutoff < nyquist) {
+        eprintln!("Warning: Invalid hf_cutoff {} Hz (must be >0 and < Nyquist {} Hz). Skipping HF energy ratio.", hf_cutoff, nyquist);
         return None;
     }
 
