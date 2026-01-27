@@ -344,7 +344,7 @@ impl OptimalPAnalysis {
         })?;
 
         // Get target Td - use physics-based if available, otherwise frame class
-        let (td_target_ms, _td_tolerance_ms) =
+        let (td_target_ms, td_tolerance_ms) =
             if let Some((phys_target, phys_tol)) = physics_td_target_ms {
                 (phys_target, phys_tol)
             } else if let Some((frame_target, frame_tol)) = frame_class.td_target() {
@@ -415,7 +415,7 @@ impl OptimalPAnalysis {
             noise_level,
             recommendation,
             td_target_ms,
-            td_tolerance_ms: _td_tolerance_ms,
+            td_tolerance_ms,
         })
     }
 
