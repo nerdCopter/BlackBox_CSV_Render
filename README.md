@@ -51,9 +51,8 @@ Note: Plot flags are combinable. Without flags, all plots are generated.
   --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.
   --dps <value>: Deg/s threshold for detailed step response plots (positive number).
 
-  --estimate-optimal-p: Enable optimal P estimation with frame-class targets. Requires --prop-size.
-    --prop-size <size>: Propeller diameter in inches (1-15, required when --estimate-optimal-p is used).
-      Note: Must be explicitly specified — no default is assumed. The value must match your actual propeller size (e.g., a 6" frame with 5" props requires `--prop-size 5`).
+  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.
+    --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Requires --estimate-optimal-p to have effect.
 
 
 === D. GENERAL ===

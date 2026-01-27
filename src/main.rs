@@ -385,7 +385,7 @@ Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     );
     eprintln!();
     eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.");
-    eprintln!("    --prop-size <size>: Propeller diameter in inches (1-15, default: 5). Requires --estimate-optimal-p to have effect. Only whole numbers are accepted; decimals are rejected (no rounding performed).");
+    eprintln!("    --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Requires --estimate-optimal-p to have effect.");
     eprintln!();
     eprintln!();
     eprintln!("=== D. GENERAL ===");
@@ -1397,7 +1397,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                     Err(_) => {
                         eprintln!(
-                            "Error: Invalid prop size '{}'. Must be an integer between 1 and 15. Decimals are rejected; no rounding is performed.",
+                            "Error: Invalid prop size '{}'. Must be an integer between 1 and 15",
                             prop_str
                         );
                         print_usage_and_exit(program_name);
