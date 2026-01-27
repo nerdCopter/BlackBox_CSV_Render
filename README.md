@@ -52,7 +52,7 @@ Note: Plot flags are combinable. Without flags, all plots are generated.
   --dps <value>: Deg/s threshold for detailed step response plots (positive number).
 
   --estimate-optimal-p: Enable optimal P estimation with frame-class targets.
-    --prop-size <size>: Propeller diameter in inches (1.0-15.0, default: 5.0).
+    --prop-size <size>: Propeller diameter in inches (1-15, default: 5).
       Note: `--prop-size` is used only when `--estimate-optimal-p` is specified (it sets the propeller diameter for the estimation).
 
 
@@ -72,7 +72,7 @@ Note: Plot flags are combinable. Without flags, all plots are generated.
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500 --butterworth
 
 # Basic optimal P estimation (Experimental)
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5.0
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5
 
 # Multiple files with output directory
 ./target/release/BlackBox_CSV_Render path1/*.csv path2/*.csv --output-dir ./plots

@@ -1291,7 +1291,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut estimate_optimal_p = false;
     let mut frame_class_override: Option<crate::data_analysis::optimal_p_estimation::FrameClass> =
         None;
-    let mut prop_size_override: Option<f32> = None; // Decimal prop size for frame class selection
+    let mut prop_size_override: Option<u8> = None; // Prop size in inches (whole number only)
 
     let mut version_flag_set = false;
 
@@ -1368,19 +1368,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             if i + 1 >= args.len() {
                 eprintln!(
-                    "Error: --prop-size requires a numeric value (propeller diameter in inches: 1-15, decimals allowed)."
+                    "Error: --prop-size requires an integer value (propeller diameter in inches: 1-15)."
                 );
                 print_usage_and_exit(program_name);
             } else {
                 let prop_str = args[i + 1].trim();
-                match prop_str.parse::<f32>() {
-                    Ok(size) if (1.0..=15.0).contains(&size) => {
+                match prop_str.parse::<u8>() {
+                    Ok(size) if (1..=15).contains(&size) => {
                         prop_size_override = Some(size);
-                        // Also set FrameClass for Td targets (round to nearest inch)
-                        let rounded_size = size.round() as u8;
+                        // Set FrameClass for Td targets
                         frame_class_override =
                             crate::data_analysis::optimal_p_estimation::FrameClass::from_inches(
-                                rounded_size,
+                                size,
                             );
                         if frame_class_override.is_none() {
                             eprintln!(
@@ -1391,13 +1390,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                     Ok(size) => {
                         eprintln!(
-                            "Error: Prop size '{}' out of range. Valid range: 1.0-15.0 inches",
+                            "Error: Prop size '{}' out of range. Valid range: 1-15 inches",
                             size
                         );
                         print_usage_and_exit(program_name);
                     }
                     Err(_) => {
-                        eprintln!("Error: Invalid prop size '{}'. Must be a number between 1.0 and 15.0 (decimals allowed)", prop_str);
+                        eprintln!(
+                            "Error: Invalid prop size '{}'. Must be an integer between 1 and 15",
+                            prop_str
+                        );
                         print_usage_and_exit(program_name);
                     }
                 }

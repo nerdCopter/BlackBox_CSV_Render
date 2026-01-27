@@ -195,10 +195,10 @@ Physics-aware P gain optimization based on response timing analysis:
 
 - **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag
 - **⚠️ Status:** This feature is **experimental**. Frame-class Td targets are provisional empirical estimates requiring flight validation. Use as initial guidelines only; validation data collection is ongoing.
-- **Prop Size Selection:** Use `--prop-size <size>` to specify **propeller diameter** in inches (1.0-15.0, decimals allowed)
+- **Prop Size Selection:** Use `--prop-size <size>` to specify **propeller diameter** in inches (1-15, integer values only)
   - **Critical:** Match your actual prop size (e.g., 6" frame with 5" props → use `--prop-size 5`)
-  - Supports decimal values (e.g., `--prop-size 5.5` for 5.5" props)
-  - Defaults to 5.0 if not specified
+  - Supports whole numbers 1 through 15
+  - Defaults to 5 if not specified
   - Prop size determines rotational inertia (I ∝ radius²) which directly affects response time
   - Each prop size has empirically-derived Td (time to 50%) targets based on observed flight data
 - **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal.
