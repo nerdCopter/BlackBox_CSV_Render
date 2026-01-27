@@ -280,6 +280,10 @@ pub struct OptimalPAnalysis {
     pub td_deviation_percent: f64,
     pub noise_level: NoiseLevel,
     pub recommendation: PRecommendation,
+    /// Actual Td target (in ms) used during analysis (from physics or frame class)
+    pub td_target_ms: f64,
+    /// Actual Td tolerance (in ms) used during analysis (from physics or frame class)
+    pub td_tolerance_ms: f64,
 }
 
 impl OptimalPAnalysis {
@@ -374,6 +378,8 @@ impl OptimalPAnalysis {
             td_deviation_percent,
             noise_level,
             recommendation,
+            td_target_ms,
+            td_tolerance_ms: _td_tolerance_ms,
         })
     }
 
@@ -554,11 +560,7 @@ impl OptimalPAnalysis {
 
     /// Format analysis as human-readable console output
     pub fn format_console_output(&self, axis_name: &str) -> String {
-        let target_display = if let Some((td_target, td_tolerance)) = self.frame_class.td_target() {
-            format!("{:.1}±{:.1}ms", td_target, td_tolerance)
-        } else {
-            "unknown".to_string()
-        };
+        let target_display = format!("{:.1}±{:.1}ms", self.td_target_ms, self.td_tolerance_ms);
         let mut output = String::new();
 
         // Compact header - axis name and basic info
