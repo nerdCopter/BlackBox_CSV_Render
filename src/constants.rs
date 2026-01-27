@@ -306,6 +306,12 @@ impl TdTargetSpec {
 
 /// Td targets for all frame classes (1" through 15")
 /// Index: 0=1", 1=2", ..., 14=15"
+/// Note: These values are intentionally non-monotonic — Td decreases from 1" to 5" because
+/// 5" frames are the most optimized racing platform and typically have the best
+/// thrust-to-inertia ratio (lower Td). For frames 6" and larger, Td increases to reflect
+/// heavier craft that prioritize stability and exhibit larger rotational inertia.
+/// TODO: These are provisional empirical values that require systematic flight validation;
+/// keep the explanatory rationale above so future maintainers understand the non-monotonic shape.
 pub const TD_TARGETS: [TdTargetSpec; 15] = [
     TdTargetSpec::new_simple(40.0),  // 1" tiny whoop (30-50ms)
     TdTargetSpec::new_simple(35.0),  // 2" micro (26-44ms)
