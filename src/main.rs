@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 
 use ndarray::Array1;
 
+use crate::data_analysis::optimal_p_estimation::FrameClass;
 use crate::types::StepResponseResults;
 
 // Build version string from git info with fallbacks for builds without vergen metadata
@@ -100,7 +101,7 @@ struct AnalysisOptions {
     pub debug_mode: bool,
     pub show_butterworth: bool,
     pub estimate_optimal_p: bool,
-    pub frame_class: crate::data_analysis::optimal_p_estimation::FrameClass,
+    pub frame_class: FrameClass,
 }
 
 use crate::constants::{
