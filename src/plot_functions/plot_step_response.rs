@@ -509,11 +509,11 @@ pub fn plot_step_response(
                             stroke_width: 0,
                         });
 
-                        // Deviation
-                        let deviation_sign = if analysis.td_deviation_percent < 0.0 {
-                            ""
-                        } else {
+                        // Deviation: only prefix '+' for strictly positive deviations
+                        let deviation_sign = if analysis.td_deviation_percent > 0.0 {
                             "+"
+                        } else {
+                            ""
                         };
                         series.push(PlotSeries {
                             data: vec![],

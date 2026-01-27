@@ -106,8 +106,8 @@ Note: Plot flags are combinable. Without flags, all plots are generated.
 - Conservative and Moderate tuning recommendations (with D/D-Min/D-Max values)
 - Warning indicators for severe overshoot or unreasonable ratios
 - Optimal P estimation (when --estimate-optimal-p is used):
-  - Prop-size-aware Td (time to 50%) analysis
-  - Response consistency metrics (CV, std dev)
+  - Prop-size-aware Td (derivative time / time to reach 50%) analysis
+  - Response consistency metrics (CV [coefficient of variation], std dev)
   - Empirical frame-class P gain recommendations
 - Gyro filtering delay estimates (filtered vs. unfiltered, with confidence)
 - Filter configuration parsing and spectrum peak detection summaries
