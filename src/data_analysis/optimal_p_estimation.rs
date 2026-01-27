@@ -269,22 +269,16 @@ impl TdStatistics {
         };
 
         // Calculate consistency: fraction within ±1 std dev
-        // When coefficient_of_variation is None or all samples identical, consistency is perfect (1.0)
-        // Otherwise, tolerance = std_dev (can derive from cv * mean) and calculate fraction within range
-        let consistency = if coefficient_of_variation.is_none() {
-            // Too few samples → perfect consistency (no variance can be computed)
-            1.0
-        } else if let Some(cv) = coefficient_of_variation {
-            let std_dev = cv * mean;
-            let tolerance = std_dev;
+        // When coefficient_of_variation is None (too few samples), consistency is perfect (1.0)
+        // Otherwise, tolerance = cv * mean and calculate fraction within range
+        let consistency = coefficient_of_variation.map_or(1.0, |cv| {
+            let tolerance = cv * mean;
             let within_range = td_samples_ms
                 .iter()
                 .filter(|&&x| (x - mean).abs() <= tolerance)
                 .count();
             within_range as f64 / n
-        } else {
-            1.0
-        };
+        });
 
         Some(TdStatistics {
             mean_ms: mean,
