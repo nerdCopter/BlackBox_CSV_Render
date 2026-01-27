@@ -16,21 +16,19 @@ use crate::data_input::pid_metadata::PidMetadata;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 use crate::types::{AllStepResponsePlotData, StepResponseResults};
 
-/// Conservative P:D ratio recommendations (safer, incremental tuning)
-pub struct ConservativeRecommendations {
+/// P:D ratio recommendations with computed D values
+pub struct PdRecommendations {
     pub pd_ratios: [Option<f64>; 3],
     pub d_values: [Option<u32>; 3],
     pub d_min_values: [Option<u32>; 3],
     pub d_max_values: [Option<u32>; 3],
 }
 
+/// Conservative P:D ratio recommendations (safer, incremental tuning)
+pub type ConservativeRecommendations = PdRecommendations;
+
 /// Moderate P:D ratio recommendations (aggressive, experienced pilots)
-pub struct ModerateRecommendations {
-    pub pd_ratios: [Option<f64>; 3],
-    pub d_values: [Option<u32>; 3],
-    pub d_min_values: [Option<u32>; 3],
-    pub d_max_values: [Option<u32>; 3],
-}
+pub type ModerateRecommendations = PdRecommendations;
 
 /// Current peak values and P:D ratios from step response analysis
 pub struct CurrentPeakAndRatios {
