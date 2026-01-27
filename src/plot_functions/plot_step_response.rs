@@ -523,11 +523,15 @@ pub fn plot_step_response(
 
                         // Consistency (if poor, show warning)
                         if !analysis.td_stats.is_consistent() {
+                            let cv_percent = analysis
+                                .td_stats
+                                .coefficient_of_variation
+                                .map_or(0.0, |cv| cv * 100.0);
                             series.push(PlotSeries {
                                 data: vec![],
                                 label: format!(
                                     "  [WARNING] High variability (CV={:.1}%) - results may be unreliable",
-                                    analysis.td_stats.coefficient_of_variation * 100.0
+                                    cv_percent
                                 ),
                                 color: RGBColor(200, 100, 0), // Orange for warning
                                 stroke_width: 0,

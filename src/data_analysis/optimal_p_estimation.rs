@@ -215,7 +215,7 @@ pub enum PRecommendation {
 #[derive(Debug, Clone)]
 pub struct TdStatistics {
     pub mean_ms: f64,
-    pub coefficient_of_variation: f64,
+    pub coefficient_of_variation: Option<f64>,
     pub num_samples: usize,
     pub consistency: f64, // Fraction of samples within ±1 std dev
 }
@@ -236,10 +236,9 @@ impl TdStatistics {
         }
 
         // Calculate sample variance with Bessel's correction (divide by n-1)
-        // For small samples, set std_dev to None to indicate insufficient data
-        let (std_dev, coefficient_of_variation) = if td_samples_ms.len() < TD_SAMPLES_MIN_FOR_STDDEV
-        {
-            (None, 0.0)
+        // For small samples, set coefficient_of_variation to None to indicate insufficient data
+        let coefficient_of_variation = if td_samples_ms.len() < TD_SAMPLES_MIN_FOR_STDDEV {
+            None
         } else {
             let sum_sq_dev = td_samples_ms
                 .iter()
@@ -247,26 +246,25 @@ impl TdStatistics {
                 .sum::<f64>();
             let variance = sum_sq_dev / (n - 1.0);
             let std_dev = variance.sqrt();
-            let coefficient_of_variation = std_dev / mean;
-            (Some(std_dev), coefficient_of_variation)
+            Some(std_dev / mean)
         };
 
         // Calculate consistency: fraction within ±1 std dev
-        // When std_dev is None or all samples identical, consistency is perfect (1.0)
-        // Otherwise, tolerance = std_dev and calculate fraction within range
-        let consistency = match std_dev {
-            None => {
-                // Too few samples → perfect consistency (no variance can be computed)
-                1.0
-            }
-            Some(sd) => {
-                let tolerance = sd;
-                let within_range = td_samples_ms
-                    .iter()
-                    .filter(|&&x| (x - mean).abs() <= tolerance)
-                    .count();
-                within_range as f64 / n
-            }
+        // When coefficient_of_variation is None or all samples identical, consistency is perfect (1.0)
+        // Otherwise, tolerance = std_dev (can derive from cv * mean) and calculate fraction within range
+        let consistency = if coefficient_of_variation.is_none() {
+            // Too few samples → perfect consistency (no variance can be computed)
+            1.0
+        } else if let Some(cv) = coefficient_of_variation {
+            let std_dev = cv * mean;
+            let tolerance = std_dev;
+            let within_range = td_samples_ms
+                .iter()
+                .filter(|&&x| (x - mean).abs() <= tolerance)
+                .count();
+            within_range as f64 / n
+        } else {
+            1.0
         };
 
         Some(TdStatistics {
@@ -282,7 +280,9 @@ impl TdStatistics {
         // Need at least 2 samples for meaningful consistency check
         self.num_samples >= TD_SAMPLES_MIN_FOR_STDDEV
             && self.consistency >= TD_CONSISTENCY_MIN_THRESHOLD
-            && self.coefficient_of_variation <= TD_COEFFICIENT_OF_VARIATION_MAX
+            && self
+                .coefficient_of_variation
+                .map_or(true, |cv| cv <= TD_COEFFICIENT_OF_VARIATION_MAX)
     }
 }
 
@@ -594,9 +594,13 @@ impl OptimalPAnalysis {
 
         // Warning for low consistency (inline)
         if !self.td_stats.is_consistent() {
+            let cv_percent = self
+                .td_stats
+                .coefficient_of_variation
+                .map_or(0.0, |cv| cv * 100.0);
             output.push_str(&format!(
                 "  ⚠ WARNING: Low consistency (CV={:.1}%, {}/{} responses) - results may be unreliable\n",
-                self.td_stats.coefficient_of_variation * 100.0,
+                cv_percent,
                 (self.td_stats.consistency * self.td_stats.num_samples as f64).round() as usize,
                 self.td_stats.num_samples
             ));
