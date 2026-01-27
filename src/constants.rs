@@ -360,6 +360,14 @@ pub const TD_MEAN_EPSILON: f64 = 1e-12; // Threshold for near-zero mean values (
 pub const TD_SAMPLES_MIN_FOR_STDDEV: usize = 2; // Minimum samples needed for std dev calculation
 
 // Td deviation thresholds (percentage deviation from target)
+// Deviation thresholds for classifying Td behavior
+// Note: The thresholds are intentionally asymmetric — there is no separate
+// 'moderately faster' threshold. Faster-than-target deviations are treated
+// more strictly because they often indicate potential oscillation or unsafe
+// aggressive tuning. Therefore any significant speed-up beyond
+// TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD is flagged immediately. Slower
+// deviations are given two thresholds (moderate and significant) to allow
+// finer-grained handling when Td is lagging behind the target.
 pub const TD_DEVIATION_SIGNIFICANTLY_SLOWER_THRESHOLD: f64 = 30.0; // > 30% slower
 pub const TD_DEVIATION_MODERATELY_SLOWER_THRESHOLD: f64 = 15.0; // > 15% slower
 pub const TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD: f64 = -15.0; // < -15% faster
