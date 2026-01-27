@@ -22,4 +22,23 @@ mod tests {
         assert!(TdTargetSpec::for_frame_inches(5).is_some());
         assert!(TdTargetSpec::for_frame_inches(15).is_some());
     }
+
+    #[test]
+    fn td_target_spec_returns_expected_values() {
+        // Check FrameClass td_target matches constants for key sizes
+        let (t1, tol1) = FrameClass::OneInch.td_target().unwrap();
+        let spec1 = TdTargetSpec::for_frame_inches(1).unwrap();
+        assert_eq!(t1, spec1.target_ms);
+        assert_eq!(tol1, spec1.tolerance_ms);
+
+        let (t5, tol5) = FrameClass::FiveInch.td_target().unwrap();
+        let spec5 = TdTargetSpec::for_frame_inches(5).unwrap();
+        assert_eq!(t5, spec5.target_ms);
+        assert_eq!(tol5, spec5.tolerance_ms);
+
+        let (t15, tol15) = FrameClass::FifteenInch.td_target().unwrap();
+        let spec15 = TdTargetSpec::for_frame_inches(15).unwrap();
+        assert_eq!(t15, spec15.target_ms);
+        assert_eq!(tol15, spec15.tolerance_ms);
+    }
 }
