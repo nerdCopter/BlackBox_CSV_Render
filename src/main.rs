@@ -1449,6 +1449,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         eprintln!();
     }
 
+    // Require --prop-size when --estimate-optimal-p is used
+    if estimate_optimal_p && prop_size_override.is_none() {
+        eprintln!(
+            "Error: --estimate-optimal-p requires --prop-size <1-15> to be explicitly specified."
+        );
+        eprintln!("       No default prop size is assumed. Specify the actual propeller diameter in inches.");
+        print_usage_and_exit(program_name);
+    }
+
     if input_paths.is_empty() {
         eprintln!("Error: At least one input file or directory is required.");
         print_usage_and_exit(program_name);
