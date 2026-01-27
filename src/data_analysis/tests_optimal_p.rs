@@ -14,4 +14,12 @@ mod tests {
         assert!(FrameClass::FiveInch.td_target().is_some());
         assert!(FrameClass::FifteenInch.td_target().is_some());
     }
+
+    #[test]
+    fn td_target_spec_valid_range_returns_some() {
+        // Representative in-range values should return Some(TdTargetSpec)
+        assert!(TdTargetSpec::for_frame_inches(1).is_some());
+        assert!(TdTargetSpec::for_frame_inches(5).is_some());
+        assert!(TdTargetSpec::for_frame_inches(15).is_some());
+    }
 }
