@@ -343,6 +343,7 @@ pub const P_REDUCTION_MODERATE_MULTIPLIER: f64 = 0.95; // -5% from current P
 pub const P_REDUCTION_AGGRESSIVE_MULTIPLIER: f64 = 0.90; // -10% from current P
 
 // Td statistics computation constants
+pub const MIN_TD_MS: f64 = 0.1; // Minimum valid Td (time to 50%) in milliseconds (domain-appropriate threshold)
 pub const TD_MEAN_EPSILON: f64 = 1e-12; // Threshold for near-zero mean values (avoid division by zero)
 pub const TD_SAMPLES_MIN_FOR_STDDEV: usize = 2; // Minimum samples needed for std dev calculation
 

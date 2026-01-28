@@ -4,6 +4,7 @@ use ndarray::Array1;
 use num_complex::Complex64;
 use std::error::Error;
 
+use crate::constants::PSD_EPSILON;
 use crate::data_analysis::{calc_step_response, fft_utils};
 
 /// Configuration for Welch's method spectral analysis
@@ -391,7 +392,7 @@ pub fn calculate_hf_energy_ratio(data: &[f32], sample_rate: f64, hf_cutoff: f64)
     }
 
     // Return ratio if total energy is significant
-    if total_energy > 1e-12 {
+    if total_energy > PSD_EPSILON {
         Some((hf_energy / total_energy).clamp(0.0, 1.0))
     } else {
         None

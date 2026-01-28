@@ -31,9 +31,6 @@ impl std::fmt::Display for AnalysisError {
 
 impl std::error::Error for AnalysisError {}
 
-/// Minimum valid Td (time to 50%) in milliseconds (domain-appropriate threshold)
-const MIN_TD_MS: f64 = 0.1;
-
 /// Safe conversion from scaled f64 to u32 with saturation.
 ///
 /// Computes (base * multiplier) and returns a saturated `u32` result:

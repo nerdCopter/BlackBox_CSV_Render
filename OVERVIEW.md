@@ -9,6 +9,7 @@
   - [Implementation Details](#implementation-details)
   - [Filter Response Curves](#filter-response-curves)
   - [Bode Plot Analysis (Optional)](#bode-plot-analysis-optional)
+  - [Optimal P Estimation (Optional, Experimental)](#optimal-p-estimation-optional-experimental)
   - [Step-Response Comparison with Other Analysis Tools](#step-response-comparison-with-other-analysis-tools)
     - [Compared to PIDtoolbox/Matlab (PTstepcalc.m)](#compared-to-pidtoolboxmatlab-ptstepcalcm)
     - [Compared to PlasmaTree/Python (PID-Analyzer.py)](#compared-to-plasmatreepython-pid-analyzerpy)
