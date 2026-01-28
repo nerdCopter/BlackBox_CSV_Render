@@ -4,6 +4,7 @@ use ndarray::Array1;
 use num_complex::Complex64;
 use std::error::Error;
 
+use crate::constants::PSD_EPSILON;
 use crate::data_analysis::{calc_step_response, fft_utils};
 
 /// Configuration for Welch's method spectral analysis
@@ -329,4 +330,71 @@ pub fn coherence(
     }
 
     Ok(coh)
+}
+
+/// Calculate high-frequency energy ratio for D-term noise analysis
+///
+/// Returns the ratio of energy above the specified high-frequency cutoff to total energy.
+/// The parameter `hf_cutoff` (in Hz) defines the high-frequency cutoff used by this function.
+/// To use the project's default cutoff, pass the constant `DTERM_HF_CUTOFF_HZ` defined in
+/// `crate::constants` as the `hf_cutoff` argument. This function is used by the Optimal P
+/// estimation pipeline to assess high-frequency noise headroom.
+///
+/// # Arguments
+/// * `data` - D-term time series data
+/// * `sample_rate` - Sample rate in Hz
+/// * `hf_cutoff` - High-frequency cutoff threshold in Hz (must be > 0 and < sample_rate/2)
+///
+/// # Returns
+/// * `Some(ratio)` - Ratio of HF energy (0.0 to 1.0) if analysis succeeds
+/// * `None` - If data is insufficient, hf_cutoff invalid, or analysis fails
+pub fn calculate_hf_energy_ratio(data: &[f32], sample_rate: f64, hf_cutoff: f64) -> Option<f64> {
+    if data.is_empty() || sample_rate <= 0.0 {
+        return None;
+    }
+
+    // Validate high-frequency cutoff: must be positive and below Nyquist (sample_rate / 2)
+    let nyquist = sample_rate / 2.0;
+    if !(hf_cutoff > 0.0 && hf_cutoff < nyquist) {
+        eprintln!("Warning: Invalid hf_cutoff {} Hz (must be >0 and < Nyquist {} Hz). Skipping HF energy ratio.", hf_cutoff, nyquist);
+        return None;
+    }
+
+    // Use Welch's method for robust PSD estimation
+    let config = WelchConfig::default();
+    let psd = match welch_psd(data, sample_rate, Some(config.clone())) {
+        Ok(psd) => psd,
+        Err(e) => {
+            eprintln!(
+                "Warning: Welch PSD calculation failed (data_len={}, sample_rate={} Hz, config={:?}): {}. Skipping HF energy ratio.",
+                data.len(),
+                sample_rate,
+                config,
+                e
+            );
+            return None;
+        }
+    };
+
+    if psd.is_empty() {
+        return None;
+    }
+
+    // Calculate total energy and HF energy
+    let mut total_energy = 0.0;
+    let mut hf_energy = 0.0;
+
+    for &(freq, power) in &psd {
+        total_energy += power;
+        if freq >= hf_cutoff {
+            hf_energy += power;
+        }
+    }
+
+    // Return ratio if total energy is significant
+    if total_energy > PSD_EPSILON {
+        Some((hf_energy / total_energy).clamp(0.0, 1.0))
+    } else {
+        None
+    }
 }
