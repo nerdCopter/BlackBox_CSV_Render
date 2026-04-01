@@ -26,37 +26,37 @@ cargo build --release
 
 ### Usage
 ```shell
-Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]
-  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).
-            Can mix files and directories in a single command.
-            - Individual CSV file: path/to/file.csv
-            - Directory: path/to/dir/ (finds CSV files only in that directory)
-            - Wildcards: *.csv, *LOG*.csv (shell-expanded; works with mixed file and directory patterns)
-            Note: Header files (.header.csv, .headers.csv) are automatically excluded.
-  -O, --output-dir <directory>: Optional. Specifies the output directory for generated plots.
-                              If omitted, plots are saved in the source folder (input directory).
-  --bode: Optional. Generate Bode plot analysis (magnitude, phase, coherence).
-          NOTE: Requires controlled test flights with system-identification inputs
-          (chirp/PRBS). Not recommended for normal flight logs.
-  --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters
-                 as gray curves/lines on gyro and D-term spectrum plots.
-  --debug: Optional. Shows detailed metadata information during processing.
-  --dps <value>: Optional. Enables detailed step response plots with the specified
-                 deg/s threshold value. Must be a positive number.
-                 If --dps is omitted, a general step-response is shown.
-  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs.
-  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).
-  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.
-  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative).
-  --step: Optional. Generate only step response plots, skipping all other graphs.
-  -h, --help: Show this help message and exit.
-  -V, --version: Show version information and exit.
+Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
-Note: --step, --motor, --setpoint, --bode, and --pid are non-mutually exclusive and can be combined
-(e.g., --step --setpoint --pid generates step response, setpoint, and PID activity plots).
+=== INPUT/OUTPUT OPTIONS ===
+
+  <inputX>: CSV files, directories, or wildcards (*.csv). Header files auto-excluded.
+  -O, --output-dir <directory>: Output directory (default: source folder).
+  -R, --recursive: Recursively find CSV files in subdirectories.
+
+=== PLOT TYPE SELECTION ===
+
+  Note: Plot flags are combinable. Without flags, all plots generated.
+
+  --step: Generate only step response plots.
+  --motor: Generate only motor spectrum plots.
+  --setpoint: Generate only setpoint-related plots.
+  --pid: Generate only P, I, D activity plot.
+  --bode: Generate Bode plot analysis.
+
+=== ANALYSIS OPTIONS ===
+
+  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.
+  --dps <value>: Deg/s threshold for detailed step response plots (positive number).
+
+=== GENERAL ===
+
+  --debug: Show detailed metadata during processing.
+  -h, --help: Show this help message and exit.
+  -V, --version: Show version information.
+```
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns.
-```
 ### Example execution commands
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv
