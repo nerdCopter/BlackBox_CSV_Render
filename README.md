@@ -28,14 +28,15 @@ cargo build --release
 ```shell
 Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
-=== A. INPUT/OUTPUT OPTIONS ===
+=== INPUT/OUTPUT OPTIONS ===
 
   <inputX>: CSV files, directories, or wildcards (*.csv). Header files auto-excluded.
   -O, --output-dir <directory>: Output directory (default: source folder).
   -R, --recursive: Recursively find CSV files in subdirectories.
 
+=== PLOT TYPE SELECTION ===
 
-=== B. PLOT TYPE SELECTION ===
+  Note: Plot flags are combinable. Without flags, all plots generated.
 
   --step: Generate only step response plots.
   --motor: Generate only motor spectrum plots.
@@ -43,10 +44,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
   --pid: Generate only P, I, D activity plot.
   --bode: Generate Bode plot analysis.
 
-Note: Plot flags are combinable. Without flags, all plots are generated.
-
-
-=== C. ANALYSIS OPTIONS ===
+=== ANALYSIS OPTIONS ===
 
   --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.
   --dps <value>: Deg/s threshold for detailed step response plots (positive number).
@@ -54,8 +52,7 @@ Note: Plot flags are combinable. Without flags, all plots are generated.
   --estimate-optimal-p: Enable optimal P estimation with frame-class targets.
     --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Requires --estimate-optimal-p to have effect.
 
-
-=== D. GENERAL ===
+=== GENERAL ===
 
   --debug: Show detailed metadata during processing.
   -h, --help: Show this help message.

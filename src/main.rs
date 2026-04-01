@@ -357,7 +357,7 @@ fn print_usage_and_exit(program_name: &str) {
 Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     );
     eprintln!();
-    eprintln!("=== A. INPUT/OUTPUT OPTIONS ===");
+    eprintln!("=== INPUT/OUTPUT OPTIONS ===");
     eprintln!();
     eprintln!(
         "  <inputX>: CSV files, directories, or wildcards (*.csv). Header files auto-excluded."
@@ -365,8 +365,9 @@ Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
     eprintln!("  -R, --recursive: Recursively find CSV files in subdirectories.");
     eprintln!();
+    eprintln!("=== PLOT TYPE SELECTION ===");
     eprintln!();
-    eprintln!("=== B. PLOT TYPE SELECTION ===");
+    eprintln!("  Note: Plot flags are combinable. Without flags, all plots generated.");
     eprintln!();
     eprintln!("  --step: Generate only step response plots.");
     eprintln!("  --motor: Generate only motor spectrum plots.");
@@ -374,10 +375,7 @@ Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     eprintln!("  --pid: Generate only P, I, D activity plot.");
     eprintln!("  --bode: Generate Bode plot analysis.");
     eprintln!();
-    eprintln!("Note: Plot flags are combinable. Without flags, all plots generated.");
-    eprintln!();
-    eprintln!();
-    eprintln!("=== C. ANALYSIS OPTIONS ===");
+    eprintln!("=== ANALYSIS OPTIONS ===");
     eprintln!();
     eprintln!("  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
     eprintln!(
@@ -387,8 +385,7 @@ Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.");
     eprintln!("    --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Requires --estimate-optimal-p to have effect.");
     eprintln!();
-    eprintln!();
-    eprintln!("=== D. GENERAL ===");
+    eprintln!("=== GENERAL ===");
     eprintln!();
     eprintln!("  --debug: Show detailed metadata during processing.");
     eprintln!("  -h, --help: Show this help message.");
