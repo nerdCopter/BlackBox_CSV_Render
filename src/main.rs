@@ -340,46 +340,38 @@ fn find_csv_files_in_dir_impl(
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
-    eprintln!("
-Usage: {program_name} <input1> [<input2> ...] [-O|--output-dir <directory>] [--bode] [--butterworth] [--debug] [--dps <value>] [--motor] [--pid] [-R|--recursive] [--setpoint] [--step]");
-    eprintln!("  <inputX>: One or more input CSV files, directories, or shell-expanded wildcards (required).");
-    eprintln!("            Can mix files and directories in a single command.");
-    eprintln!("            - Individual CSV file: path/to/file.csv");
-    eprintln!("            - Directory: path/to/dir/ (finds CSV files only in that directory)");
-    eprintln!("            - Wildcards: *.csv, *LOG*.csv (shell-expanded; works with mixed file and directory patterns)");
+    eprintln!("\nUsage: {program_name} <input1> [<input2> ...] [OPTIONS]");
+    eprintln!();
+    eprintln!("=== INPUT/OUTPUT OPTIONS ===");
+    eprintln!();
     eprintln!(
-        "            Note: Header files (.header.csv, .headers.csv) are automatically excluded."
+        "  <inputX>: CSV files, directories, or wildcards (*.csv). Header files auto-excluded."
     );
+    eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
+    eprintln!("  -R, --recursive: Recursively find CSV files in subdirectories.");
+    eprintln!();
+    eprintln!("=== PLOT TYPE SELECTION ===");
+    eprintln!();
+    eprintln!("  Note: Plot flags are combinable. Without flags, all plots generated.");
+    eprintln!();
+    eprintln!("  --step: Generate only step response plots.");
+    eprintln!("  --motor: Generate only motor spectrum plots.");
+    eprintln!("  --setpoint: Generate only setpoint-related plots.");
+    eprintln!("  --pid: Generate only P, I, D activity plot.");
+    eprintln!("  --bode: Generate Bode plot analysis.");
+    eprintln!();
+    eprintln!("=== ANALYSIS OPTIONS ===");
+    eprintln!();
+    eprintln!("  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
     eprintln!(
-        "  -O, --output-dir <directory>: Optional. Specifies the output directory for generated plots."
+        "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
     );
-    eprintln!("                              If omitted, plots are saved in the source folder (input directory).");
-    eprintln!("  --bode: Optional. Generate Bode plot analysis (magnitude, phase, coherence).");
-    eprintln!("          NOTE: Requires controlled test flights with system-identification inputs");
-    eprintln!("          (chirp/PRBS). Not recommended for normal flight logs.");
-    eprintln!(
-        "  --butterworth: Optional. Show Butterworth per-stage PT1 cutoffs for PT2/PT3/PT4 filters"
-    );
-    eprintln!("                 as gray curves/lines on gyro and D-term spectrum plots.");
-    eprintln!("  --debug: Optional. Shows detailed metadata information during processing.");
-    eprintln!("  --dps <value>: Optional. Enables detailed step response plots with the specified");
-    eprintln!("                 deg/s threshold value. Must be a positive number.");
-    eprintln!("                 If --dps is omitted, a general step-response is shown.");
-    eprintln!(
-        "  --motor: Optional. Generate only motor spectrum plots, skipping all other graphs."
-    );
-    eprintln!("  --pid: Optional. Generate only P, I, D activity stacked plot (showing all three PID terms over time).");
-    eprintln!("  -R, --recursive: Optional. When processing directories, recursively find CSV files in subdirectories.");
-    eprintln!(
-        "  --setpoint: Optional. Generate only setpoint-related plots (PIDsum, Setpoint vs Gyro, Setpoint Derivative)."
-    );
-    eprintln!("  --step: Optional. Generate only step response plots, skipping all other graphs.");
+    eprintln!();
+    eprintln!("=== GENERAL ===");
+    eprintln!();
+    eprintln!("  --debug: Show detailed metadata during processing.");
     eprintln!("  -h, --help: Show this help message and exit.");
-    eprintln!("  -V, --version: Show version information and exit.");
-    eprintln!(
-        "
-Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns."
-    );
+    eprintln!("  -V, --version: Show version information.");
     std::process::exit(1);
 }
 
