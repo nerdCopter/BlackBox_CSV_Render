@@ -370,7 +370,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  --motor: Generate only motor spectrum plots.");
     eprintln!("  --setpoint: Generate only setpoint-related plots.");
     eprintln!("  --pid: Generate only P, I, D activity plot.");
-    eprintln!("  --bode: Generate Bode plot analysis (system-identification test flights only).");
+    eprintln!("  --bode: Bode plot analysis (requires chirp/sweep system-id test flight, not normal logs).");
     eprintln!();
     eprintln!("=== ANALYSIS OPTIONS ===");
     eprintln!();
