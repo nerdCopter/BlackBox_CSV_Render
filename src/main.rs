@@ -352,10 +352,7 @@ fn find_csv_files_in_dir_impl(
 
 fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
-    eprintln!(
-        "
-Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
-    );
+    eprintln!("\nUsage: {program_name} <input1> [<input2> ...] [OPTIONS]");
     eprintln!();
     eprintln!("=== INPUT/OUTPUT OPTIONS ===");
     eprintln!();
@@ -373,7 +370,7 @@ Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     eprintln!("  --motor: Generate only motor spectrum plots.");
     eprintln!("  --setpoint: Generate only setpoint-related plots.");
     eprintln!("  --pid: Generate only P, I, D activity plot.");
-    eprintln!("  --bode: Generate Bode plot analysis.");
+    eprintln!("  --bode: Generate Bode plot analysis (system-identification test flights only).");
     eprintln!();
     eprintln!("=== ANALYSIS OPTIONS ===");
     eprintln!();
@@ -381,14 +378,13 @@ Usage: {program_name} <input1> [<input2> ...] [OPTIONS]"
     eprintln!(
         "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
     );
-    eprintln!();
     eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.");
     eprintln!("    --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Requires --estimate-optimal-p to have effect.");
     eprintln!();
     eprintln!("=== GENERAL ===");
     eprintln!();
     eprintln!("  --debug: Show detailed metadata during processing.");
-    eprintln!("  -h, --help: Show this help message.");
+    eprintln!("  -h, --help: Show this help message and exit.");
     eprintln!("  -V, --version: Show version information.");
     std::process::exit(1);
 }

@@ -48,36 +48,35 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
   --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.
   --dps <value>: Deg/s threshold for detailed step response plots (positive number).
-
   --estimate-optimal-p: Enable optimal P estimation with frame-class targets.
     --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Requires --estimate-optimal-p to have effect.
 
 === GENERAL ===
 
   --debug: Show detailed metadata during processing.
-  -h, --help: Show this help message.
+  -h, --help: Show this help message and exit.
   -V, --version: Show version information.
 ```
 
+Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns.
 ### Example execution commands
 ```shell
-# Basic analysis
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv
-
-# With detailed step response and filter display
+```
+```shell
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500 --butterworth
-
-# Basic optimal P estimation (Experimental)
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5
-
-# Multiple files with output directory
-./target/release/BlackBox_CSV_Render path1/*.csv path2/*.csv --output-dir ./plots
-
-# Recursive directory processing
+```
+```shell
+./target/release/BlackBox_CSV_Render path1/to/BTFL_*.csv path2/to/EMUF_*.csv --output-dir ./plots --butterworth
+```
+```shell
 ./target/release/BlackBox_CSV_Render path/to/ -R --step --output-dir ./step-only
-
-# Selective plot generation
-./target/release/BlackBox_CSV_Render path/to/ --step --setpoint --motor --output-dir ./selective
+```
+```shell
+./target/release/BlackBox_CSV_Render path/to/ --setpoint --output-dir ./setpoint-only
+```
+```shell
+./target/release/BlackBox_CSV_Render path/to/ --step --setpoint --motor --output-dir ./all-selective
 ```
 
 ### Output
@@ -101,10 +100,6 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 - Current P:D ratio and peak analysis with response assessment
 - Conservative and Moderate tuning recommendations (with D/D-Min/D-Max values)
 - Warning indicators for severe overshoot or unreasonable ratios
-- Optimal P estimation (when --estimate-optimal-p is used):
-  - Prop-size-aware Td (derivative time / time to reach 50%) analysis
-  - Response consistency metrics (CV [coefficient of variation], std dev)
-  - Empirical frame-class P gain recommendations
 - Gyro filtering delay estimates (filtered vs. unfiltered, with confidence)
 - Filter configuration parsing and spectrum peak detection summaries
 - Use `--debug` flag for additional metadata: header information, flight data key mapping, sample header values, and debug mode identification
