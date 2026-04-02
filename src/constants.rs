@@ -259,4 +259,106 @@ pub const PSD_EPSILON: f64 = 1e-12; // Guard against division by zero for PSD va
 pub const MAGNITUDE_PLOT_MARGIN_DB: f64 = 10.0; // Padding above/below magnitude data for plot range
 pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data for plot range
 
-// src/constants.rs
+// Optimal P Estimation Constants
+// Frame-class-aware Td (time to 50%) targets in milliseconds
+// Provisional estimates based on torque-to-rotational-inertia scaling: Td ∝ 1/(mass × radius²)
+// TODO: Validate with bench tests and actual flight data across all frame classes
+
+/// Td target specification for a frame class
+#[derive(Debug, Clone, Copy)]
+pub struct TdTargetSpec {
+    pub target_ms: f64,
+    pub tolerance_ms: f64,
+}
+
+impl TdTargetSpec {
+    /// Create without typical weight (for existing empirical targets)
+    pub const fn new_simple(target_ms: f64) -> Self {
+        Self {
+            target_ms,
+            tolerance_ms: target_ms * 0.25,
+        }
+    }
+
+    /// Get TdTargetSpec for a given frame size in inches (1-15)
+    /// Returns None if the size is out of valid range
+    pub fn for_frame_inches(inches: usize) -> Option<&'static TdTargetSpec> {
+        if (1..=15).contains(&inches) {
+            Some(&TD_TARGETS[inches - 1])
+        } else {
+            None
+        }
+    }
+}
+
+/// Td targets for all frame classes (1" through 15")
+/// Index: 0=1", 1=2", ..., 14=15"
+/// Note: These values are intentionally non-monotonic — Td decreases from 1" to 5" because
+/// 5" frames are the most optimized racing platform and typically have the best
+/// thrust-to-inertia ratio (lower Td). For frames 6" and larger, Td increases to reflect
+/// heavier craft that prioritize stability and exhibit larger rotational inertia.
+/// TODO: These are provisional empirical values that require systematic flight validation;
+/// keep the explanatory rationale above so future maintainers understand the non-monotonic shape.
+pub const TD_TARGETS: [TdTargetSpec; 15] = [
+    TdTargetSpec::new_simple(40.0),  // 1" tiny whoop (30-50ms)
+    TdTargetSpec::new_simple(35.0),  // 2" micro (26-44ms)
+    TdTargetSpec::new_simple(30.0),  // 3" toothpick/cinewhoop (23-38ms)
+    TdTargetSpec::new_simple(25.0),  // 4" racing (19-31ms)
+    TdTargetSpec::new_simple(20.0),  // 5" freestyle/racing (15-25ms, common baseline)
+    TdTargetSpec::new_simple(28.0),  // 6" long-range (21-35ms)
+    TdTargetSpec::new_simple(37.5),  // 7" long-range (28-47ms)
+    TdTargetSpec::new_simple(47.0),  // 8" long-range (35-59ms)
+    TdTargetSpec::new_simple(56.0),  // 9" cinelifter (42-70ms)
+    TdTargetSpec::new_simple(65.0),  // 10" cinelifter (49-81ms)
+    TdTargetSpec::new_simple(75.0),  // 11" heavy-lift (56-94ms)
+    TdTargetSpec::new_simple(85.0),  // 12" heavy-lift (64-106ms)
+    TdTargetSpec::new_simple(95.0),  // 13" heavy-lift (71-119ms)
+    TdTargetSpec::new_simple(105.0), // 14" heavy-lift (79-131ms)
+    TdTargetSpec::new_simple(115.0), // 15" heavy-lift (86-144ms)
+];
+
+// High-frequency noise analysis for P headroom estimation
+// D-term energy above this frequency threshold indicates noise constraints
+pub const DTERM_HF_CUTOFF_HZ: f64 = 200.0; // Frequency above which high-frequency noise is measured
+pub const DTERM_HF_ENERGY_THRESHOLD: f64 = 0.15; // 15% of total D-term energy (high noise level)
+pub const DTERM_HF_ENERGY_MODERATE: f64 = 0.10; // 10% of total D-term energy (moderate noise level)
+
+// Response consistency quality control
+// Ensures Td measurements are reliable across multiple step responses
+pub const TD_CONSISTENCY_MIN_THRESHOLD: f64 = 0.85; // 85% of responses should be within ±1 std dev
+pub const TD_COEFFICIENT_OF_VARIATION_MAX: f64 = 0.20; // 20% CV (std/mean) is acceptable
+
+// P headroom estimation multipliers
+// Conservative approach for users who want safe incremental improvements
+pub const P_HEADROOM_CONSERVATIVE_MULTIPLIER: f64 = 1.05; // +5% from current P
+                                                          // Moderate approach for experienced pilots
+pub const P_HEADROOM_MODERATE_MULTIPLIER: f64 = 1.10; // +10% from current P
+                                                      // Aggressive approach for optimization (use with caution)
+#[allow(dead_code)]
+pub const P_HEADROOM_AGGRESSIVE_MULTIPLIER: f64 = 1.15; // +15% from current P (reserved for future use)
+
+// P reduction multipliers (when Td is too fast or noise is too high)
+pub const P_REDUCTION_MODERATE_MULTIPLIER: f64 = 0.95; // -5% from current P
+#[allow(dead_code)]
+pub const P_REDUCTION_AGGRESSIVE_MULTIPLIER: f64 = 0.90; // -10% from current P
+
+// Td statistics computation constants
+pub const MIN_TD_MS: f64 = 0.1; // Minimum valid Td (time to 50%) in milliseconds (domain-appropriate threshold)
+pub const TD_MEAN_EPSILON: f64 = 1e-12; // Threshold for near-zero mean values (avoid division by zero)
+pub const TD_SAMPLES_MIN_FOR_STDDEV: usize = 2; // Minimum samples needed for std dev calculation
+
+// Td deviation thresholds (percentage deviation from target)
+// Deviation thresholds for classifying Td behavior
+// Note: The thresholds are intentionally asymmetric — there is no separate
+// 'moderately faster' threshold. Faster-than-target deviations are treated
+// more strictly because they often indicate potential oscillation or unsafe
+// aggressive tuning. Therefore any significant speed-up beyond
+// TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD is flagged immediately. Slower
+// deviations are given two thresholds (moderate and significant) to allow
+// finer-grained handling when Td is lagging behind the target.
+pub const TD_DEVIATION_SIGNIFICANTLY_SLOWER_THRESHOLD: f64 = 30.0; // > 30% slower
+pub const TD_DEVIATION_MODERATELY_SLOWER_THRESHOLD: f64 = 15.0; // > 15% slower
+pub const TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD: f64 = -15.0; // < -15% faster
+
+// Optimal P estimation data collection thresholds
+pub const OPTIMAL_P_MIN_DTERM_SAMPLES: usize = 100; // Minimum D-term samples for noise analysis

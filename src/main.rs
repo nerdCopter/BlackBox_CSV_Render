@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 
 use ndarray::Array1;
 
+use crate::data_analysis::optimal_p_estimation::FrameClass;
 use crate::types::StepResponseResults;
 
 // Build version string from git info with fallbacks for builds without vergen metadata
@@ -90,6 +91,17 @@ impl PlotConfig {
             pid_activity: false,
         }
     }
+}
+
+// Analysis options struct to group related analysis parameters
+#[derive(Debug, Clone, Copy)]
+struct AnalysisOptions {
+    pub setpoint_threshold: f64,
+    pub show_legend: bool,
+    pub debug_mode: bool,
+    pub show_butterworth: bool,
+    pub estimate_optimal_p: bool,
+    pub frame_class: FrameClass,
 }
 
 use crate::constants::{
@@ -366,6 +378,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!(
         "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
     );
+    eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.");
+    eprintln!("    --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Requires --estimate-optimal-p to have effect.");
     eprintln!();
     eprintln!("=== GENERAL ===");
     eprintln!();
@@ -375,16 +389,12 @@ fn print_usage_and_exit(program_name: &str) {
     std::process::exit(1);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn process_file(
     input_file_str: &str,
-    setpoint_threshold: f64,
-    show_legend: bool,
     use_dir_prefix: bool,
     output_dir: Option<&Path>,
-    debug_mode: bool,
-    show_butterworth: bool,
     plot_config: PlotConfig,
+    analysis_opts: AnalysisOptions,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -436,7 +446,7 @@ fn process_file(
         gyro_unfilt_header_found,
         debug_header_found,
         header_metadata,
-    ) = match parse_log_file(input_path, debug_mode) {
+    ) = match parse_log_file(input_path, analysis_opts.debug_mode) {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Error parsing log file {input_file_str}: {e}");
@@ -639,6 +649,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     if sample_rate.is_some() {
         println!("\n--- Step Response Analysis & P:D Ratio Recommendations ---");
         println!("NOTE: These are STARTING POINTS based on step response analysis.");
+        println!("      These recommendations focus on D-term tuning (P:D ratio).");
+        if analysis_opts.estimate_optimal_p {
+            println!(
+                "      See 'Optimal P Estimation' below for P gain magnitude recommendations."
+            );
+        }
         println!("      Always test in a safe environment. Conservative = safer first step.");
         println!("      Moderate = for experienced pilots (test carefully to avoid hot motors).");
         println!();
@@ -849,7 +865,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             let d_max_str = recommended_d_max_conservative
                                                 [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("    Conservative: P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                            println!("    Conservative recommendation: P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
                                                 recommended_pd_conservative[axis_index].unwrap(),
                                                 d_min_str, d_max_str, p_val);
                                         } else if let Some(recommended_d) =
@@ -857,7 +873,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         {
                                             // D-Min/D-Max disabled: show only base D
                                             println!(
-                                                "    Conservative: P:D={:.2} → D≈{} (P={})",
+                                                "    Conservative recommendation: P:D={:.2} → D≈{} (P={})",
                                                 recommended_pd_conservative[axis_index].unwrap(),
                                                 recommended_d,
                                                 p_val
@@ -877,7 +893,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             let d_max_str = recommended_d_max_aggressive
                                                 [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("    Moderate:     P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                            println!("    Moderate recommendation:     P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
                                                 recommended_pd_aggressive[axis_index].unwrap(),
                                                 d_min_str, d_max_str, p_val);
                                         } else if let Some(recommended_d_mod) =
@@ -885,7 +901,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         {
                                             // D-Min/D-Max disabled: show only base D
                                             println!(
-                                                "    Moderate:     P:D={:.2} → D≈{} (P={})",
+                                                "    Moderate recommendation:     P:D={:.2} → D≈{} (P={})",
                                                 recommended_pd_aggressive[axis_index].unwrap(),
                                                 recommended_d_mod,
                                                 p_val
@@ -911,6 +927,124 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         println!();
     }
 
+    // Optimal P Estimation Analysis (if enabled)
+    // Store results for both console output and PNG overlay
+    let mut optimal_p_analyses: [Option<
+        crate::data_analysis::optimal_p_estimation::OptimalPAnalysis,
+    >; 3] = [None, None, None];
+
+    if analysis_opts.estimate_optimal_p {
+        if let Some(sr) = sample_rate {
+            println!("\n--- Optimal P Estimation ---");
+            println!(
+                "Prop size: {} (use --prop-size to override)",
+                analysis_opts.frame_class.name()
+            );
+            println!();
+
+            for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {
+                // Only Roll (0) and Pitch (1) - Yaw excluded by ROLL_PITCH_AXIS_COUNT
+                let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
+
+                if let Some((response_time, valid_stacked_responses, _valid_window_max_setpoints)) =
+                    &step_response_calculation_results[axis_index]
+                {
+                    if valid_stacked_responses.shape()[0] > 0 && !response_time.is_empty() {
+                        // Collect individual Td samples from each valid response window
+                        let mut td_samples_ms: Vec<f64> = Vec::new();
+
+                        for window_idx in 0..valid_stacked_responses.shape()[0] {
+                            let response = valid_stacked_responses.row(window_idx);
+                            let response_f64: Vec<f64> =
+                                response.iter().map(|&x| x as f64).collect();
+                            let response_arr = Array1::from_vec(response_f64);
+
+                            if let Some(td_seconds) =
+                                calc_step_response::calculate_delay_time(&response_arr, sr)
+                            {
+                                td_samples_ms.push(td_seconds * 1000.0);
+                            }
+                        }
+
+                        if td_samples_ms.is_empty() {
+                            println!("  No valid Td measurements for {axis_name}. Skipping optimal P analysis.");
+                            continue;
+                        }
+
+                        // Get current P gain
+                        let current_p = if axis_index == 0 {
+                            pid_metadata.roll.p
+                        } else {
+                            pid_metadata.pitch.p
+                        };
+
+                        // Get current D gain
+                        let current_d = if axis_index == 0 {
+                            pid_metadata.roll.d
+                        } else {
+                            pid_metadata.pitch.d
+                        };
+
+                        if let Some(p_gain) = current_p {
+                            // Calculate HF noise energy from D-term data if available
+                            let hf_energy_ratio: Option<f64> = {
+                                // Collect D-term data for this axis from the log
+                                let d_term_data: Vec<f32> = all_log_data
+                                    .iter()
+                                    .filter_map(|row| row.d_term[axis_index].map(|v| v as f32))
+                                    .collect();
+
+                                // Only analyze if we have sufficient D-term data and sample rate
+                                if !d_term_data.is_empty()
+                                    && d_term_data.len()
+                                        >= crate::constants::OPTIMAL_P_MIN_DTERM_SAMPLES
+                                {
+                                    crate::data_analysis::spectral_analysis::calculate_hf_energy_ratio(
+                                        &d_term_data,
+                                        sr,
+                                        crate::constants::DTERM_HF_CUTOFF_HZ,
+                                    )
+                                } else {
+                                    None
+                                }
+                            };
+
+                            // Physics-based Td calculation produces unrealistic targets (2-3× too optimistic)
+                            // because it doesn't account for ESC lag, motor efficiency, voltage sag, prop transients
+                            // Keep physics model for potential future use but don't use for Td targets
+                            // Use empirically-validated frame-class targets only
+
+                            // Perform optimal P analysis
+                            match crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
+                            &td_samples_ms,
+                            p_gain,
+                            current_d,
+                            analysis_opts.frame_class,
+                            hf_energy_ratio,
+                            recommended_pd_conservative[axis_index],
+                            None, // Don't use physics_td_target - empirical targets more accurate
+                        ) {
+                                Ok(analysis) => {
+                                    // Print console output
+                                    println!("{}", analysis.format_console_output(axis_name));
+                                    // Store for PNG overlay (move instead of clone)
+                                    optimal_p_analyses[axis_index] = Some(analysis);
+                                }
+                                Err(e) => {
+                                    // Log the error for user visibility
+                                    eprintln!("Warning: {}", e);
+                                }
+                            }
+                        } else {
+                            println!("  P gain not available for {axis_name}. Skipping optimal P analysis.");
+                        }
+                    }
+                }
+            }
+            println!();
+        }
+    }
+
     // Create RAII guard BEFORE changing directory if needed
     let _cwd_guard = if let Some(output_dir) = output_dir {
         // Create guard to save current directory BEFORE changing it
@@ -929,25 +1063,52 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
 
     if plot_config.step_response {
+        // Group related parameters into structs for cleaner API
+        use crate::plot_functions::plot_step_response::{
+            ConservativeRecommendations, CurrentPeakAndRatios, ModerateRecommendations,
+            OptimalPConfig, PdRecommendations, PlotDisplayConfig,
+        };
+
+        let current = CurrentPeakAndRatios {
+            peak_values,
+            pd_ratios: current_pd_ratios,
+            assessments,
+        };
+
+        let conservative = ConservativeRecommendations(PdRecommendations {
+            pd_ratios: recommended_pd_conservative,
+            d_values: recommended_d_conservative,
+            d_min_values: recommended_d_min_conservative,
+            d_max_values: recommended_d_max_conservative,
+        });
+
+        let moderate = ModerateRecommendations(PdRecommendations {
+            pd_ratios: recommended_pd_aggressive,
+            d_values: recommended_d_aggressive,
+            d_min_values: recommended_d_min_aggressive,
+            d_max_values: recommended_d_max_aggressive,
+        });
+
+        let display = PlotDisplayConfig {
+            has_nonzero_f_term: has_nonzero_f_term_data,
+            setpoint_threshold: analysis_opts.setpoint_threshold,
+            show_legend: analysis_opts.show_legend,
+        };
+
+        let optimal_p = OptimalPConfig {
+            analyses: optimal_p_analyses,
+        };
+
         plot_step_response(
             &step_response_calculation_results,
             &root_name_string,
             sample_rate,
-            &has_nonzero_f_term_data,
-            setpoint_threshold,
-            show_legend,
             &pid_context.pid_metadata,
-            &peak_values,
-            &current_pd_ratios,
-            &assessments,
-            &recommended_pd_conservative,
-            &recommended_d_conservative,
-            &recommended_d_min_conservative,
-            &recommended_d_max_conservative,
-            &recommended_pd_aggressive,
-            &recommended_d_aggressive,
-            &recommended_d_min_aggressive,
-            &recommended_d_max_aggressive,
+            &current,
+            &conservative,
+            &moderate,
+            &display,
+            &optimal_p,
         )?;
     }
 
@@ -1001,7 +1162,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             Some(&header_metadata),
-            show_butterworth,
+            analysis_opts.show_butterworth,
             using_debug_fallback,
             debug_mode_label,
         )?;
@@ -1013,7 +1174,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             Some(&header_metadata),
-            debug_mode,
+            analysis_opts.debug_mode,
             using_debug_fallback,
             debug_mode_label,
         )?;
@@ -1025,7 +1186,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             Some(&header_metadata),
-            show_butterworth,
+            analysis_opts.show_butterworth,
             using_debug_fallback,
             debug_mode_label,
         )?;
@@ -1052,7 +1213,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             "    For normal flight log analysis, use spectrum plots (default behavior) instead."
         );
         eprintln!();
-        plot_bode_analysis(&all_log_data, &root_name_string, sample_rate, debug_mode)?;
+        plot_bode_analysis(
+            &all_log_data,
+            &root_name_string,
+            sample_rate,
+            analysis_opts.debug_mode,
+        )?;
     }
 
     if plot_config.psd_db_heatmap {
@@ -1115,6 +1281,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut bode_requested = false;
     let mut pid_requested = false;
     let mut recursive = false;
+    let mut estimate_optimal_p = false;
+    let mut frame_class_override: Option<crate::data_analysis::optimal_p_estimation::FrameClass> =
+        None;
+    let mut prop_size_override: Option<u8> = None; // Prop size in inches (whole number only)
 
     let mut version_flag_set = false;
 
@@ -1182,6 +1352,52 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--pid" {
             has_only_flags = true;
             pid_requested = true;
+        } else if arg == "--estimate-optimal-p" {
+            estimate_optimal_p = true;
+        } else if arg == "--prop-size" {
+            if prop_size_override.is_some() {
+                eprintln!("Error: --prop-size argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!(
+                    "Error: --prop-size requires an integer value (propeller diameter in inches: 1-15)."
+                );
+                print_usage_and_exit(program_name);
+            } else {
+                let prop_str = args[i + 1].trim();
+                match prop_str.parse::<u8>() {
+                    Ok(size) if (1..=15).contains(&size) => {
+                        prop_size_override = Some(size);
+                        // Set FrameClass for Td targets
+                        frame_class_override =
+                            crate::data_analysis::optimal_p_estimation::FrameClass::from_inches(
+                                size,
+                            );
+                        if frame_class_override.is_none() {
+                            eprintln!(
+                                "Warning: Prop size {} does not map to a known frame class. Default frame class will be used.",
+                                size
+                            );
+                        }
+                    }
+                    Ok(size) => {
+                        eprintln!(
+                            "Error: Prop size '{}' out of range. Valid range: 1-15 inches",
+                            size
+                        );
+                        print_usage_and_exit(program_name);
+                    }
+                    Err(_) => {
+                        eprintln!(
+                            "Error: Invalid prop size '{}'. Must be an integer between 1 and 15",
+                            prop_str
+                        );
+                        print_usage_and_exit(program_name);
+                    }
+                }
+                i += 1;
+            }
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1216,6 +1432,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Exit if only --version flag was set
     if version_flag_set {
         return Ok(());
+    }
+
+    // Warn if --prop-size is specified without --estimate-optimal-p
+    if prop_size_override.is_some() && !estimate_optimal_p {
+        eprintln!("Warning: --prop-size specified without --estimate-optimal-p.");
+        eprintln!("         The prop size setting will be ignored.");
+        eprintln!("         Use --estimate-optimal-p to enable optimal P estimation.");
+        eprintln!();
+    }
+
+    // Require --prop-size when --estimate-optimal-p is used
+    if estimate_optimal_p && prop_size_override.is_none() {
+        eprintln!(
+            "Error: --estimate-optimal-p requires --prop-size <1-15> to be explicitly specified."
+        );
+        eprintln!("       No default prop size is assumed. Specify the actual propeller diameter in inches.");
+        print_usage_and_exit(program_name);
     }
 
     if input_paths.is_empty() {
@@ -1266,6 +1499,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    // Construct AnalysisOptions once before the loop (Copy type, reusable across all files)
+    let analysis_opts = AnalysisOptions {
+        setpoint_threshold,
+        show_legend,
+        debug_mode,
+        show_butterworth,
+        estimate_optimal_p,
+        frame_class: frame_class_override
+            .unwrap_or(crate::data_analysis::optimal_p_estimation::FrameClass::FiveInch),
+    };
+
     let mut overall_success = true;
     for input_file_str in &input_files {
         // Determine the actual output directory for this file
@@ -1279,13 +1523,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         if let Err(e) = process_file(
             input_file_str,
-            setpoint_threshold,
-            show_legend,
             use_dir_prefix_for_root_name,
             actual_output_dir,
-            debug_mode,
-            show_butterworth,
             plot_config,
+            analysis_opts,
         ) {
             eprintln!("An error occurred while processing {input_file_str}: {e}");
             overall_success = false;
