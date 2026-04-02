@@ -42,7 +42,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
   --motor: Generate only motor spectrum plots.
   --setpoint: Generate only setpoint-related plots.
   --pid: Generate only P, I, D activity plot.
-  --bode: Generate Bode plot analysis.
+  --bode: Bode plot analysis (requires chirp/sweep system-id test flight, not normal logs).
 
 === ANALYSIS OPTIONS ===
 
