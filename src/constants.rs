@@ -259,4 +259,11 @@ pub const PSD_EPSILON: f64 = 1e-12; // Guard against division by zero for PSD va
 pub const MAGNITUDE_PLOT_MARGIN_DB: f64 = 10.0; // Padding above/below magnitude data for plot range
 pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data for plot range
 
+// ESO (Extended State Observer) optimization constants
+pub const ESO_OMEGA0_MIN: f64 = 50.0; // Lower bound for observer bandwidth search (rad/s)
+pub const ESO_OMEGA0_MAX: f64 = 500.0; // Upper bound for observer bandwidth search (rad/s)
+pub const ESO_GSS_TOLERANCE: f64 = 0.01; // Golden-section search convergence tolerance (rad/s)
+pub const ESO_GSS_MAX_ITER: usize = 100; // Maximum iterations for golden-section search
+pub const ESO_DEFAULT_B0: f64 = 1.0; // Default control effectiveness (dimensionless)
+
 // src/constants.rs
