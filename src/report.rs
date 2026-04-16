@@ -212,7 +212,7 @@ pub fn generate_markdown_report(
             writeln!(md, "| beta1 = 2*omega_0 | {:.2} |", eso.beta1)?;
             writeln!(md, "| beta2 = omega_0^2 | {:.4} |", eso.beta2)?;
             writeln!(md, "| b0 (control effectiveness) | {:.4} |", eso.b0)?;
-            writeln!(md, "| MSE (tracking error) | {:.6} |", eso.mse)?;
+            writeln!(md, "| MSE (N-step-ahead prediction) | {:.6} |", eso.mse)?;
             writeln!(md, "| Samples | {} |", eso.sample_count)?;
             writeln!(md)?;
             writeln!(

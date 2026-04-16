@@ -1140,6 +1140,16 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         } else {
             println!("  [WARN] Sample rate unknown — skipping ESO optimization.");
         }
+
+        // --- ESO Output Plot ---
+        let any_eso = eso_results.iter().any(|r| r.is_some());
+        if any_eso {
+            println!("\n--- Generating ESO Output Plot ---");
+            match plot_functions::plot_eso::plot_eso_output(&eso_results, &root_name_string) {
+                Ok(()) => println!("  [OK] ESO output plot written."),
+                Err(e) => eprintln!("  [ERROR] ESO output plot failed: {e}"),
+            }
+        }
     }
 
     // --- Markdown Statistical Report ---

@@ -1,13 +1,23 @@
 // src/eso.rs
 // 2nd-order Linear Extended State Observer (LESO) for flight controller blackbox data.
-// Implements discrete Euler-forward LESO simulation with golden-section search for the
+// Implements discrete Euler-forward LESO simulation with argmin GoldenSectionSearch for the
 // optimal observer bandwidth (omega_0) using PID sum as control input and filtered
 // gyro as measured output.
+//
+// Cost function: N-step-ahead open-loop prediction MSE (unimodal objective).
+// After a correction-phase warm-up, the observer state at each sample is propagated
+// ESO_N_AHEAD_STEPS forward WITHOUT correction; the prediction is compared to the actual
+// measurement. This objective is U-shaped: too-low omega_0 leaves f_hat stale (poor
+// prediction), too-high omega_0 amplifies noise into f_hat (also poor prediction).
 
 use std::error::Error;
 
+use argmin::core::{CostFunction, Executor};
+use argmin::solver::goldensectionsearch::GoldenSectionSearch;
+
 use crate::constants::{
-    ESO_DEFAULT_B0, ESO_GSS_MAX_ITER, ESO_GSS_TOLERANCE, ESO_OMEGA0_MAX, ESO_OMEGA0_MIN,
+    ESO_DEFAULT_B0, ESO_GSS_MAX_ITER, ESO_GSS_TOLERANCE, ESO_N_AHEAD_STEPS, ESO_OMEGA0_MAX,
+    ESO_OMEGA0_MIN, ESO_WARMUP_FRACTION,
 };
 use crate::data_input::log_data::LogRowData;
 
@@ -46,10 +56,18 @@ pub struct EsoResult {
     pub beta2: f64,
     /// Control effectiveness used.
     pub b0: f64,
-    /// MSE tracking cost at the optimal omega0.
+    /// N-step-ahead prediction MSE at the optimal omega0.
     pub mse: f64,
     /// Number of samples used in the optimization.
     pub sample_count: usize,
+    /// Timestamps (seconds) aligned to the trace data.
+    pub timestamps: Vec<f64>,
+    /// Measured angular rate (filtered gyro) used for optimization.
+    pub omega_meas_trace: Vec<f64>,
+    /// omega_hat trace from final simulation with optimal gains.
+    pub omega_hat_trace: Vec<f64>,
+    /// f_hat (disturbance estimate) trace from final simulation.
+    pub f_hat_trace: Vec<f64>,
 }
 
 /// Compute 2nd-order bandwidth-parameterized LESO gains from omega_0.
@@ -58,7 +76,7 @@ fn leso2_gains(omega0: f64) -> (f64, f64) {
     (2.0 * omega0, omega0 * omega0)
 }
 
-/// Simulate 2nd-order discrete LESO (Euler forward) and return estimated rate sequence.
+/// Simulate 2nd-order discrete LESO (Euler forward) and return (omega_hat, f_hat) traces.
 ///
 /// Discrete update at each step k:
 ///   e          = omega_meas[k] - omega_hat
@@ -71,82 +89,120 @@ fn leso2_gains(omega0: f64) -> (f64, f64) {
 /// * `ts` - Sample period in seconds (1 / sample_rate).
 /// * `omega0` - Observer bandwidth (rad/s).
 /// * `b0` - Control effectiveness.
-fn simulate_leso2(omega_meas: &[f64], u: &[f64], ts: f64, omega0: f64, b0: f64) -> Vec<f64> {
+fn simulate_leso2(
+    omega_meas: &[f64],
+    u: &[f64],
+    ts: f64,
+    omega0: f64,
+    b0: f64,
+) -> (Vec<f64>, Vec<f64>) {
     let (beta1, beta2) = leso2_gains(omega0);
     let n = omega_meas.len().min(u.len());
 
     let mut omega_hat = omega_meas.first().copied().unwrap_or(0.0);
     let mut f_hat = 0.0_f64;
 
-    let mut estimated = Vec::with_capacity(n);
+    let mut omega_hats = Vec::with_capacity(n);
+    let mut f_hats = Vec::with_capacity(n);
+
     for k in 0..n {
-        estimated.push(omega_hat);
+        omega_hats.push(omega_hat);
+        f_hats.push(f_hat);
         let e = omega_meas[k] - omega_hat;
         omega_hat += ts * (f_hat + b0 * u[k] + beta1 * e);
         f_hat += ts * (beta2 * e);
     }
-    estimated
+    (omega_hats, f_hats)
 }
 
-/// Compute MSE between LESO-estimated and measured rate for a given omega_0.
-fn mse_cost(omega_meas: &[f64], u: &[f64], ts: f64, omega0: f64, b0: f64) -> f64 {
-    let estimated = simulate_leso2(omega_meas, u, ts, omega0, b0);
-    let n = estimated.len().min(omega_meas.len());
-    if n == 0 {
+/// Compute the N-step-ahead open-loop prediction MSE for a given omega_0.
+///
+/// The observer runs with full correction on all data (first pass) to obtain per-sample
+/// states. Then for each sample after the warm-up fraction, the state is propagated
+/// ESO_N_AHEAD_STEPS forward open-loop (no correction — f_hat frozen) and compared to
+/// the actual measurement at k + N. This creates a unimodal cost:
+///   - Low omega_0: f_hat is stale → poor N-step prediction.
+///   - High omega_0: noise amplified into f_hat → poor N-step prediction.
+///   - Optimal omega_0: balanced disturbance estimation → best N-step prediction.
+fn nstep_prediction_mse(omega_meas: &[f64], u: &[f64], ts: f64, omega0: f64, b0: f64) -> f64 {
+    let n = omega_meas.len().min(u.len());
+    if n <= ESO_N_AHEAD_STEPS + 1 {
         return f64::INFINITY;
     }
-    let sum_sq: f64 = estimated
-        .iter()
-        .zip(omega_meas.iter())
-        .map(|(e, m)| (e - m).powi(2))
-        .sum();
-    sum_sq / n as f64
-}
+    let (beta1, beta2) = leso2_gains(omega0);
 
-/// Golden-section search for the minimum of a unimodal function on [lo, hi].
-/// Returns (best_x, f(best_x)).
-fn golden_section_search<F: Fn(f64) -> f64>(
-    f: F,
-    mut lo: f64,
-    mut hi: f64,
-    tol: f64,
-    max_iter: usize,
-) -> (f64, f64) {
-    // Inverse golden ratio: (sqrt(5) - 1) / 2
-    const PHI_INV: f64 = 0.618_033_988_749_895;
-    let mut x1 = hi - PHI_INV * (hi - lo);
-    let mut x2 = lo + PHI_INV * (hi - lo);
-    let mut f1 = f(x1);
-    let mut f2 = f(x2);
-
-    for _ in 0..max_iter {
-        if (hi - lo).abs() < tol {
-            break;
-        }
-        if f1 < f2 {
-            hi = x2;
-            x2 = x1;
-            f2 = f1;
-            x1 = hi - PHI_INV * (hi - lo);
-            f1 = f(x1);
-        } else {
-            lo = x1;
-            x1 = x2;
-            f1 = f2;
-            x2 = lo + PHI_INV * (hi - lo);
-            f2 = f(x2);
-        }
+    // First pass: run observer with correction to capture states at each sample.
+    let mut omega_hat_states = vec![0.0_f64; n];
+    let mut f_hat_states = vec![0.0_f64; n];
+    let mut omega_hat = omega_meas[0];
+    let mut f_hat = 0.0_f64;
+    for k in 0..n {
+        omega_hat_states[k] = omega_hat;
+        f_hat_states[k] = f_hat;
+        let e = omega_meas[k] - omega_hat;
+        omega_hat += ts * (f_hat + b0 * u[k] + beta1 * e);
+        f_hat += ts * (beta2 * e);
     }
-    let best_x = (lo + hi) / 2.0;
-    (best_x, f(best_x))
+
+    // Warm-up: skip initial fraction to let the observer states converge.
+    let warmup = ((n as f64 * ESO_WARMUP_FRACTION) as usize).max(1);
+    let end = n.saturating_sub(ESO_N_AHEAD_STEPS);
+    if warmup >= end {
+        return f64::INFINITY;
+    }
+
+    // Second pass: N-step open-loop prediction from each warm sample.
+    let mut sum_sq = 0.0_f64;
+    let mut count = 0usize;
+    for k in warmup..end {
+        let mut omega_pred = omega_hat_states[k];
+        let f_pred = f_hat_states[k]; // frozen — no correction in open-loop propagation
+        for j in 0..ESO_N_AHEAD_STEPS {
+            omega_pred += ts * (f_pred + b0 * u[k + j]);
+        }
+        sum_sq += (omega_pred - omega_meas[k + ESO_N_AHEAD_STEPS]).powi(2);
+        count += 1;
+    }
+    if count == 0 {
+        f64::INFINITY
+    } else {
+        sum_sq / count as f64
+    }
 }
 
-/// Extract gyro measurements and PID sum for an axis from log data.
+/// argmin CostFunction wrapper for single-axis ESO bandwidth search.
+struct EsoCostFn<'a> {
+    omega_meas: &'a [f64],
+    u: &'a [f64],
+    ts: f64,
+    b0: f64,
+}
+
+impl CostFunction for EsoCostFn<'_> {
+    type Param = f64;
+    type Output = f64;
+
+    fn cost(&self, omega0: &f64) -> Result<f64, argmin::core::Error> {
+        Ok(nstep_prediction_mse(
+            self.omega_meas,
+            self.u,
+            self.ts,
+            *omega0,
+            self.b0,
+        ))
+    }
+}
+
+/// Extract gyro measurements, PID sum, and timestamps for an axis from log data.
 /// Rows with missing gyro are skipped; PID terms default to 0.0 if absent.
-/// Returns (omega_meas, pid_sum) or None when fewer than 2 samples are available.
-fn extract_axis_data(log_data: &[LogRowData], axis: usize) -> Option<(Vec<f64>, Vec<f64>)> {
+/// Returns (omega_meas, pid_sum, timestamps_sec) or None when fewer than 2 samples are available.
+fn extract_axis_data(
+    log_data: &[LogRowData],
+    axis: usize,
+) -> Option<(Vec<f64>, Vec<f64>, Vec<f64>)> {
     let mut omega_meas = Vec::with_capacity(log_data.len());
     let mut pid_sum = Vec::with_capacity(log_data.len());
+    let mut timestamps = Vec::with_capacity(log_data.len());
 
     for row in log_data {
         if let Some(gyro) = row.gyro[axis] {
@@ -156,18 +212,20 @@ fn extract_axis_data(log_data: &[LogRowData], axis: usize) -> Option<(Vec<f64>, 
             let f_val = row.f_term[axis].unwrap_or(0.0);
             omega_meas.push(gyro);
             pid_sum.push(p + i_val + d + f_val);
+            timestamps.push(row.time_sec.unwrap_or(0.0));
         }
     }
 
     if omega_meas.len() < 2 {
         return None;
     }
-    Some((omega_meas, pid_sum))
+    Some((omega_meas, pid_sum, timestamps))
 }
 
-/// Run ESO gain optimization for a single axis using golden-section search on omega_0.
+/// Run ESO gain optimization for a single axis using argmin GoldenSectionSearch on omega_0.
 ///
 /// The search is constrained to omega_0 < sample_rate / 3 for discrete-time stability.
+/// The cost function is N-step-ahead open-loop prediction MSE, which is unimodal.
 ///
 /// # Arguments
 /// * `log_data` - Parsed blackbox log rows.
@@ -180,7 +238,7 @@ pub fn run_eso_optimization(
     axis: usize,
     config: &EsoConfig,
 ) -> Result<EsoResult, Box<dyn Error>> {
-    let (omega_meas, pid_sum) = extract_axis_data(log_data, axis)
+    let (omega_meas, pid_sum, timestamps) = extract_axis_data(log_data, axis)
         .ok_or("Insufficient data for ESO optimization (fewer than 2 usable samples)")?;
 
     // Enforce discrete-time stability: omega_0 < sample_rate / 3
@@ -196,17 +254,36 @@ pub fn run_eso_optimization(
 
     let ts = 1.0 / sample_rate;
     let b0 = config.b0;
-    let cost_fn = |omega0: f64| mse_cost(&omega_meas, &pid_sum, ts, omega0, b0);
 
-    let (omega0_opt, mse) = golden_section_search(
-        cost_fn,
-        config.omega0_min,
-        omega0_max_stable,
-        ESO_GSS_TOLERANCE,
-        ESO_GSS_MAX_ITER,
-    );
+    let problem = EsoCostFn {
+        omega_meas: &omega_meas,
+        u: &pid_sum,
+        ts,
+        b0,
+    };
+
+    let solver = GoldenSectionSearch::new(config.omega0_min, omega0_max_stable)
+        .map_err(|e| -> Box<dyn Error> { format!("argmin GSS init: {e}").into() })?
+        .with_tolerance(ESO_GSS_TOLERANCE)
+        .map_err(|e| -> Box<dyn Error> { format!("argmin GSS tolerance: {e}").into() })?;
+
+    let initial = (config.omega0_min + omega0_max_stable) / 2.0;
+
+    let run_result = Executor::new(problem, solver)
+        .configure(|state| state.param(initial).max_iters(ESO_GSS_MAX_ITER))
+        .run()
+        .map_err(|e| -> Box<dyn Error> { format!("argmin optimization: {e}").into() })?;
+
+    let omega0_opt = run_result
+        .state()
+        .best_param
+        .ok_or("ESO optimization returned no solution")?;
+    let mse = run_result.state().best_cost;
 
     let (beta1, beta2) = leso2_gains(omega0_opt);
+
+    // Final simulation with optimal gains to produce trace data for plotting.
+    let (omega_hat_trace, f_hat_trace) = simulate_leso2(&omega_meas, &pid_sum, ts, omega0_opt, b0);
 
     Ok(EsoResult {
         axis,
@@ -216,5 +293,9 @@ pub fn run_eso_optimization(
         b0,
         mse,
         sample_count: omega_meas.len(),
+        timestamps,
+        omega_meas_trace: omega_meas,
+        omega_hat_trace,
+        f_hat_trace,
     })
 }
