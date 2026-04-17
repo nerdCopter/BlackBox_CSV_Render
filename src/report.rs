@@ -211,15 +211,24 @@ pub fn generate_markdown_report(
             writeln!(md, "| omega_0 (optimal) | {:.2} rad/s |", eso.omega0_opt)?;
             writeln!(md, "| beta1 = 2*omega_0 | {:.2} |", eso.beta1)?;
             writeln!(md, "| beta2 = omega_0^2 | {:.4} |", eso.beta2)?;
-            writeln!(md, "| b0 (control effectiveness) | {:.4} |", eso.b0)?;
+            let b0_label = if eso.b0_auto {
+                "(auto-estimated from data)"
+            } else {
+                "(user-supplied)"
+            };
+            writeln!(
+                md,
+                "| b0 (control effectiveness) | {:.4} {b0_label} |",
+                eso.b0
+            )?;
             writeln!(md, "| MSE (N-step-ahead prediction) | {:.6} |", eso.mse)?;
             writeln!(md, "| Samples | {} |", eso.sample_count)?;
             writeln!(md)?;
             writeln!(
                 md,
                 "> Stability requirement: omega_0 < loop_rate / 3. \
-                Use in an ADRC implementation. b0=1.0 (default) is dimensionless; \
-                tune with physical inertia for absolute accuracy."
+                Use in an ADRC implementation. b0 is estimated from data via OLS on rate \
+                derivatives (QuickFlash method); override with --eso-b0 if needed."
             )?;
             writeln!(md)?;
         }

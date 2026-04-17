@@ -16,8 +16,8 @@ use argmin::core::{CostFunction, Executor};
 use argmin::solver::goldensectionsearch::GoldenSectionSearch;
 
 use crate::constants::{
-    ESO_DEFAULT_B0, ESO_GSS_MAX_ITER, ESO_GSS_TOLERANCE, ESO_N_AHEAD_STEPS, ESO_OMEGA0_MAX,
-    ESO_OMEGA0_MIN, ESO_WARMUP_FRACTION,
+    ESO_B0_MIN_CONTROL_THRESHOLD, ESO_DEFAULT_B0, ESO_GSS_MAX_ITER, ESO_GSS_TOLERANCE,
+    ESO_N_AHEAD_STEPS, ESO_OMEGA0_MAX, ESO_OMEGA0_MIN, ESO_WARMUP_FRACTION,
 };
 use crate::data_input::log_data::LogRowData;
 
@@ -56,6 +56,8 @@ pub struct EsoResult {
     pub beta2: f64,
     /// Control effectiveness used.
     pub b0: f64,
+    /// True when b0 was estimated from data; false when provided by the user.
+    pub b0_auto: bool,
     /// N-step-ahead prediction MSE at the optimal omega0.
     pub mse: f64,
     /// Number of samples used in the optimization.
@@ -193,6 +195,47 @@ impl CostFunction for EsoCostFn<'_> {
     }
 }
 
+/// Estimate control effectiveness b0 via ordinary least squares on rate derivative increments.
+///
+/// QuickFlash's guidance: set beta1/beta2 → 0 (no observer correction), find b0 that
+/// minimises prediction error so "it's pretty much just b0 doing the job".
+///
+/// With correction gains = 0 the LESO update reduces to:
+///   ω[k+1] − ω[k] ≈ Ts · b0 · u[k]
+///
+/// OLS closed form: b0 = Σ(u[k] · Δω[k]) / (Ts · Σ(u[k]²))
+///
+/// Only samples where |u[k]| ≥ ESO_B0_MIN_CONTROL_THRESHOLD are included to avoid
+/// numerical issues from near-zero control inputs.
+/// Returns None when fewer than 10 valid samples are available or when the estimate
+/// is non-positive (which would indicate a mis-matched control law).
+fn estimate_b0(omega_meas: &[f64], u: &[f64], ts: f64) -> Option<f64> {
+    let n = omega_meas.len().min(u.len()).saturating_sub(1);
+    let mut num = 0.0_f64;
+    let mut den = 0.0_f64;
+    let mut count = 0usize;
+
+    for k in 0..n {
+        if u[k].abs() < ESO_B0_MIN_CONTROL_THRESHOLD {
+            continue;
+        }
+        let delta_omega = omega_meas[k + 1] - omega_meas[k];
+        num += u[k] * delta_omega;
+        den += u[k] * u[k] * ts;
+        count += 1;
+    }
+
+    if count < 10 || den.abs() < 1e-12 {
+        return None;
+    }
+    let b0 = num / den;
+    if b0.is_finite() && b0.abs() > 1e-9 {
+        Some(b0)
+    } else {
+        None
+    }
+}
+
 /// Extract gyro measurements, PID sum, and timestamps for an axis from log data.
 /// Rows with missing gyro are skipped; PID terms default to 0.0 if absent.
 /// Returns (omega_meas, pid_sum, timestamps_sec) or None when fewer than 2 samples are available.
@@ -253,7 +296,17 @@ pub fn run_eso_optimization(
     }
 
     let ts = 1.0 / sample_rate;
-    let b0 = config.b0;
+
+    // Stage 1: estimate b0 from data via OLS on rate derivatives (QuickFlash guidance).
+    // If the user explicitly provided a non-default b0 via --eso-b0, respect it.
+    let (b0, b0_auto) = if (config.b0 - ESO_DEFAULT_B0).abs() < 1e-12 {
+        match estimate_b0(&omega_meas, &pid_sum, ts) {
+            Some(estimated) => (estimated, true),
+            None => (config.b0, false),
+        }
+    } else {
+        (config.b0, false)
+    };
 
     let problem = EsoCostFn {
         omega_meas: &omega_meas,
@@ -291,6 +344,7 @@ pub fn run_eso_optimization(
         beta1,
         beta2,
         b0,
+        b0_auto,
         mse,
         sample_count: omega_meas.len(),
         timestamps,

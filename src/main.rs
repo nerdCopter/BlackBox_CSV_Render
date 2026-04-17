@@ -1127,9 +1127,14 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                     print!("  {axis_name}: running ... ");
                     match eso::run_eso_optimization(&all_log_data, sr, axis_idx, &config) {
                         Ok(result) => {
+                            let b0_label = if result.b0_auto {
+                                "(estimated)"
+                            } else {
+                                "(user)"
+                            };
                             println!(
-                                "[OK] omega0={:.1} rad/s  beta1={:.2}  beta2={:.2}  MSE={:.6}",
-                                result.omega0_opt, result.beta1, result.beta2, result.mse
+                                "[OK] omega0={:.1} rad/s  b0={:.4} {b0_label}  beta1={:.2}  beta2={:.2}  MSE={:.6}",
+                                result.omega0_opt, result.b0, result.beta1, result.beta2, result.mse
                             );
                             *eso_slot = Some(result);
                         }

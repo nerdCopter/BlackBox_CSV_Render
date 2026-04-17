@@ -267,6 +267,7 @@ pub const ESO_GSS_MAX_ITER: u64 = 100; // Maximum iterations for golden-section 
 pub const ESO_DEFAULT_B0: f64 = 1.0; // Default control effectiveness (dimensionless)
 pub const ESO_N_AHEAD_STEPS: usize = 5; // Steps ahead for open-loop prediction cost (unimodal objective)
 pub const ESO_WARMUP_FRACTION: f64 = 0.20; // Fraction of data used for observer spin-up before cost evaluation
+pub const ESO_B0_MIN_CONTROL_THRESHOLD: f64 = 10.0; // Minimum |PID sum| to include a sample in b0 OLS estimation
 
 // ESO output plot colors
 pub const COLOR_ESO_MEAS: &RGBColor = &LIGHTBLUE; // Measured gyro rate
