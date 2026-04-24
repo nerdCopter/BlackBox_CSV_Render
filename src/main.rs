@@ -5,10 +5,12 @@ mod constants;
 mod data_analysis;
 mod data_input;
 mod debug_mode_lookup;
+mod eso;
 mod font_config;
 mod pid_context;
 mod plot_framework;
 mod plot_functions;
+mod report;
 mod types;
 
 use std::collections::HashSet;
@@ -19,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use ndarray::Array1;
 
+use crate::axis_names::AXIS_COUNT;
 use crate::types::StepResponseResults;
 
 // Build version string from git info with fallbacks for builds without vergen metadata
@@ -46,6 +49,11 @@ struct PlotConfig {
     pub motor_spectrums: bool,
     pub bode: bool,
     pub pid_activity: bool,
+    pub run_eso: bool,
+    pub run_report: bool,
+    pub eso_b0: f64,
+    pub eso_b0_user_override: bool,
+    pub eso_axes: [bool; AXIS_COUNT],
 }
 
 impl Default for PlotConfig {
@@ -66,29 +74,34 @@ impl Default for PlotConfig {
             motor_spectrums: true,
             bode: false,
             pid_activity: true,
+            run_eso: false,
+            run_report: false,
+            eso_b0: crate::constants::ESO_DEFAULT_B0,
+            eso_b0_user_override: false,
+            eso_axes: [true; AXIS_COUNT],
         }
     }
 }
 
 impl PlotConfig {
-    fn none() -> Self {
-        Self {
-            step_response: false,
-            pidsum_error_setpoint: false,
-            setpoint_vs_gyro: false,
-            setpoint_derivative: false,
-            gyro_vs_unfilt: false,
-            gyro_spectrums: false,
-            d_term_psd: false,
-            d_term_spectrums: false,
-            psd: false,
-            psd_db_heatmap: false,
-            throttle_freq_heatmap: false,
-            d_term_heatmap: false,
-            motor_spectrums: false,
-            bode: false,
-            pid_activity: false,
-        }
+    /// Reset all plot-type flags to `false` while preserving ESO and report settings
+    /// (`run_eso`, `run_report`, `eso_b0`, `eso_b0_user_override`, `eso_axes`).
+    fn disable_plots(&mut self) {
+        self.step_response = false;
+        self.pidsum_error_setpoint = false;
+        self.setpoint_vs_gyro = false;
+        self.setpoint_derivative = false;
+        self.gyro_vs_unfilt = false;
+        self.gyro_spectrums = false;
+        self.d_term_psd = false;
+        self.d_term_spectrums = false;
+        self.psd = false;
+        self.psd_db_heatmap = false;
+        self.throttle_freq_heatmap = false;
+        self.d_term_heatmap = false;
+        self.motor_spectrums = false;
+        self.bode = false;
+        self.pid_activity = false;
     }
 }
 
@@ -366,6 +379,12 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!(
         "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
     );
+    eprintln!("  --eso: Run 2nd-order LESO bandwidth optimization (omega_0) per axis.");
+    eprintln!(
+        "  --eso-axis <axes>: Axes to optimize (comma-separated: roll,pitch,yaw,all or 0,1,2). Default: all."
+    );
+    eprintln!("  --eso-b0 <value>: Control effectiveness b0 for ESO (default: 1.0).");
+    eprintln!("  --report: Write a markdown statistical report (<stem>_report.md).");
     eprintln!();
     eprintln!("=== GENERAL ===");
     eprintln!();
@@ -1084,6 +1103,77 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     }
 
     // CWD restoration happens automatically when _cwd_guard goes out of scope
+
+    // --- ESO Gain Optimization ---
+    let mut eso_results: [Option<eso::EsoResult>; AXIS_COUNT] = [None, None, None];
+    if plot_config.run_eso {
+        println!("\n--- ESO Gain Optimization (2nd-order LESO) ---");
+        if let Some(sr) = sample_rate {
+            let config = eso::EsoConfig {
+                b0: plot_config.eso_b0,
+                b0_user_override: plot_config.eso_b0_user_override,
+                ..Default::default()
+            };
+            for (axis_idx, (axis_enabled, eso_slot)) in plot_config
+                .eso_axes
+                .iter()
+                .zip(eso_results.iter_mut())
+                .enumerate()
+            {
+                if *axis_enabled {
+                    let axis_name = crate::axis_names::AXIS_NAMES
+                        .get(axis_idx)
+                        .unwrap_or(&"Unknown");
+                    print!("  {axis_name}: running ... ");
+                    match eso::run_eso_optimization(&all_log_data, sr, axis_idx, &config) {
+                        Ok(result) => {
+                            let b0_label = if result.b0_auto {
+                                "(estimated)"
+                            } else {
+                                "(user)"
+                            };
+                            println!(
+                                "[OK] omega0={:.1} rad/s  b0={:.4} {b0_label}  beta1={:.2}  beta2={:.2}  MSE={:.6}",
+                                result.omega0_opt, result.b0, result.beta1, result.beta2, result.mse
+                            );
+                            *eso_slot = Some(result);
+                        }
+                        Err(e) => eprintln!("[WARN] Skipped: {e}"),
+                    }
+                }
+            }
+        } else {
+            println!("  [WARN] Sample rate unknown — skipping ESO optimization.");
+        }
+
+        // --- ESO Output Plot ---
+        let any_eso = eso_results.iter().any(|r| r.is_some());
+        if any_eso {
+            println!("\n--- Generating ESO Output Plot ---");
+            match plot_functions::plot_eso::plot_eso_output(&eso_results, &root_name_string) {
+                Ok(()) => println!("  [OK] ESO output plot written."),
+                Err(e) => eprintln!("  [ERROR] ESO output plot failed: {e}"),
+            }
+        }
+    }
+
+    // --- Markdown Statistical Report ---
+    if plot_config.run_report {
+        let report_filename = format!("{root_name_string}_report.md");
+        let report_path = std::path::Path::new(&report_filename);
+        println!("\n--- Generating Markdown Report: {report_filename} ---");
+        match report::generate_markdown_report(
+            &all_log_data,
+            sample_rate,
+            &header_metadata,
+            report_path,
+            &eso_results,
+        ) {
+            Ok(()) => println!("  [OK] Report written."),
+            Err(e) => eprintln!("  [ERROR] Report generation failed: {e}"),
+        }
+    }
+
     println!("--- Finished processing file: {input_file_str} ---");
     Ok(())
 }
@@ -1182,6 +1272,72 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--pid" {
             has_only_flags = true;
             pid_requested = true;
+        } else if arg == "--eso" {
+            plot_config.run_eso = true;
+        } else if arg == "--report" {
+            plot_config.run_report = true;
+        } else if arg == "--eso-b0" {
+            if i + 1 >= args.len() {
+                eprintln!("Error: --eso-b0 requires a numeric value.");
+                print_usage_and_exit(program_name);
+            }
+            match args[i + 1].parse::<f64>() {
+                Ok(val) if val > 0.0 && val.is_finite() => {
+                    plot_config.eso_b0 = val;
+                    plot_config.eso_b0_user_override = true;
+                    plot_config.run_eso = true;
+                    i += 1;
+                }
+                _ => {
+                    eprintln!(
+                        "Error: --eso-b0 must be a positive finite number: {}",
+                        args[i + 1]
+                    );
+                    print_usage_and_exit(program_name);
+                }
+            }
+        } else if arg == "--eso-axis" {
+            if i + 1 >= args.len() {
+                eprintln!(
+                    "Error: --eso-axis requires a comma-separated list of axes (roll,pitch,yaw)."
+                );
+                print_usage_and_exit(program_name);
+            }
+            let val = args[i + 1].to_ascii_lowercase();
+            let mut axes = [false; AXIS_COUNT];
+            let mut any_valid = false;
+            for part in val.split(',') {
+                match part.trim() {
+                    "roll" | "0" => {
+                        axes[0] = true;
+                        any_valid = true;
+                    }
+                    "pitch" | "1" => {
+                        axes[1] = true;
+                        any_valid = true;
+                    }
+                    "yaw" | "2" => {
+                        axes[2] = true;
+                        any_valid = true;
+                    }
+                    "all" => {
+                        axes = [true; AXIS_COUNT];
+                        any_valid = true;
+                    }
+                    other => {
+                        eprintln!(
+                            "Error: Unknown axis '{}'. Use: roll, pitch, yaw, all, or 0, 1, 2.",
+                            other
+                        );
+                        print_usage_and_exit(program_name);
+                    }
+                }
+            }
+            if any_valid {
+                plot_config.eso_axes = axes;
+                plot_config.run_eso = true;
+            }
+            i += 1;
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1193,7 +1349,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Apply "only" flags if any were specified (non-mutually exclusive: OR together)
     if has_only_flags {
-        plot_config = PlotConfig::none();
+        plot_config.disable_plots();
         plot_config.step_response = step_requested;
         plot_config.motor_spectrums = motor_requested;
         plot_config.bode = bode_requested;

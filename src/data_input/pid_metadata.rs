@@ -581,9 +581,7 @@ fn parse_axis_pid(pid_str: &str) -> AxisPid {
     match values.len() {
         4 => {
             // INAV style: P,I,D,FF
-            if values[3] > 0 {
-                axis_pid.ff = Some(values[3]);
-            }
+            axis_pid.ff = (values[3] > 0).then_some(values[3]);
         }
         5 => {
             // Betaflight 4.6+ style: P,I,D(base=D-Min),D-Max,FF
