@@ -274,6 +274,7 @@ pub const ESO_WARMUP_FRACTION: f64 = 0.20; // Fraction of data used for observer
 pub const ESO_B0_MIN_CONTROL_THRESHOLD: f64 = 10.0; // Minimum |PID sum| to include a sample in b0 OLS estimation
 pub const ESO_B0_MIN_OLS_SAMPLES: usize = 10; // Minimum high-excitation samples required for OLS b0 estimation
 pub const ESO_B0_ESTIMATE_MIN_POSITIVE: f64 = 1e-9; // Minimum strictly-positive b0 to accept (rejects ~0 and negative estimates)
+pub const ESO_OMEGA0_STABILITY_RATIO: f64 = 3.0; // LESO discrete-time stability divisor: omega_0 < sample_rate / ESO_OMEGA0_STABILITY_RATIO
 pub const ESO_FHAT_Y_FRACTION: f64 = 0.5; // f_hat is scaled to fill this fraction of the Y half-range in the ESO plot
 
 // ESO output plot colors

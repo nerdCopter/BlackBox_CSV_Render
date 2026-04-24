@@ -19,7 +19,7 @@ use crate::axis_names::AXIS_COUNT;
 use crate::constants::{
     ESO_B0_ESTIMATE_MIN_POSITIVE, ESO_B0_MIN_CONTROL_THRESHOLD, ESO_B0_MIN_OLS_SAMPLES,
     ESO_DEFAULT_B0, ESO_GSS_MAX_ITER, ESO_GSS_TOLERANCE, ESO_N_AHEAD_STEPS, ESO_OMEGA0_MAX,
-    ESO_OMEGA0_MIN, ESO_WARMUP_FRACTION, VALUE_EPSILON,
+    ESO_OMEGA0_MIN, ESO_OMEGA0_STABILITY_RATIO, ESO_WARMUP_FRACTION, VALUE_EPSILON,
 };
 use crate::data_input::log_data::LogRowData;
 
@@ -313,13 +313,13 @@ pub fn run_eso_optimization(
         return Err("Insufficient control-input excitation for ESO optimization".into());
     }
 
-    // Enforce discrete-time stability: omega_0 < sample_rate / 3
-    let omega0_max_stable = (sample_rate / 3.0).min(config.omega0_max);
+    // Enforce discrete-time stability: omega_0 < sample_rate / ESO_OMEGA0_STABILITY_RATIO
+    let omega0_max_stable = (sample_rate / ESO_OMEGA0_STABILITY_RATIO).min(config.omega0_max);
     if omega0_max_stable <= config.omega0_min {
         return Err(format!(
             "Sample rate {:.1} Hz too low for ESO search (need > {:.1} Hz)",
             sample_rate,
-            config.omega0_min * 3.0
+            config.omega0_min * ESO_OMEGA0_STABILITY_RATIO
         )
         .into());
     }

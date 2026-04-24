@@ -24,6 +24,10 @@ pub struct SignalStats {
 
 /// Compute descriptive statistics for a slice of f64 values.
 /// Returns None if the slice is empty.
+///
+/// **Variance convention:** population variance (divide by N), not sample variance (N-1).
+/// This is appropriate for a complete recorded time-series rather than a statistical sample.
+/// To switch to sample std-dev, change the divisor to `(count - 1)` and guard for `count < 2`.
 pub fn compute_signal_stats(data: &[f64]) -> Option<SignalStats> {
     let count = data.len();
     if count == 0 {
@@ -121,7 +125,7 @@ pub fn generate_markdown_report(
     sample_rate: Option<f64>,
     header_metadata: &[(String, String)],
     output_path: &Path,
-    eso_results: &[Option<EsoResult>; 3],
+    eso_results: &[Option<EsoResult>; AXIS_COUNT],
 ) -> Result<(), Box<dyn Error>> {
     let mut md = String::new();
 

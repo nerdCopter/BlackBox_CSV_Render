@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use ndarray::Array1;
 
+use crate::axis_names::AXIS_COUNT;
 use crate::types::StepResponseResults;
 
 // Build version string from git info with fallbacks for builds without vergen metadata
@@ -52,7 +53,7 @@ struct PlotConfig {
     pub run_report: bool,
     pub eso_b0: f64,
     pub eso_b0_user_override: bool,
-    pub eso_axes: [bool; 3],
+    pub eso_axes: [bool; AXIS_COUNT],
 }
 
 impl Default for PlotConfig {
@@ -77,35 +78,30 @@ impl Default for PlotConfig {
             run_report: false,
             eso_b0: crate::constants::ESO_DEFAULT_B0,
             eso_b0_user_override: false,
-            eso_axes: [true; 3],
+            eso_axes: [true; AXIS_COUNT],
         }
     }
 }
 
 impl PlotConfig {
-    fn none() -> Self {
-        Self {
-            step_response: false,
-            pidsum_error_setpoint: false,
-            setpoint_vs_gyro: false,
-            setpoint_derivative: false,
-            gyro_vs_unfilt: false,
-            gyro_spectrums: false,
-            d_term_psd: false,
-            d_term_spectrums: false,
-            psd: false,
-            psd_db_heatmap: false,
-            throttle_freq_heatmap: false,
-            d_term_heatmap: false,
-            motor_spectrums: false,
-            bode: false,
-            pid_activity: false,
-            run_eso: false,
-            run_report: false,
-            eso_b0: crate::constants::ESO_DEFAULT_B0,
-            eso_b0_user_override: false,
-            eso_axes: [true; 3],
-        }
+    /// Reset all plot-type flags to `false` while preserving ESO and report settings
+    /// (`run_eso`, `run_report`, `eso_b0`, `eso_b0_user_override`, `eso_axes`).
+    fn disable_plots(&mut self) {
+        self.step_response = false;
+        self.pidsum_error_setpoint = false;
+        self.setpoint_vs_gyro = false;
+        self.setpoint_derivative = false;
+        self.gyro_vs_unfilt = false;
+        self.gyro_spectrums = false;
+        self.d_term_psd = false;
+        self.d_term_spectrums = false;
+        self.psd = false;
+        self.psd_db_heatmap = false;
+        self.throttle_freq_heatmap = false;
+        self.d_term_heatmap = false;
+        self.motor_spectrums = false;
+        self.bode = false;
+        self.pid_activity = false;
     }
 }
 
@@ -1109,7 +1105,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     // CWD restoration happens automatically when _cwd_guard goes out of scope
 
     // --- ESO Gain Optimization ---
-    let mut eso_results: [Option<eso::EsoResult>; 3] = [None, None, None];
+    let mut eso_results: [Option<eso::EsoResult>; AXIS_COUNT] = [None, None, None];
     if plot_config.run_eso {
         println!("\n--- ESO Gain Optimization (2nd-order LESO) ---");
         if let Some(sr) = sample_rate {
@@ -1308,7 +1304,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 print_usage_and_exit(program_name);
             }
             let val = args[i + 1].to_ascii_lowercase();
-            let mut axes = [false; 3];
+            let mut axes = [false; AXIS_COUNT];
             let mut any_valid = false;
             for part in val.split(',') {
                 match part.trim() {
@@ -1325,7 +1321,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         any_valid = true;
                     }
                     "all" => {
-                        axes = [true; 3];
+                        axes = [true; AXIS_COUNT];
                         any_valid = true;
                     }
                     other => {
@@ -1353,18 +1349,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Apply "only" flags if any were specified (non-mutually exclusive: OR together)
     if has_only_flags {
-        // Preserve ESO/report settings through the plot-type reset
-        let saved_run_eso = plot_config.run_eso;
-        let saved_run_report = plot_config.run_report;
-        let saved_eso_b0 = plot_config.eso_b0;
-        let saved_eso_b0_user_override = plot_config.eso_b0_user_override;
-        let saved_eso_axes = plot_config.eso_axes;
-        plot_config = PlotConfig::none();
-        plot_config.run_eso = saved_run_eso;
-        plot_config.run_report = saved_run_report;
-        plot_config.eso_b0 = saved_eso_b0;
-        plot_config.eso_b0_user_override = saved_eso_b0_user_override;
-        plot_config.eso_axes = saved_eso_axes;
+        plot_config.disable_plots();
         plot_config.step_response = step_requested;
         plot_config.motor_spectrums = motor_requested;
         plot_config.bode = bode_requested;
