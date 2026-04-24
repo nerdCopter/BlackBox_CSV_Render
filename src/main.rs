@@ -1284,6 +1284,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             match args[i + 1].parse::<f64>() {
                 Ok(val) if val > 0.0 && val.is_finite() => {
                     plot_config.eso_b0 = val;
+                    plot_config.run_eso = true;
                     i += 1;
                 }
                 _ => {
@@ -1333,6 +1334,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             if any_valid {
                 plot_config.eso_axes = axes;
+                plot_config.run_eso = true;
             }
             i += 1;
         } else if arg.starts_with("--") {

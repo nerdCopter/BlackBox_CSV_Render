@@ -65,20 +65,28 @@ fn extract_axis_signals(log_data: &[LogRowData], axis: usize) -> AxisSignals {
 
     for row in log_data {
         if let Some(g) = row.gyro[axis] {
-            let p = row.p_term[axis].unwrap_or(0.0);
-            let i_val = row.i_term[axis].unwrap_or(0.0);
-            let d = row.d_term[axis].unwrap_or(0.0);
-            let f_val = row.f_term[axis].unwrap_or(0.0);
             gyro.push(g);
-            pid_p.push(p);
-            pid_i.push(i_val);
-            pid_d.push(d);
-            pid_sum.push(p + i_val + d + f_val);
         }
-        if axis < 4 {
-            if let Some(sp) = row.setpoint[axis] {
-                setpoint.push(sp);
-            }
+        if let Some(p) = row.p_term[axis] {
+            pid_p.push(p);
+        }
+        if let Some(i_val) = row.i_term[axis] {
+            pid_i.push(i_val);
+        }
+        if let Some(d) = row.d_term[axis] {
+            pid_d.push(d);
+        }
+        let pid_terms = [
+            row.p_term[axis],
+            row.i_term[axis],
+            row.d_term[axis],
+            row.f_term[axis],
+        ];
+        if pid_terms.iter().any(|term| term.is_some()) {
+            pid_sum.push(pid_terms.iter().map(|term| term.unwrap_or(0.0)).sum());
+        }
+        if let Some(sp) = row.setpoint.get(axis).copied().flatten() {
+            setpoint.push(sp);
         }
     }
 

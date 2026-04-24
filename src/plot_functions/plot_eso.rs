@@ -7,8 +7,8 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    COLOR_ESO_FHAT, COLOR_ESO_HAT, COLOR_ESO_MEAS, LINE_WIDTH_PLOT, UNIFIED_Y_AXIS_HEADROOM_SCALE,
-    UNIFIED_Y_AXIS_MIN_SCALE, UNIFIED_Y_AXIS_PERCENTILE,
+    COLOR_ESO_FHAT, COLOR_ESO_HAT, COLOR_ESO_MEAS, ESO_FHAT_Y_FRACTION, LINE_WIDTH_PLOT,
+    UNIFIED_Y_AXIS_HEADROOM_SCALE, UNIFIED_Y_AXIS_MIN_SCALE, UNIFIED_Y_AXIS_PERCENTILE,
 };
 use crate::eso::EsoResult;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
@@ -96,7 +96,8 @@ pub fn plot_eso_output(
         ];
 
         // Scale f_hat to fit ±50% of the omega Y range for visual interpretability.
-        if let Some(scale) = data.fhat_scale {
+        if data.fhat_max_abs > 1e-12 {
+            let scale = (half_range * ESO_FHAT_Y_FRACTION) / data.fhat_max_abs;
             let fhat_data: Vec<(f64, f64)> =
                 data.fhat.iter().map(|&(t, f)| (t, f * scale)).collect();
             series.push(PlotSeries {
@@ -126,8 +127,8 @@ struct AxisEsoData {
     meas_hat: Vec<(f64, f64, f64)>,
     /// (time, f_hat_raw) before visual scaling
     fhat: Vec<(f64, f64)>,
-    /// Scale mapping f_hat peak to ±50% of UNIFIED_Y_AXIS_MIN_SCALE, or None if all-zero.
-    fhat_scale: Option<f64>,
+    /// Maximum absolute f_hat value; used to compute scale inside draw_stacked_plot.
+    fhat_max_abs: f64,
 }
 
 fn build_axis_data(eso: &EsoResult) -> AxisEsoData {
@@ -154,17 +155,11 @@ fn build_axis_data(eso: &EsoResult) -> AxisEsoData {
 
     let fhat_max_abs = fhat.iter().map(|&(_, f)| f.abs()).fold(0.0_f64, f64::max);
 
-    let fhat_scale = if fhat_max_abs > 1e-12 {
-        Some((UNIFIED_Y_AXIS_MIN_SCALE * 0.5) / fhat_max_abs)
-    } else {
-        None
-    };
-
     AxisEsoData {
         omega0_opt: eso.omega0_opt,
         b0: eso.b0,
         meas_hat,
         fhat,
-        fhat_scale,
+        fhat_max_abs,
     }
 }

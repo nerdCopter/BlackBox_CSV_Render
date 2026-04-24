@@ -15,9 +15,10 @@ use std::error::Error;
 use argmin::core::{CostFunction, Executor};
 use argmin::solver::goldensectionsearch::GoldenSectionSearch;
 
+use crate::axis_names::AXIS_COUNT;
 use crate::constants::{
     ESO_B0_MIN_CONTROL_THRESHOLD, ESO_DEFAULT_B0, ESO_GSS_MAX_ITER, ESO_GSS_TOLERANCE,
-    ESO_N_AHEAD_STEPS, ESO_OMEGA0_MAX, ESO_OMEGA0_MIN, ESO_WARMUP_FRACTION,
+    ESO_N_AHEAD_STEPS, ESO_OMEGA0_MAX, ESO_OMEGA0_MIN, ESO_WARMUP_FRACTION, VALUE_EPSILON,
 };
 use crate::data_input::log_data::LogRowData;
 
@@ -281,8 +282,30 @@ pub fn run_eso_optimization(
     axis: usize,
     config: &EsoConfig,
 ) -> Result<EsoResult, Box<dyn Error>> {
+    if axis >= AXIS_COUNT {
+        return Err(format!("Invalid axis index {axis}; expected 0..{}", AXIS_COUNT - 1).into());
+    }
+    if !sample_rate.is_finite() || sample_rate <= 0.0 {
+        return Err(format!("Invalid sample rate: {sample_rate}").into());
+    }
+    if !config.b0.is_finite()
+        || !config.omega0_min.is_finite()
+        || !config.omega0_max.is_finite()
+        || config.omega0_min <= 0.0
+        || config.omega0_min >= config.omega0_max
+    {
+        return Err("Invalid ESO configuration".into());
+    }
+
     let (omega_meas, pid_sum, timestamps) = extract_axis_data(log_data, axis)
         .ok_or("Insufficient data for ESO optimization (fewer than 2 usable samples)")?;
+
+    if !pid_sum
+        .iter()
+        .any(|u| u.is_finite() && u.abs() > VALUE_EPSILON)
+    {
+        return Err("Insufficient control-input excitation for ESO optimization".into());
+    }
 
     // Enforce discrete-time stability: omega_0 < sample_rate / 3
     let omega0_max_stable = (sample_rate / 3.0).min(config.omega0_max);
