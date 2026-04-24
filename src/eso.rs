@@ -17,8 +17,9 @@ use argmin::solver::goldensectionsearch::GoldenSectionSearch;
 
 use crate::axis_names::AXIS_COUNT;
 use crate::constants::{
-    ESO_B0_MIN_CONTROL_THRESHOLD, ESO_DEFAULT_B0, ESO_GSS_MAX_ITER, ESO_GSS_TOLERANCE,
-    ESO_N_AHEAD_STEPS, ESO_OMEGA0_MAX, ESO_OMEGA0_MIN, ESO_WARMUP_FRACTION, VALUE_EPSILON,
+    ESO_B0_ESTIMATE_MIN_POSITIVE, ESO_B0_MIN_CONTROL_THRESHOLD, ESO_B0_MIN_OLS_SAMPLES,
+    ESO_DEFAULT_B0, ESO_GSS_MAX_ITER, ESO_GSS_TOLERANCE, ESO_N_AHEAD_STEPS, ESO_OMEGA0_MAX,
+    ESO_OMEGA0_MIN, ESO_WARMUP_FRACTION, VALUE_EPSILON,
 };
 use crate::data_input::log_data::LogRowData;
 
@@ -27,6 +28,9 @@ use crate::data_input::log_data::LogRowData;
 pub struct EsoConfig {
     /// Control effectiveness (scales PID sum to angular acceleration). Default: 1.0.
     pub b0: f64,
+    /// True when `b0` was explicitly supplied by the user via `--eso-b0`.
+    /// When false, `run_eso_optimization` will attempt OLS auto-estimation.
+    pub b0_user_override: bool,
     /// Observer bandwidth search lower bound (rad/s).
     pub omega0_min: f64,
     /// Observer bandwidth search upper bound (rad/s).
@@ -37,6 +41,7 @@ impl Default for EsoConfig {
     fn default() -> Self {
         Self {
             b0: ESO_DEFAULT_B0,
+            b0_user_override: false,
             omega0_min: ESO_OMEGA0_MIN,
             omega0_max: ESO_OMEGA0_MAX,
         }
@@ -208,8 +213,9 @@ impl CostFunction for EsoCostFn<'_> {
 ///
 /// Only samples where |u[k]| ≥ ESO_B0_MIN_CONTROL_THRESHOLD are included to avoid
 /// numerical issues from near-zero control inputs.
-/// Returns None when fewer than 10 valid samples are available or when the estimate
-/// is non-positive (which would indicate a mis-matched control law).
+/// Returns None when fewer than ESO_B0_MIN_OLS_SAMPLES valid samples are available,
+/// when the denominator is near-zero, or when the estimate is not strictly positive
+/// (a negative estimate indicates an inverted sign convention between u and the gyro axis).
 fn estimate_b0(omega_meas: &[f64], u: &[f64], ts: f64) -> Option<f64> {
     let n = omega_meas.len().min(u.len()).saturating_sub(1);
     let mut num = 0.0_f64;
@@ -226,11 +232,11 @@ fn estimate_b0(omega_meas: &[f64], u: &[f64], ts: f64) -> Option<f64> {
         count += 1;
     }
 
-    if count < 10 || den.abs() < 1e-12 {
+    if count < ESO_B0_MIN_OLS_SAMPLES || den.abs() < VALUE_EPSILON {
         return None;
     }
     let b0 = num / den;
-    if b0.is_finite() && b0.abs() > 1e-9 {
+    if b0.is_finite() && b0 > ESO_B0_ESTIMATE_MIN_POSITIVE {
         Some(b0)
     } else {
         None
@@ -321,14 +327,14 @@ pub fn run_eso_optimization(
     let ts = 1.0 / sample_rate;
 
     // Stage 1: estimate b0 from data via OLS on rate derivatives (QuickFlash guidance).
-    // If the user explicitly provided a non-default b0 via --eso-b0, respect it.
-    let (b0, b0_auto) = if (config.b0 - ESO_DEFAULT_B0).abs() < 1e-12 {
+    // If the user explicitly provided b0 via --eso-b0 (b0_user_override = true), respect it.
+    let (b0, b0_auto) = if config.b0_user_override {
+        (config.b0, false)
+    } else {
         match estimate_b0(&omega_meas, &pid_sum, ts) {
             Some(estimated) => (estimated, true),
             None => (config.b0, false),
         }
-    } else {
-        (config.b0, false)
     };
 
     let problem = EsoCostFn {

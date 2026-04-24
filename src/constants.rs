@@ -261,6 +261,10 @@ pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data f
 
 // ESO (Extended State Observer) optimization constants
 pub const ESO_OMEGA0_MIN: f64 = 50.0; // Lower bound for observer bandwidth search (rad/s)
+                                      // Conservative ceiling kept intentionally below sample_rate/3 for typical 1–2 kHz logs.
+                                      // At ≥4 kHz the discrete-stability cap (sample_rate/3) would allow ~1300–2660 rad/s, but
+                                      // empirical tuning shows gains above ~500 rad/s rarely improve MSE and amplify noise.
+                                      // Override per-run with --eso-b0 or raise this if higher bandwidths are needed.
 pub const ESO_OMEGA0_MAX: f64 = 500.0; // Upper bound for observer bandwidth search (rad/s)
 pub const ESO_GSS_TOLERANCE: f64 = 0.01; // Golden-section search convergence tolerance (rad/s)
 pub const ESO_GSS_MAX_ITER: u64 = 100; // Maximum iterations for golden-section search
@@ -268,6 +272,8 @@ pub const ESO_DEFAULT_B0: f64 = 1.0; // Default control effectiveness (dimension
 pub const ESO_N_AHEAD_STEPS: usize = 5; // Steps ahead for open-loop prediction cost (unimodal objective)
 pub const ESO_WARMUP_FRACTION: f64 = 0.20; // Fraction of data used for observer spin-up before cost evaluation
 pub const ESO_B0_MIN_CONTROL_THRESHOLD: f64 = 10.0; // Minimum |PID sum| to include a sample in b0 OLS estimation
+pub const ESO_B0_MIN_OLS_SAMPLES: usize = 10; // Minimum high-excitation samples required for OLS b0 estimation
+pub const ESO_B0_ESTIMATE_MIN_POSITIVE: f64 = 1e-9; // Minimum strictly-positive b0 to accept (rejects ~0 and negative estimates)
 pub const ESO_FHAT_Y_FRACTION: f64 = 0.5; // f_hat is scaled to fill this fraction of the Y half-range in the ESO plot
 
 // ESO output plot colors

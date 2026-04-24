@@ -51,6 +51,7 @@ struct PlotConfig {
     pub run_eso: bool,
     pub run_report: bool,
     pub eso_b0: f64,
+    pub eso_b0_user_override: bool,
     pub eso_axes: [bool; 3],
 }
 
@@ -75,6 +76,7 @@ impl Default for PlotConfig {
             run_eso: false,
             run_report: false,
             eso_b0: crate::constants::ESO_DEFAULT_B0,
+            eso_b0_user_override: false,
             eso_axes: [true; 3],
         }
     }
@@ -101,6 +103,7 @@ impl PlotConfig {
             run_eso: false,
             run_report: false,
             eso_b0: crate::constants::ESO_DEFAULT_B0,
+            eso_b0_user_override: false,
             eso_axes: [true; 3],
         }
     }
@@ -382,7 +385,7 @@ fn print_usage_and_exit(program_name: &str) {
     );
     eprintln!("  --eso: Run 2nd-order LESO bandwidth optimization (omega_0) per axis.");
     eprintln!(
-        "  --eso-axis <axes>: Axes to optimize (comma-separated: roll,pitch,yaw). Default: all."
+        "  --eso-axis <axes>: Axes to optimize (comma-separated: roll,pitch,yaw,all or 0,1,2). Default: all."
     );
     eprintln!("  --eso-b0 <value>: Control effectiveness b0 for ESO (default: 1.0).");
     eprintln!("  --report: Write a markdown statistical report (<stem>_report.md).");
@@ -1112,6 +1115,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         if let Some(sr) = sample_rate {
             let config = eso::EsoConfig {
                 b0: plot_config.eso_b0,
+                b0_user_override: plot_config.eso_b0_user_override,
                 ..Default::default()
             };
             for (axis_idx, (axis_enabled, eso_slot)) in plot_config
@@ -1284,6 +1288,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             match args[i + 1].parse::<f64>() {
                 Ok(val) if val > 0.0 && val.is_finite() => {
                     plot_config.eso_b0 = val;
+                    plot_config.eso_b0_user_override = true;
                     plot_config.run_eso = true;
                     i += 1;
                 }
@@ -1325,7 +1330,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                     other => {
                         eprintln!(
-                            "Error: Unknown axis '{}'. Use: roll, pitch, yaw, or all.",
+                            "Error: Unknown axis '{}'. Use: roll, pitch, yaw, all, or 0, 1, 2.",
                             other
                         );
                         print_usage_and_exit(program_name);
@@ -1352,11 +1357,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         let saved_run_eso = plot_config.run_eso;
         let saved_run_report = plot_config.run_report;
         let saved_eso_b0 = plot_config.eso_b0;
+        let saved_eso_b0_user_override = plot_config.eso_b0_user_override;
         let saved_eso_axes = plot_config.eso_axes;
         plot_config = PlotConfig::none();
         plot_config.run_eso = saved_run_eso;
         plot_config.run_report = saved_run_report;
         plot_config.eso_b0 = saved_eso_b0;
+        plot_config.eso_b0_user_override = saved_eso_b0_user_override;
         plot_config.eso_axes = saved_eso_axes;
         plot_config.step_response = step_requested;
         plot_config.motor_spectrums = motor_requested;

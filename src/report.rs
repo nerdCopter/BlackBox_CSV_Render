@@ -7,7 +7,7 @@ use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 
-use crate::axis_names::AXIS_NAMES;
+use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
 use crate::data_input::log_data::LogRowData;
 use crate::eso::EsoResult;
 
@@ -181,7 +181,7 @@ pub fn generate_markdown_report(
     writeln!(md, "## Per-Axis Signal Statistics")?;
     writeln!(md)?;
 
-    for axis_idx in 0..AXIS_NAMES.len().min(3) {
+    for axis_idx in 0..AXIS_COUNT {
         let axis_name = AXIS_NAMES[axis_idx];
         let sigs = extract_axis_signals(log_data, axis_idx);
 
