@@ -12,12 +12,8 @@ use crate::constants::{
 /// Embedded monospace font at compile time
 pub static BUNDLED_FONT_BYTES: &[u8] = include_bytes!("../fonts/DejaVuSansMono.ttf");
 
-/// Font family name for the bundled font
+/// Font family name for the bundled font — used for all plot text for cross-OS Unicode consistency
 pub const FONT_FAMILY_BUNDLED: &str = "DejaVu Sans Mono";
-
-/// Font family name for default system fonts (used by plotters for backwards compatibility)
-/// When plotters renders with "sans-serif", it uses system fonts
-pub const FONT_FAMILY_SYSTEM: &str = "sans-serif";
 
 /// Represents a font style (family + size) for consistent usage throughout the application
 /// This struct provides type-safe font configuration and is available for future API extensions
@@ -34,25 +30,25 @@ pub struct FontStyle {
 // Current implementation uses FONT_TUPLE_* constants directly with plotters' IntoFont trait.
 #[allow(dead_code)]
 pub const FONT_MAIN_TITLE: FontStyle = FontStyle {
-    family: FONT_FAMILY_SYSTEM,
+    family: FONT_FAMILY_BUNDLED,
     size: FONT_SIZE_MAIN_TITLE,
 };
 
 #[allow(dead_code)]
 pub const FONT_CHART_TITLE: FontStyle = FontStyle {
-    family: FONT_FAMILY_SYSTEM,
+    family: FONT_FAMILY_BUNDLED,
     size: FONT_SIZE_CHART_TITLE,
 };
 
 #[allow(dead_code)]
 pub const FONT_AXIS_LABEL: FontStyle = FontStyle {
-    family: FONT_FAMILY_SYSTEM,
+    family: FONT_FAMILY_BUNDLED,
     size: FONT_SIZE_AXIS_LABEL,
 };
 
 #[allow(dead_code)]
 pub const FONT_LEGEND: FontStyle = FontStyle {
-    family: FONT_FAMILY_SYSTEM,
+    family: FONT_FAMILY_BUNDLED,
     size: FONT_SIZE_LEGEND,
 };
 
@@ -64,7 +60,7 @@ pub const FONT_PEAK_LABEL: FontStyle = FontStyle {
 
 #[allow(dead_code)]
 pub const FONT_MESSAGE: FontStyle = FontStyle {
-    family: FONT_FAMILY_SYSTEM,
+    family: FONT_FAMILY_BUNDLED,
     size: FONT_SIZE_MESSAGE,
 };
 
