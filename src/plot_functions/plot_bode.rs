@@ -21,7 +21,9 @@ use crate::data_analysis::transfer_function_estimation::{
     TransferFunctionResult,
 };
 use crate::data_input::log_data::LogRowData;
-use crate::font_config::{FONT_TUPLE_AXIS_LABEL, FONT_TUPLE_CHART_TITLE, FONT_TUPLE_MAIN_TITLE};
+use crate::font_config::{
+    FONT_FAMILY_BUNDLED, FONT_TUPLE_AXIS_LABEL, FONT_TUPLE_CHART_TITLE, FONT_TUPLE_MAIN_TITLE,
+};
 
 /// Minimum coherence threshold for filtering Bode plot data
 const MIN_COHERENCE_FOR_PLOT: f64 = 0.1;
@@ -587,7 +589,7 @@ fn draw_confidence_legend(
     root.draw(&Text::new(
         "Confidence Level",
         (legend_x, legend_y + 5),
-        ("sans-serif", FONT_SIZE_CHART_TITLE)
+        (FONT_FAMILY_BUNDLED, FONT_SIZE_CHART_TITLE)
             .into_font()
             .color(&BLACK),
     ))?;
@@ -603,7 +605,9 @@ fn draw_confidence_legend(
     root.draw(&Text::new(
         "High (>0.7)",
         (legend_x + 20, legend_y + 20 + text_offset),
-        ("sans-serif", FONT_SIZE_LEGEND).into_font().color(&BLACK),
+        (FONT_FAMILY_BUNDLED, FONT_SIZE_LEGEND)
+            .into_font()
+            .color(&BLACK),
     ))?;
 
     // Medium confidence (dark orange)
@@ -620,7 +624,9 @@ fn draw_confidence_legend(
     root.draw(&Text::new(
         "Medium (0.4-0.7)",
         (legend_x + 20, legend_y + 20 + spacing + text_offset),
-        ("sans-serif", FONT_SIZE_LEGEND).into_font().color(&BLACK),
+        (FONT_FAMILY_BUNDLED, FONT_SIZE_LEGEND)
+            .into_font()
+            .color(&BLACK),
     ))?;
 
     // Low confidence (red)
@@ -637,7 +643,9 @@ fn draw_confidence_legend(
     root.draw(&Text::new(
         "Low (<0.4)",
         (legend_x + 20, legend_y + 20 + 2 * spacing + text_offset),
-        ("sans-serif", FONT_SIZE_LEGEND).into_font().color(&BLACK),
+        (FONT_FAMILY_BUNDLED, FONT_SIZE_LEGEND)
+            .into_font()
+            .color(&BLACK),
     ))?;
 
     Ok(())
