@@ -579,12 +579,11 @@ fn parse_axis_pid(pid_str: &str) -> AxisPid {
 
     // Handle different formats based on value count
     match values.len() {
-        4 => {
+        4 if values[3] > 0 => {
             // INAV style: P,I,D,FF
-            if values[3] > 0 {
-                axis_pid.ff = Some(values[3]);
-            }
+            axis_pid.ff = Some(values[3]);
         }
+        4 => {}
         5 => {
             // Betaflight 4.6+ style: P,I,D(base=D-Min),D-Max,FF
             // In BF 4.6+, base D IS the minimum (floor), not the maximum
