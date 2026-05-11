@@ -50,8 +50,8 @@ pub fn plot_eso_output(
     }
     let half_range = if !all_abs.is_empty() {
         all_abs.sort_by(|a, b| a.total_cmp(b));
-        let p95_idx = ((all_abs.len() - 1) as f64 * UNIFIED_Y_AXIS_PERCENTILE).floor() as usize;
-        (all_abs[p95_idx] * UNIFIED_Y_AXIS_HEADROOM_SCALE).max(UNIFIED_Y_AXIS_MIN_SCALE)
+        let pctl_idx = ((all_abs.len() - 1) as f64 * UNIFIED_Y_AXIS_PERCENTILE).floor() as usize;
+        (all_abs[pctl_idx] * UNIFIED_Y_AXIS_HEADROOM_SCALE).max(UNIFIED_Y_AXIS_MIN_SCALE)
     } else {
         UNIFIED_Y_AXIS_MIN_SCALE
     };

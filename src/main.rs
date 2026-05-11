@@ -1194,6 +1194,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_paths: Vec<String> = Vec::new();
     let mut setpoint_threshold_override: Option<f64> = None;
     let mut dps_flag_present = false;
+    let mut eso_b0_flag_present = false;
+    let mut eso_axis_flag_present = false;
     let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
     let mut debug_mode = false;
     let mut show_butterworth = false;
@@ -1277,6 +1279,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--report" {
             plot_config.run_report = true;
         } else if arg == "--eso-b0" {
+            if eso_b0_flag_present {
+                eprintln!("Error: --eso-b0 argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
             if i + 1 >= args.len() {
                 eprintln!("Error: --eso-b0 requires a numeric value.");
                 print_usage_and_exit(program_name);
@@ -1286,6 +1292,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     plot_config.eso_b0 = val;
                     plot_config.eso_b0_user_override = true;
                     plot_config.run_eso = true;
+                    eso_b0_flag_present = true;
                     i += 1;
                 }
                 _ => {
@@ -1297,32 +1304,31 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
         } else if arg == "--eso-axis" {
+            if eso_axis_flag_present {
+                eprintln!("Error: --eso-axis argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
             if i + 1 >= args.len() {
                 eprintln!(
-                    "Error: --eso-axis requires a comma-separated list of axes (roll,pitch,yaw)."
+                    "Error: --eso-axis requires a comma-separated list of axes (roll,pitch,yaw,all or 0,1,2)."
                 );
                 print_usage_and_exit(program_name);
             }
             let val = args[i + 1].to_ascii_lowercase();
             let mut axes = [false; AXIS_COUNT];
-            let mut any_valid = false;
             for part in val.split(',') {
                 match part.trim() {
                     "roll" | "0" => {
                         axes[0] = true;
-                        any_valid = true;
                     }
                     "pitch" | "1" => {
                         axes[1] = true;
-                        any_valid = true;
                     }
                     "yaw" | "2" => {
                         axes[2] = true;
-                        any_valid = true;
                     }
                     "all" => {
                         axes = [true; AXIS_COUNT];
-                        any_valid = true;
                     }
                     other => {
                         eprintln!(
@@ -1333,10 +1339,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-            if any_valid {
-                plot_config.eso_axes = axes;
-                plot_config.run_eso = true;
-            }
+            plot_config.eso_axes = axes;
+            plot_config.run_eso = true;
+            eso_axis_flag_present = true;
             i += 1;
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");

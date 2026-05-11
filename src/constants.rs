@@ -265,7 +265,7 @@ pub const ESO_OMEGA0_MIN: f64 = 50.0; // Lower bound for observer bandwidth sear
                                       // At ≥4 kHz the discrete-stability cap (sample_rate/3) would allow ~1300–2660 rad/s, but
                                       // empirical tuning shows gains above ~500 rad/s rarely improve MSE and amplify noise.
                                       // Override per-run with --eso-b0 or raise this if higher bandwidths are needed.
-pub const ESO_OMEGA0_MAX: f64 = 500.0; // Upper bound for observer bandwidth search (rad/s)
+pub const ESO_OMEGA0_MAX: f64 = 500.0; // Upper bound for observer bandwidth search (rad/s); conservative ceiling (~80 Hz) — even at high loop rates where sample_rate/3 would allow more, this cap avoids instability in noisy logs
 pub const ESO_GSS_TOLERANCE: f64 = 0.01; // Golden-section search convergence tolerance (rad/s)
 pub const ESO_GSS_MAX_ITER: u64 = 100; // Maximum iterations for golden-section search
 pub const ESO_DEFAULT_B0: f64 = 1.0; // Default control effectiveness (dimensionless)
