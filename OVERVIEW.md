@@ -206,43 +206,29 @@ Physics-aware P gain optimization based on response timing analysis:
   - **Theoretical Principle:** The relationship between response time and rotational inertia is approximate heuristic expressed as **Td ∝ √(I/τ)**, where I is the total rotational inertia (moment of inertia) of the airframe and τ is the available motor torque at the operating point (accounting for battery voltage, propeller aerodynamic load, and ESC response characteristics). This heuristic suggests that faster-rotating airframes (lower I) or higher available torque achieve quicker response times, while heavier/larger frames (higher I) or lower available torque naturally respond more slowly.
   - **Real-World Factors:** In practice, Td is modified by many physical parameters beyond this simplified heuristic: mass distribution across the frame, motors, battery, and propeller placement; motor torque characteristics and efficiency across throttle range; propeller aerodynamic loading and blade pitch; battery voltage and sag during maneuvers; and ESC throttle response lag. Rotational inertia (influenced by mass × radius²) and propeller size both contribute significantly to these variations.
   - **Empirical Approach:** The frame-class targets below are **empirical estimates derived from flight data**, not pure physics calculations. Propeller size is used as a practical proxy for rotational inertia because it correlates strongly with frame mass and arm length. Targets must be validated against actual flight logs for each specific build configuration, as the theoretical model cannot account for all real-world complexities.
-- **Frame-Class Targets (Provisional - requires flight validation):**
-  - **⚠️ IMPORTANT DISCLAIMER:** These targets are provisional empirical estimates and **MUST be validated through systematic flight testing**. They are derived from limited flight data and theoretical understanding of response dynamics. Use as initial guidelines only. Validation data collection is ongoing.
-  - **Constants Reference:** All targets are defined in `src/constants.rs` as the `TD_TARGETS` array (search for `TD_TARGETS`).
-  - **User Acceptance Ranges (TD_TARGETS):** The (±) values listed below represent recommended tuning acceptance bands for pilots. If your measured Td falls within target ± tolerance for your prop size, the tune is acceptable for flight. These are NOT measurement uncertainty values; they define the acceptable range for practical tuning purposes.
-    - **Rationale:** These wider ±25% ranges accommodate natural variation from build-to-build differences, individual pilot preferences, and real-world flight conditions. Pilots should use these ranges to determine if their tune is within acceptable bounds.
-  - 1" tiny whoop: 40ms ± 10.0ms (low power/torque)
-  - 2" micro: 35ms ± 8.75ms
-  - 3" toothpick/cinewhoop: 30ms ± 7.5ms
-  - 4" racing: 25ms ± 6.25ms
-  - 5" freestyle/racing: 20ms ± 5.0ms (common baseline)
-  - 6" long-range: 28ms ± 7.0ms
-  - 7" long-range: 37.5ms ± 9.375ms
-  - 8" long-range: 47ms ± 11.75ms
-  - 9" cinelifter: 56ms ± 14.0ms
-  - 10" cinelifter: 65ms ± 16.25ms
-  - 11" heavy-lift: 75ms ± 18.75ms
-  - 12" heavy-lift: 85ms ± 21.25ms
-  - 13" heavy-lift: 95ms ± 23.75ms
-  - 14" heavy-lift: 105ms ± 26.25ms
-  - 15" heavy-lift: 115ms ± 28.75ms
-  - **How to Validate These Targets:**
-    * **Method**: Run this tool on your flight logs with correct `--prop-size` and observe Td measurements
-    * **Acceptance Criterion**: Your measured Td should fall within target ± tolerance range for your prop size
-    * **Common Deviations**:
-      - Faster than target + low noise = Excellent build, headroom for P increase
-      - Slower than target + high noise = Mechanical issues or incorrect prop size specified
-      - Within target + high noise = P at physical limits (optimal for this aircraft)
-  - **Validation Threshold (Target Metrics):** The provisional targets themselves require statistical validation to confirm accuracy. This uses a stricter ±10% criterion for confirming that predicted targets match actual measurements across multiple flights. This threshold is for developers/researchers validating the model, not for pilots checking their tune.
-    - **Relationship to User Acceptance Ranges:** While the "User Acceptance Ranges (TD_TARGETS)" use ±25% bands for practical pilot tuning, the "Validation Threshold (Target Metrics)" applies a much stricter ±10% statistical criterion. The wider user ranges accommodate real-world variation; the narrower validation threshold is reserved for confirming that the predicted target itself is accurate across diverse builds and conditions.
-    * **Target Metrics:** Per frame class, measure Td mean and std dev across ≥10 flights (manual setpoint inputs or step-sticks); confidence threshold: Td within ±10% of predicted target.
-    * **Data Collection Protocol:**
-      - **Flight Logs:** Controlled stick inputs on tethered or low-altitude flights; log format: Betaflight CSV with gyro, setpoint, P/D gains recorded; sample ≥3 distinct P settings per frame class.
-      - **System Documentation:** Record complete system specs (frame, motors, props, battery, AUW) for each test aircraft to correlate Td measurements with physical parameters.
-      - **Note:** Bench testing isolated motors cannot validate Td targets—Td represents full system response including frame rotational inertia, which is absent in component-level tests.
-    * **Test Matrix:** One representative aircraft per frame class (1", 3", 5", 7", 10"—minimum coverage); repeat with 2 different motor/prop combos per class to validate robustness.
-    * **Tracking & Results:** Create GitHub issue template for each frame class linking to uploaded flight log summaries (mean Td, actual P setting, pilot feedback, system specs). Include pass/fail criteria: predicted Td ±10%, pass/fail per class.
-    * **Timeline:** TBD (seeking community validation data collection - see GitHub issues for current status)
+- **Frame-Class Targets (Provisional — `TD_TARGETS` in `src/constants.rs` is authoritative):**
+  - Targets below are ±25% acceptance bands for pilots. If measured Td falls within target ± tolerance, the tune is acceptable. These are NOT measurement uncertainty values.
+
+  | Prop Size | Frame Type | Target Td | Tolerance |
+  |-----------|------------|-----------|-----------|
+  | 1" | tiny whoop | 40 ms | ± 10.0 ms |
+  | 2" | micro | 35 ms | ± 8.75 ms |
+  | 3" | toothpick/cinewhoop | 30 ms | ± 7.5 ms |
+  | 4" | racing | 25 ms | ± 6.25 ms |
+  | 5" | freestyle/racing | 20 ms | ± 5.0 ms |
+  | 6" | long-range | 28 ms | ± 7.0 ms |
+  | 7" | long-range | 37.5 ms | ± 9.375 ms |
+  | 8" | long-range | 47 ms | ± 11.75 ms |
+  | 9" | cinelifter | 56 ms | ± 14.0 ms |
+  | 10" | cinelifter | 65 ms | ± 16.25 ms |
+  | 11" | heavy-lift | 75 ms | ± 18.75 ms |
+  | 12" | heavy-lift | 85 ms | ± 21.25 ms |
+  | 13" | heavy-lift | 95 ms | ± 23.75 ms |
+  | 14" | heavy-lift | 105 ms | ± 26.25 ms |
+  | 15" | heavy-lift | 115 ms | ± 28.75 ms |
+
+  - **Reading Td deviations:** Faster than target + low noise = headroom for P increase; slower + high noise = mechanical issues or wrong prop size; within target + high noise = P at physical limits.
+  - **Developer validation:** A stricter ±10% statistical criterion (across ≥10 flights per frame class) is used to confirm that TD_TARGETS predictions match actual measurements. See GitHub issues for current validation status.
 - **Analysis Components:**
   - Collects individual Td measurements from all valid step response windows
   - Calculates response consistency metrics (mean, std dev, coefficient of variation)

@@ -78,6 +78,9 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/ --step --setpoint --motor --output-dir ./all-selective
 ```
+```shell
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p --prop-size 5
+```
 
 ### Output
 

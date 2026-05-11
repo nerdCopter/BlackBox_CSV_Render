@@ -355,7 +355,7 @@ pub fn calculate_hf_energy_ratio(data: &[f32], sample_rate: f64, hf_cutoff: f64)
 
     // Validate high-frequency cutoff: must be positive and below Nyquist (sample_rate / 2)
     let nyquist = sample_rate / 2.0;
-    if !(hf_cutoff > 0.0 && hf_cutoff < nyquist) {
+    if hf_cutoff <= 0.0 || hf_cutoff >= nyquist {
         eprintln!("Warning: Invalid hf_cutoff {} Hz (must be >0 and < Nyquist {} Hz). Skipping HF energy ratio.", hf_cutoff, nyquist);
         return None;
     }
