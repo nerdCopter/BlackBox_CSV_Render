@@ -362,3 +362,4 @@ pub const TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD: f64 = -15.0; // < -15% fa
 
 // Optimal P estimation data collection thresholds
 pub const OPTIMAL_P_MIN_DTERM_SAMPLES: usize = 100; // Minimum D-term samples for noise analysis
+pub const OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER: f64 = 1000.0; // Convert seconds to milliseconds

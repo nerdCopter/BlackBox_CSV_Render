@@ -4,7 +4,7 @@ use ndarray::{s, Array1, Array2};
 use plotters::style::RGBColor;
 use std::error::Error;
 
-use crate::axis_names::AXIS_NAMES;
+use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
 use crate::constants::{
     COLOR_STEP_RESPONSE_COMBINED, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_LOW_SP,
     FINAL_NORMALIZED_STEADY_STATE_TOLERANCE, LINE_WIDTH_PLOT, POST_AVERAGING_SMOOTHING_WINDOW,
@@ -15,9 +15,6 @@ use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendati
 use crate::data_input::pid_metadata::PidMetadata;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 use crate::types::{AllStepResponsePlotData, StepResponseResults};
-
-/// Number of control axes (Roll, Pitch, Yaw)
-const AXIS_COUNT: usize = 3;
 
 /// P:D ratio recommendations with computed D values
 #[derive(Debug, Clone)]

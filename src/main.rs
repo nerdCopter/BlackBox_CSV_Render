@@ -378,8 +378,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!(
         "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
     );
-    eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.");
-    eprintln!("    --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Requires --estimate-optimal-p to have effect.");
+    eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets (requires --prop-size).");
+    eprintln!("    --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Required with --estimate-optimal-p.");
     eprintln!();
     eprintln!("=== GENERAL ===");
     eprintln!();
@@ -962,7 +962,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             if let Some(td_seconds) =
                                 calc_step_response::calculate_delay_time(&response_arr, sr)
                             {
-                                td_samples_ms.push(td_seconds * 1000.0);
+                                td_samples_ms.push(
+                                    td_seconds
+                                        * crate::constants::OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER,
+                                );
                             }
                         }
 
@@ -1374,6 +1377,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                             crate::data_analysis::optimal_p_estimation::FrameClass::from_inches(
                                 size,
                             );
+                        // Defensive check: from_inches() returns None only for values outside 1-15,
+                        // but the (1..=15).contains(&size) guard above ensures this branch is unreachable.
                         if frame_class_override.is_none() {
                             eprintln!(
                                 "Warning: Prop size {} does not map to a known frame class. Default frame class will be used.",

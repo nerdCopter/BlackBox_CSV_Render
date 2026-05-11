@@ -48,8 +48,8 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
   --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.
   --dps <value>: Deg/s threshold for detailed step response plots (positive number).
-  --estimate-optimal-p: Enable optimal P estimation with frame-class targets.
-    --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Requires --estimate-optimal-p to have effect.
+  --estimate-optimal-p: Enable optimal P estimation with frame-class targets (requires --prop-size).
+    --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Required with --estimate-optimal-p.
 
 === GENERAL ===
 
