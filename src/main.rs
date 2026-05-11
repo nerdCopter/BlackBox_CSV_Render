@@ -937,7 +937,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         if let Some(sr) = sample_rate {
             println!("\n--- Optimal P Estimation ---");
             println!(
-                "Prop size: {} (use --prop-size to override)",
+                "Prop size: {} (specified via --prop-size)",
                 analysis_opts.frame_class.name()
             );
             println!();
