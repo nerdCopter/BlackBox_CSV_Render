@@ -66,13 +66,12 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
         * **P:D Ratio Recommendations (`src/main.rs`):**
             * Based on step response peak analysis, the system provides tuning recommendations:
                 * **Important:** Peak value is measured as the first maximum after the response crosses the setpoint (1.0). The initial transient dip (visible in first ~30ms) is normal system behavior and not used for tuning recommendations.
-                * **Peak Analysis Ranges (based on step response overshoot/undershoot):**
-                    * Peak > 1.20: Significant overshoot (>20%) → P:D×0.85 (increase D by ~18%)
-                    * Peak 1.16-1.20: Moderate overshoot (16-20%) → P:D×0.88 (increase D by ~14%)
-                    * Peak 1.11-1.15: Minor overshoot (11-15%) → P:D×0.92 (increase D by ~9%)
-                    * Peak 1.05-1.10: Acceptable response (5-10% overshoot) → P:D×0.95 (increase D by ~5%)
-                    * Peak 0.95-1.04: Optimal response (0-5% overshoot/undershoot) → No change (ideal damping)
-                    * Peak 0.85-0.94: Minor undershoot (6-15%) → P:D×1.05 (decrease D by ~5%)
+                * **Peak Analysis Ranges (updated for Real-World Practical tuning):**
+                    * Peak > 1.30: Significant overshoot (>30%) → P:D×0.85 (increase D by ~18%)
+                    * Peak 1.22-1.30: Moderate overshoot (22-30%) → P:D×0.90 (increase D by ~11%)
+                    * Peak 1.18-1.22: Minor overshoot (18-22%) → P:D×0.95 (increase D by ~5%)
+                    * Peak 1.12-1.18: Acceptable response (12-18% overshoot) → P:D×0.98 (increase D by ~2%)
+                    * Peak 0.98-1.12: Optimal response (0-12% overshoot) → No change (pro sweet-spot)
                     * Peak < 0.85: Significant undershoot (>15%) → P:D×1.15 (decrease D by ~13%)
                 * **Dual Recommendations:**
                     * **Conservative** (PD_RATIO_CONSERVATIVE_MULTIPLIER = 0.85): Reduces P:D ratio by 15%, increasing D by ~18%. Safe for most pilots, 2-3 iterations to optimal.

@@ -414,6 +414,17 @@ pub fn plot_step_response(
                         color: RGBColor(70, 70, 70), // Darker gray for moderate
                         stroke_width: 0,             // Invisible legend line
                     });
+                } else if current_pd_ratios[axis_index].is_some()
+                    && recommended_pd_conservative[axis_index].is_none()
+                {
+                    // No recommendations for this axis (Optimal response)
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: "(Optimal response - no obvious tuning adjustments needed)"
+                            .to_string(),
+                        color: RGBColor(0, 150, 0), // Green for optimal feedback
+                        stroke_width: 0,            // Invisible legend line
+                    });
                 }
             }
 
