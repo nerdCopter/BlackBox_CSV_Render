@@ -789,42 +789,42 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
                             if let Some(current_pd_ratio) = current_ratio {
                                 // Analyze overshoot/undershoot based on peak response and calculate recommended ratio
-                                // Peak ranges:
-                                //   0.95-1.05 = optimal (0-5% overshoot/undershoot)
-                                //   1.05-1.10 = acceptable (5-10% overshoot, improvable)
-                                //   1.10-1.15 = minor overshoot (11-15%, needs improvement)
-                                //   >1.15     = moderate/severe overshoot (needs significant D increase)
+                                // Peak ranges (updated for Real-World Practical tuning):
+                                //   0.98-1.12 = optimal (0-12% overshoot, preferred by pro pilots)
+                                //   1.12-1.18 = acceptable (12-18% overshoot, good but improvable)
+                                //   1.18-1.22 = minor overshoot (18-22%, needs improvement)
+                                //   >1.22     = moderate/severe overshoot (needs significant D increase)
                                 let (assessment, recommended_ratio) = if peak_value
                                     > crate::constants::PEAK_SIGNIFICANT_MIN
                                 {
-                                    // Significant overshoot (>20%) - use conservative multiplier
+                                    // Significant overshoot (>30%) - use conservative multiplier
                                     (
                                         "Significant overshoot",
                                         current_pd_ratio
                                             * crate::constants::PD_RATIO_CONSERVATIVE_MULTIPLIER,
                                     )
                                 } else if peak_value > crate::constants::PEAK_MODERATE_MIN {
-                                    // Moderate overshoot (16-20%) - graduated adjustment
+                                    // Moderate overshoot (22-30%) - graduated adjustment
                                     (
                                         "Moderate overshoot",
                                         current_pd_ratio
                                             * crate::constants::PEAK_MODERATE_MULTIPLIER,
                                     )
-                                } else if peak_value > crate::constants::PEAK_ACCEPTABLE_MAX {
-                                    // Minor overshoot (11-15%) - smaller adjustment
+                                } else if peak_value > crate::constants::PEAK_MINOR_MIN {
+                                    // Minor overshoot (18-22%) - smaller adjustment
                                     (
                                         "Minor overshoot",
                                         current_pd_ratio * crate::constants::PEAK_MINOR_MULTIPLIER,
                                     )
                                 } else if peak_value >= crate::constants::PEAK_ACCEPTABLE_MIN {
-                                    // Acceptable (5-10% overshoot) - minimal adjustment
+                                    // Acceptable (12-18% overshoot) - minimal adjustment
                                     (
                                         "Acceptable response",
                                         current_pd_ratio
                                             * crate::constants::PEAK_ACCEPTABLE_MULTIPLIER,
                                     )
                                 } else if peak_value >= crate::constants::PEAK_OPTIMAL_MIN {
-                                    // Optimal (0-5% overshoot/undershoot) - no change
+                                    // Optimal (0-12% overshoot) - no change
                                     ("Optimal response", current_pd_ratio)
                                 } else if peak_value >= 0.85 {
                                     // Minor undershoot (6-15%) - small decrease
