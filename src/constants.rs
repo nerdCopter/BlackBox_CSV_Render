@@ -259,64 +259,6 @@ pub const PSD_EPSILON: f64 = 1e-12; // Guard against division by zero for PSD va
 pub const MAGNITUDE_PLOT_MARGIN_DB: f64 = 10.0; // Padding above/below magnitude data for plot range
 pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data for plot range
 
-// Optimal P Estimation Constants
-// Frame-class-aware Td (time to 50%) targets in milliseconds
-// Provisional estimates based on torque-to-rotational-inertia scaling: Td ∝ 1/(mass × radius²)
-// TODO: Validate with bench tests and actual flight data across all frame classes
-
-/// Td target specification for a frame class
-#[derive(Debug, Clone, Copy)]
-pub struct TdTargetSpec {
-    pub target_ms: f64,
-    pub tolerance_ms: f64,
-}
-
-impl TdTargetSpec {
-    /// Create without typical weight (for existing empirical targets)
-    pub const fn new_simple(target_ms: f64) -> Self {
-        Self {
-            target_ms,
-            tolerance_ms: target_ms * 0.25,
-        }
-    }
-
-    /// Get TdTargetSpec for a given frame size in inches (1-15)
-    /// Returns None if the size is out of valid range
-    pub fn for_frame_inches(inches: usize) -> Option<&'static TdTargetSpec> {
-        if (1..=15).contains(&inches) {
-            Some(&TD_TARGETS[inches - 1])
-        } else {
-            None
-        }
-    }
-}
-
-/// Td targets for all frame classes (1" through 15")
-/// Index: 0=1", 1=2", ..., 14=15"
-/// Note: These values are intentionally non-monotonic — Td decreases from 1" to 5" because
-/// 5" frames are the most optimized racing platform and typically have the best
-/// thrust-to-inertia ratio (lower Td). For frames 6" and larger, Td increases to reflect
-/// heavier craft that prioritize stability and exhibit larger rotational inertia.
-/// TODO: These are provisional empirical values that require systematic flight validation;
-/// keep the explanatory rationale above so future maintainers understand the non-monotonic shape.
-pub const TD_TARGETS: [TdTargetSpec; 15] = [
-    TdTargetSpec::new_simple(40.0),  // 1" tiny whoop (30-50ms)
-    TdTargetSpec::new_simple(35.0),  // 2" micro (26-44ms)
-    TdTargetSpec::new_simple(30.0),  // 3" toothpick/cinewhoop (23-38ms)
-    TdTargetSpec::new_simple(25.0),  // 4" racing (19-31ms)
-    TdTargetSpec::new_simple(20.0),  // 5" freestyle/racing (15-25ms, common baseline)
-    TdTargetSpec::new_simple(28.0),  // 6" long-range (21-35ms)
-    TdTargetSpec::new_simple(37.5),  // 7" long-range (28-47ms)
-    TdTargetSpec::new_simple(47.0),  // 8" long-range (35-59ms)
-    TdTargetSpec::new_simple(56.0),  // 9" cinelifter (42-70ms)
-    TdTargetSpec::new_simple(65.0),  // 10" cinelifter (49-81ms)
-    TdTargetSpec::new_simple(75.0),  // 11" heavy-lift (56-94ms)
-    TdTargetSpec::new_simple(85.0),  // 12" heavy-lift (64-106ms)
-    TdTargetSpec::new_simple(95.0),  // 13" heavy-lift (71-119ms)
-    TdTargetSpec::new_simple(105.0), // 14" heavy-lift (79-131ms)
-    TdTargetSpec::new_simple(115.0), // 15" heavy-lift (86-144ms)
-];
-
 // High-frequency noise analysis for P headroom estimation
 // D-term energy above this frequency threshold indicates noise constraints
 pub const DTERM_HF_CUTOFF_HZ: f64 = 200.0; // Frequency above which high-frequency noise is measured
@@ -363,3 +305,35 @@ pub const TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD: f64 = -15.0; // < -15% fa
 // Optimal P estimation data collection thresholds
 pub const OPTIMAL_P_MIN_DTERM_SAMPLES: usize = 100; // Minimum D-term samples for noise analysis
 pub const OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER: f64 = 1000.0; // Convert seconds to milliseconds
+
+// Torque-Inertia Profiler constants
+// Used by torque_inertia_profiler.rs to derive aircraft-specific Td targets from
+// throttle-punch events in flight logs, replacing the empirical frame-class table.
+
+/// Minimum throttle increase (in 0–1000 units) to qualify as a throttle punch.
+pub const THROTTLE_PUNCH_MIN_DELTA: f64 = 200.0;
+
+/// Time window (ms) within which the throttle increase must occur to count as a punch.
+pub const THROTTLE_PUNCH_WINDOW_MS: f64 = 50.0;
+
+/// Window (ms) after punch onset in which to measure peak angular acceleration.
+pub const THROTTLE_RESPONSE_WINDOW_MS: f64 = 150.0;
+
+/// Minimum number of throttle-punch events required for a reliable Td target.
+/// Analysis is skipped (with a console warning) when this threshold is not met.
+pub const TORQUE_PROFILER_MIN_EVENTS: usize = 5;
+
+/// Minimum normalised command delta (0–1) for a punch event to be valid.
+pub const TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED: f64 = 0.10;
+
+/// Samples to skip at the start of the response window (ESC + motor latency).
+pub const TORQUE_PROFILER_SETTLE_SAMPLES: usize = 3;
+
+/// Numerator constant for Td calculation: K = π × 1000 / 2
+/// Td_ms = K / sqrt((P / P_SCALE) × torque_inertia_ratio)
+pub const TORQUE_PROFILER_TD_CALC_K: f64 = 1_570.796_326_794_896_6;
+
+/// Betaflight/EmuFlight P gain scaling factor.
+/// Converts raw firmware P gain (e.g. 45) to an effective physical gain.
+/// This constant may require empirical calibration; starting value: 100.0.
+pub const TORQUE_PROFILER_P_SCALE: f64 = 100.0;

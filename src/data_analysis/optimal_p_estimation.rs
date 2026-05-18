@@ -62,102 +62,6 @@ fn safe_scaled_p(base: u32, multiplier: f64) -> u32 {
     }
 }
 
-/// Frame class for Td target selection (prop size in inches)
-#[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrameClass {
-    OneInch,
-    TwoInch,
-    ThreeInch,
-    FourInch,
-    FiveInch,
-    SixInch,
-    SevenInch,
-    EightInch,
-    NineInch,
-    TenInch,
-    ElevenInch,
-    TwelveInch,
-    ThirteenInch,
-    FourteenInch,
-    FifteenInch,
-}
-
-impl FrameClass {
-    /// Get Td target and tolerance for this frame class
-    pub fn td_target(&self) -> Option<(f64, f64)> {
-        // Convert to 1-based frame size (inches) for the helper method
-        let frame_size = self.array_index() + 1;
-        // Return None if TdTargetSpec is missing instead of panicking
-        crate::constants::TdTargetSpec::for_frame_inches(frame_size)
-            .map(|spec| (spec.target_ms, spec.tolerance_ms))
-    }
-
-    /// Get array index for this frame class (0-14)
-    pub fn array_index(&self) -> usize {
-        match self {
-            FrameClass::OneInch => 0,
-            FrameClass::TwoInch => 1,
-            FrameClass::ThreeInch => 2,
-            FrameClass::FourInch => 3,
-            FrameClass::FiveInch => 4,
-            FrameClass::SixInch => 5,
-            FrameClass::SevenInch => 6,
-            FrameClass::EightInch => 7,
-            FrameClass::NineInch => 8,
-            FrameClass::TenInch => 9,
-            FrameClass::ElevenInch => 10,
-            FrameClass::TwelveInch => 11,
-            FrameClass::ThirteenInch => 12,
-            FrameClass::FourteenInch => 13,
-            FrameClass::FifteenInch => 14,
-        }
-    }
-
-    /// Get name for display
-    pub fn name(&self) -> &str {
-        match self {
-            FrameClass::OneInch => "1\"",
-            FrameClass::TwoInch => "2\"",
-            FrameClass::ThreeInch => "3\"",
-            FrameClass::FourInch => "4\"",
-            FrameClass::FiveInch => "5\"",
-            FrameClass::SixInch => "6\"",
-            FrameClass::SevenInch => "7\"",
-            FrameClass::EightInch => "8\"",
-            FrameClass::NineInch => "9\"",
-            FrameClass::TenInch => "10\"",
-            FrameClass::ElevenInch => "11\"",
-            FrameClass::TwelveInch => "12\"",
-            FrameClass::ThirteenInch => "13\"",
-            FrameClass::FourteenInch => "14\"",
-            FrameClass::FifteenInch => "15\"",
-        }
-    }
-
-    /// Create a FrameClass from prop size in inches (1-15)
-    pub fn from_inches(size: u8) -> Option<Self> {
-        match size {
-            1 => Some(FrameClass::OneInch),
-            2 => Some(FrameClass::TwoInch),
-            3 => Some(FrameClass::ThreeInch),
-            4 => Some(FrameClass::FourInch),
-            5 => Some(FrameClass::FiveInch),
-            6 => Some(FrameClass::SixInch),
-            7 => Some(FrameClass::SevenInch),
-            8 => Some(FrameClass::EightInch),
-            9 => Some(FrameClass::NineInch),
-            10 => Some(FrameClass::TenInch),
-            11 => Some(FrameClass::ElevenInch),
-            12 => Some(FrameClass::TwelveInch),
-            13 => Some(FrameClass::ThirteenInch),
-            14 => Some(FrameClass::FourteenInch),
-            15 => Some(FrameClass::FifteenInch),
-            _ => None,
-        }
-    }
-}
-
 /// Noise level classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NoiseLevel {
@@ -299,7 +203,6 @@ impl TdStatistics {
 /// Complete optimal P analysis result
 #[derive(Debug, Clone)]
 pub struct OptimalPAnalysis {
-    pub frame_class: FrameClass,
     pub current_p: u32,
     pub current_d: Option<u32>,
     pub recommended_pd_conservative: Option<f64>,
@@ -308,9 +211,9 @@ pub struct OptimalPAnalysis {
     pub td_deviation_percent: f64,
     pub noise_level: NoiseLevel,
     pub recommendation: PRecommendation,
-    /// Actual Td target (in ms) used during analysis (from physics or frame class)
+    /// Actual Td target (in ms) used during analysis (from physics)
     pub td_target_ms: f64,
-    /// Actual Td tolerance (in ms) used during analysis (from physics or frame class)
+    /// Actual Td tolerance (in ms) used during analysis (from physics)
     pub td_tolerance_ms: f64,
 }
 
@@ -321,17 +224,16 @@ impl OptimalPAnalysis {
     /// * `td_samples_ms` - Array of Td measurements from multiple step responses (milliseconds)
     /// * `current_p` - Current P gain
     /// * `current_d` - Current D gain (optional)
-    /// * `frame_class` - Aircraft frame class
     /// * `hf_energy_ratio` - Optional: ratio of D-term energy above DTERM_HF_CUTOFF_HZ (0.0-1.0)
     /// * `recommended_pd_conservative` - Optional: recommended P:D ratio from step response (conservative)
+    /// * `physics_td_target_ms` - Physics-derived (td_target, tolerance) from torque_inertia_profiler
     pub fn analyze(
         td_samples_ms: &[f64],
         current_p: u32,
         current_d: Option<u32>,
-        frame_class: FrameClass,
         hf_energy_ratio: Option<f64>,
         recommended_pd_conservative: Option<f64>,
-        physics_td_target_ms: Option<(f64, f64)>, // Optional (td_target, tolerance) from physics
+        physics_td_target_ms: Option<(f64, f64)>,
     ) -> Result<Self, AnalysisError> {
         // Calculate Td statistics
         let td_stats = TdStatistics::from_samples(td_samples_ms).ok_or_else(|| {
@@ -340,18 +242,16 @@ impl OptimalPAnalysis {
             }
         })?;
 
-        // Get target Td - use physics-based if available, otherwise frame class
+        // Get target Td — use physics-based value or error
         let (td_target_ms, td_tolerance_ms) =
             if let Some((phys_target, phys_tol)) = physics_td_target_ms {
                 (phys_target, phys_tol)
-            } else if let Some((frame_target, frame_tol)) = frame_class.td_target() {
-                (frame_target, frame_tol)
             } else {
                 return Err(AnalysisError::MissingTdTarget {
-                    message: format!(
-                        "No Td target available for frame class {:?}. Skipping optimal P analysis.",
-                        frame_class
-                    ),
+                    message: "No physics-derived Td target available. \
+                              Ensure throttle-punch events were detected (need \
+                              \u{2265}5 events)."
+                        .to_string(),
                 });
             };
 
@@ -402,7 +302,6 @@ impl OptimalPAnalysis {
         );
 
         Ok(OptimalPAnalysis {
-            frame_class,
             current_p,
             current_d,
             recommended_pd_conservative,

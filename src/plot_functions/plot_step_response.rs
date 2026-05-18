@@ -481,7 +481,7 @@ pub fn plot_step_response(
                         // Optimal P header
                         series.push(PlotSeries {
                             data: vec![],
-                            label: format!("Optimal P ({})", analysis.frame_class.name()),
+                            label: "Optimal P (log-derived)".to_string(),
                             color: RGBColor(0, 100, 200), // Blue for section header
                             stroke_width: 0,
                         });
@@ -489,19 +489,10 @@ pub fn plot_step_response(
                         // Td measurement
                         series.push(PlotSeries {
                             data: vec![],
-                            label: {
-                                let target_label = if let Some((td_target, _)) =
-                                    analysis.frame_class.td_target()
-                                {
-                                    format!("{:.1}ms", td_target)
-                                } else {
-                                    "unknown".to_string()
-                                };
-                                format!(
-                                    "  Td: {:.1}ms (target: {})",
-                                    analysis.td_stats.mean_ms, target_label
-                                )
-                            },
+                            label: format!(
+                                "  Td: {:.1}ms (target: {:.1}ms)",
+                                analysis.td_stats.mean_ms, analysis.td_target_ms
+                            ),
                             color: RGBColor(80, 80, 80),
                             stroke_width: 0,
                         });

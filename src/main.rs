@@ -11,7 +11,7 @@ mod plot_framework;
 mod plot_functions;
 mod types;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use ndarray::Array1;
 
-use crate::data_analysis::optimal_p_estimation::FrameClass;
+use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, AircraftProfile};
 use crate::types::StepResponseResults;
 
 // Build version string from git info with fallbacks for builds without vergen metadata
@@ -101,7 +101,6 @@ struct AnalysisOptions {
     pub debug_mode: bool,
     pub show_butterworth: bool,
     pub estimate_optimal_p: bool,
-    pub frame_class: FrameClass,
 }
 
 use crate::constants::{
@@ -378,8 +377,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!(
         "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
     );
-    eprintln!("  --estimate-optimal-p: Enable optimal P estimation with frame-class targets (requires --prop-size).");
-    eprintln!("    --prop-size <size>: Propeller diameter in inches (1-15, whole-number only). Required with --estimate-optimal-p.");
+    eprintln!("  --estimate-optimal-p: Enable optimal P estimation from throttle-punch dynamics.");
     eprintln!();
     eprintln!("=== GENERAL ===");
     eprintln!();
@@ -389,12 +387,116 @@ fn print_usage_and_exit(program_name: &str) {
     std::process::exit(1);
 }
 
+/// Extract an aircraft grouping key from a file path.
+///
+/// Strips the date-time suffix (`_YYYYMMDD_HHMMSS` and everything after) from the
+/// file stem to obtain a stable key that identifies the aircraft across sessions.
+///
+/// Examples:
+///   `EMUF_BLACKBOX_LOG_FOXEERF722V4_426_20240406_132335_notes.19.csv`
+///     → `EMUF_BLACKBOX_LOG_FOXEERF722V4_426`
+///   `BTFL_BLACKBOX_LOG_20250517_130413_STELLARH7DEV.02.csv`
+///     → `BTFL_BLACKBOX_LOG`  (date precedes craft name; all files group together)
+///
+/// Files without a date pattern are treated as unique aircraft (full stem as key).
+fn extract_aircraft_key(path: &Path) -> String {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+
+    // Scan for the pattern _YYYYMMDD_HHMMSS (8-digit date, underscore, 6-digit time).
+    let bytes = stem.as_bytes();
+    let min_len = 16; // '_' + 8 digits + '_' + 6 digits
+    if bytes.len() >= min_len {
+        for i in 0..=(bytes.len() - min_len) {
+            if bytes[i] == b'_'
+                && bytes[i + 1..i + 9].iter().all(|&b| b.is_ascii_digit())
+                && bytes[i + 9] == b'_'
+                && bytes[i + 10..i + 16].iter().all(|&b| b.is_ascii_digit())
+            {
+                // i == 0 would give an empty key; fall through to full stem.
+                if i > 0 {
+                    return stem[..i].to_string();
+                }
+            }
+        }
+    }
+
+    // No date pattern found — use full stem.
+    stem.to_string()
+}
+
+/// Group a list of file paths by aircraft key.
+///
+/// Returns a `BTreeMap` (sorted by key) mapping each aircraft key to its files.
+fn group_files_by_aircraft(input_files: &[String]) -> BTreeMap<String, Vec<String>> {
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for file in input_files {
+        let key = extract_aircraft_key(Path::new(file));
+        groups.entry(key).or_default().push(file.clone());
+    }
+    groups
+}
+
+/// Parse all files in a group and collect torque-inertia ratio estimates.
+///
+/// This is the Phase 1 profiling pass. Each file is parsed minimally and the
+/// punch-event ratios are aggregated into a single `AircraftProfile`.
+fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile {
+    let mut all_axis_ratios: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut files_profiled: usize = 0;
+
+    for file_str in files {
+        let path = Path::new(file_str);
+        match parse_log_file(path, debug_mode) {
+            Ok((log_data, Some(sr), ..)) => {
+                let ratios = extract_punch_ratios(&log_data, sr);
+                let total_events: usize = ratios.iter().map(|v| v.len()).sum();
+                for (axis, axis_ratio_vec) in all_axis_ratios.iter_mut().enumerate() {
+                    axis_ratio_vec.extend_from_slice(&ratios[axis]);
+                }
+                if debug_mode {
+                    println!(
+                        "  [torque-profile] {}: {} throttle-punch events across all axes",
+                        path.file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(file_str),
+                        total_events
+                    );
+                }
+                files_profiled += 1;
+            }
+            Ok((_, None, ..)) => {
+                if debug_mode {
+                    eprintln!("  [torque-profile] Skipping {} (no sample rate)", file_str);
+                }
+            }
+            Err(e) => {
+                if debug_mode {
+                    eprintln!("  [torque-profile] Failed to parse {}: {}", file_str, e);
+                }
+            }
+        }
+    }
+
+    if debug_mode {
+        println!(
+            "  [torque-profile] Profiled {} file(s). Events: Roll={}, Pitch={}, Yaw={}",
+            files_profiled,
+            all_axis_ratios[0].len(),
+            all_axis_ratios[1].len(),
+            all_axis_ratios[2].len()
+        );
+    }
+
+    AircraftProfile::from_axis_ratios(all_axis_ratios)
+}
+
 fn process_file(
     input_file_str: &str,
     use_dir_prefix: bool,
     output_dir: Option<&Path>,
     plot_config: PlotConfig,
     analysis_opts: AnalysisOptions,
+    aircraft_profile: &AircraftProfile,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -936,10 +1038,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     if analysis_opts.estimate_optimal_p {
         if let Some(sr) = sample_rate {
             println!("\n--- Optimal P Estimation ---");
-            println!(
-                "Prop size: {} (specified via --prop-size)",
-                analysis_opts.frame_class.name()
-            );
+            println!("Td target: physics-derived from throttle-punch events in log group.");
             println!();
 
             for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {
@@ -1012,20 +1111,32 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 }
                             };
 
-                            // Physics-based Td calculation produces unrealistic targets (2-3× too optimistic)
-                            // because it doesn't account for ESC lag, motor efficiency, voltage sag, prop transients
-                            // Keep physics model for potential future use but don't use for Td targets
-                            // Use empirically-validated frame-class targets only
+                            // Compute physics-derived Td target for this axis
+                            // using the group's torque-inertia profile and current P gain.
+                            let physics_td = aircraft_profile.axes[axis_index].td_target_ms(p_gain);
+
+                            if physics_td.is_none() {
+                                let events = aircraft_profile.axes[axis_index].event_count;
+                                if events < crate::constants::TORQUE_PROFILER_MIN_EVENTS {
+                                    println!(
+                                        "  {}: SKIPPED -- insufficient throttle dynamics ({} events, need >={}).",
+                                        axis_name, events, crate::constants::TORQUE_PROFILER_MIN_EVENTS
+                                    );
+                                    println!("    Provide logs with more throttle variation or fly deliberate punch sequences.");
+                                } else {
+                                    println!("  {}: SKIPPED -- could not compute Td target from profiling data.", axis_name);
+                                }
+                                continue;
+                            }
 
                             // Perform optimal P analysis
                             match crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
                             &td_samples_ms,
                             p_gain,
                             current_d,
-                            analysis_opts.frame_class,
                             hf_energy_ratio,
                             recommended_pd_conservative[axis_index],
-                            None, // Don't use physics_td_target - empirical targets more accurate
+                            physics_td,
                         ) {
                                 Ok(analysis) => {
                                     // Print console output
@@ -1285,9 +1396,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut pid_requested = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
-    let mut frame_class_override: Option<crate::data_analysis::optimal_p_estimation::FrameClass> =
-        None;
-    let mut prop_size_override: Option<u8> = None; // Prop size in inches (whole number only)
 
     let mut version_flag_set = false;
 
@@ -1357,52 +1465,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             pid_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
-        } else if arg == "--prop-size" {
-            if prop_size_override.is_some() {
-                eprintln!("Error: --prop-size argument specified more than once.");
-                print_usage_and_exit(program_name);
-            }
-            if i + 1 >= args.len() {
-                eprintln!(
-                    "Error: --prop-size requires an integer value (propeller diameter in inches: 1-15)."
-                );
-                print_usage_and_exit(program_name);
-            } else {
-                let prop_str = args[i + 1].trim();
-                match prop_str.parse::<u8>() {
-                    Ok(size) if (1..=15).contains(&size) => {
-                        prop_size_override = Some(size);
-                        // Set FrameClass for Td targets
-                        frame_class_override =
-                            crate::data_analysis::optimal_p_estimation::FrameClass::from_inches(
-                                size,
-                            );
-                        // Defensive check: from_inches() returns None only for values outside 1-15,
-                        // but the (1..=15).contains(&size) guard above ensures this branch is unreachable.
-                        if frame_class_override.is_none() {
-                            eprintln!(
-                                "Warning: Prop size {} does not map to a known frame class. Default frame class will be used.",
-                                size
-                            );
-                        }
-                    }
-                    Ok(size) => {
-                        eprintln!(
-                            "Error: Prop size '{}' out of range. Valid range: 1-15 inches",
-                            size
-                        );
-                        print_usage_and_exit(program_name);
-                    }
-                    Err(_) => {
-                        eprintln!(
-                            "Error: Invalid prop size '{}'. Must be an integer between 1 and 15",
-                            prop_str
-                        );
-                        print_usage_and_exit(program_name);
-                    }
-                }
-                i += 1;
-            }
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1437,23 +1499,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Exit if only --version flag was set
     if version_flag_set {
         return Ok(());
-    }
-
-    // Warn if --prop-size is specified without --estimate-optimal-p
-    if prop_size_override.is_some() && !estimate_optimal_p {
-        eprintln!("Warning: --prop-size specified without --estimate-optimal-p.");
-        eprintln!("         The prop size setting will be ignored.");
-        eprintln!("         Use --estimate-optimal-p to enable optimal P estimation.");
-        eprintln!();
-    }
-
-    // Require --prop-size when --estimate-optimal-p is used
-    if estimate_optimal_p && prop_size_override.is_none() {
-        eprintln!(
-            "Error: --estimate-optimal-p requires --prop-size <1-15> to be explicitly specified."
-        );
-        eprintln!("       No default prop size is assumed. Specify the actual propeller diameter in inches.");
-        print_usage_and_exit(program_name);
     }
 
     if input_paths.is_empty() {
@@ -1511,30 +1556,47 @@ fn main() -> Result<(), Box<dyn Error>> {
         debug_mode,
         show_butterworth,
         estimate_optimal_p,
-        frame_class: frame_class_override
-            .unwrap_or(crate::data_analysis::optimal_p_estimation::FrameClass::FiveInch),
     };
 
+    // Group input files by aircraft key for two-phase processing.
+    // Phase 1 (profiling) aggregates throttle-punch events across all logs for each group.
+    // Phase 2 (processing) runs the standard per-file analysis with the group's Td target.
+    let grouped_files = group_files_by_aircraft(&input_files);
+
     let mut overall_success = true;
-    for input_file_str in &input_files {
-        // Determine the actual output directory for this file
-        let actual_output_dir = match &output_dir {
-            None => {
-                // No --output-dir specified, use input file's directory (source folder)
-                Path::new(input_file_str).parent()
-            }
-            Some(dir) => Some(Path::new(dir)), // --output-dir with specific directory
+    for (craft_key, group_files) in &grouped_files {
+        // Phase 1: torque-inertia profiling across all files in the group.
+        let aircraft_profile = if analysis_opts.estimate_optimal_p {
+            println!(
+                "\n--- Torque-Inertia Profiling: '{}' ({} file(s)) ---",
+                craft_key,
+                group_files.len()
+            );
+            let profile = profile_aircraft_group(group_files, debug_mode);
+            print!("{}", profile.summary());
+            profile
+        } else {
+            AircraftProfile::default()
         };
 
-        if let Err(e) = process_file(
-            input_file_str,
-            use_dir_prefix_for_root_name,
-            actual_output_dir,
-            plot_config,
-            analysis_opts,
-        ) {
-            eprintln!("An error occurred while processing {input_file_str}: {e}");
-            overall_success = false;
+        // Phase 2: process each file in the group.
+        for input_file_str in group_files {
+            let actual_output_dir = match &output_dir {
+                None => Path::new(input_file_str).parent(),
+                Some(dir) => Some(Path::new(dir)),
+            };
+
+            if let Err(e) = process_file(
+                input_file_str,
+                use_dir_prefix_for_root_name,
+                actual_output_dir,
+                plot_config,
+                analysis_opts,
+                &aircraft_profile,
+            ) {
+                eprintln!("An error occurred while processing {input_file_str}: {e}");
+                overall_success = false;
+            }
         }
     }
 
