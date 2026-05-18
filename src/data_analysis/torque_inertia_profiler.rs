@@ -91,7 +91,8 @@ impl AxisProfile {
             return None;
         }
         let omega_n = discriminant.sqrt();
-        let td_ms = TORQUE_PROFILER_TD_CALC_K / omega_n;
+        let td_ms = (TORQUE_PROFILER_TD_CALC_K / omega_n)
+            * crate::constants::TORQUE_PROFILER_ACHIEVABILITY_FACTOR;
         if !td_ms.is_finite() || td_ms <= 0.0 {
             return None;
         }

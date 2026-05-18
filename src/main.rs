@@ -1034,6 +1034,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let mut optimal_p_analyses: [Option<
         crate::data_analysis::optimal_p_estimation::OptimalPAnalysis,
     >; 3] = [None, None, None];
+    let mut optimal_p_skip_reasons: [Option<String>; 3] = [None, None, None];
 
     if analysis_opts.estimate_optimal_p {
         if let Some(sr) = sample_rate {
@@ -1070,6 +1071,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
                         if td_samples_ms.is_empty() {
                             println!("  No valid Td measurements for {axis_name}. Skipping optimal P analysis.");
+                            optimal_p_skip_reasons[axis_index] =
+                                Some("No valid Td measurements".to_string());
                             continue;
                         }
 
@@ -1118,13 +1121,19 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             if physics_td.is_none() {
                                 let events = aircraft_profile.axes[axis_index].event_count;
                                 if events < crate::constants::TORQUE_PROFILER_MIN_EVENTS {
-                                    println!(
-                                        "  {}: SKIPPED -- insufficient throttle dynamics ({} events, need >={}).",
-                                        axis_name, events, crate::constants::TORQUE_PROFILER_MIN_EVENTS
+                                    let msg = format!(
+                                        "SKIPPED: insufficient throttle dynamics ({} events, need >={})",
+                                        events, crate::constants::TORQUE_PROFILER_MIN_EVENTS
                                     );
+                                    println!("  {}: {}.", axis_name, msg);
                                     println!("    Provide logs with more throttle variation or fly deliberate punch sequences.");
+                                    optimal_p_skip_reasons[axis_index] = Some(msg);
                                 } else {
-                                    println!("  {}: SKIPPED -- could not compute Td target from profiling data.", axis_name);
+                                    let msg =
+                                        "SKIPPED: could not compute Td target from profiling data"
+                                            .to_string();
+                                    println!("  {}: {}.", axis_name, msg);
+                                    optimal_p_skip_reasons[axis_index] = Some(msg);
                                 }
                                 continue;
                             }
@@ -1147,6 +1156,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 Err(e) => {
                                     // Log the error for user visibility
                                     eprintln!("Warning: {}", e);
+                                    optimal_p_skip_reasons[axis_index] = Some(e.to_string());
                                 }
                             }
                         } else {
@@ -1211,6 +1221,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
         let optimal_p = OptimalPConfig {
             analyses: optimal_p_analyses,
+            skip_reasons: optimal_p_skip_reasons,
         };
 
         plot_step_response(

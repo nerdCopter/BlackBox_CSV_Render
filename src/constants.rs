@@ -337,3 +337,9 @@ pub const TORQUE_PROFILER_TD_CALC_K: f64 = 1_570.796_326_794_896_6;
 /// Converts raw firmware P gain (e.g. 45) to an effective physical gain.
 /// This constant may require empirical calibration; starting value: 100.0.
 pub const TORQUE_PROFILER_P_SCALE: f64 = 100.0;
+
+/// Real-world achievability factor for physics-derived Td targets.
+/// Bridges the gap between theoretical torque capacity and actual flight performance
+/// (accounts for ESC lag, motor startup, prop-wash efficiency, etc).
+/// Higher values = more relaxed targets. Starting value: 2.50.
+pub const TORQUE_PROFILER_ACHIEVABILITY_FACTOR: f64 = 2.50;

@@ -67,6 +67,7 @@ pub struct PlotDisplayConfig {
 #[derive(Debug, Clone)]
 pub struct OptimalPConfig {
     pub analyses: [Option<OptimalPAnalysis>; AXIS_COUNT],
+    pub skip_reasons: [Option<String>; AXIS_COUNT],
 }
 
 /// Generates the Stacked Step Response Plot (Blue, Orange, Red)
@@ -590,6 +591,28 @@ pub fn plot_step_response(
                             data: vec![],
                             label: rec_summary,
                             color: RGBColor(0, 150, 0), // Green for recommendation
+                            stroke_width: 0,
+                        });
+                    } else if let Some(skip_reason) = &optimal_p.skip_reasons[axis_index] {
+                        // Show skip reason if analysis failed but we have a reason
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: "─────────────────────".to_string(),
+                            color: RGBColor(40, 40, 40),
+                            stroke_width: 0,
+                        });
+
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: "Optimal P (SKIPPED)".to_string(),
+                            color: RGBColor(180, 40, 40), // Red for skipped/error
+                            stroke_width: 0,
+                        });
+
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!("  {}", skip_reason),
+                            color: RGBColor(120, 60, 60),
                             stroke_width: 0,
                         });
                     }
