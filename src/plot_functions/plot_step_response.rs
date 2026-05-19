@@ -470,8 +470,7 @@ pub fn plot_step_response(
                     // No recommendations for this axis (Optimal response)
                     series.push(PlotSeries {
                         data: vec![],
-                        label: "(Optimal response - no obvious tuning adjustments needed)"
-                            .to_string(),
+                        label: "Recommendation: None (Optimal)".to_string(),
                         color: RGBColor(0, 150, 0), // Green for optimal feedback
                         stroke_width: 0,            // Invisible legend line
                     });
