@@ -232,6 +232,7 @@ pub const PEAK_MODERATE_MULTIPLIER: f64 = 0.90; // Moderate overshoot (1.22-1.30
 // Peak range thresholds for step response quality assessment.
 // Updated to reflect "Real-World Practical" tuning where slight overshoot (1.05-1.10)
 // is preferred by professionals for "snap" and responsiveness.
+pub const PEAK_NEAR_OPTIMAL_MIN: f64 = 1.00;
 pub const PEAK_OPTIMAL_MIN: f64 = 0.98; // Near 1.0 target
 pub const PEAK_ACCEPTABLE_MIN: f64 = 1.12; // 12-18% overshoot: Good but improvable
 pub const PEAK_MINOR_MIN: f64 = 1.18; // 18-22% overshoot: Noticeable bounce
