@@ -466,164 +466,17 @@ pub fn plot_step_response(
                         color: RGBColor(70, 70, 70), // Darker gray for moderate
                         stroke_width: 0,             // Invisible legend line
                     });
-                } else if conservative.0.pd_ratios[axis_index].is_none() {
+                } else if current_pd_ratios[axis_index].is_some()
+                    && recommended_pd_conservative[axis_index].is_none()
+                {
                     // No recommendations for this axis (Optimal response)
                     series.push(PlotSeries {
                         data: vec![],
-                        label: "Recommendation: None (Optimal)".to_string(),
+                        label: "(Optimal response - no obvious tuning adjustments needed)"
+                            .to_string(),
                         color: RGBColor(0, 150, 0), // Green for optimal feedback
                         stroke_width: 0,            // Invisible legend line
                     });
-                }
-
-                // Optimal P estimation results (if enabled and available)
-                if estimate_optimal_p {
-                    if let Some(analysis) = &optimal_p.analyses[axis_index] {
-                        // Add separator line
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: "─────────────────────".to_string(),
-                            color: RGBColor(40, 40, 40),
-                            stroke_width: 0,
-                        });
-
-                        // Optimal P header
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: "Optimal P (log-derived)".to_string(),
-                            color: RGBColor(0, 100, 200), // Blue for section header
-                            stroke_width: 0,
-                        });
-
-                        // Td measurement
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: format!(
-                                "  Td: {:.1}ms (target: {:.1}ms)",
-                                analysis.td_stats.mean_ms, analysis.td_target_ms
-                            ),
-                            color: RGBColor(80, 80, 80),
-                            stroke_width: 0,
-                        });
-
-                        // Deviation: only prefix '+' for strictly positive deviations
-                        let deviation_sign = if analysis.td_deviation_percent > 0.0 {
-                            "+"
-                        } else {
-                            ""
-                        };
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: format!(
-                                "  Deviation: {}{:.1}% ({})",
-                                deviation_sign,
-                                analysis.td_deviation_percent,
-                                analysis.td_deviation.name()
-                            ),
-                            color: RGBColor(80, 80, 80),
-                            stroke_width: 0,
-                        });
-
-                        // Noise level
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: format!("  Noise: {}", analysis.noise_level.name()),
-                            color: RGBColor(80, 80, 80),
-                            stroke_width: 0,
-                        });
-
-                        // Consistency (if poor, show warning)
-                        if !analysis.td_stats.is_consistent() {
-                            let cv_percent = analysis
-                                .td_stats
-                                .coefficient_of_variation
-                                .map_or(0.0, |cv| cv * 100.0);
-                            series.push(PlotSeries {
-                                data: vec![],
-                                label: format!(
-                                    "  [WARNING] High variability (CV={:.1}%) - results may be unreliable",
-                                    cv_percent
-                                ),
-                                color: RGBColor(200, 100, 0), // Orange for warning
-                                stroke_width: 0,
-                            });
-                        }
-                        // Recommendation summary
-                        // Helper closure to compute D recommendation suffix
-                        let append_d_recommendation = |recommended_p: u32| -> String {
-                            if let (Some(current_d), Some(rec_pd)) =
-                                (analysis.current_d, analysis.recommended_pd_conservative)
-                            {
-                                if rec_pd > 0.0 && current_d > 0 {
-                                    let recommended_d =
-                                        ((recommended_p as f64) / rec_pd).round() as u32;
-                                    let d_delta = (recommended_d as i64) - (current_d as i64);
-                                    return format!(", D≈{} ({:+})", recommended_d, d_delta);
-                                }
-                            }
-                            String::new()
-                        };
-
-                        let rec_summary = match &analysis.recommendation {
-                            PRecommendation::Increase { conservative_p, .. } => {
-                                let p_delta =
-                                    (*conservative_p as i64) - (analysis.current_p as i64);
-                                let mut rec = format!(
-                                    "  Recommendation (Conservative): P≈{} ({:+})",
-                                    conservative_p, p_delta
-                                );
-                                rec.push_str(&append_d_recommendation(*conservative_p));
-                                rec
-                            }
-                            PRecommendation::Optimal { .. } => {
-                                format!(
-                                    "  Recommendation: Current P is optimal (P = {})",
-                                    analysis.current_p
-                                )
-                            }
-                            PRecommendation::Decrease { recommended_p, .. } => {
-                                let p_delta = (*recommended_p as i64) - (analysis.current_p as i64);
-                                let mut rec = format!(
-                                    "  Recommendation: P≈{} ({:+})",
-                                    recommended_p, p_delta
-                                );
-                                rec.push_str(&append_d_recommendation(*recommended_p));
-
-                                rec
-                            }
-                            PRecommendation::Investigate { .. } => {
-                                "  Recommendation: See console output for details".to_string()
-                            }
-                        };
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: rec_summary,
-                            color: RGBColor(0, 150, 0), // Green for recommendation
-                            stroke_width: 0,
-                        });
-                    } else if let Some(skip_reason) = &optimal_p.skip_reasons[axis_index] {
-                        // Show skip reason if analysis failed but we have a reason
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: "─────────────────────".to_string(),
-                            color: RGBColor(40, 40, 40),
-                            stroke_width: 0,
-                        });
-
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: "Optimal P (SKIPPED)".to_string(),
-                            color: RGBColor(180, 40, 40), // Red for skipped/error
-                            stroke_width: 0,
-                        });
-
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: format!("  {}", skip_reason),
-                            color: RGBColor(120, 60, 60),
-                            stroke_width: 0,
-                        });
-                    }
                 }
             }
 

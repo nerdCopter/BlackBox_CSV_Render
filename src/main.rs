@@ -790,41 +790,41 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             if let Some(current_pd_ratio) = current_ratio {
                                 // Analyze overshoot/undershoot based on peak response and calculate recommended ratio
                                 // Peak ranges (updated for Real-World Practical tuning):
-                                //   1.02-1.08 = optimal (sweet spot for snap and damping)
-                                //   1.08-1.12 = acceptable (slightly improvable)
-                                //   1.12-1.18 = minor overshoot (needs adjustment)
-                                //   >1.18     = moderate/severe overshoot (needs significant D increase)
+                                //   0.98-1.12 = optimal (0-12% overshoot, preferred by pro pilots)
+                                //   1.12-1.18 = acceptable (12-18% overshoot, good but improvable)
+                                //   1.18-1.22 = minor overshoot (18-22%, needs improvement)
+                                //   >1.22     = moderate/severe overshoot (needs significant D increase)
                                 let (assessment, recommended_ratio) = if peak_value
                                     > crate::constants::PEAK_SIGNIFICANT_MIN
                                 {
-                                    // Significant overshoot (>25%) - use conservative multiplier
+                                    // Significant overshoot (>30%) - use conservative multiplier
                                     (
                                         "Significant overshoot",
                                         current_pd_ratio
                                             * crate::constants::PD_RATIO_CONSERVATIVE_MULTIPLIER,
                                     )
                                 } else if peak_value > crate::constants::PEAK_MODERATE_MIN {
-                                    // Moderate overshoot (18-25%) - graduated adjustment
+                                    // Moderate overshoot (22-30%) - graduated adjustment
                                     (
                                         "Moderate overshoot",
                                         current_pd_ratio
                                             * crate::constants::PEAK_MODERATE_MULTIPLIER,
                                     )
                                 } else if peak_value > crate::constants::PEAK_MINOR_MIN {
-                                    // Minor overshoot (12-18%) - smaller adjustment
+                                    // Minor overshoot (18-22%) - smaller adjustment
                                     (
                                         "Minor overshoot",
                                         current_pd_ratio * crate::constants::PEAK_MINOR_MULTIPLIER,
                                     )
                                 } else if peak_value >= crate::constants::PEAK_ACCEPTABLE_MIN {
-                                    // Acceptable (8-12% overshoot) - minimal adjustment
+                                    // Acceptable (12-18% overshoot) - minimal adjustment
                                     (
                                         "Acceptable response",
                                         current_pd_ratio
                                             * crate::constants::PEAK_ACCEPTABLE_MULTIPLIER,
                                     )
                                 } else if peak_value >= crate::constants::PEAK_OPTIMAL_MIN {
-                                    // Optimal (1.02-1.08) - no change
+                                    // Optimal (0-12% overshoot) - no change
                                     ("Optimal response", current_pd_ratio)
                                 } else if peak_value >= crate::constants::PEAK_NEAR_OPTIMAL_MIN {
                                     // Near-optimal (1.00-1.02) - transition zone
@@ -851,8 +851,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     recommended_pd_conservative[axis_index] =
                                         Some(recommended_ratio);
 
-                                    // Calculate moderate recommendation ONLY for moderate/significant overshoot (>1.15)
-                                    // For acceptable/minor overshoot (1.05-1.15), show conservative only
+                                    // Calculate moderate recommendation ONLY for moderate/significant overshoot (>1.22)
+                                    // For acceptable/minor overshoot (1.05-1.22), show conservative only
                                     let moderate_ratio =
                                         if peak_value > crate::constants::PEAK_MINOR_MAX {
                                             let ratio = recommended_ratio
