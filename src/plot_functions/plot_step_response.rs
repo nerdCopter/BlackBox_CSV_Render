@@ -422,17 +422,17 @@ pub fn plot_step_response(
                         let d_max_str = conservative.0.d_max_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Conservative recommendation: P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "Recommendation (conservative): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
                     } else if let Some(rec_d) = conservative.0.d_values[axis_index] {
                         // D-Min/D-Max disabled: show only base D
                         format!(
-                            "Conservative recommendation: P:D={:.2} (D≈{})",
+                            "Recommendation (conservative): P:D={:.2} (D≈{})",
                             rec_pd, rec_d
                         )
                     } else {
-                        format!("Conservative recommendation: P:D={:.2}", rec_pd)
+                        format!("Recommendation (conservative): P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
@@ -494,14 +494,14 @@ pub fn plot_step_response(
                         let d_max_str = moderate.0.d_max_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Moderate recommendation: P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "Recommendation (moderate): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
                     } else if let Some(rec_d) = moderate.0.d_values[axis_index] {
                         // D-Min/D-Max disabled: show only base D
-                        format!("Moderate recommendation: P:D={:.2} (D≈{})", rec_pd, rec_d)
+                        format!("Recommendation (moderate): P:D={:.2} (D≈{})", rec_pd, rec_d)
                     } else {
-                        format!("Moderate recommendation: P:D={:.2}", rec_pd)
+                        format!("Recommendation (moderate): P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
