@@ -192,63 +192,52 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 
 #### Optimal P Estimation (Optional, Experimental)
 
-Physics-aware P gain optimization based on response timing analysis:
+Physics-derived P gain optimization using a Torque-Inertia Profiler that measures aircraft-specific dynamics directly from flight log throttle-punch events. Replaces the former hardcoded `TD_TARGETS` prop-size lookup table.
 
-- **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag
-- **⚠️ Status:** This feature is **experimental**. Frame-class Td targets are provisional empirical estimates requiring flight validation. Use as initial guidelines only; validation data collection is ongoing.
-- **Prop Size Selection:** Use `--prop-size <size>` to specify **propeller diameter** in inches (1-15, integer values only). **This flag is required when `--estimate-optimal-p` is used.**
-  - **Critical:** Must match your actual prop size exactly (e.g., 6" frame with 5" props → use `--prop-size 5`)
-  - Supports whole numbers 1 through 15 only
-  - **No default is assumed** — you must explicitly specify the prop size. This prevents misleading recommendations when the wrong default is used.
-  - Prop size is a proxy for rotational inertia (I ∝ mass × radius²) which directly affects response time
-  - Each prop size has empirically-derived Td (time to 50%) targets based on observed flight data
-- **Theory Foundation:** Based on BrianWhite's (PIDtoolbox author) insight that optimal response timing is aircraft-specific, not universal.
-  - **Theoretical Principle:** The relationship between response time and rotational inertia is approximate heuristic expressed as **Td ∝ √(I/τ)**, where I is the total rotational inertia (moment of inertia) of the airframe and τ is the available motor torque at the operating point (accounting for battery voltage, propeller aerodynamic load, and ESC response characteristics). This heuristic suggests that faster-rotating airframes (lower I) or higher available torque achieve quicker response times, while heavier/larger frames (higher I) or lower available torque naturally respond more slowly.
-  - **Real-World Factors:** In practice, Td is modified by many physical parameters beyond this simplified heuristic: mass distribution across the frame, motors, battery, and propeller placement; motor torque characteristics and efficiency across throttle range; propeller aerodynamic loading and blade pitch; battery voltage and sag during maneuvers; and ESC throttle response lag. Rotational inertia (influenced by mass × radius²) and propeller size both contribute significantly to these variations.
-  - **Empirical Approach:** The frame-class targets below are **empirical estimates derived from flight data**, not pure physics calculations. Propeller size is used as a practical proxy for rotational inertia because it correlates strongly with frame mass and arm length. Targets must be validated against actual flight logs for each specific build configuration, as the theoretical model cannot account for all real-world complexities.
-- **Frame-Class Targets (Provisional — `TD_TARGETS` in `src/constants.rs` is authoritative):**
-  - Targets below are ±25% acceptance bands for pilots. If measured Td falls within target ± tolerance, the tune is acceptable. These are NOT measurement uncertainty values.
+- **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag. No `--prop-size` argument needed — the aircraft's torque-to-inertia ratio is measured automatically.
+- **⚠️ Status:** Experimental. The achievability factor (`TORQUE_PROFILER_ACHIEVABILITY_FACTOR = 2.50`) was empirically calibrated on a 5" 6S freestyle build (HELIO H7) and may need adjustment for significantly different aircraft classes.
 
-  | Prop Size | Frame Type | Target Td | Tolerance |
-  |-----------|------------|-----------|-----------|
-  | 1" | tiny whoop | 40 ms | ± 10.0 ms |
-  | 2" | micro | 35 ms | ± 8.75 ms |
-  | 3" | toothpick/cinewhoop | 30 ms | ± 7.5 ms |
-  | 4" | racing | 25 ms | ± 6.25 ms |
-  | 5" | freestyle/racing | 20 ms | ± 5.0 ms |
-  | 6" | long-range | 28 ms | ± 7.0 ms |
-  | 7" | long-range | 37.5 ms | ± 9.375 ms |
-  | 8" | long-range | 47 ms | ± 11.75 ms |
-  | 9" | cinelifter | 56 ms | ± 14.0 ms |
-  | 10" | cinelifter | 65 ms | ± 16.25 ms |
-  | 11" | heavy-lift | 75 ms | ± 18.75 ms |
-  | 12" | heavy-lift | 85 ms | ± 21.25 ms |
-  | 13" | heavy-lift | 95 ms | ± 23.75 ms |
-  | 14" | heavy-lift | 105 ms | ± 26.25 ms |
-  | 15" | heavy-lift | 115 ms | ± 28.75 ms |
+##### Torque-Inertia Profiler (`src/data_analysis/torque_inertia_profiler.rs`)
 
-  - **Reading Td deviations:** Faster than target + low noise = headroom for P increase; slower + high noise = mechanical issues or wrong prop size; within target + high noise = P at physical limits.
-  - **Developer validation:** A stricter ±10% statistical criterion (across ≥10 flights per frame class) is used to confirm that TD_TARGETS predictions match actual measurements. See GitHub issues for current validation status.
-- **Analysis Components:**
-  - Collects individual Td measurements from all valid step response windows
-  - Calculates response consistency metrics (mean, std dev, coefficient of variation)
-  - Compares measured Td against frame-class targets
-  - Classifies Td deviation (significantly slower, moderately slower, within target, faster)
-  - Provides P gain recommendations based on deviation and noise levels
+- **Phase 1 — Aircraft Profiling (per group, before per-file processing):**
+  - All logs sharing an aircraft key are processed together via `profile_aircraft_group()`.
+  - `extract_punch_ratios()` detects throttle-punch events: `setpoint[3]` increases ≥ `THROTTLE_PUNCH_MIN_DELTA` within `THROTTLE_PUNCH_WINDOW_MS`.
+  - For each punch, peak angular acceleration `|Δgyro/Δt|` in the response window (after `TORQUE_PROFILER_SETTLE_SAMPLES = 5` samples of ESC/motor settle time) is divided by the normalised throttle command delta → `torque_inertia_ratio`.
+  - Ratios are aggregated into `AircraftProfile` (median + half-IQR spread per axis). Yaw ratios are collected for diagnostics but excluded from optimal-P analysis.
+  - Requires ≥ `TORQUE_PROFILER_MIN_EVENTS = 5` punch events; skips with console warning if insufficient.
+
+- **Phase 2 — Per-File Optimal-P Analysis:**
+  - Physics formula: `Td_ms = (π × 500 / sqrt((P / P_SCALE) × torque_inertia_ratio)) × ACHIEVABILITY_FACTOR`
+  - Per-file Td samples are collected from all valid step response windows and compared against the physics-derived target.
+  - HF noise energy from D-term spectral analysis informs whether noise limits further P increase.
+  - `OptimalPAnalysis` classifies the result as `Increase`, `Optimal`, `Decrease`, or `Investigate`.
+
+- **Aircraft Grouping (`extract_aircraft_key()`):**
+  - Strips `_YYYYMMDD_HHMMSS` timestamp from filename stem for cross-session stability.
+  - When the prefix ends with `BLACKBOX_LOG` (generic Betaflight/EmuFlight naming), the craft name following the timestamp is appended to the key, preventing all standard-format BTFL files from collapsing into one group (e.g., `BTFL_BLACKBOX_LOG_YYYYMMDD_HHMMSS_CRAFTNAME.NN.csv` → key `BTFL_BLACKBOX_LOG_CRAFTNAME`).
+
+- **Key Constants (`src/constants.rs`):**
+  - `THROTTLE_PUNCH_MIN_DELTA = 200` — minimum throttle step (0–1000 units) to qualify as a punch
+  - `THROTTLE_PUNCH_WINDOW_MS = 80` — detection window for the throttle rise
+  - `THROTTLE_RESPONSE_WINDOW_MS = 150` — gyro response measurement window
+  - `TORQUE_PROFILER_SETTLE_SAMPLES = 5` — samples skipped at response start (ESC/motor lag ~5 ms at 1 kHz)
+  - `TORQUE_PROFILER_MIN_EVENTS = 5` — minimum punches for a reliable profile
+  - `TORQUE_PROFILER_P_SCALE = 100.0` — converts raw firmware P gain to physical units
+  - `TORQUE_PROFILER_TD_CALC_K = π × 500` — Td numerator constant
+  - `TORQUE_PROFILER_ACHIEVABILITY_FACTOR = 2.50` — empirical bridge between theory and flight reality
+
 - **Recommendation Types:**
-  - **P Increase:** When Td is slower than target with acceptable noise levels
-  - **Optimal:** When Td is within target range or at physical limits
-  - **P Decrease:** When Td is faster than target with high noise (rare)
-  - **Investigate:** When measurements suggest mechanical issues or incorrect frame class
-- **Output Format:** Detailed console report with:
-  - Current P gain and measured Td statistics
-  - Frame class comparison and deviation percentage
-  - Physical limit indicators (response speed, noise level, consistency)
-  - Clear recommendation with reasoning
+  - **P Increase:** Td slower than target with acceptable noise → P is conservative
+  - **Optimal:** Td within target range or at physical limits → P is well-matched
+  - **P Decrease:** Td faster than target with high noise → P is too high (rare)
+  - **Investigate:** Measurements suggest mechanical issues or abnormal dynamics
+
+- **Output:** Console report + PNG legend overlay showing Td measurement, target, deviation %, noise level, consistency warning (if CV > threshold), and P recommendation (with calculated D adjustment to maintain current P:D ratio).
+
 - **Relationship to P:D Recommendations:**
-  - P:D ratio recommendations (existing feature): Analyze peak overshoot → adjust D-term
-  - Optimal P estimation (new feature): Analyze response timing → adjust P magnitude
-  - Both features are complementary and can run simultaneously for complete tuning guidance
+  - P:D ratio recommendations (existing feature): analyze peak overshoot → adjust D relative to P
+  - Optimal P estimation (this feature): analyze response timing → adjust P magnitude
+  - Both features are complementary; both appear in console output and PNG legend simultaneously when `--estimate-optimal-p` is active
 
 ### Step-Response Comparison with Other Analysis Tools
 
