@@ -671,50 +671,42 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
                             if let Some(current_pd_ratio) = current_ratio {
                                 // Analyze overshoot/undershoot based on peak response and calculate recommended ratio
-                                // Peak ranges:
-                                //   0.95-1.05 = optimal (0-5% overshoot/undershoot)
-                                //   1.05-1.10 = acceptable (5-10% overshoot, improvable)
-                                //   1.10-1.15 = minor overshoot (11-15%, needs improvement)
-                                //   >1.15     = moderate/severe overshoot (needs significant D increase)
-                                let (assessment, recommended_ratio) = if peak_value
-                                    > crate::constants::PEAK_SIGNIFICANT_MIN
-                                {
-                                    // Significant overshoot (>20%) - use conservative multiplier
-                                    (
+                                // Peak zones (see constants.rs for threshold values):
+                                //   < PEAK_UNDERSHOOT_MAX        = undershoot:   Recommendation (conservative) proportional D decrease
+                                //   PEAK_UNDERSHOOT_MAX..PEAK_OPTIMAL_MIN = near optimal: Recommendation (none)
+                                //   PEAK_OPTIMAL_MIN..PEAK_ACCEPTABLE_MIN = optimal:      Recommendation (none)
+                                //   PEAK_ACCEPTABLE_MIN..PEAK_ACCEPTABLE_MAX = acceptable: Recommendation (conservative)
+                                //   PEAK_ACCEPTABLE_MAX..PEAK_SIGNIFICANT_MIN = overshoot:  Recommendation (conservative)
+                                //   > PEAK_SIGNIFICANT_MIN       = significant:  conservative + moderate + aggressive
+                                let (assessment, recommended_ratio) =
+                                    if peak_value > crate::constants::PEAK_SIGNIFICANT_MIN {
+                                        (
                                         "Significant overshoot",
                                         current_pd_ratio
                                             * crate::constants::PD_RATIO_CONSERVATIVE_MULTIPLIER,
                                     )
-                                } else if peak_value > crate::constants::PEAK_MODERATE_MIN {
-                                    // Moderate overshoot (16-20%) - graduated adjustment
-                                    (
-                                        "Moderate overshoot",
-                                        current_pd_ratio
-                                            * crate::constants::PEAK_MODERATE_MULTIPLIER,
-                                    )
-                                } else if peak_value > crate::constants::PEAK_ACCEPTABLE_MAX {
-                                    // Minor overshoot (11-15%) - smaller adjustment
-                                    (
-                                        "Minor overshoot",
-                                        current_pd_ratio * crate::constants::PEAK_MINOR_MULTIPLIER,
-                                    )
-                                } else if peak_value >= crate::constants::PEAK_ACCEPTABLE_MIN {
-                                    // Acceptable (5-10% overshoot) - minimal adjustment
-                                    (
-                                        "Acceptable response",
-                                        current_pd_ratio
-                                            * crate::constants::PEAK_ACCEPTABLE_MULTIPLIER,
-                                    )
-                                } else if peak_value >= crate::constants::PEAK_OPTIMAL_MIN {
-                                    // Optimal (0-5% overshoot/undershoot) - no change
-                                    ("Optimal response", current_pd_ratio)
-                                } else if peak_value >= 0.85 {
-                                    // Minor undershoot (6-15%) - small decrease
-                                    ("Minor undershoot", current_pd_ratio * 1.05)
-                                } else {
-                                    // Significant undershoot (>15%) - moderate decrease
-                                    ("Significant undershoot", current_pd_ratio * 1.15)
-                                };
+                                    } else if peak_value > crate::constants::PEAK_ACCEPTABLE_MAX {
+                                        (
+                                            "Overshoot",
+                                            current_pd_ratio
+                                                * crate::constants::PEAK_OVERSHOOT_MULTIPLIER,
+                                        )
+                                    } else if peak_value >= crate::constants::PEAK_ACCEPTABLE_MIN {
+                                        (
+                                            "Acceptable",
+                                            current_pd_ratio
+                                                * crate::constants::PEAK_ACCEPTABLE_MULTIPLIER,
+                                        )
+                                    } else if peak_value >= crate::constants::PEAK_OPTIMAL_MIN {
+                                        ("Optimal", current_pd_ratio)
+                                    } else if peak_value >= crate::constants::PEAK_UNDERSHOOT_MAX {
+                                        ("Near optimal", current_pd_ratio)
+                                    } else {
+                                        // Proportional D decrease: scale P:D toward the optimal sweet-spot centre
+                                        let multiplier = crate::constants::PEAK_OPTIMAL_TARGET
+                                            / peak_value.max(0.1);
+                                        ("Undershoot", current_pd_ratio * multiplier)
+                                    };
 
                                 // Store peak value, current P:D ratio, and assessment for plot legends
                                 peak_values[axis_index] = Some(peak_value);
@@ -730,10 +722,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     recommended_pd_conservative[axis_index] =
                                         Some(recommended_ratio);
 
-                                    // Calculate moderate recommendation ONLY for moderate/significant overshoot (>1.15)
-                                    // For acceptable/minor overshoot (1.05-1.15), show conservative only
+                                    // Calculate moderate recommendation for any overshoot (>PEAK_ACCEPTABLE_MAX)
                                     let moderate_ratio =
-                                        if peak_value > crate::constants::PEAK_MINOR_MAX {
+                                        if peak_value > crate::constants::PEAK_ACCEPTABLE_MAX {
                                             let ratio = recommended_ratio
                                             * crate::constants::PD_RATIO_MODERATE_MULTIPLIER
                                             / crate::constants::PD_RATIO_CONSERVATIVE_MULTIPLIER;
@@ -802,6 +793,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
                                 if let Some(p_val) = axis_pid.p {
                                     println!("  Current P:D={current_pd_ratio:.2}");
+                                    // Needed in both branches below
+                                    let dmax_enabled = pid_metadata.is_dmax_enabled();
 
                                     // Show recommendations if they were computed (threshold exceeded)
                                     if recommended_pd_conservative[axis_index].is_some() {
@@ -832,9 +825,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             println!("      Consider decreasing P or checking for overdamped response");
                                         }
 
-                                        // Check if D-Min/D-Max is enabled
-                                        let dmax_enabled = pid_metadata.is_dmax_enabled();
-
                                         // Show conservative recommendation
                                         if dmax_enabled
                                             && (recommended_d_min_conservative[axis_index]
@@ -849,7 +839,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             let d_max_str = recommended_d_max_conservative
                                                 [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("    Conservative: P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                            println!("  Recommendation (conservative): P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
                                                 recommended_pd_conservative[axis_index].unwrap(),
                                                 d_min_str, d_max_str, p_val);
                                         } else if let Some(recommended_d) =
@@ -857,14 +847,21 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         {
                                             // D-Min/D-Max disabled: show only base D
                                             println!(
-                                                "    Conservative: P:D={:.2} → D≈{} (P={})",
+                                                "  Recommendation (conservative): P:D={:.2} → D≈{} (P={})",
                                                 recommended_pd_conservative[axis_index].unwrap(),
                                                 recommended_d,
                                                 p_val
                                             );
                                         }
 
-                                        // Show moderate recommendation
+                                        // Show secondary (moderate/aggressive) recommendation
+                                        // Derive level: aggressive for significant overshoot, moderate otherwise
+                                        let secondary_level =
+                                            if assessment == "Significant overshoot" {
+                                                "aggressive"
+                                            } else {
+                                                "moderate"
+                                            };
                                         if dmax_enabled
                                             && (recommended_d_min_aggressive[axis_index].is_some()
                                                 || recommended_d_max_aggressive[axis_index]
@@ -877,7 +874,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             let d_max_str = recommended_d_max_aggressive
                                                 [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("    Moderate:     P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                            println!("  Recommendation ({secondary_level}): P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
                                                 recommended_pd_aggressive[axis_index].unwrap(),
                                                 d_min_str, d_max_str, p_val);
                                         } else if let Some(recommended_d_mod) =
@@ -885,17 +882,41 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         {
                                             // D-Min/D-Max disabled: show only base D
                                             println!(
-                                                "    Moderate:     P:D={:.2} → D≈{} (P={})",
+                                                "  Recommendation ({secondary_level}): P:D={:.2} → D≈{} (P={})",
                                                 recommended_pd_aggressive[axis_index].unwrap(),
                                                 recommended_d_mod,
                                                 p_val
                                             );
                                         }
                                     } else {
-                                        // No recommendations needed - response is already good
+                                        // Optimal or near-optimal zone — no P:D adjustment needed
                                         println!(
-                                            "  ({assessment} - no obvious tuning adjustments needed)"
+                                            "  Recommendation (none): No tuning adjustments needed"
                                         );
+                                        // Near optimal (1.00–1.02): suggest D-1 as optional fine-tune
+                                        if assessment == "Near optimal" {
+                                            if dmax_enabled {
+                                                let d_min_str = axis_pid
+                                                    .d_min
+                                                    .map(|v| v.saturating_sub(1))
+                                                    .map_or("N/A".to_string(), |v| v.to_string());
+                                                let d_max_str = axis_pid
+                                                    .d_max
+                                                    .or(axis_pid.d)
+                                                    .map(|v| v.saturating_sub(1))
+                                                    .map_or("N/A".to_string(), |v| v.to_string());
+                                                println!(
+                                                    "  Recommendation (conservative): D-Min≈{}, D-Max≈{} (P={}) [optional D−1]",
+                                                    d_min_str, d_max_str, p_val
+                                                );
+                                            } else if let Some(current_d) = axis_pid.d {
+                                                println!(
+                                                    "  Recommendation (conservative): D≈{} (P={}) [optional D−1]",
+                                                    current_d.saturating_sub(1),
+                                                    p_val
+                                                );
+                                            }
+                                        }
                                     }
                                 } else {
                                     println!(

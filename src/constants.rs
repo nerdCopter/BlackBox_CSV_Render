@@ -221,26 +221,24 @@ pub const PD_RATIO_MIN_CHANGE_THRESHOLD: f64 = 0.05; // Minimum P:D ratio change
 // Note: Works for all aircraft sizes including 10"+ where D > P (P:D < 1.0)
 pub const PD_RATIO_CONSERVATIVE_MULTIPLIER: f64 = 0.85; // Conservative: reduce P:D by 15% (≈+17.6% D)
 pub const PD_RATIO_MODERATE_MULTIPLIER: f64 = 0.75; // Moderate: reduce P:D by 25% (≈+33.3% D)
+pub const PD_RATIO_AGGRESSIVE_MULTIPLIER: f64 = 0.65; // Aggressive: reduce P:D by 35% (≈+53.8% D)
 
-// Peak range adjustment multipliers for different overshoot levels
+// Step response quality zone thresholds
+pub const PEAK_UNDERSHOOT_MAX: f64 = 1.00; // < this = undershoot: Recommendation (conservative) D decrease
+pub const PEAK_OPTIMAL_MIN: f64 = 1.02; // near-optimal ends / sweet spot start; 1.00–1.02 = near optimal (none), 1.02–1.08 = optimal (none)
+#[allow(dead_code)]
+pub const PEAK_OPTIMAL_MAX: f64 = 1.08; // sweet spot end
+pub const PEAK_ACCEPTABLE_MIN: f64 = 1.08; // 1.08–1.12 = acceptable: Recommendation (conservative) D increase
+pub const PEAK_ACCEPTABLE_MAX: f64 = 1.12; // above this = overshoot territory
+pub const PEAK_SIGNIFICANT_MIN: f64 = 1.20; // >= this = significant overshoot: conservative + moderate + aggressive
+
+// Target peak value for undershoot correction: centre of the optimal sweet spot
+pub const PEAK_OPTIMAL_TARGET: f64 = (PEAK_OPTIMAL_MIN + PEAK_OPTIMAL_MAX) / 2.0;
+
+// Peak range adjustment multipliers for different overshoot/undershoot levels
 // These create a graduated response based on step response quality
-pub const PEAK_ACCEPTABLE_MULTIPLIER: f64 = 0.95; // Acceptable (1.05-1.10): Small adjustment, +≈5.3% D
-pub const PEAK_MINOR_MULTIPLIER: f64 = 0.92; // Minor overshoot (1.11-1.15): Moderate adjustment, +≈8.7% D
-pub const PEAK_MODERATE_MULTIPLIER: f64 = 0.88; // Moderate overshoot (1.16-1.20): Larger adjustment, +≈13.6% D
-
-// Peak range thresholds for step response quality assessment
-pub const PEAK_OPTIMAL_MIN: f64 = 0.95; // Optimal response: 0.95-1.04 (0-5% overshoot/undershoot)
-#[allow(dead_code)]
-pub const PEAK_OPTIMAL_MAX: f64 = 1.04;
-pub const PEAK_ACCEPTABLE_MIN: f64 = 1.05; // Acceptable: 1.05-1.10 (5-10% overshoot)
-pub const PEAK_ACCEPTABLE_MAX: f64 = 1.10;
-#[allow(dead_code)]
-pub const PEAK_MINOR_MIN: f64 = 1.11; // Minor overshoot: 1.11-1.15 (11-15% overshoot)
-pub const PEAK_MINOR_MAX: f64 = 1.15;
-pub const PEAK_MODERATE_MIN: f64 = 1.16; // Moderate overshoot: 1.16-1.20 (16-20% overshoot)
-#[allow(dead_code)]
-pub const PEAK_MODERATE_MAX: f64 = 1.20;
-pub const PEAK_SIGNIFICANT_MIN: f64 = 1.20; // Significant overshoot: >1.20 (>20% overshoot)
+pub const PEAK_ACCEPTABLE_MULTIPLIER: f64 = 0.98; // Acceptable (PEAK_ACCEPTABLE_MIN–PEAK_ACCEPTABLE_MAX): +≈2% D
+pub const PEAK_OVERSHOOT_MULTIPLIER: f64 = 0.92; // Overshoot (PEAK_ACCEPTABLE_MAX–PEAK_SIGNIFICANT_MIN): +≈8.7% D
 
 // Sanity check limits for P:D ratio recommendations
 // Note: MIN_REASONABLE_PD_RATIO of 0.3 accommodates large aircraft where D > P

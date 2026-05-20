@@ -373,14 +373,17 @@ pub fn plot_step_response(
                         let d_max_str = recommended_d_max_conservative[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Conservative: P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "Recommendation (conservative): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
                     } else if let Some(rec_d) = recommended_d_conservative[axis_index] {
                         // D-Min/D-Max disabled: show only base D
-                        format!("Conservative: P:D={:.2} (D≈{})", rec_pd, rec_d)
+                        format!(
+                            "Recommendation (conservative): P:D={:.2} (D≈{})",
+                            rec_pd, rec_d
+                        )
                     } else {
-                        format!("Conservative: P:D={:.2}", rec_pd)
+                        format!("Recommendation (conservative): P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
@@ -388,9 +391,53 @@ pub fn plot_step_response(
                         color: RGBColor(100, 100, 100), // Medium gray for conservative
                         stroke_width: 0,                // Invisible legend line
                     });
+                } else {
+                    // Optimal or near-optimal — no P:D adjustment needed
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: "Recommendation (none): No obvious tuning adjustments needed"
+                            .to_string(),
+                        color: RGBColor(100, 100, 100),
+                        stroke_width: 0,
+                    });
+                    // Near optimal (1.00–1.02): suggest D-1 as an optional fine-tune
+                    if assessments[axis_index] == Some("Near optimal") {
+                        if let Some(axis_pid_data) = pid_metadata.get_axis(axis_index) {
+                            let d1_label = if dmax_enabled {
+                                let d_min_str = axis_pid_data
+                                    .d_min
+                                    .map(|v| v.saturating_sub(1))
+                                    .map_or("N/A".to_string(), |v| v.to_string());
+                                let d_max_str = axis_pid_data
+                                    .d_max
+                                    .or(axis_pid_data.d)
+                                    .map(|v| v.saturating_sub(1))
+                                    .map_or("N/A".to_string(), |v| v.to_string());
+                                format!(
+                                    "Recommendation (conservative): D-Min≈{}, D-Max≈{} [optional D−1]",
+                                    d_min_str, d_max_str
+                                )
+                            } else if let Some(current_d) = axis_pid_data.d {
+                                format!(
+                                    "Recommendation (conservative): D≈{} [optional D−1]",
+                                    current_d.saturating_sub(1)
+                                )
+                            } else {
+                                String::new()
+                            };
+                            if !d1_label.is_empty() {
+                                series.push(PlotSeries {
+                                    data: vec![],
+                                    label: d1_label,
+                                    color: RGBColor(100, 100, 100),
+                                    stroke_width: 0,
+                                });
+                            }
+                        }
+                    }
                 }
 
-                // Moderate recommendation
+                // Secondary recommendation (always moderate)
                 if let Some(rec_pd) = recommended_pd_aggressive[axis_index] {
                     let recommendation_label = if dmax_enabled {
                         // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
@@ -399,14 +446,14 @@ pub fn plot_step_response(
                         let d_max_str = recommended_d_max_aggressive[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Moderate:     P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "Recommendation (moderate): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
                     } else if let Some(rec_d) = recommended_d_aggressive[axis_index] {
                         // D-Min/D-Max disabled: show only base D
-                        format!("Moderate:     P:D={:.2} (D≈{})", rec_pd, rec_d)
+                        format!("Recommendation (moderate): P:D={:.2} (D≈{})", rec_pd, rec_d)
                     } else {
-                        format!("Moderate:     P:D={:.2}", rec_pd)
+                        format!("Recommendation (moderate): P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
@@ -414,6 +461,43 @@ pub fn plot_step_response(
                         color: RGBColor(70, 70, 70), // Darker gray for moderate
                         stroke_width: 0,             // Invisible legend line
                     });
+
+                    // Aggressive (third) recommendation for significant overshoot only
+                    if assessments[axis_index] == Some("Significant overshoot") {
+                        if let Some(current_pd) = current_pd_ratios[axis_index] {
+                            let aggressive_pd =
+                                current_pd * crate::constants::PD_RATIO_AGGRESSIVE_MULTIPLIER;
+                            if let Some(axis_pid_data) = pid_metadata.get_axis(axis_index) {
+                                let (rec_d_agg, rec_d_min_agg, rec_d_max_agg) = axis_pid_data
+                                    .calculate_goal_d_with_range(aggressive_pd, dmax_enabled);
+                                let agg_label = if dmax_enabled
+                                    && (rec_d_min_agg.is_some() || rec_d_max_agg.is_some())
+                                {
+                                    let d_min_str =
+                                        rec_d_min_agg.map_or("N/A".to_string(), |v| v.to_string());
+                                    let d_max_str =
+                                        rec_d_max_agg.map_or("N/A".to_string(), |v| v.to_string());
+                                    format!(
+                                        "Recommendation (aggressive): P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                                        aggressive_pd, d_min_str, d_max_str
+                                    )
+                                } else if let Some(rec_d3) = rec_d_agg {
+                                    format!(
+                                        "Recommendation (aggressive): P:D={:.2} (D≈{})",
+                                        aggressive_pd, rec_d3
+                                    )
+                                } else {
+                                    format!("Recommendation (aggressive): P:D={:.2}", aggressive_pd)
+                                };
+                                series.push(PlotSeries {
+                                    data: vec![],
+                                    label: agg_label,
+                                    color: RGBColor(50, 50, 50), // Darkest gray for aggressive
+                                    stroke_width: 0,
+                                });
+                            }
+                        }
+                    }
                 }
             }
 
