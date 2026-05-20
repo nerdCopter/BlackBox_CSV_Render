@@ -391,8 +391,42 @@ pub fn plot_step_response(
                         color: RGBColor(100, 100, 100), // Medium gray for conservative
                         stroke_width: 0,                // Invisible legend line
                     });
+                } else if assessments[axis_index] == Some("Near optimal") {
+                    // Near optimal (1.00–1.02): D−1 hint replaces the "none" label —
+                    // showing "none" and a concrete suggestion together is contradictory.
+                    if let Some(axis_pid_data) = pid_metadata.get_axis(axis_index) {
+                        let d1_label = if dmax_enabled {
+                            let d_min_str = axis_pid_data
+                                .d_min
+                                .map(|v| v.saturating_sub(crate::constants::D_STEP_OPTIONAL))
+                                .map_or("N/A".to_string(), |v| v.to_string());
+                            let d_max_str = axis_pid_data
+                                .d_max
+                                .or(axis_pid_data.d)
+                                .map(|v| v.saturating_sub(crate::constants::D_STEP_OPTIONAL))
+                                .map_or("N/A".to_string(), |v| v.to_string());
+                            format!(
+                                "Recommendation (conservative): D-Min≈{}, D-Max≈{} [optional D−1]",
+                                d_min_str, d_max_str
+                            )
+                        } else if let Some(current_d) = axis_pid_data.d {
+                            format!(
+                                "Recommendation (conservative): D≈{} [optional D−1]",
+                                current_d.saturating_sub(crate::constants::D_STEP_OPTIONAL)
+                            )
+                        } else {
+                            "Recommendation (none): No obvious tuning adjustments needed"
+                                .to_string()
+                        };
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: d1_label,
+                            color: RGBColor(100, 100, 100),
+                            stroke_width: 0,
+                        });
+                    }
                 } else {
-                    // Optimal or near-optimal — no P:D adjustment needed
+                    // Optimal zone (1.02–1.08): no adjustment needed
                     series.push(PlotSeries {
                         data: vec![],
                         label: "Recommendation (none): No obvious tuning adjustments needed"
@@ -400,41 +434,6 @@ pub fn plot_step_response(
                         color: RGBColor(100, 100, 100),
                         stroke_width: 0,
                     });
-                    // Near optimal (1.00–1.02): suggest D-1 as an optional fine-tune
-                    if assessments[axis_index] == Some("Near optimal") {
-                        if let Some(axis_pid_data) = pid_metadata.get_axis(axis_index) {
-                            let d1_label = if dmax_enabled {
-                                let d_min_str = axis_pid_data
-                                    .d_min
-                                    .map(|v| v.saturating_sub(1))
-                                    .map_or("N/A".to_string(), |v| v.to_string());
-                                let d_max_str = axis_pid_data
-                                    .d_max
-                                    .or(axis_pid_data.d)
-                                    .map(|v| v.saturating_sub(1))
-                                    .map_or("N/A".to_string(), |v| v.to_string());
-                                format!(
-                                    "Recommendation (conservative): D-Min≈{}, D-Max≈{} [optional D−1]",
-                                    d_min_str, d_max_str
-                                )
-                            } else if let Some(current_d) = axis_pid_data.d {
-                                format!(
-                                    "Recommendation (conservative): D≈{} [optional D−1]",
-                                    current_d.saturating_sub(1)
-                                )
-                            } else {
-                                String::new()
-                            };
-                            if !d1_label.is_empty() {
-                                series.push(PlotSeries {
-                                    data: vec![],
-                                    label: d1_label,
-                                    color: RGBColor(100, 100, 100),
-                                    stroke_width: 0,
-                                });
-                            }
-                        }
-                    }
                 }
 
                 // Secondary recommendation (always moderate)
