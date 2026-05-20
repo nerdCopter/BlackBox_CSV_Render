@@ -9,6 +9,8 @@
   - [Implementation Details](#implementation-details)
   - [Filter Response Curves](#filter-response-curves)
   - [Bode Plot Analysis (Optional)](#bode-plot-analysis-optional)
+  - [ESO Gain Optimization (Optional)](#eso-gain-optimization-optional)
+  - [Statistical Report Output (Optional)](#statistical-report-output-optional)
   - [Step-Response Comparison with Other Analysis Tools](#step-response-comparison-with-other-analysis-tools)
     - [Compared to PIDtoolbox/Matlab (PTstepcalc.m)](#compared-to-pidtoolboxmatlab-ptstepcalcm)
     - [Compared to PlasmaTree/Python (PID-Analyzer.py)](#compared-to-plasmatreepython-pid-analyzerpy)
@@ -26,6 +28,8 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
     * Additional options include `--help` and `--version` for user assistance.
     * The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     * Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
+    * **ESO flags:** `--eso` enables 2nd-order LESO bandwidth optimization; `--eso-axis <roll,pitch,yaw>` selects axes (default: all); `--eso-b0 <value>` sets control effectiveness (default: 1.0).
+    * **Report flag:** `--report` writes a markdown statistical report (`<stem>_report.md`) alongside plot outputs.
 
 2.  **File Processing (`src/main.rs:process_file`):**
     * For each input CSV:
@@ -157,7 +161,32 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 * **Limitations:** Normal operational flight logs produce low coherence due to nonlinearities, closed-loop feedback, and nonstationary maneuvers. Results in such cases are unreliable and not recommended for tuning decisions.
 * **Warning:** A runtime warning is displayed when `--bode` is used to inform users of these requirements and recommend spectrum analysis for normal flights.
 
-### Output and Tuning Recommendations
+### ESO Gain Optimization (Optional)
+
+* **Purpose:** Offline system identification of 2nd-order LESO (Linear Extended State Observer) bandwidth (omega_0) from recorded flight data. Finds observer gains that minimise tracking error against measured gyro rate.
+* **Activation:** Disabled by default; enable with `--eso`. Optionally restrict axes with `--eso-axis roll,pitch,yaw` and set control effectiveness with `--eso-b0 <value>`.
+* **Algorithm (`src/eso.rs`):**
+    * Extracts filtered gyro (omega) and PID sum (P+I+D+F) per axis as measured output and control input respectively.
+    * Simulates a discrete Euler-forward 2nd-order LESO at each candidate omega_0:
+        * `e = omega_meas[k] - omega_hat`
+        * `omega_hat += Ts * (f_hat + b0 * u[k] + beta1 * e)`
+        * `f_hat += Ts * (beta2 * e)`
+    * Bandwidth parameterisation (Gao 2003): `beta1 = 2*omega_0`, `beta2 = omega_0^2`.
+    * Minimises MSE(omega_hat, omega_meas) via golden-section search over `[ESO_OMEGA0_MIN, min(sample_rate/3, ESO_OMEGA0_MAX)]`.
+* **Stability constraint:** omega_0 < sample_rate / 3 (enforced automatically).
+* **Output:** Prints optimal omega_0, beta1, beta2, and MSE per axis to console. Results are also included in the markdown report if `--report` is also given.
+* **Limitations:** `b0=1.0` (default) is dimensionless. For absolute accuracy co-tune b0 using known frame inertia. The cost function is MSE on the closed-loop observer output; unimodality is assumed over the search range.
+
+### Statistical Report Output (Optional)
+
+* **Purpose:** Produces a markdown file summarising per-axis signal statistics and optional ESO results alongside plot outputs.
+* **Activation:** Enable with `--report`. File is written as `<stem>_report.md` in the output directory.
+* **Content (`src/report.rs`):**
+    * **Metadata:** Sample rate, total row count, flight duration, selected firmware/configuration keys.
+    * **Per-axis tables:** Mean, std dev, min, max, RMS, sample count for gyro (filtered), setpoint, PID sum, P-term, I-term, and D-term.
+    * **ESO table (when `--eso` is also active):** omega_0, beta1, beta2, b0, MSE, and sample count per axis.
+
+
 
 #### Generated PNG Plots
 
@@ -175,6 +204,10 @@ When `--step` flag is not used, all plots below are generated:
 - **`*_Gyro_PSD_Spectrogram_comparative.png`** — Gyro spectrogram (PSD vs. time) using Short-Time Fourier Transform
 - **`*_Throttle_Freq_Heatmap_comparative.png`** — System noise characteristics across throttle levels and frequencies
 - **`*_PID_Activity_stacked.png`** — P, I, D term activity over time for each axis (Roll, Pitch, Yaw). Displays all three PID components on the same time-domain plot with unified Y-axis scaling for visual comparison. Each term shows min/avg/max statistics in the legend. Useful for visualizing PID contribution balance during flight and identifying control issues (persistent P-term offset, I-term wind direction, D-term phase lag).
+
+#### Generated Reports
+
+- **`*_report.md`** — Markdown statistical report (requires `--report`). Per-axis signal statistics table and, when combined with `--eso`, the optimised LESO gains.
 
 #### P:D Ratio Recommendations
 
