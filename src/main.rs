@@ -714,10 +714,11 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 current_pd_ratios[axis_index] = Some(current_pd_ratio);
                                 assessments[axis_index] = Some(assessment);
 
-                                // Always store recommendations for Acceptable zone (2% change never clears
-                                // the 5% threshold but the recommendation is still valid), otherwise
-                                // require a minimum change to avoid noise on already-good responses.
+                                // Always store recommendations for zones where the delta is small by
+                                // design (Acceptable ≈2%, Undershoot near-boundary ≈5% at low P:D)
+                                // to avoid the 5% gate suppressing valid recommendations.
                                 if assessment == "Acceptable"
+                                    || assessment == "Undershoot"
                                     || (recommended_ratio - current_pd_ratio).abs()
                                         > crate::constants::PD_RATIO_MIN_CHANGE_THRESHOLD
                                 {
