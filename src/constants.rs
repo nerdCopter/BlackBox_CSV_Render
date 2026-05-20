@@ -230,7 +230,7 @@ pub const PEAK_OPTIMAL_MIN: f64 = 1.02; // near-optimal ends / sweet spot start;
 pub const PEAK_OPTIMAL_MAX: f64 = 1.08; // sweet spot end
 pub const PEAK_ACCEPTABLE_MIN: f64 = 1.08; // 1.08–1.12 = acceptable: Recommendation (conservative) D increase
 pub const PEAK_ACCEPTABLE_MAX: f64 = 1.12; // above this = overshoot territory
-pub const PEAK_SIGNIFICANT_MIN: f64 = 1.20; // >= this = significant overshoot: conservative + moderate + aggressive
+pub const PEAK_SIGNIFICANT_MIN: f64 = 1.20; // > this = significant overshoot: conservative + moderate + aggressive
 
 // Target peak value for undershoot correction: centre of the optimal sweet spot
 pub const PEAK_OPTIMAL_TARGET: f64 = (PEAK_OPTIMAL_MIN + PEAK_OPTIMAL_MAX) / 2.0;
@@ -239,6 +239,8 @@ pub const PEAK_OPTIMAL_TARGET: f64 = (PEAK_OPTIMAL_MIN + PEAK_OPTIMAL_MAX) / 2.0
 // These create a graduated response based on step response quality
 pub const PEAK_ACCEPTABLE_MULTIPLIER: f64 = 0.98; // Acceptable (PEAK_ACCEPTABLE_MIN–PEAK_ACCEPTABLE_MAX): +≈2% D
 pub const PEAK_OVERSHOOT_MULTIPLIER: f64 = 0.92; // Overshoot (PEAK_ACCEPTABLE_MAX–PEAK_SIGNIFICANT_MIN): +≈8.7% D
+pub const PEAK_VALUE_MIN_CLAMP: f64 = 0.1; // Minimum peak value clamp to prevent divide-by-zero in undershoot multiplier
+pub const D_STEP_OPTIONAL: u32 = 1; // D decrement for optional near-optimal fine-tune hint
 
 // Sanity check limits for P:D ratio recommendations
 // Note: MIN_REASONABLE_PD_RATIO of 0.3 accommodates large aircraft where D > P
