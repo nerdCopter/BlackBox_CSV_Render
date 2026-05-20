@@ -951,15 +951,11 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                                 ),
                                                 p_val
                                             );
-                                        } else {
-                                            println!(
-                                                "  Recommendation (none): No tuning adjustments needed"
-                                            );
                                         }
                                     } else {
                                         // Optimal zone (1.02–1.08): no adjustment needed
                                         println!(
-                                            "  Recommendation (none): No tuning adjustments needed"
+                                            "  Recommendation (none): No obvious tuning adjustments needed"
                                         );
                                     }
                                 } else {
