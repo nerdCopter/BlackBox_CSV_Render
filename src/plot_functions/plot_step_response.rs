@@ -546,14 +546,6 @@ pub fn plot_step_response(
                             }
                         }
                     }
-                } else if conservative.0.pd_ratios[axis_index].is_none() {
-                    // No recommendations for this axis (Optimal response)
-                    series.push(PlotSeries {
-                        data: vec![],
-                        label: "Recommendation: None (Optimal)".to_string(),
-                        color: RGBColor(0, 150, 0), // Green for optimal feedback
-                        stroke_width: 0,            // Invisible legend line
-                    });
                 }
 
                 // Optimal P estimation results (if enabled and available)
