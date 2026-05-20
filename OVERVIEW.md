@@ -66,17 +66,17 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
         * **P:D Ratio Recommendations (`src/main.rs`):**
             * Based on step response peak analysis, the system provides tuning recommendations:
                 * **Important:** Peak value is measured as the first maximum after the response crosses the setpoint (1.0). The initial transient dip (visible in first ~30ms) is normal system behavior and not used for tuning recommendations.
-                * **Peak Analysis Ranges (based on step response overshoot/undershoot):**
-                    * Peak > 1.20: Significant overshoot (>20%) → P:D×0.85 (increase D by ~18%)
-                    * Peak 1.16-1.20: Moderate overshoot (16-20%) → P:D×0.88 (increase D by ~14%)
-                    * Peak 1.11-1.15: Minor overshoot (11-15%) → P:D×0.92 (increase D by ~9%)
-                    * Peak 1.05-1.10: Acceptable response (5-10% overshoot) → P:D×0.95 (increase D by ~5%)
-                    * Peak 0.95-1.04: Optimal response (0-5% overshoot/undershoot) → No change (ideal damping)
-                    * Peak 0.85-0.94: Minor undershoot (6-15%) → P:D×1.05 (decrease D by ~5%)
-                    * Peak < 0.85: Significant undershoot (>15%) → P:D×1.15 (decrease D by ~13%)
-                * **Dual Recommendations:**
-                    * **Conservative** (PD_RATIO_CONSERVATIVE_MULTIPLIER = 0.85): Reduces P:D ratio by 15%, increasing D by ~18%. Safe for most pilots, 2-3 iterations to optimal.
-                    * **Moderate** (PD_RATIO_MODERATE_MULTIPLIER = 0.75): Reduces P:D ratio by 25%, increasing D by ~33%. For experienced pilots, 1-2 iterations to optimal.
+                * **Peak Analysis Ranges (based on step response overshoot/undershoot):** Simplified 6-zone structure aligned with real-world practical tuning:
+                    * **< 1.00 (Undershoot):** Too much D damping. Recommendation (conservative): P:D × (1.05 / peak) — proportional decrease targeting sweet-spot centre.
+                    * **1.00–1.02 (Near Optimal):** Critically damped transition zone. Recommendation (none) + optional D−1 hint for fine-tuning.
+                    * **1.02–1.08 (Optimal / Pro Sweet Spot):** Ideal response with responsive feel. Recommendation (none) — no adjustment needed.
+                    * **1.08–1.12 (Acceptable):** Slight bounce but still locked-in. Recommendation (conservative): P:D×0.98 (increase D by ~2%).
+                    * **1.12–1.20 (Overshoot):** Visible overshoot but manageable. Recommendation (conservative): P:D×0.92 (increase D by ~8.7%) + Recommendation (moderate): P:D×0.75 (increase D by ~33%).
+                    * **> 1.20 (Significant Overshoot):** Excessive oscillation indicating P is too high. Recommendation (conservative) + (moderate) + Recommendation (aggressive): P:D×0.65 (increase D by ~54%).
+                * **Multi-Tiered Recommendations:**
+                    * **Conservative** (PD_RATIO_CONSERVATIVE_MULTIPLIER = 0.85): Reduces P:D ratio by 15%, increasing D by ~18%. Safe for most pilots.
+                    * **Moderate** (PD_RATIO_MODERATE_MULTIPLIER = 0.75): Reduces P:D ratio by 25%, increasing D by ~33%. For experienced pilots.
+                    * **Aggressive** (PD_RATIO_AGGRESSIVE_MULTIPLIER = 0.65): Reduces P:D ratio by 35%, increasing D by ~54%. For tuning significant overshoot zones (>1.20).
                 * **D-Min/D-Max Support:**
                     * Automatically detects if D-Min/D-Max system is enabled (Betaflight 4.0+)
                     * When enabled: Recommends proportional D-Min and D-Max values maintaining current ratio relationships
