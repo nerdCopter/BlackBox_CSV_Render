@@ -327,7 +327,9 @@ pub const TORQUE_PROFILER_MIN_EVENTS: usize = 5;
 pub const TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED: f64 = 0.10;
 
 /// Samples to skip at the start of the response window (ESC + motor latency).
-pub const TORQUE_PROFILER_SETTLE_SAMPLES: usize = 3;
+/// 5 samples at 1 kHz covers ~5 ms, which accommodates typical ESC/motor lag;
+/// increase further for large or slow aircraft with >10 ms drivetrain latency.
+pub const TORQUE_PROFILER_SETTLE_SAMPLES: usize = 5;
 
 /// Numerator constant for Td calculation: K = π × 1000 / 2
 /// Td_ms = K / sqrt((P / P_SCALE) × torque_inertia_ratio)
@@ -341,5 +343,7 @@ pub const TORQUE_PROFILER_P_SCALE: f64 = 100.0;
 /// Real-world achievability factor for physics-derived Td targets.
 /// Bridges the gap between theoretical torque capacity and actual flight performance
 /// (accounts for ESC lag, motor startup, prop-wash efficiency, etc).
-/// Higher values = more relaxed targets. Starting value: 2.50.
+/// Higher values = more relaxed targets.
+/// Empirically calibrated on a 5" 6S freestyle build (HELIO H7); may need
+/// adjustment for significantly heavier or lighter aircraft classes.
 pub const TORQUE_PROFILER_ACHIEVABILITY_FACTOR: f64 = 2.50;

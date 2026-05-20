@@ -545,7 +545,6 @@ pub fn plot_step_response(
                                 });
                             }
                         }
-
                     }
                 } else if conservative.0.pd_ratios[axis_index].is_none() {
                     // No recommendations for this axis (Optimal response)

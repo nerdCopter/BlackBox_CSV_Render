@@ -389,14 +389,16 @@ fn print_usage_and_exit(program_name: &str) {
 
 /// Extract an aircraft grouping key from a file path.
 ///
-/// Strips the date-time suffix (`_YYYYMMDD_HHMMSS` and everything after) from the
-/// file stem to obtain a stable key that identifies the aircraft across sessions.
+/// Strips the date-time portion (`_YYYYMMDD_HHMMSS`) so files from the same aircraft
+/// across multiple sessions share one key.  When the craft name follows the timestamp
+/// (e.g. the standard Betaflight naming scheme), it is appended to the prefix so that
+/// different craft logged under the same generic prefix remain distinct.
 ///
 /// Examples:
 ///   `EMUF_BLACKBOX_LOG_FOXEERF722V4_426_20240406_132335_notes.19.csv`
-///     → `EMUF_BLACKBOX_LOG_FOXEERF722V4_426`
+///     → `EMUF_BLACKBOX_LOG_FOXEERF722V4_426`  (craft name precedes date)
 ///   `BTFL_BLACKBOX_LOG_20250517_130413_STELLARH7DEV.02.csv`
-///     → `BTFL_BLACKBOX_LOG`  (date precedes craft name; all files group together)
+///     → `BTFL_BLACKBOX_LOG_STELLARH7DEV`  (generic prefix; craft name appended from suffix)
 ///
 /// Files without a date pattern are treated as unique aircraft (full stem as key).
 fn extract_aircraft_key(path: &Path) -> String {
@@ -414,7 +416,29 @@ fn extract_aircraft_key(path: &Path) -> String {
             {
                 // i == 0 would give an empty key; fall through to full stem.
                 if i > 0 {
-                    return stem[..i].to_string();
+                    let prefix = &stem[..i];
+                    let after_datetime = &stem[(i + 16)..];
+                    // When the prefix is a generic firmware placeholder (ends with
+                    // "BLACKBOX_LOG"), the craft name sits in the suffix; include it
+                    // so files from different craft don't collapse into one group.
+                    if !after_datetime.is_empty() && prefix.ends_with("BLACKBOX_LOG") {
+                        let craft = after_datetime.strip_prefix('_').unwrap_or(after_datetime);
+                        // Strip trailing log-number suffix (e.g. ".02", ".19").
+                        let craft = if let Some(dot) = craft.rfind('.') {
+                            let tail = &craft[dot + 1..];
+                            if tail.chars().all(|c| c.is_ascii_digit()) {
+                                &craft[..dot]
+                            } else {
+                                craft
+                            }
+                        } else {
+                            craft
+                        };
+                        if !craft.is_empty() {
+                            return format!("{}_{}", prefix, craft);
+                        }
+                    }
+                    return prefix.to_string();
                 }
             }
         }

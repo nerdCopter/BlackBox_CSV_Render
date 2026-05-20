@@ -193,6 +193,8 @@ pub fn extract_punch_ratios(log_data: &[LogRowData], sample_rate: f64) -> [Vec<f
                 let resp_end = (resp_start + response_window).min(n - 1);
 
                 if resp_end > resp_start + 2 {
+                    // Axis 2 (Yaw) is collected here for diagnostic completeness but
+                    // is not used in optimal-P analysis (Roll/Pitch only).
                     for (axis, axis_ratio_vec) in axis_ratios.iter_mut().enumerate() {
                         let mut peak_alpha: f64 = 0.0;
                         for j in resp_start..resp_end.saturating_sub(1) {
