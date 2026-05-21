@@ -543,10 +543,13 @@ impl OptimalPAnalysis {
                     conservative_p, conservative_delta
                 ));
 
-                // Add D recommendation using recommended P:D ratio (not current ratio!)
-                if let (Some(current_d), Some(rec_pd)) =
-                    (self.current_d, self.recommended_pd_conservative)
-                {
+                // Add D recommendation: prefer step-response P:D, fall back to current P:D.
+                let effective_pd = self.recommended_pd_conservative.or_else(|| {
+                    self.current_d
+                        .filter(|&d| d > 0)
+                        .map(|d| self.current_p as f64 / d as f64)
+                });
+                if let (Some(current_d), Some(rec_pd)) = (self.current_d, effective_pd) {
                     if rec_pd > 0.0 && current_d > 0 {
                         let conservative_d = ((*conservative_p as f64) / rec_pd).round() as u32;
                         let conservative_d_delta = conservative_d as i32 - current_d as i32;
@@ -568,11 +571,13 @@ impl OptimalPAnalysis {
                 let decrease_delta = *recommended_p as i32 - self.current_p as i32;
                 output.push_str(&format!("      P≈{} ({:+})", recommended_p, decrease_delta));
 
-                // Add D recommendation using recommended P:D ratio (not current ratio!)
-                // For decrease, use conservative ratio (safer)
-                if let (Some(current_d), Some(rec_pd)) =
-                    (self.current_d, self.recommended_pd_conservative)
-                {
+                // Add D recommendation: prefer step-response P:D, fall back to current P:D.
+                let effective_pd = self.recommended_pd_conservative.or_else(|| {
+                    self.current_d
+                        .filter(|&d| d > 0)
+                        .map(|d| self.current_p as f64 / d as f64)
+                });
+                if let (Some(current_d), Some(rec_pd)) = (self.current_d, effective_pd) {
                     if rec_pd > 0.0 && current_d > 0 {
                         let recommended_d = ((*recommended_p as f64) / rec_pd).round() as u32;
                         let d_delta = recommended_d as i32 - current_d as i32;

@@ -192,39 +192,39 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 
 #### Optimal P Estimation (Optional, Experimental)
 
-Physics-derived P gain optimization using a Torque-Inertia Profiler that measures aircraft-specific dynamics directly from flight log throttle-punch events. Replaces the former hardcoded `TD_TARGETS` prop-size lookup table.
+Physics-derived P gain optimization using a Torque-Inertia Profiler that measures aircraft-specific dynamics directly from flight log throttle-punch events. No prop-size input is required — the aircraft's torque-to-inertia ratio is derived from the logs.
 
-- **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag. No `--prop-size` argument needed — the aircraft's torque-to-inertia ratio is measured automatically.
-- **⚠️ Status:** Experimental. The achievability factor (`TORQUE_PROFILER_ACHIEVABILITY_FACTOR = 2.50`) was empirically calibrated on a 5" 6S freestyle build (HELIO H7) and may need adjustment for significantly different aircraft classes.
+- **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag.
+- **⚠️ Status:** Experimental. `TORQUE_PROFILER_ACHIEVABILITY_FACTOR` bridges the gap between the theoretical physics formula and real-world flight performance (ESC lag, prop-wash, motor startup). It is empirically calibrated and may need adjustment for aircraft significantly different from a mid-size freestyle build.
 
 ##### Torque-Inertia Profiler (`src/data_analysis/torque_inertia_profiler.rs`)
 
 - **Phase 1 — Aircraft Profiling (per group, before per-file processing):**
   - All logs sharing an aircraft key are processed together via `profile_aircraft_group()`.
   - `extract_punch_ratios()` detects throttle-punch events: `setpoint[3]` increases ≥ `THROTTLE_PUNCH_MIN_DELTA` within `THROTTLE_PUNCH_WINDOW_MS`.
-  - For each punch, peak angular acceleration `|Δgyro/Δt|` in the response window (after `TORQUE_PROFILER_SETTLE_SAMPLES = 5` samples of ESC/motor settle time) is divided by the normalised throttle command delta → `torque_inertia_ratio`.
-  - Ratios are aggregated into `AircraftProfile` (median + half-IQR spread per axis). Yaw ratios are collected for diagnostics but excluded from optimal-P analysis.
-  - Requires ≥ `TORQUE_PROFILER_MIN_EVENTS = 5` punch events; skips with console warning if insufficient.
+  - For each punch, peak angular acceleration `|Δgyro/Δt|` in the response window (after `TORQUE_PROFILER_SETTLE_SAMPLES` of ESC/motor settle time) is divided by the normalised throttle command delta → `torque_inertia_ratio`.
+  - Ratios are aggregated into `AircraftProfile` (median + half-IQR spread per axis, Roll and Pitch only). Yaw ratios are collected but not used in optimal-P analysis because Yaw dynamics differ from Roll/Pitch and the current formula is not calibrated for Yaw.
+  - Requires ≥ `TORQUE_PROFILER_MIN_EVENTS` punch events. If insufficient, a skip message appears in both console and PNG overlay.
 
 - **Phase 2 — Per-File Optimal-P Analysis:**
-  - Physics formula: `Td_ms = (π × 500 / sqrt((P / P_SCALE) × torque_inertia_ratio)) × ACHIEVABILITY_FACTOR`
+  - Physics formula: `Td_ms = TORQUE_PROFILER_TD_CALC_K / sqrt((P / TORQUE_PROFILER_P_SCALE) × torque_inertia_ratio) × TORQUE_PROFILER_ACHIEVABILITY_FACTOR`
   - Per-file Td samples are collected from all valid step response windows and compared against the physics-derived target.
   - HF noise energy from D-term spectral analysis informs whether noise limits further P increase.
   - `OptimalPAnalysis` classifies the result as `Increase`, `Optimal`, `Decrease`, or `Investigate`.
 
 - **Aircraft Grouping (`extract_aircraft_key()`):**
-  - Strips `_YYYYMMDD_HHMMSS` timestamp from filename stem for cross-session stability.
-  - When the prefix ends with `BLACKBOX_LOG` (generic Betaflight/EmuFlight naming), the craft name following the timestamp is appended to the key, preventing all standard-format BTFL files from collapsing into one group (e.g., `BTFL_BLACKBOX_LOG_YYYYMMDD_HHMMSS_CRAFTNAME.NN.csv` → key `BTFL_BLACKBOX_LOG_CRAFTNAME`).
+  - Strips `_YYYYMMDD_HHMMSS` timestamp from filename stem so logs from the same aircraft across multiple sessions share one key.
+  - When the prefix ends with `BLACKBOX_LOG` (generic Betaflight/EmuFlight naming), the craft name following the timestamp is appended to prevent distinct aircraft from collapsing into one group (e.g., `BTFL_BLACKBOX_LOG_YYYYMMDD_HHMMSS_CRAFTNAME.NN.csv` → key `BTFL_BLACKBOX_LOG_CRAFTNAME`).
 
 - **Key Constants (`src/constants.rs`):**
-  - `THROTTLE_PUNCH_MIN_DELTA = 200` — minimum throttle step (0–1000 units) to qualify as a punch
-  - `THROTTLE_PUNCH_WINDOW_MS = 80` — detection window for the throttle rise
-  - `THROTTLE_RESPONSE_WINDOW_MS = 150` — gyro response measurement window
-  - `TORQUE_PROFILER_SETTLE_SAMPLES = 5` — samples skipped at response start (ESC/motor lag ~5 ms at 1 kHz)
-  - `TORQUE_PROFILER_MIN_EVENTS = 5` — minimum punches for a reliable profile
-  - `TORQUE_PROFILER_P_SCALE = 100.0` — converts raw firmware P gain to physical units
-  - `TORQUE_PROFILER_TD_CALC_K = π × 500` — Td numerator constant
-  - `TORQUE_PROFILER_ACHIEVABILITY_FACTOR = 2.50` — empirical bridge between theory and flight reality
+  - `THROTTLE_PUNCH_MIN_DELTA` — minimum throttle step (0–1000 units) to qualify as a punch
+  - `THROTTLE_PUNCH_WINDOW_MS` — detection window for the throttle rise
+  - `THROTTLE_RESPONSE_WINDOW_MS` — gyro response measurement window
+  - `TORQUE_PROFILER_SETTLE_SAMPLES` — samples skipped at response start (ESC/motor lag allowance)
+  - `TORQUE_PROFILER_MIN_EVENTS` — minimum punches required for a reliable profile
+  - `TORQUE_PROFILER_P_SCALE` — converts raw firmware P gain to physical units
+  - `TORQUE_PROFILER_TD_CALC_K` — Td numerator constant (π × 500)
+  - `TORQUE_PROFILER_ACHIEVABILITY_FACTOR` — empirical calibration coefficient
 
 - **Recommendation Types:**
   - **P Increase:** Td slower than target with acceptable noise → P is conservative
@@ -232,12 +232,12 @@ Physics-derived P gain optimization using a Torque-Inertia Profiler that measure
   - **P Decrease:** Td faster than target with high noise → P is too high (rare)
   - **Investigate:** Measurements suggest mechanical issues or abnormal dynamics
 
-- **Output:** Console report + PNG legend overlay showing Td measurement, target, deviation %, noise level, consistency warning (if CV > threshold), and P recommendation (with calculated D adjustment to maintain current P:D ratio).
+- **Output:** Console report and PNG legend overlay showing Td measurement, target, deviation %, noise level, consistency warning (if CV exceeds `TD_COEFFICIENT_OF_VARIATION_MAX`), and P recommendation with calculated D adjustment. When profiling is skipped (insufficient punch events), a skip reason appears in both outputs.
 
 - **Relationship to P:D Recommendations:**
-  - P:D ratio recommendations (existing feature): analyze peak overshoot → adjust D relative to P
-  - Optimal P estimation (this feature): analyze response timing → adjust P magnitude
-  - Both features are complementary; both appear in console output and PNG legend simultaneously when `--estimate-optimal-p` is active
+  - P:D ratio recommendations: analyze peak overshoot → adjust D relative to P
+  - Optimal P estimation: analyze response timing → adjust P magnitude
+  - Both features are complementary; both appear in console output and PNG legend simultaneously
 
 ### Step-Response Comparison with Other Analysis Tools
 

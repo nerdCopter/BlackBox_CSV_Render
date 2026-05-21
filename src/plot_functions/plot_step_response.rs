@@ -86,8 +86,9 @@ pub fn plot_step_response(
     display: &PlotDisplayConfig,
     optimal_p: &OptimalPConfig,
 ) -> Result<(), Box<dyn Error>> {
-    // Derive estimate_optimal_p from presence of analyses (removes redundant boolean parameter)
-    let estimate_optimal_p = optimal_p.analyses.iter().any(|a| a.is_some());
+    // Show optimal-P section whenever at least one axis has a result OR a skip reason.
+    let estimate_optimal_p = optimal_p.analyses.iter().any(|a| a.is_some())
+        || optimal_p.skip_reasons.iter().any(|r| r.is_some());
 
     let step_response_plot_duration_s = RESPONSE_LENGTH_S;
     let steady_state_start_s_const = STEADY_STATE_START_S; // from constants
@@ -621,10 +622,18 @@ pub fn plot_step_response(
                             });
                         }
                         // Recommendation summary
-                        // Helper closure to compute D recommendation suffix
+                        // Helper closure to compute D recommendation suffix.
+                        // Prefers the step-response conservative P:D; falls back to the
+                        // current P:D ratio so D is always shown when D gain is known.
+                        let effective_pd = analysis.recommended_pd_conservative.or_else(|| {
+                            analysis
+                                .current_d
+                                .filter(|&d| d > 0)
+                                .map(|d| analysis.current_p as f64 / d as f64)
+                        });
                         let append_d_recommendation = |recommended_p: u32| -> String {
                             if let (Some(current_d), Some(rec_pd)) =
-                                (analysis.current_d, analysis.recommended_pd_conservative)
+                                (analysis.current_d, effective_pd)
                             {
                                 if rec_pd > 0.0 && current_d > 0 {
                                     let recommended_d =
