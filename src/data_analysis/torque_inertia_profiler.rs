@@ -20,10 +20,10 @@
 
 use crate::axis_names::AXIS_COUNT;
 use crate::constants::{
-    THROTTLE_COMMAND_SCALE, THROTTLE_PUNCH_MIN_DELTA, THROTTLE_PUNCH_WINDOW_MS,
-    THROTTLE_RESPONSE_WINDOW_MS, TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED,
-    TORQUE_PROFILER_MIN_DT_S, TORQUE_PROFILER_MIN_EVENTS, TORQUE_PROFILER_P_SCALE,
-    TORQUE_PROFILER_SETTLE_SAMPLES, TORQUE_PROFILER_TD_CALC_K,
+    OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER, THROTTLE_COMMAND_SCALE, THROTTLE_PUNCH_MIN_DELTA,
+    THROTTLE_PUNCH_WINDOW_MS, THROTTLE_RESPONSE_WINDOW_MS,
+    TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED, TORQUE_PROFILER_MIN_DT_S, TORQUE_PROFILER_MIN_EVENTS,
+    TORQUE_PROFILER_P_SCALE, TORQUE_PROFILER_SETTLE_SAMPLES, TORQUE_PROFILER_TD_CALC_K,
 };
 use crate::data_input::log_data::LogRowData;
 
@@ -164,15 +164,19 @@ impl AircraftProfile {
 /// For each punch the peak angular acceleration in the following
 /// `THROTTLE_RESPONSE_WINDOW_MS` window is divided by the normalised command delta
 /// to yield the torque-inertia ratio for each axis.
-pub fn extract_punch_ratios(log_data: &[LogRowData], sample_rate: f64) -> [Vec<f64>; 3] {
+pub fn extract_punch_ratios(log_data: &[LogRowData], sample_rate: f64) -> [Vec<f64>; AXIS_COUNT] {
     let mut axis_ratios: [Vec<f64>; AXIS_COUNT] = std::array::from_fn(|_| Vec::new());
 
     if log_data.len() < 10 || sample_rate <= 0.0 {
         return axis_ratios;
     }
 
-    let punch_window = ((THROTTLE_PUNCH_WINDOW_MS / 1000.0) * sample_rate).ceil() as usize;
-    let response_window = ((THROTTLE_RESPONSE_WINDOW_MS / 1000.0) * sample_rate).ceil() as usize;
+    let punch_window = ((THROTTLE_PUNCH_WINDOW_MS / OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER)
+        * sample_rate)
+        .ceil() as usize;
+    let response_window = ((THROTTLE_RESPONSE_WINDOW_MS / OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER)
+        * sample_rate)
+        .ceil() as usize;
     let punch_window = punch_window.max(2);
     let response_window = response_window.max(5);
 
