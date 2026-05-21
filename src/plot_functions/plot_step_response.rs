@@ -12,6 +12,7 @@ use crate::constants::{
     FINAL_NORMALIZED_STEADY_STATE_TOLERANCE, LINE_WIDTH_PLOT,
     LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S, POST_AVERAGING_SMOOTHING_WINDOW, RESPONSE_LENGTH_S,
     STEADY_STATE_END_S, STEADY_STATE_START_S, TD_COEFFICIENT_OF_VARIATION_MAX,
+    TD_CONSISTENCY_MIN_THRESHOLD,
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
@@ -629,28 +630,32 @@ pub fn plot_step_response(
                             stroke_width: 0,
                         });
 
-                        // Consistency — always shown; orange warning when poor
+                        // Reliability — always shown with both metrics; orange when poor
                         {
-                            let cv_percent = analysis
-                                .td_stats
-                                .coefficient_of_variation
-                                .map_or(0.0, |cv| cv * 100.0);
-                            let consistency_pct =
-                                (analysis.td_stats.consistency * 100.0).round() as u32;
-                            let (cons_label, cons_color) = if !analysis.td_stats.is_consistent() {
-                                (
+                            let cv_str = analysis.td_stats.coefficient_of_variation.map_or_else(
+                                || "CV=N/A".to_string(),
+                                |cv| {
                                     format!(
-                                        "  Consistency: {}% (CV={:.1}%) — unreliable (>{:.0}%)",
-                                        consistency_pct,
-                                        cv_percent,
-                                        TD_COEFFICIENT_OF_VARIATION_MAX * 100.0
-                                    ),
-                                    COLOR_OPTIMAL_P_WARNING,
+                                        "CV={:.1}% (≤{:.0}%)",
+                                        cv * 100.0,
+                                        TD_COEFFICIENT_OF_VARIATION_MAX * 100.0,
+                                    )
+                                },
+                            );
+                            let cons_str = format!(
+                                "Consistency={:.0}% (≥{:.0}%)",
+                                analysis.td_stats.consistency * 100.0,
+                                TD_CONSISTENCY_MIN_THRESHOLD * 100.0,
+                            );
+                            let (cons_label, cons_color) = if analysis.td_stats.is_consistent() {
+                                (
+                                    format!("  Reliable: {cons_str}, {cv_str}"),
+                                    COLOR_OPTIMAL_P_TEXT,
                                 )
                             } else {
                                 (
-                                    format!("  Consistency: {}%", consistency_pct),
-                                    COLOR_OPTIMAL_P_TEXT,
+                                    format!("  Unreliable: {cons_str}, {cv_str}"),
+                                    COLOR_OPTIMAL_P_WARNING,
                                 )
                             };
                             series.push(PlotSeries {

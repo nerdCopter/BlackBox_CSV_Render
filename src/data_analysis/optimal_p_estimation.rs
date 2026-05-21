@@ -503,27 +503,37 @@ impl OptimalPAnalysis {
 
         // Compact header - axis name and basic info
         output.push_str(&format!(
-            "{}: Td={:.1}ms (target {}, {:+.0}% dev, windows={}), Noise={}, Consistency={:.0}%\n",
+            "{}: Td={:.1}ms (target {}, {:+.0}% dev, windows={}), Noise={}\n",
             axis_name,
             self.td_stats.mean_ms,
             target_display,
             self.td_deviation_percent,
             self.td_stats.num_samples,
             self.noise_level.name(),
-            self.td_stats.consistency * 100.0
         ));
 
-        // Warning for low consistency (inline)
-        if !self.td_stats.is_consistent() {
-            let cv_percent = self
-                .td_stats
-                .coefficient_of_variation
-                .map_or(0.0, |cv| cv * 100.0);
-            output.push_str(&format!(
-                "  ⚠ Low consistency (CV={:.1}%) — unreliable (>{:.0}%)\n",
-                cv_percent,
-                TD_COEFFICIENT_OF_VARIATION_MAX * 100.0
-            ));
+        // Reliability line — always shown with both metrics
+        {
+            let cv_str = self.td_stats.coefficient_of_variation.map_or_else(
+                || "CV=N/A".to_string(),
+                |cv| {
+                    format!(
+                        "CV={:.1}% (≤{:.0}%)",
+                        cv * 100.0,
+                        TD_COEFFICIENT_OF_VARIATION_MAX * 100.0,
+                    )
+                },
+            );
+            let cons_str = format!(
+                "Consistency={:.0}% (≥{:.0}%)",
+                self.td_stats.consistency * 100.0,
+                TD_CONSISTENCY_MIN_THRESHOLD * 100.0,
+            );
+            if self.td_stats.is_consistent() {
+                output.push_str(&format!("  Reliable: {cons_str}, {cv_str}\n"));
+            } else {
+                output.push_str(&format!("  Unreliable: {cons_str}, {cv_str}\n"));
+            }
         }
 
         // Compact recommendation
