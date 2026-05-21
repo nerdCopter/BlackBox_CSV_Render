@@ -497,11 +497,12 @@ impl OptimalPAnalysis {
 
         // Compact header - axis name and basic info
         output.push_str(&format!(
-            "{}: Td={:.1}ms (target {}, {:+.0}% dev), Noise={}, Consistency={:.0}%\n",
+            "{}: Td={:.1}ms (target {}, {:+.0}% dev, n={}), Noise={}, Consistency={:.0}%\n",
             axis_name,
             self.td_stats.mean_ms,
             target_display,
             self.td_deviation_percent,
+            self.td_stats.num_samples,
             self.noise_level.name(),
             self.td_stats.consistency * 100.0
         ));

@@ -1132,10 +1132,22 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                 // Only Roll (0) and Pitch (1) - Yaw excluded by ROLL_PITCH_AXIS_COUNT
                 let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
 
-                if let Some((response_time, valid_stacked_responses, _valid_window_max_setpoints)) =
+                if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) =
                     &step_response_calculation_results[axis_index]
                 {
                     if valid_stacked_responses.shape()[0] > 0 && !response_time.is_empty() {
+                        // Warn when inputs are too gentle to produce reliable step-response data
+                        let max_sp = valid_window_max_setpoints
+                            .iter()
+                            .cloned()
+                            .fold(0.0_f32, f32::max);
+                        if max_sp < crate::constants::LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S {
+                            println!(
+                                "  ⚠ {axis_name}: [LOW AUTHORITY] max={:.0}dps — recommendations unreliable",
+                                max_sp
+                            );
+                        }
+
                         // Collect individual Td samples from each valid response window
                         let mut td_samples_ms: Vec<f64> = Vec::new();
 

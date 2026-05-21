@@ -234,6 +234,19 @@ Physics-derived P gain optimization using a Torque-Inertia Profiler that measure
 
 - **Output:** Console report and PNG legend overlay showing Td measurement, target, deviation %, noise level, consistency warning (if CV exceeds `TD_COEFFICIENT_OF_VARIATION_MAX`), and P recommendation with calculated D adjustment. When profiling is skipped (insufficient punch events), a skip reason appears in both outputs.
 
+- **Consistency and Reliability Interpretation (CV):**
+  - **CV (Coefficient of Variation)** = standard deviation / mean of individual Td measurements across all valid step-response windows. It quantifies how scattered the measurements are relative to their average.
+  - **Low CV:** Td measurements are tightly clustered — the log contains clean, repeatable dynamics and recommendations are trustworthy.
+  - **High CV (exceeds `TD_COEFFICIENT_OF_VARIATION_MAX`):** Td measurements vary widely across windows — a consistency warning is shown in both console and PNG. Recommendations should be treated with caution.
+  - **CV = None:** Fewer than `TD_SAMPLES_MIN_FOR_STDDEV` valid Td samples were available; standard deviation cannot be computed. The mean is still reported but no consistency rating is given.
+  - **Low-authority flight warning:** When the maximum setpoint across all valid windows is below `LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S`, a `[LOW AUTHORITY]` warning is shown in both console and PNG. Hover tests and slow-cruise logs never produce sharp inputs — step-response analysis and Td measurements from such logs are noise-dominated rather than dynamics-dominated, making all recommendations unreliable regardless of CV.
+  - **Why hover logs produce high CV:** Small setpoint inputs → deconvolution is noise-sensitive → each window captures a different noise realisation. The averaged response may appear plausible (noise averages out) while individual window variance remains high. CV exposes this where the mean alone cannot.
+  - **Summary of dependability signals in output:**
+    - `n=` sample count on the Td line — more samples = more statistical weight
+    - Consistency % and CV — how repeatable individual measurements are
+    - `[LOW AUTHORITY]` — max setpoint too small for reliable step-response characterisation
+    - Noise level (`LOW` / `MODERATE` / `HIGH`) — HF D-term energy; high noise limits safe P increase
+
 - **Relationship to P:D Recommendations:**
   - P:D ratio recommendations: analyze peak overshoot → adjust D relative to P
   - Optimal P estimation: analyze response timing → adjust P magnitude

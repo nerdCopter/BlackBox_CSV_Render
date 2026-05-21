@@ -7,8 +7,9 @@ use std::error::Error;
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
 use crate::constants::{
     COLOR_STEP_RESPONSE_COMBINED, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_LOW_SP,
-    FINAL_NORMALIZED_STEADY_STATE_TOLERANCE, LINE_WIDTH_PLOT, POST_AVERAGING_SMOOTHING_WINDOW,
-    RESPONSE_LENGTH_S, STEADY_STATE_END_S, STEADY_STATE_START_S,
+    FINAL_NORMALIZED_STEADY_STATE_TOLERANCE, LINE_WIDTH_PLOT,
+    LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S, POST_AVERAGING_SMOOTHING_WINDOW, RESPONSE_LENGTH_S,
+    STEADY_STATE_END_S, STEADY_STATE_START_S,
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
@@ -392,6 +393,13 @@ pub fn plot_step_response(
 
             // Add current P:D ratio with quality assessment as legend entries for Roll/Pitch
             if axis_index < 2 {
+                // Low-authority flight check: max setpoint across all valid windows.
+                let max_sp = valid_window_max_setpoints
+                    .iter()
+                    .cloned()
+                    .fold(0.0_f32, f32::max);
+                let is_low_authority = max_sp < LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S;
+
                 // Current P:D ratio and assessment
                 if let Some(current_pd) = current.pd_ratios[axis_index] {
                     let current_label = if let Some(assessment) = current.assessments[axis_index] {
@@ -411,6 +419,18 @@ pub fn plot_step_response(
                         label: current_label,
                         color: RGBColor(60, 60, 60), // Darker gray for current
                         stroke_width: 0,             // Invisible legend line
+                    });
+                }
+
+                if is_low_authority {
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: format!(
+                            "[LOW AUTHORITY] max={:.0}dps — recommendations unreliable",
+                            max_sp
+                        ),
+                        color: RGBColor(200, 100, 0), // Orange warning
+                        stroke_width: 0,
                     });
                 }
 
@@ -563,7 +583,7 @@ pub fn plot_step_response(
                         // Optimal P header
                         series.push(PlotSeries {
                             data: vec![],
-                            label: "Optimal P (log-derived)".to_string(),
+                            label: "Optimal P (Experimental, log-derived)".to_string(),
                             color: RGBColor(0, 100, 200), // Blue for section header
                             stroke_width: 0,
                         });
@@ -572,8 +592,10 @@ pub fn plot_step_response(
                         series.push(PlotSeries {
                             data: vec![],
                             label: format!(
-                                "  Td: {:.1}ms (target: {:.1}ms)",
-                                analysis.td_stats.mean_ms, analysis.td_target_ms
+                                "  Td: {:.1}ms (target: {:.1}ms, n={})",
+                                analysis.td_stats.mean_ms,
+                                analysis.td_target_ms,
+                                analysis.td_stats.num_samples
                             ),
                             color: RGBColor(80, 80, 80),
                             stroke_width: 0,

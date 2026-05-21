@@ -49,6 +49,10 @@ pub const DEFAULT_SETPOINT_THRESHOLD: f64 = 500.0; // Default setpoint threshold
 
 // Constants for filtering data based on movement and flight phase.
 pub const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0; // Minimum setpoint/gyro magnitude (from PTB/PlasmaTree)
+/// Max setpoint (deg/s) below which a flight is considered low-authority.
+/// Hover tests and slow-cruise logs never produce sharp inputs, so step-response
+/// quality and P:D/optimal-P recommendations from such logs are unreliable.
+pub const LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S: f32 = 100.0;
 pub const EXCLUDE_START_S: f64 = 3.0; // Exclude seconds from the start of the log
 pub const EXCLUDE_END_S: f64 = 3.0; // Exclude seconds from the end of the log
 
