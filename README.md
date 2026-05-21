@@ -48,7 +48,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
   --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.
   --dps <value>: Deg/s threshold for detailed step response plots (positive number).
-  --estimate-optimal-p: Enable optimal P estimation from throttle-punch dynamics.
+  --estimate-optimal-p: Enable optimal P estimation from throttle-punch dynamics. Requires .headers.csv; skips P estimation if absent.
 
 === GENERAL ===
 

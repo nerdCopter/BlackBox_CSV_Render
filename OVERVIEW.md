@@ -195,6 +195,7 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 Physics-derived P gain optimization using a Torque-Inertia Profiler that measures aircraft-specific dynamics directly from flight log throttle-punch events. No prop-size input is required — the aircraft's torque-to-inertia ratio is derived from the logs.
 
 - **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag.
+- **Requires:** A `.headers.csv` metadata file alongside each input CSV (produced by `blackbox_decode`). Without it, P gain values are unavailable and optimal P estimation is skipped with a skip-reason shown in console and PNG. All other analyses (step response, spectrums, P:D recommendations) remain unaffected.
 - **⚠️ Status:** Experimental. `TORQUE_PROFILER_ACHIEVABILITY_FACTOR` bridges the gap between the theoretical physics formula and real-world flight performance (ESC lag, prop-wash, motor startup). It is empirically calibrated and may need adjustment for aircraft significantly different from a mid-size freestyle build.
 
 ##### Torque-Inertia Profiler (`src/data_analysis/torque_inertia_profiler.rs`)

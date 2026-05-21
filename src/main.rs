@@ -377,7 +377,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!(
         "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
     );
-    eprintln!("  --estimate-optimal-p: Enable optimal P estimation from throttle-punch dynamics.");
+    eprintln!("  --estimate-optimal-p: Enable optimal P estimation from throttle-punch dynamics. Requires .headers.csv; skips P estimation if absent.");
     eprintln!();
     eprintln!("=== GENERAL ===");
     eprintln!();
