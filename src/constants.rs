@@ -193,6 +193,14 @@ pub const COLOR_STEP_RESPONSE_LOW_SP: &RGBColor = &LIGHTBLUE;
 pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE;
 pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
 
+// Optimal P Estimation Legend Colors
+pub const COLOR_OPTIMAL_P_DIVIDER: RGBColor = RGBColor(40, 40, 40);
+pub const COLOR_OPTIMAL_P_HEADER: RGBColor = RGBColor(0, 100, 200);
+pub const COLOR_OPTIMAL_P_TEXT: RGBColor = RGBColor(80, 80, 80);
+pub const COLOR_OPTIMAL_P_WARNING: RGBColor = RGBColor(200, 100, 0);
+pub const COLOR_OPTIMAL_P_RECOMMENDATION: RGBColor = RGBColor(0, 150, 0);
+pub const COLOR_OPTIMAL_P_SKIP: RGBColor = RGBColor(120, 60, 60);
+
 // Stroke widths for lines
 pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
 pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
@@ -313,6 +321,14 @@ pub const OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER: f64 = 1000.0; // Convert seconds t
 // Torque-Inertia Profiler constants
 // Used by torque_inertia_profiler.rs to derive aircraft-specific Td targets from
 // throttle-punch events in flight logs, replacing the empirical frame-class table.
+
+/// Maximum throttle command value in firmware units (setpoint[3] range: 0–1000).
+/// Divide raw delta by this to normalise to 0.0–1.0.
+pub const THROTTLE_COMMAND_SCALE: f64 = 1000.0;
+
+/// Minimum time delta (seconds) for angular-acceleration computation in the torque profiler.
+/// Guards against division by near-zero or identical consecutive timestamps.
+pub const TORQUE_PROFILER_MIN_DT_S: f64 = 1e-9;
 
 /// Minimum throttle increase (in 0–1000 units) to qualify as a throttle punch.
 pub const THROTTLE_PUNCH_MIN_DELTA: f64 = 200.0;

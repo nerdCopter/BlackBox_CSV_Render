@@ -18,9 +18,11 @@
 // Betaflight/EmuFlight P gain values and the physics formula. It may require empirical
 // calibration against known-good aircraft.
 
+use crate::axis_names::AXIS_COUNT;
 use crate::constants::{
-    THROTTLE_PUNCH_MIN_DELTA, THROTTLE_PUNCH_WINDOW_MS, THROTTLE_RESPONSE_WINDOW_MS,
-    TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED, TORQUE_PROFILER_MIN_EVENTS, TORQUE_PROFILER_P_SCALE,
+    THROTTLE_COMMAND_SCALE, THROTTLE_PUNCH_MIN_DELTA, THROTTLE_PUNCH_WINDOW_MS,
+    THROTTLE_RESPONSE_WINDOW_MS, TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED,
+    TORQUE_PROFILER_MIN_DT_S, TORQUE_PROFILER_MIN_EVENTS, TORQUE_PROFILER_P_SCALE,
     TORQUE_PROFILER_SETTLE_SAMPLES, TORQUE_PROFILER_TD_CALC_K,
 };
 use crate::data_input::log_data::LogRowData;
@@ -110,12 +112,12 @@ impl AxisProfile {
 #[derive(Debug, Clone, Default)]
 pub struct AircraftProfile {
     /// Per-axis profiles (Roll=0, Pitch=1, Yaw=2).
-    pub axes: [AxisProfile; 3],
+    pub axes: [AxisProfile; AXIS_COUNT],
 }
 
 impl AircraftProfile {
     /// Build a profile from pre-collected per-axis ratio vectors.
-    pub fn from_axis_ratios(axis_ratios: [Vec<f64>; 3]) -> Self {
+    pub fn from_axis_ratios(axis_ratios: [Vec<f64>; AXIS_COUNT]) -> Self {
         let [r0, r1, r2] = axis_ratios;
         AircraftProfile {
             axes: [
@@ -163,7 +165,7 @@ impl AircraftProfile {
 /// `THROTTLE_RESPONSE_WINDOW_MS` window is divided by the normalised command delta
 /// to yield the torque-inertia ratio for each axis.
 pub fn extract_punch_ratios(log_data: &[LogRowData], sample_rate: f64) -> [Vec<f64>; 3] {
-    let mut axis_ratios: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut axis_ratios: [Vec<f64>; AXIS_COUNT] = std::array::from_fn(|_| Vec::new());
 
     if log_data.len() < 10 || sample_rate <= 0.0 {
         return axis_ratios;
@@ -183,7 +185,7 @@ pub fn extract_punch_ratios(log_data: &[LogRowData], sample_rate: f64) -> [Vec<f
 
         if let (Some(throttle_start), Some(throttle_end)) = (t_start, t_end) {
             let delta = throttle_end - throttle_start;
-            let cmd_delta_normalized = delta / 1000.0;
+            let cmd_delta_normalized = delta / THROTTLE_COMMAND_SCALE;
 
             if delta >= THROTTLE_PUNCH_MIN_DELTA
                 && cmd_delta_normalized >= TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED
@@ -197,7 +199,7 @@ pub fn extract_punch_ratios(log_data: &[LogRowData], sample_rate: f64) -> [Vec<f
                     // is not used in optimal-P analysis (Roll/Pitch only).
                     for (axis, axis_ratio_vec) in axis_ratios.iter_mut().enumerate() {
                         let mut peak_alpha: f64 = 0.0;
-                        for j in resp_start..resp_end.saturating_sub(1) {
+                        for j in resp_start..resp_end {
                             if let (Some(g0), Some(g1), Some(t0), Some(t1)) = (
                                 log_data[j].gyro[axis],
                                 log_data[j + 1].gyro[axis],
@@ -205,7 +207,7 @@ pub fn extract_punch_ratios(log_data: &[LogRowData], sample_rate: f64) -> [Vec<f
                                 log_data[j + 1].time_sec,
                             ) {
                                 let dt = t1 - t0;
-                                if dt > 1e-9 {
+                                if dt > TORQUE_PROFILER_MIN_DT_S {
                                     let alpha = (g1 - g0).abs() / dt;
                                     if alpha > peak_alpha {
                                         peak_alpha = alpha;

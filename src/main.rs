@@ -465,7 +465,8 @@ fn group_files_by_aircraft(input_files: &[String]) -> BTreeMap<String, Vec<Strin
 /// This is the Phase 1 profiling pass. Each file is parsed minimally and the
 /// punch-event ratios are aggregated into a single `AircraftProfile`.
 fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile {
-    let mut all_axis_ratios: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut all_axis_ratios: [Vec<f64>; crate::axis_names::AXIS_COUNT] =
+        std::array::from_fn(|_| Vec::new());
     let mut files_profiled: usize = 0;
 
     for file_str in files {
@@ -1119,8 +1120,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     // Store results for both console output and PNG overlay
     let mut optimal_p_analyses: [Option<
         crate::data_analysis::optimal_p_estimation::OptimalPAnalysis,
-    >; 3] = [None, None, None];
-    let mut optimal_p_skip_reasons: [Option<String>; 3] = [None, None, None];
+    >; crate::axis_names::AXIS_COUNT] = std::array::from_fn(|_| None);
+    let mut optimal_p_skip_reasons: [Option<String>; crate::axis_names::AXIS_COUNT] =
+        std::array::from_fn(|_| None);
 
     if analysis_opts.estimate_optimal_p {
         if let Some(sr) = sample_rate {
@@ -1258,7 +1260,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 }
                             }
                         } else {
-                            println!("  P gain not available for {axis_name}. Skipping optimal P analysis.");
+                            let msg = "SKIPPED: P gain not available".to_string();
+                            println!("  {axis_name}: {msg}");
+                            optimal_p_skip_reasons[axis_index] = Some(msg);
                         }
                     }
                 }

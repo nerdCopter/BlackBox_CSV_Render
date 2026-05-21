@@ -6,6 +6,8 @@ use std::error::Error;
 
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
 use crate::constants::{
+    COLOR_OPTIMAL_P_DIVIDER, COLOR_OPTIMAL_P_HEADER, COLOR_OPTIMAL_P_RECOMMENDATION,
+    COLOR_OPTIMAL_P_SKIP, COLOR_OPTIMAL_P_TEXT, COLOR_OPTIMAL_P_WARNING,
     COLOR_STEP_RESPONSE_COMBINED, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_LOW_SP,
     FINAL_NORMALIZED_STEADY_STATE_TOLERANCE, LINE_WIDTH_PLOT,
     LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S, POST_AVERAGING_SMOOTHING_WINDOW, RESPONSE_LENGTH_S,
@@ -429,7 +431,7 @@ pub fn plot_step_response(
                             "[LOW AUTHORITY] max={:.0}dps — recommendations unreliable",
                             max_sp
                         ),
-                        color: RGBColor(200, 100, 0), // Orange warning
+                        color: COLOR_OPTIMAL_P_WARNING, // Orange warning
                         stroke_width: 0,
                     });
                 }
@@ -576,7 +578,7 @@ pub fn plot_step_response(
                         series.push(PlotSeries {
                             data: vec![],
                             label: "─────────────────────".to_string(),
-                            color: RGBColor(40, 40, 40),
+                            color: COLOR_OPTIMAL_P_DIVIDER,
                             stroke_width: 0,
                         });
 
@@ -584,7 +586,7 @@ pub fn plot_step_response(
                         series.push(PlotSeries {
                             data: vec![],
                             label: "Optimal P (Experimental, log-derived)".to_string(),
-                            color: RGBColor(0, 100, 200), // Blue for section header
+                            color: COLOR_OPTIMAL_P_HEADER, // Blue for section header
                             stroke_width: 0,
                         });
 
@@ -597,7 +599,7 @@ pub fn plot_step_response(
                                 analysis.td_target_ms,
                                 analysis.td_stats.num_samples
                             ),
-                            color: RGBColor(80, 80, 80),
+                            color: COLOR_OPTIMAL_P_TEXT,
                             stroke_width: 0,
                         });
 
@@ -615,7 +617,7 @@ pub fn plot_step_response(
                                 analysis.td_deviation_percent,
                                 analysis.td_deviation.name()
                             ),
-                            color: RGBColor(80, 80, 80),
+                            color: COLOR_OPTIMAL_P_TEXT,
                             stroke_width: 0,
                         });
 
@@ -623,7 +625,7 @@ pub fn plot_step_response(
                         series.push(PlotSeries {
                             data: vec![],
                             label: format!("  Noise: {}", analysis.noise_level.name()),
-                            color: RGBColor(80, 80, 80),
+                            color: COLOR_OPTIMAL_P_TEXT,
                             stroke_width: 0,
                         });
 
@@ -643,12 +645,12 @@ pub fn plot_step_response(
                                         cv_percent,
                                         TD_COEFFICIENT_OF_VARIATION_MAX * 100.0
                                     ),
-                                    RGBColor(200, 100, 0),
+                                    COLOR_OPTIMAL_P_WARNING,
                                 )
                             } else {
                                 (
                                     format!("  Consistency: {}%", consistency_pct),
-                                    RGBColor(80, 80, 80),
+                                    COLOR_OPTIMAL_P_TEXT,
                                 )
                             };
                             series.push(PlotSeries {
@@ -716,7 +718,7 @@ pub fn plot_step_response(
                         series.push(PlotSeries {
                             data: vec![],
                             label: rec_summary,
-                            color: RGBColor(0, 150, 0), // Green for recommendation
+                            color: COLOR_OPTIMAL_P_RECOMMENDATION, // Green for recommendation
                             stroke_width: 0,
                         });
                     } else if let Some(skip_reason) = &optimal_p.skip_reasons[axis_index] {
@@ -724,21 +726,21 @@ pub fn plot_step_response(
                         series.push(PlotSeries {
                             data: vec![],
                             label: "─────────────────────".to_string(),
-                            color: RGBColor(40, 40, 40),
+                            color: COLOR_OPTIMAL_P_DIVIDER,
                             stroke_width: 0,
                         });
 
                         series.push(PlotSeries {
                             data: vec![],
                             label: "Optimal P (Experimental, log-derived)".to_string(),
-                            color: RGBColor(0, 100, 200),
+                            color: COLOR_OPTIMAL_P_HEADER,
                             stroke_width: 0,
                         });
 
                         series.push(PlotSeries {
                             data: vec![],
                             label: format!("  {}", skip_reason),
-                            color: RGBColor(120, 60, 60),
+                            color: COLOR_OPTIMAL_P_SKIP,
                             stroke_width: 0,
                         });
                     }

@@ -143,6 +143,12 @@ pub struct TdStatistics {
 impl TdStatistics {
     /// Calculate statistics from array of Td values (in milliseconds)
     pub fn from_samples(td_samples_ms: &[f64]) -> Option<Self> {
+        let td_samples_ms: Vec<f64> = td_samples_ms
+            .iter()
+            .copied()
+            .filter(|x| x.is_finite())
+            .collect();
+
         if td_samples_ms.is_empty() {
             return None;
         }
