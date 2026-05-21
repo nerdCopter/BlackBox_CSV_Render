@@ -48,7 +48,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
   --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.
   --dps <value>: Deg/s threshold for detailed step response plots (positive number).
-  --estimate-optimal-p: Enable optimal P estimation from throttle-punch dynamics (no prop-size required).
+  --estimate-optimal-p: Enable optimal P estimation from throttle-punch dynamics.
 
 === GENERAL ===
 
@@ -104,7 +104,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 - Warning indicators for severe overshoot or unreasonable ratios
 - Gyro filtering delay estimates (filtered vs. unfiltered, with confidence)
 - Filter configuration parsing and spectrum peak detection summaries
-- Optimal P estimation (`--estimate-optimal-p`): Td timing, target deviation, noise level, consistency, and P/D recommendations with LOW AUTHORITY and skip-reason warnings
+- Optimal P estimation (`--estimate-optimal-p`): Td timing, target deviation, noise level, consistency, P/D recommendations and skip-reason warnings
 - Use `--debug` flag for additional metadata: header information, flight data key mapping, sample header values, and debug mode identification
 
 #### Code and Output Overview
