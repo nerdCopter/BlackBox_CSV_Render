@@ -592,7 +592,7 @@ pub fn plot_step_response(
                         series.push(PlotSeries {
                             data: vec![],
                             label: format!(
-                                "  Td: {:.1}ms (target: {:.1}ms, n={})",
+                                "  Td: {:.1}ms (target: {:.1}ms, windows={})",
                                 analysis.td_stats.mean_ms,
                                 analysis.td_target_ms,
                                 analysis.td_stats.num_samples
@@ -627,19 +627,32 @@ pub fn plot_step_response(
                             stroke_width: 0,
                         });
 
-                        // Consistency (if poor, show warning)
-                        if !analysis.td_stats.is_consistent() {
+                        // Consistency — always shown; orange warning when poor
+                        {
                             let cv_percent = analysis
                                 .td_stats
                                 .coefficient_of_variation
                                 .map_or(0.0, |cv| cv * 100.0);
+                            let consistency_pct =
+                                (analysis.td_stats.consistency * 100.0).round() as u32;
+                            let (cons_label, cons_color) = if !analysis.td_stats.is_consistent() {
+                                (
+                                    format!(
+                                        "  Consistency: {}% (CV={:.1}%) — unreliable",
+                                        consistency_pct, cv_percent
+                                    ),
+                                    RGBColor(200, 100, 0),
+                                )
+                            } else {
+                                (
+                                    format!("  Consistency: {}%", consistency_pct),
+                                    RGBColor(80, 80, 80),
+                                )
+                            };
                             series.push(PlotSeries {
                                 data: vec![],
-                                label: format!(
-                                    "  [WARNING] High variability (CV={:.1}%) - results may be unreliable",
-                                    cv_percent
-                                ),
-                                color: RGBColor(200, 100, 0), // Orange for warning
+                                label: cons_label,
+                                color: cons_color,
                                 stroke_width: 0,
                             });
                         }
@@ -715,8 +728,8 @@ pub fn plot_step_response(
 
                         series.push(PlotSeries {
                             data: vec![],
-                            label: "Optimal P (SKIPPED)".to_string(),
-                            color: RGBColor(180, 40, 40), // Red for skipped/error
+                            label: "Optimal P (Experimental, log-derived)".to_string(),
+                            color: RGBColor(0, 100, 200),
                             stroke_width: 0,
                         });
 

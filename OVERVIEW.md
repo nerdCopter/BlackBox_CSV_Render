@@ -242,7 +242,7 @@ Physics-derived P gain optimization using a Torque-Inertia Profiler that measure
   - **Low-authority flight warning:** When the maximum setpoint across all valid windows is below `LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S`, a `[LOW AUTHORITY]` warning is shown in both console and PNG. Hover tests and slow-cruise logs never produce sharp inputs — step-response analysis and Td measurements from such logs are noise-dominated rather than dynamics-dominated, making all recommendations unreliable regardless of CV.
   - **Why hover logs produce high CV:** Small setpoint inputs → deconvolution is noise-sensitive → each window captures a different noise realisation. The averaged response may appear plausible (noise averages out) while individual window variance remains high. CV exposes this where the mean alone cannot.
   - **Summary of dependability signals in output:**
-    - `n=` sample count on the Td line — more samples = more statistical weight
+    - `windows=` on the Td line — number of valid step-response windows contributing to the Td mean; more windows = more statistical weight
     - Consistency % and CV — how repeatable individual measurements are
     - `[LOW AUTHORITY]` — max setpoint too small for reliable step-response characterisation
     - Noise level (`LOW` / `MODERATE` / `HIGH`) — HF D-term energy; high noise limits safe P increase
