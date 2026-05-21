@@ -513,17 +513,41 @@ impl OptimalPAnalysis {
             self.td_stats.consistency * 100.0
         ));
 
-        // Warning for low consistency (inline)
+        // Warning for low consistency (inline) — report only the condition(s) that actually failed
         if !self.td_stats.is_consistent() {
-            let cv_percent = self
+            let cv_failed = self
                 .td_stats
                 .coefficient_of_variation
-                .map_or(0.0, |cv| cv * 100.0);
-            output.push_str(&format!(
-                "  ⚠ Low consistency (CV={:.1}%) — unreliable (>{:.0}%)\n",
-                cv_percent,
-                TD_COEFFICIENT_OF_VARIATION_MAX * 100.0
-            ));
+                .is_some_and(|cv| cv > TD_COEFFICIENT_OF_VARIATION_MAX);
+            let consistency_failed = self.td_stats.consistency < TD_CONSISTENCY_MIN_THRESHOLD;
+            let reason = match (cv_failed, consistency_failed) {
+                (true, true) => format!(
+                    "CV={:.1}% (>{:.0}%) and Consistency={:.0}% (<{:.0}%)",
+                    self.td_stats
+                        .coefficient_of_variation
+                        .map_or(0.0, |cv| cv * 100.0),
+                    TD_COEFFICIENT_OF_VARIATION_MAX * 100.0,
+                    self.td_stats.consistency * 100.0,
+                    TD_CONSISTENCY_MIN_THRESHOLD * 100.0,
+                ),
+                (true, false) => format!(
+                    "CV={:.1}% (>{:.0}%)",
+                    self.td_stats
+                        .coefficient_of_variation
+                        .map_or(0.0, |cv| cv * 100.0),
+                    TD_COEFFICIENT_OF_VARIATION_MAX * 100.0,
+                ),
+                (false, true) => format!(
+                    "Consistency={:.0}% (<{:.0}%)",
+                    self.td_stats.consistency * 100.0,
+                    TD_CONSISTENCY_MIN_THRESHOLD * 100.0,
+                ),
+                (false, false) => format!(
+                    "insufficient samples (need >= {})",
+                    TD_SAMPLES_MIN_FOR_STDDEV,
+                ),
+            };
+            output.push_str(&format!("  ⚠ Low consistency ({reason}) — unreliable\n"));
         }
 
         // Compact recommendation

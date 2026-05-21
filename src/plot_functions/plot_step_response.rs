@@ -12,6 +12,7 @@ use crate::constants::{
     FINAL_NORMALIZED_STEADY_STATE_TOLERANCE, LINE_WIDTH_PLOT,
     LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S, POST_AVERAGING_SMOOTHING_WINDOW, RESPONSE_LENGTH_S,
     STEADY_STATE_END_S, STEADY_STATE_START_S, TD_COEFFICIENT_OF_VARIATION_MAX,
+    TD_CONSISTENCY_MIN_THRESHOLD, TD_SAMPLES_MIN_FOR_STDDEV,
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
@@ -631,19 +632,48 @@ pub fn plot_step_response(
 
                         // Consistency — always shown; orange warning when poor
                         {
-                            let cv_percent = analysis
-                                .td_stats
-                                .coefficient_of_variation
-                                .map_or(0.0, |cv| cv * 100.0);
                             let consistency_pct =
                                 (analysis.td_stats.consistency * 100.0).round() as u32;
                             let (cons_label, cons_color) = if !analysis.td_stats.is_consistent() {
+                                let cv_failed = analysis
+                                    .td_stats
+                                    .coefficient_of_variation
+                                    .is_some_and(|cv| cv > TD_COEFFICIENT_OF_VARIATION_MAX);
+                                let consistency_failed =
+                                    analysis.td_stats.consistency < TD_CONSISTENCY_MIN_THRESHOLD;
+                                let reason = match (cv_failed, consistency_failed) {
+                                    (true, true) => format!(
+                                        "CV={:.1}% (>{:.0}%) and Consistency={:.0}% (<{:.0}%)",
+                                        analysis
+                                            .td_stats
+                                            .coefficient_of_variation
+                                            .map_or(0.0, |cv| cv * 100.0),
+                                        TD_COEFFICIENT_OF_VARIATION_MAX * 100.0,
+                                        analysis.td_stats.consistency * 100.0,
+                                        TD_CONSISTENCY_MIN_THRESHOLD * 100.0,
+                                    ),
+                                    (true, false) => format!(
+                                        "CV={:.1}% (>{:.0}%)",
+                                        analysis
+                                            .td_stats
+                                            .coefficient_of_variation
+                                            .map_or(0.0, |cv| cv * 100.0),
+                                        TD_COEFFICIENT_OF_VARIATION_MAX * 100.0,
+                                    ),
+                                    (false, true) => format!(
+                                        "Consistency={:.0}% (<{:.0}%)",
+                                        analysis.td_stats.consistency * 100.0,
+                                        TD_CONSISTENCY_MIN_THRESHOLD * 100.0,
+                                    ),
+                                    (false, false) => format!(
+                                        "insufficient samples (need >= {})",
+                                        TD_SAMPLES_MIN_FOR_STDDEV,
+                                    ),
+                                };
                                 (
                                     format!(
-                                        "  Consistency: {}% (CV={:.1}%) — unreliable (>{:.0}%)",
-                                        consistency_pct,
-                                        cv_percent,
-                                        TD_COEFFICIENT_OF_VARIATION_MAX * 100.0
+                                        "  Consistency: {}% — unreliable ({})",
+                                        consistency_pct, reason
                                     ),
                                     COLOR_OPTIMAL_P_WARNING,
                                 )
