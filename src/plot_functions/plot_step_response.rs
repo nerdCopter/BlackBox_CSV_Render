@@ -9,7 +9,7 @@ use crate::constants::{
     COLOR_STEP_RESPONSE_COMBINED, COLOR_STEP_RESPONSE_HIGH_SP, COLOR_STEP_RESPONSE_LOW_SP,
     FINAL_NORMALIZED_STEADY_STATE_TOLERANCE, LINE_WIDTH_PLOT,
     LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S, POST_AVERAGING_SMOOTHING_WINDOW, RESPONSE_LENGTH_S,
-    STEADY_STATE_END_S, STEADY_STATE_START_S,
+    STEADY_STATE_END_S, STEADY_STATE_START_S, TD_COEFFICIENT_OF_VARIATION_MAX,
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
@@ -638,8 +638,10 @@ pub fn plot_step_response(
                             let (cons_label, cons_color) = if !analysis.td_stats.is_consistent() {
                                 (
                                     format!(
-                                        "  Consistency: {}% (CV={:.1}%) — unreliable",
-                                        consistency_pct, cv_percent
+                                        "  Consistency: {}% (CV={:.1}%) — unreliable (>{:.0}%)",
+                                        consistency_pct,
+                                        cv_percent,
+                                        TD_COEFFICIENT_OF_VARIATION_MAX * 100.0
                                     ),
                                     RGBColor(200, 100, 0),
                                 )

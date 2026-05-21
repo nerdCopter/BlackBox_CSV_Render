@@ -514,10 +514,9 @@ impl OptimalPAnalysis {
                 .coefficient_of_variation
                 .map_or(0.0, |cv| cv * 100.0);
             output.push_str(&format!(
-                "  ⚠ WARNING: Low consistency (CV={:.1}%, {}/{} responses) - results may be unreliable\n",
+                "  ⚠ Low consistency (CV={:.1}%) — unreliable (>{:.0}%)\n",
                 cv_percent,
-                (self.td_stats.consistency * self.td_stats.num_samples as f64).round() as usize,
-                self.td_stats.num_samples
+                TD_COEFFICIENT_OF_VARIATION_MAX * 100.0
             ));
         }
 
