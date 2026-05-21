@@ -9,6 +9,7 @@
   - [Implementation Details](#implementation-details)
   - [Filter Response Curves](#filter-response-curves)
   - [Bode Plot Analysis (Optional)](#bode-plot-analysis-optional)
+  - [Optimal P Estimation (Optional, Experimental)](#optimal-p-estimation-optional-experimental)
   - [Step-Response Comparison with Other Analysis Tools](#step-response-comparison-with-other-analysis-tools)
     - [Compared to PIDtoolbox/Matlab (PTstepcalc.m)](#compared-to-pidtoolboxmatlab-ptstepcalcm)
     - [Compared to PlasmaTree/Python (PID-Analyzer.py)](#compared-to-plasmatreepython-pid-analyzerpy)
@@ -37,7 +38,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
             * This is the core of the step response analysis. It implements **non-parametric system identification** using Wiener deconvolution rather than traditional first-order or second-order curve fitting. This approach directly extracts the system's actual step response without assuming a specific mathematical model, allowing it to capture complex, higher-order dynamics and non-linearities.
             * For each axis (Roll, Pitch, Yaw):
                 * It takes the prepared time, setpoint, and (optionally smoothed via `INITIAL_GYRO_SMOOTHING_WINDOW`) gyro data arrays and the sample rate.
-                * **Windowing:** The input signals (setpoint and gyro) are segmented into overlapping windows (`winstacker_contiguous`) of `FRAME_LENGTH_S` duration. A Tukey window (`tukeywin` with `TUKEY_ALPHA`) is applied to each segment to reduce spectral leakage.
+                * **Windowing:** The input signals (setpoint and gyro) are segmented into overlapping windows (`winstacker_contiguous`) of `FRAME_LENGTH_S` duration — intentionally longer than the displayed `RESPONSE_LENGTH_S` to improve frequency-domain resolution for the Wiener deconvolution; only the first `RESPONSE_LENGTH_S` of each estimated step response is retained for display and analysis. A Tukey window (`tukeywin` with `TUKEY_ALPHA`) is applied to each segment to reduce spectral leakage.
                 * **Movement Threshold:** Windows are discarded if the maximum absolute setpoint value within them is below `MOVEMENT_THRESHOLD_DEG_S`.
                 * **Deconvolution:** For each valid window, Wiener deconvolution (`wiener_deconvolution_window`) is performed between the windowed setpoint (input) and gyro (output) signals in the frequency domain. This estimates the impulse response of the system. A regularization term (`0.0001`) helps stabilize the deconvolution.
                 * **Impulse to Step Response:** The resulting impulse response is converted to a step response by cumulative summation (`cumulative_sum`). This step response is then truncated to `RESPONSE_LENGTH_S`.
@@ -188,6 +189,71 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 - Includes warnings for severe overshoot or unreasonable P:D ratios
 - Shows recommendations only when the step response needs improvement (skips optimal peak 0.95–1.04)
 - **Note:** Peak value measures the first maximum after crossing the setpoint; the initial transient dip is normal system behavior
+
+#### Optimal P Estimation (Optional, Experimental)
+
+Physics-derived P gain optimization using a Torque-Inertia Profiler that measures aircraft-specific dynamics directly from flight log throttle-punch events. No prop-size input is required — the aircraft's torque-to-inertia ratio is derived from the logs.
+
+- **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag.
+- **Requires:** A `.headers.csv` metadata file alongside each input CSV (produced by `blackbox_decode`). Without it, P gain values are unavailable and optimal P estimation is skipped with a skip-reason shown in console and PNG. All other analyses (step response, spectrums, P:D recommendations) remain unaffected.
+- **⚠️ Status:** Experimental. `TORQUE_PROFILER_ACHIEVABILITY_FACTOR` bridges the gap between the theoretical physics formula and real-world flight performance (ESC lag, prop-wash, motor startup). It is empirically calibrated and may need adjustment for aircraft significantly different from a mid-size freestyle build.
+
+##### Torque-Inertia Profiler (`src/data_analysis/torque_inertia_profiler.rs`)
+
+- **Phase 1 — Aircraft Profiling (per group, before per-file processing):**
+  - All logs sharing an aircraft key are processed together via `profile_aircraft_group()`.
+  - `extract_punch_ratios()` detects throttle-punch events: `setpoint[3]` increases ≥ `THROTTLE_PUNCH_MIN_DELTA` within `THROTTLE_PUNCH_WINDOW_MS`.
+  - For each punch, peak angular acceleration `|Δgyro/Δt|` in the response window (after `TORQUE_PROFILER_SETTLE_MS` of ESC/motor settle time, converted to samples at runtime from the actual log sample rate) is divided by the normalised throttle command delta → `torque_inertia_ratio`.
+  - Ratios are aggregated into `AircraftProfile` (median + half-IQR spread per axis, Roll and Pitch only). Yaw ratios are collected but not used in optimal-P analysis because Yaw dynamics differ from Roll/Pitch and the current formula is not calibrated for Yaw.
+  - Requires ≥ `TORQUE_PROFILER_MIN_EVENTS` punch events. If insufficient, a skip message appears in both console and PNG overlay.
+
+- **Phase 2 — Per-File Optimal-P Analysis:**
+  - Physics formula: `Td_ms = TORQUE_PROFILER_TD_CALC_K / sqrt((P / TORQUE_PROFILER_P_SCALE) × torque_inertia_ratio) × TORQUE_PROFILER_ACHIEVABILITY_FACTOR`
+  - Per-file Td samples are collected from all valid step response windows and compared against the physics-derived target.
+  - HF noise energy from D-term spectral analysis informs whether noise limits further P increase.
+  - `OptimalPAnalysis` classifies the result as `Increase`, `Optimal`, `Decrease`, or `Investigate`.
+
+- **Aircraft Grouping (`extract_aircraft_key()`):**
+  - Strips `_YYYYMMDD_HHMMSS` timestamp from filename stem so logs from the same aircraft across multiple sessions share one key.
+  - When the prefix ends with `BLACKBOX_LOG` (generic Betaflight/EmuFlight naming), the craft name following the timestamp is appended to prevent distinct aircraft from collapsing into one group (e.g., `BTFL_BLACKBOX_LOG_YYYYMMDD_HHMMSS_CRAFTNAME.NN.csv` → key `BTFL_BLACKBOX_LOG_CRAFTNAME`).
+
+- **Key Constants (`src/constants.rs`):**
+  - `THROTTLE_PUNCH_MIN_DELTA` — minimum throttle step (0–1000 units) to qualify as a punch
+  - `THROTTLE_PUNCH_WINDOW_MS` — detection window for the throttle rise
+  - `THROTTLE_RESPONSE_WINDOW_MS` — gyro response measurement window
+  - `TORQUE_PROFILER_SETTLE_MS` — settle time (ms) skipped at response start (ESC/motor lag allowance); converted to samples at runtime so it is correct at all loop rates
+  - `TORQUE_PROFILER_MIN_EVENTS` — minimum punches required for a reliable profile
+  - `TORQUE_PROFILER_P_SCALE` — converts raw firmware P gain to physical units
+  - `TORQUE_PROFILER_TD_CALC_K` — Td numerator constant (π × 500)
+  - `TORQUE_PROFILER_ACHIEVABILITY_FACTOR` — empirical calibration coefficient
+
+- **Recommendation Types:**
+  - **P Increase:** Td slower than target with acceptable noise → P is conservative
+  - **Optimal:** Td within target range or at physical limits → P is well-matched
+  - **P Decrease:** Td faster than target with high noise → P is too high (rare)
+  - **Investigate:** Measurements suggest mechanical issues or abnormal dynamics
+
+- **Output:** Console report and PNG legend overlay showing: Td mean with `windows=` count (valid step-response windows contributing to the Td mean), target, deviation %, noise level, consistency % (orange warning when CV exceeds `TD_COEFFICIENT_OF_VARIATION_MAX`), `[LOW AUTHORITY]` warning when max setpoint is below `LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S`, and P recommendation with calculated D adjustment. When profiling is skipped (insufficient punch events), a skip reason appears in both outputs. See **Consistency and Reliability Interpretation** below for signal details.
+
+- **Consistency and Reliability Interpretation (CV):**
+  - **CV (Coefficient of Variation)** = standard deviation / mean of individual Td measurements across all valid step-response windows. It quantifies how scattered the measurements are relative to their average.
+  - **Low CV:** Td measurements are tightly clustered — the log contains clean, repeatable dynamics and recommendations are trustworthy.
+  - **High CV (exceeds `TD_COEFFICIENT_OF_VARIATION_MAX`):** Td measurements vary widely across windows — a consistency warning is shown in both console and PNG. Recommendations should be treated with caution.
+  - **CV = None:** Fewer than `TD_SAMPLES_MIN_FOR_STDDEV` valid Td samples were available; standard deviation cannot be computed. The mean is still reported but no consistency rating is given.
+  - **Low-authority flight warning:** When the maximum setpoint across all valid windows is below `LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S`, a `[LOW AUTHORITY]` warning is shown in both console and PNG. Hover tests and slow-cruise logs never produce sharp inputs — step-response analysis and Td measurements from such logs are noise-dominated rather than dynamics-dominated, making all recommendations unreliable regardless of CV.
+  - **Why hover logs produce high CV:** Small setpoint inputs → deconvolution is noise-sensitive → each window captures a different noise realisation. The averaged response may appear plausible (noise averages out) while individual window variance remains high. CV exposes this where the mean alone cannot.
+  - **Over-P limitation:** **When P is already too high and the aircraft oscillates, the profiler may report "Optimal" rather than "Decrease P."** An oscillatory step response produces a short, aggressive measured Td — which, fed into the physics formula, yields a P_optimal close to the current (excessive) P. The profiler cannot reliably distinguish a well-tuned fast response from an over-tuned oscillating one using Td alone. The indirect signal is CV: severe oscillation typically scatters Td samples widely and triggers the consistency warning. **If your gains feel high or the craft exhibits oscillation, start from a lower P before relying on these recommendations.** Optimal P estimation is most accurate when the craft is in a reasonable tuning range — it is a validator and refinement tool, not a recovery tool for badly mis-tuned aircraft. Only experienced pilots are likely to recognise this situation by feel.
+  - **High CV without `[LOW AUTHORITY]`:** If the consistency warning fires but `[LOW AUTHORITY]` is not shown, the scatter is not caused by low-energy hover inputs. Remaining causes include propwash, inconsistent maneuvers, and oscillation from over-P. **If gains feel high, treat this combination as a prompt to verify the craft is not oscillating before acting on any recommendation.**
+  - **Summary of dependability signals in output:**
+    - `windows=` on the Td line — number of valid step-response windows contributing to the Td mean; more windows = more statistical weight
+    - Consistency % and CV — how repeatable individual measurements are
+    - `[LOW AUTHORITY]` — max setpoint too small for reliable step-response characterisation
+    - Noise level (`LOW` / `MODERATE` / `HIGH`) — HF D-term energy; high noise limits safe P increase
+
+- **Relationship to P:D Recommendations:**
+  - P:D ratio recommendations: analyze peak overshoot → adjust D relative to P
+  - Optimal P estimation: analyze response timing → adjust P magnitude
+  - Both features are complementary; both appear in console output and PNG legend simultaneously
 
 ### Step-Response Comparison with Other Analysis Tools
 

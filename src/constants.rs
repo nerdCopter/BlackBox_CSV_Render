@@ -49,6 +49,10 @@ pub const DEFAULT_SETPOINT_THRESHOLD: f64 = 500.0; // Default setpoint threshold
 
 // Constants for filtering data based on movement and flight phase.
 pub const MOVEMENT_THRESHOLD_DEG_S: f64 = 20.0; // Minimum setpoint/gyro magnitude (from PTB/PlasmaTree)
+/// Max setpoint (deg/s) below which a flight is considered low-authority.
+/// Hover tests and slow-cruise logs never produce sharp inputs, so step-response
+/// quality and P:D/optimal-P recommendations from such logs are unreliable.
+pub const LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S: f32 = 100.0;
 pub const EXCLUDE_START_S: f64 = 3.0; // Exclude seconds from the start of the log
 pub const EXCLUDE_END_S: f64 = 3.0; // Exclude seconds from the end of the log
 
@@ -189,6 +193,14 @@ pub const COLOR_STEP_RESPONSE_LOW_SP: &RGBColor = &LIGHTBLUE;
 pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE;
 pub const COLOR_STEP_RESPONSE_COMBINED: &RGBColor = &RED;
 
+// Optimal P Estimation Legend Colors
+pub const COLOR_OPTIMAL_P_DIVIDER: RGBColor = RGBColor(40, 40, 40);
+pub const COLOR_OPTIMAL_P_HEADER: RGBColor = RGBColor(0, 100, 200);
+pub const COLOR_OPTIMAL_P_TEXT: RGBColor = RGBColor(80, 80, 80);
+pub const COLOR_OPTIMAL_P_WARNING: RGBColor = RGBColor(200, 100, 0);
+pub const COLOR_OPTIMAL_P_RECOMMENDATION: RGBColor = RGBColor(0, 150, 0);
+pub const COLOR_OPTIMAL_P_SKIP: RGBColor = RGBColor(120, 60, 60);
+
 // Stroke widths for lines
 pub const LINE_WIDTH_PLOT: u32 = 1; // Width for plot lines
 pub const LINE_WIDTH_LEGEND: u32 = 2; // Width for legend lines
@@ -259,4 +271,100 @@ pub const PSD_EPSILON: f64 = 1e-12; // Guard against division by zero for PSD va
 pub const MAGNITUDE_PLOT_MARGIN_DB: f64 = 10.0; // Padding above/below magnitude data for plot range
 pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data for plot range
 
-// src/constants.rs
+// High-frequency noise analysis for P headroom estimation
+// D-term energy above this frequency threshold indicates noise constraints
+pub const DTERM_HF_CUTOFF_HZ: f64 = 200.0; // Frequency above which high-frequency noise is measured
+pub const DTERM_HF_ENERGY_THRESHOLD: f64 = 0.15; // 15% of total D-term energy (high noise level)
+pub const DTERM_HF_ENERGY_MODERATE: f64 = 0.10; // 10% of total D-term energy (moderate noise level)
+
+// Response consistency quality control
+// Ensures Td measurements are reliable across multiple step responses
+pub const TD_CONSISTENCY_MIN_THRESHOLD: f64 = 0.70; // 70% of responses within tolerance (was 85%)
+pub const TD_COEFFICIENT_OF_VARIATION_MAX: f64 = 0.40; // 40% CV (std/mean) is acceptable for noisy flight logs (was 20%)
+
+// P headroom estimation multipliers
+// Conservative approach for users who want safe incremental improvements
+pub const P_HEADROOM_CONSERVATIVE_MULTIPLIER: f64 = 1.05; // +5% from current P
+                                                          // Moderate approach for experienced pilots
+pub const P_HEADROOM_MODERATE_MULTIPLIER: f64 = 1.10; // +10% from current P
+                                                      // Aggressive approach for optimization (use with caution)
+#[allow(dead_code)]
+pub const P_HEADROOM_AGGRESSIVE_MULTIPLIER: f64 = 1.15; // +15% from current P (reserved for future use)
+
+// P reduction multipliers (when Td is too fast or noise is too high)
+pub const P_REDUCTION_MODERATE_MULTIPLIER: f64 = 0.95; // -5% from current P
+#[allow(dead_code)]
+pub const P_REDUCTION_AGGRESSIVE_MULTIPLIER: f64 = 0.90; // -10% from current P
+
+// Td statistics computation constants
+pub const MIN_TD_MS: f64 = 0.1; // Minimum valid Td (time to 50%) in milliseconds (domain-appropriate threshold)
+pub const TD_MEAN_EPSILON: f64 = 1e-12; // Threshold for near-zero mean values (avoid division by zero)
+pub const TD_SAMPLES_MIN_FOR_STDDEV: usize = 2; // Minimum samples needed for std dev calculation
+
+// Td deviation thresholds (percentage deviation from target)
+// Deviation thresholds for classifying Td behavior
+// Note: The thresholds are intentionally asymmetric — there is no separate
+// 'moderately faster' threshold. Faster-than-target deviations are treated
+// more strictly because they often indicate potential oscillation or unsafe
+// aggressive tuning. Therefore any significant speed-up beyond
+// TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD is flagged immediately. Slower
+// deviations are given two thresholds (moderate and significant) to allow
+// finer-grained handling when Td is lagging behind the target.
+pub const TD_DEVIATION_SIGNIFICANTLY_SLOWER_THRESHOLD: f64 = 30.0; // > 30% slower
+pub const TD_DEVIATION_MODERATELY_SLOWER_THRESHOLD: f64 = 15.0; // > 15% slower
+pub const TD_DEVIATION_SIGNIFICANTLY_FASTER_THRESHOLD: f64 = -15.0; // < -15% faster
+
+// Optimal P estimation data collection thresholds
+pub const OPTIMAL_P_MIN_DTERM_SAMPLES: usize = 100; // Minimum D-term samples for noise analysis
+pub const OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER: f64 = 1000.0; // Convert seconds to milliseconds
+
+// Torque-Inertia Profiler constants
+// Used by torque_inertia_profiler.rs to derive aircraft-specific Td targets from
+// throttle-punch events in flight logs, replacing the empirical frame-class table.
+
+/// Maximum throttle command value in firmware units (setpoint[3] range: 0–1000).
+/// Divide raw delta by this to normalise to 0.0–1.0.
+pub const THROTTLE_COMMAND_SCALE: f64 = 1000.0;
+
+/// Minimum time delta (seconds) for angular-acceleration computation in the torque profiler.
+/// Guards against division by near-zero or identical consecutive timestamps.
+pub const TORQUE_PROFILER_MIN_DT_S: f64 = 1e-9;
+
+/// Minimum throttle increase (in 0–1000 units) to qualify as a throttle punch.
+pub const THROTTLE_PUNCH_MIN_DELTA: f64 = 200.0;
+
+/// Time window (ms) within which the throttle increase must occur to count as a punch.
+pub const THROTTLE_PUNCH_WINDOW_MS: f64 = 50.0;
+
+/// Window (ms) after punch onset in which to measure peak angular acceleration.
+pub const THROTTLE_RESPONSE_WINDOW_MS: f64 = 150.0;
+
+/// Minimum number of throttle-punch events required for a reliable Td target.
+/// Analysis is skipped (with a console warning) when this threshold is not met.
+pub const TORQUE_PROFILER_MIN_EVENTS: usize = 5;
+
+/// Minimum normalised command delta (0–1) for a punch event to be valid.
+pub const TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED: f64 = 0.10;
+
+/// Time (ms) to skip at the start of the gyro response window after a throttle punch.
+/// Converted to samples at runtime using the actual log sample rate, so it is
+/// correct for all loop rates (1 kHz, 3.2 kHz BMI270, 4 kHz, 8 kHz, etc.).
+/// 5 ms covers typical DSHOT ESC/motor lag; increase for slow 50 Hz PWM ESCs.
+pub const TORQUE_PROFILER_SETTLE_MS: f64 = 5.0;
+
+/// Numerator constant for Td calculation: K = π × 1000 / 2
+/// Td_ms = K / sqrt((P / P_SCALE) × torque_inertia_ratio)
+pub const TORQUE_PROFILER_TD_CALC_K: f64 = 1_570.796_326_794_896_6;
+
+/// Betaflight/EmuFlight P gain scaling factor.
+/// Converts raw firmware P gain (e.g. 45) to an effective physical gain.
+/// This constant may require empirical calibration; starting value: 100.0.
+pub const TORQUE_PROFILER_P_SCALE: f64 = 100.0;
+
+/// Real-world achievability factor for physics-derived Td targets.
+/// Bridges the gap between theoretical torque capacity and actual flight performance
+/// (accounts for ESC lag, motor startup, prop-wash efficiency, etc).
+/// Higher values = more relaxed targets.
+/// Empirically calibrated on a 5" 6S freestyle build (HELIO H7); may need
+/// adjustment for significantly heavier or lighter aircraft classes.
+pub const TORQUE_PROFILER_ACHIEVABILITY_FACTOR: f64 = 2.50;
