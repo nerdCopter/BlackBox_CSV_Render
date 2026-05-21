@@ -23,7 +23,7 @@ use crate::constants::{
     OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER, THROTTLE_COMMAND_SCALE, THROTTLE_PUNCH_MIN_DELTA,
     THROTTLE_PUNCH_WINDOW_MS, THROTTLE_RESPONSE_WINDOW_MS,
     TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED, TORQUE_PROFILER_MIN_DT_S, TORQUE_PROFILER_MIN_EVENTS,
-    TORQUE_PROFILER_P_SCALE, TORQUE_PROFILER_SETTLE_SAMPLES, TORQUE_PROFILER_TD_CALC_K,
+    TORQUE_PROFILER_P_SCALE, TORQUE_PROFILER_SETTLE_MS, TORQUE_PROFILER_TD_CALC_K,
 };
 use crate::data_input::log_data::LogRowData;
 
@@ -195,7 +195,10 @@ pub fn extract_punch_ratios(log_data: &[LogRowData], sample_rate: f64) -> [Vec<f
                 && cmd_delta_normalized >= TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED
             {
                 // Punch detected at sample i.
-                let resp_start = (i + punch_window + TORQUE_PROFILER_SETTLE_SAMPLES).min(n - 1);
+                let settle_samples =
+                    (TORQUE_PROFILER_SETTLE_MS / OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER * sample_rate)
+                        .ceil() as usize;
+                let resp_start = (i + punch_window + settle_samples).min(n - 1);
                 let resp_end = (resp_start + response_window).min(n - 1);
 
                 if resp_end > resp_start + 2 {

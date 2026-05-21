@@ -202,7 +202,7 @@ Physics-derived P gain optimization using a Torque-Inertia Profiler that measure
 - **Phase 1 — Aircraft Profiling (per group, before per-file processing):**
   - All logs sharing an aircraft key are processed together via `profile_aircraft_group()`.
   - `extract_punch_ratios()` detects throttle-punch events: `setpoint[3]` increases ≥ `THROTTLE_PUNCH_MIN_DELTA` within `THROTTLE_PUNCH_WINDOW_MS`.
-  - For each punch, peak angular acceleration `|Δgyro/Δt|` in the response window (after `TORQUE_PROFILER_SETTLE_SAMPLES` of ESC/motor settle time) is divided by the normalised throttle command delta → `torque_inertia_ratio`.
+  - For each punch, peak angular acceleration `|Δgyro/Δt|` in the response window (after `TORQUE_PROFILER_SETTLE_MS` of ESC/motor settle time, converted to samples at runtime from the actual log sample rate) is divided by the normalised throttle command delta → `torque_inertia_ratio`.
   - Ratios are aggregated into `AircraftProfile` (median + half-IQR spread per axis, Roll and Pitch only). Yaw ratios are collected but not used in optimal-P analysis because Yaw dynamics differ from Roll/Pitch and the current formula is not calibrated for Yaw.
   - Requires ≥ `TORQUE_PROFILER_MIN_EVENTS` punch events. If insufficient, a skip message appears in both console and PNG overlay.
 
@@ -220,7 +220,7 @@ Physics-derived P gain optimization using a Torque-Inertia Profiler that measure
   - `THROTTLE_PUNCH_MIN_DELTA` — minimum throttle step (0–1000 units) to qualify as a punch
   - `THROTTLE_PUNCH_WINDOW_MS` — detection window for the throttle rise
   - `THROTTLE_RESPONSE_WINDOW_MS` — gyro response measurement window
-  - `TORQUE_PROFILER_SETTLE_SAMPLES` — samples skipped at response start (ESC/motor lag allowance)
+  - `TORQUE_PROFILER_SETTLE_MS` — settle time (ms) skipped at response start (ESC/motor lag allowance); converted to samples at runtime so it is correct at all loop rates
   - `TORQUE_PROFILER_MIN_EVENTS` — minimum punches required for a reliable profile
   - `TORQUE_PROFILER_P_SCALE` — converts raw firmware P gain to physical units
   - `TORQUE_PROFILER_TD_CALC_K` — Td numerator constant (π × 500)

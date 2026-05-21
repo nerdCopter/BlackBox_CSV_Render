@@ -346,10 +346,11 @@ pub const TORQUE_PROFILER_MIN_EVENTS: usize = 5;
 /// Minimum normalised command delta (0–1) for a punch event to be valid.
 pub const TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED: f64 = 0.10;
 
-/// Samples to skip at the start of the response window (ESC + motor latency).
-/// 5 samples at 1 kHz covers ~5 ms, which accommodates typical ESC/motor lag;
-/// increase further for large or slow aircraft with >10 ms drivetrain latency.
-pub const TORQUE_PROFILER_SETTLE_SAMPLES: usize = 5;
+/// Time (ms) to skip at the start of the gyro response window after a throttle punch.
+/// Converted to samples at runtime using the actual log sample rate, so it is
+/// correct for all loop rates (1 kHz, 3.2 kHz BMI270, 4 kHz, 8 kHz, etc.).
+/// 5 ms covers typical DSHOT ESC/motor lag; increase for slow 50 Hz PWM ESCs.
+pub const TORQUE_PROFILER_SETTLE_MS: f64 = 5.0;
 
 /// Numerator constant for Td calculation: K = π × 1000 / 2
 /// Td_ms = K / sqrt((P / P_SCALE) × torque_inertia_ratio)
