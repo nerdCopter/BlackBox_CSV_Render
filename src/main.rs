@@ -488,7 +488,9 @@ fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile
                         total_events
                     );
                 }
-                files_profiled += 1;
+                if total_events > 0 {
+                    files_profiled += 1;
+                }
             }
             Ok((_, None, ..)) => {
                 if debug_mode {
@@ -1144,7 +1146,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             } else {
                 "file"
             };
-            println!("\n--- Optimal P Estimation ---");
+            println!("\n--- Optimal P (Experimental, log-derived) ---");
             println!(
                 "Td target: physics-derived from throttle-punch events in log {group_or_file}."
             );
