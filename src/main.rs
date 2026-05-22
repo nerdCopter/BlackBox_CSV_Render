@@ -791,7 +791,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             // Only Roll (0) and Pitch (1)
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
 
-            if let Some((response_time, valid_stacked_responses, _valid_window_max_setpoints)) =
+            if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) =
                 &step_response_calculation_results[axis_index]
             {
                 if valid_stacked_responses.shape()[0] > 0 && !response_time.is_empty() {
@@ -947,6 +947,20 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     // Needed in both branches below
                                     let dmax_enabled = pid_metadata.is_dmax_enabled();
 
+                                    // Low-authority check from step-response window setpoints
+                                    let max_sp_base = valid_window_max_setpoints
+                                        .iter()
+                                        .cloned()
+                                        .fold(0.0_f32, f32::max);
+                                    let is_low_authority_base = max_sp_base
+                                        < crate::constants::LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S;
+                                    if is_low_authority_base {
+                                        println!(
+                                            "  [LOW AUTHORITY] max={:.0}dps — moderate/aggressive recommendations skipped",
+                                            max_sp_base
+                                        );
+                                    }
+
                                     // Show recommendations if they were computed (threshold exceeded)
                                     if recommended_pd_conservative[axis_index].is_some() {
                                         // Check for extreme overshoot (may indicate deeper issues)
@@ -1006,7 +1020,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         }
 
                                         // Show secondary (moderate) recommendation
-                                        if dmax_enabled
+                                        if is_low_authority_base {
+                                            println!("  Recommendation (moderate): Skipped [LOW AUTHORITY]");
+                                        } else if dmax_enabled
                                             && (recommended_d_min_aggressive[axis_index].is_some()
                                                 || recommended_d_max_aggressive[axis_index]
                                                     .is_some())
@@ -1034,7 +1050,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         }
 
                                         // Show tertiary (aggressive) recommendation for significant overshoot only
-                                        if assessment == "Significant overshoot" {
+                                        if !is_low_authority_base
+                                            && assessment == "Significant overshoot"
+                                        {
                                             let aggressive_pd = current_pd_ratio
                                                 * crate::constants::PD_RATIO_AGGRESSIVE_MULTIPLIER;
                                             let (rec_d_agg, rec_d_min_agg, rec_d_max_agg) =

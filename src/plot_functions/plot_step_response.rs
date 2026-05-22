@@ -509,8 +509,15 @@ pub fn plot_step_response(
                     });
                 }
 
-                // Moderate recommendation
-                if let Some(rec_pd) = moderate.0.pd_ratios[axis_index] {
+                // Moderate recommendation — suppressed for low-authority flights
+                if is_low_authority {
+                    series.push(PlotSeries {
+                        data: vec![],
+                        label: "Recommendation (moderate): Skipped [LOW AUTHORITY]".to_string(),
+                        color: COLOR_OPTIMAL_P_WARNING,
+                        stroke_width: 0,
+                    });
+                } else if let Some(rec_pd) = moderate.0.pd_ratios[axis_index] {
                     let recommendation_label = if dmax_enabled {
                         // D-Min/D-Max enabled: show D-Min and D-Max, NOT base D
                         let d_min_str = moderate.0.d_min_values[axis_index]
@@ -590,6 +597,19 @@ pub fn plot_step_response(
                             color: COLOR_OPTIMAL_P_HEADER,
                             stroke_width: 0,
                         });
+
+                        // Low-authority warning in Optimal P section
+                        if is_low_authority {
+                            series.push(PlotSeries {
+                                data: vec![],
+                                label: format!(
+                                    "[LOW AUTHORITY] max={:.0}dps — measurement unreliable",
+                                    max_sp
+                                ),
+                                color: COLOR_OPTIMAL_P_WARNING,
+                                stroke_width: 0,
+                            });
+                        }
 
                         // Td measurement
                         series.push(PlotSeries {
