@@ -221,6 +221,10 @@ pub struct OptimalPAnalysis {
     pub td_target_ms: f64,
     /// Actual Td tolerance (in ms) used during analysis (from physics)
     pub td_tolerance_ms: f64,
+    /// Number of throttle-punch events used to derive the physics Td target.
+    pub source_events: usize,
+    /// Number of flight files that contributed to the physics Td target.
+    pub source_files: usize,
 }
 
 impl OptimalPAnalysis {
@@ -318,6 +322,8 @@ impl OptimalPAnalysis {
             recommendation,
             td_target_ms,
             td_tolerance_ms,
+            source_events: 0,
+            source_files: 0,
         })
     }
 
@@ -498,116 +504,113 @@ impl OptimalPAnalysis {
 
     /// Format analysis as human-readable console output
     pub fn format_console_output(&self, axis_name: &str) -> String {
-        let target_display = format!("{:.1}±{:.1}ms", self.td_target_ms, self.td_tolerance_ms);
         let mut output = String::new();
 
-        // Compact header - axis name and basic info
+        // Header: axis name, Td measurement, Noise
         output.push_str(&format!(
-            "{}: Td={:.1}ms (target {}, {:+.0}% dev, windows={}), Noise={}\n",
+            "{}: Td={:.1}ms (target: {:.1}±{:.1}ms, windows={}), Noise={}\n",
             axis_name,
             self.td_stats.mean_ms,
-            target_display,
-            self.td_deviation_percent,
+            self.td_target_ms,
+            self.td_tolerance_ms,
             self.td_stats.num_samples,
             self.noise_level.name(),
         ));
 
-        // Reliability line — always shown with both metrics
-        {
-            let cv_str = self.td_stats.coefficient_of_variation.map_or_else(
-                || "CV=N/A".to_string(),
-                |cv| {
-                    format!(
-                        "CV={:.1}% (≤{:.0}%)",
-                        cv * 100.0,
-                        TD_COEFFICIENT_OF_VARIATION_MAX * 100.0,
-                    )
-                },
-            );
-            let cons_str = format!(
-                "Consistency={:.0}% (≥{:.0}%)",
-                self.td_stats.consistency * 100.0,
-                TD_CONSISTENCY_MIN_THRESHOLD * 100.0,
-            );
-            if self.td_stats.is_consistent() {
-                output.push_str(&format!("  Reliable: {cons_str}, {cv_str}\n"));
-            } else {
-                output.push_str(&format!("  Unreliable: {cons_str}, {cv_str}\n"));
+        // Deviation (separate line, matching PNG)
+        let deviation_sign = if self.td_deviation_percent > 0.0 {
+            "+"
+        } else {
+            ""
+        };
+        output.push_str(&format!(
+            "  Deviation: {}{:.1}% ({})\n",
+            deviation_sign,
+            self.td_deviation_percent,
+            self.td_deviation.name(),
+        ));
+
+        // Source: group/single, flights, punches
+        let source_label = if self.source_files > 1 {
+            "Group"
+        } else {
+            "Single"
+        };
+        output.push_str(&format!(
+            "  Source: {} — {} flight(s), {} throttle-punch(es)\n",
+            source_label, self.source_files, self.source_events,
+        ));
+
+        // Current P
+        output.push_str(&format!("  Current P={}\n", self.current_p));
+
+        // Recommendation — shared D-suffix helper
+        let effective_pd = self.recommended_pd_conservative.or_else(|| {
+            self.current_d
+                .filter(|&d| d > 0)
+                .map(|d| self.current_p as f64 / d as f64)
+        });
+        let d_suffix = |recommended_p: u32| -> String {
+            if let (Some(current_d), Some(rec_pd)) = (self.current_d, effective_pd) {
+                if rec_pd > 0.0 && current_d > 0 {
+                    let rec_d = (recommended_p as f64 / rec_pd).round() as u32;
+                    let d_delta = rec_d as i32 - current_d as i32;
+                    return format!(", D≈{} ({:+})", rec_d, d_delta);
+                }
+            }
+            String::new()
+        };
+
+        match &self.recommendation {
+            PRecommendation::Optimal { .. } => {
+                output.push_str(&format!(
+                    "  Recommendation: Current P is optimal (P={})\n",
+                    self.current_p
+                ));
+            }
+            PRecommendation::Increase { conservative_p, .. } => {
+                let p_delta = *conservative_p as i32 - self.current_p as i32;
+                output.push_str(&format!(
+                    "  Recommendation (Conservative): P≈{} ({:+}){}\n",
+                    conservative_p,
+                    p_delta,
+                    d_suffix(*conservative_p),
+                ));
+            }
+            PRecommendation::Decrease { recommended_p, .. } => {
+                let p_delta = *recommended_p as i32 - self.current_p as i32;
+                output.push_str(&format!(
+                    "  Recommendation (Decrease): P≈{} ({:+}){}\n",
+                    recommended_p,
+                    p_delta,
+                    d_suffix(*recommended_p),
+                ));
+            }
+            PRecommendation::Investigate { issue } => {
+                output.push_str(&format!("  Recommendation: Investigate — {}\n", issue));
             }
         }
 
-        // Compact recommendation
-        output.push_str(&format!("  Current P={}\n", self.current_p));
-
-        match &self.recommendation {
-            PRecommendation::Optimal { reasoning } => {
-                output.push_str("    → Optimal (no change recommended)\n");
-                output.push_str(&format!("    {}\n", reasoning));
-            }
-            PRecommendation::Increase {
-                conservative_p,
-                reasoning,
-            } => {
-                output.push_str("    → Increase recommended:\n");
-
-                // Calculate P delta
-                let conservative_delta = *conservative_p as i32 - self.current_p as i32;
-
-                // Show P recommendation (conservative only for simplicity)
-                output.push_str(&format!(
-                    "      Conservative: P≈{} ({:+})",
-                    conservative_p, conservative_delta
-                ));
-
-                // Add D recommendation: prefer step-response P:D, fall back to current P:D.
-                let effective_pd = self.recommended_pd_conservative.or_else(|| {
-                    self.current_d
-                        .filter(|&d| d > 0)
-                        .map(|d| self.current_p as f64 / d as f64)
-                });
-                if let (Some(current_d), Some(rec_pd)) = (self.current_d, effective_pd) {
-                    if rec_pd > 0.0 && current_d > 0 {
-                        let conservative_d = ((*conservative_p as f64) / rec_pd).round() as u32;
-                        let conservative_d_delta = conservative_d as i32 - current_d as i32;
-                        output.push_str(&format!(
-                            ", D≈{} ({:+})",
-                            conservative_d, conservative_d_delta
-                        ));
-                    }
-                }
-                output.push('\n');
-
-                output.push_str(&format!("    {}\n", reasoning));
-            }
-            PRecommendation::Decrease {
-                recommended_p,
-                reasoning,
-            } => {
-                output.push_str("    → Decrease recommended:\n");
-                let decrease_delta = *recommended_p as i32 - self.current_p as i32;
-                output.push_str(&format!("      P≈{} ({:+})", recommended_p, decrease_delta));
-
-                // Add D recommendation: prefer step-response P:D, fall back to current P:D.
-                let effective_pd = self.recommended_pd_conservative.or_else(|| {
-                    self.current_d
-                        .filter(|&d| d > 0)
-                        .map(|d| self.current_p as f64 / d as f64)
-                });
-                if let (Some(current_d), Some(rec_pd)) = (self.current_d, effective_pd) {
-                    if rec_pd > 0.0 && current_d > 0 {
-                        let recommended_d = ((*recommended_p as f64) / rec_pd).round() as u32;
-                        let d_delta = recommended_d as i32 - current_d as i32;
-                        output.push_str(&format!(", D≈{} ({:+})", recommended_d, d_delta));
-                    }
-                }
-                output.push('\n');
-
-                output.push_str(&format!("    {}\n", reasoning));
-            }
-            PRecommendation::Investigate { issue } => {
-                output.push_str("    → ⚠ INVESTIGATION RECOMMENDED\n");
-                output.push_str(&format!("    {}\n", issue));
-            }
+        // Reliability — always shown, after recommendation
+        let cv_str = self.td_stats.coefficient_of_variation.map_or_else(
+            || "CV=N/A".to_string(),
+            |cv| {
+                format!(
+                    "CV={:.1}% (⊢≤{:.0}%)",
+                    cv * 100.0,
+                    TD_COEFFICIENT_OF_VARIATION_MAX * 100.0,
+                )
+            },
+        );
+        let cons_str = format!(
+            "Consistency={:.0}% (⊢≥{:.0}%)",
+            self.td_stats.consistency * 100.0,
+            TD_CONSISTENCY_MIN_THRESHOLD * 100.0,
+        );
+        if self.td_stats.is_consistent() {
+            output.push_str(&format!("  Reliable: {cons_str}, {cv_str}\n"));
+        } else {
+            output.push_str(&format!("  Unreliable: {cons_str}, {cv_str}\n"));
         }
 
         output

@@ -113,6 +113,8 @@ impl AxisProfile {
 pub struct AircraftProfile {
     /// Per-axis profiles (Roll=0, Pitch=1, Yaw=2).
     pub axes: [AxisProfile; AXIS_COUNT],
+    /// Number of flight files that contributed to this profile.
+    pub file_count: usize,
 }
 
 impl AircraftProfile {
@@ -125,6 +127,7 @@ impl AircraftProfile {
                 AxisProfile::from_ratios(r1),
                 AxisProfile::from_ratios(r2),
             ],
+            file_count: 0,
         }
     }
 

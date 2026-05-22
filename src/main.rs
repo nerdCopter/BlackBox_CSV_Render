@@ -512,7 +512,9 @@ fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile
         );
     }
 
-    AircraftProfile::from_axis_ratios(all_axis_ratios)
+    let mut profile = AircraftProfile::from_axis_ratios(all_axis_ratios);
+    profile.file_count = files_profiled;
+    profile
 }
 
 fn process_file(
@@ -1247,7 +1249,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                             recommended_pd_conservative[axis_index],
                             physics_td,
                         ) {
-                                Ok(analysis) => {
+                                Ok(mut analysis) => {
+                                    analysis.source_events =
+                                        aircraft_profile.axes[axis_index].event_count;
+                                    analysis.source_files = aircraft_profile.file_count;
                                     // Print console output
                                     println!("{}", analysis.format_console_output(axis_name));
                                     // Store for PNG overlay (move instead of clone)
