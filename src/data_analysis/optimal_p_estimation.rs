@@ -517,7 +517,18 @@ impl OptimalPAnalysis {
             self.noise_level.name(),
         ));
 
-        // Deviation (separate line, matching PNG)
+        // Td source: group/single, flights, punches
+        let source_label = if self.source_files > 1 {
+            "File Group"
+        } else {
+            "Single File"
+        };
+        output.push_str(&format!(
+            "  Td source: {} — {} flight(s), {} throttle-punch(es)\n",
+            source_label, self.source_files, self.source_events,
+        ));
+
+        // Deviation
         let deviation_sign = if self.td_deviation_percent > 0.0 {
             "+"
         } else {
@@ -528,17 +539,6 @@ impl OptimalPAnalysis {
             deviation_sign,
             self.td_deviation_percent,
             self.td_deviation.name(),
-        ));
-
-        // Source: group/single, flights, punches
-        let source_label = if self.source_files > 1 {
-            "Group"
-        } else {
-            "Single"
-        };
-        output.push_str(&format!(
-            "  Source: {} — {} flight(s), {} throttle-punch(es)\n",
-            source_label, self.source_files, self.source_events,
         ));
 
         // Current P

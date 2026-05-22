@@ -1128,8 +1128,15 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
     if analysis_opts.estimate_optimal_p {
         if let Some(sr) = sample_rate {
+            let group_or_file = if aircraft_profile.file_count > 1 {
+                "group"
+            } else {
+                "file"
+            };
             println!("\n--- Optimal P Estimation ---");
-            println!("Td target: physics-derived from throttle-punch events in log group.");
+            println!(
+                "Td target: physics-derived from throttle-punch events in log {group_or_file}."
+            );
             println!();
 
             for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {

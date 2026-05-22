@@ -591,6 +591,22 @@ pub fn plot_step_response(
                             stroke_width: 0,
                         });
 
+                        // Td target preamble (matches console header)
+                        let group_or_file_label = if analysis.source_files > 1 {
+                            "group"
+                        } else {
+                            "file"
+                        };
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!(
+                                "Td target: physics-derived from throttle-punch events in log {}.",
+                                group_or_file_label
+                            ),
+                            color: COLOR_OPTIMAL_P_TEXT,
+                            stroke_width: 0,
+                        });
+
                         // Td measurement + Noise (identical to console header content)
                         series.push(PlotSeries {
                             data: vec![],
@@ -601,6 +617,22 @@ pub fn plot_step_response(
                                 analysis.td_tolerance_ms,
                                 analysis.td_stats.num_samples,
                                 analysis.noise_level.name(),
+                            ),
+                            color: COLOR_OPTIMAL_P_TEXT,
+                            stroke_width: 0,
+                        });
+
+                        // Td source: group/single, flights, punches
+                        let source_label = if analysis.source_files > 1 {
+                            "File Group"
+                        } else {
+                            "Single File"
+                        };
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!(
+                                "  Td source: {} — {} flight(s), {} throttle-punch(es)",
+                                source_label, analysis.source_files, analysis.source_events,
                             ),
                             color: COLOR_OPTIMAL_P_TEXT,
                             stroke_width: 0,
@@ -619,22 +651,6 @@ pub fn plot_step_response(
                                 deviation_sign,
                                 analysis.td_deviation_percent,
                                 analysis.td_deviation.name(),
-                            ),
-                            color: COLOR_OPTIMAL_P_TEXT,
-                            stroke_width: 0,
-                        });
-
-                        // Source: group/single, flights, punches
-                        let source_label = if analysis.source_files > 1 {
-                            "Group"
-                        } else {
-                            "Single"
-                        };
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: format!(
-                                "  Source: {} — {} flight(s), {} throttle-punch(es)",
-                                source_label, analysis.source_files, analysis.source_events,
                             ),
                             color: COLOR_OPTIMAL_P_TEXT,
                             stroke_width: 0,
