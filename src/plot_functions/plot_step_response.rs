@@ -605,14 +605,6 @@ pub fn plot_step_response(
                             stroke_width: 0,
                         });
 
-                        // Noise (independent line)
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: format!("  Noise: {}", analysis.noise_level.name()),
-                            color: COLOR_OPTIMAL_P_TEXT,
-                            stroke_width: 0,
-                        });
-
                         // Td source: group/single, flights, punches
                         let source_label = if analysis.source_files > 1 {
                             "File Group"
@@ -625,6 +617,14 @@ pub fn plot_step_response(
                                 "  Td source: {} — {} flights, {} throttle-punches",
                                 source_label, analysis.source_files, analysis.source_events,
                             ),
+                            color: COLOR_OPTIMAL_P_TEXT,
+                            stroke_width: 0,
+                        });
+
+                        // Noise
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!("  Noise: {}", analysis.noise_level.name()),
                             color: COLOR_OPTIMAL_P_TEXT,
                             stroke_width: 0,
                         });

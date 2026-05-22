@@ -515,8 +515,6 @@ impl OptimalPAnalysis {
             self.td_tolerance_ms,
             self.td_stats.num_samples,
         ));
-        output.push_str(&format!("  Noise: {}\n", self.noise_level.name()));
-
         // Td source: group/single, flights, punches
         let source_label = if self.source_files > 1 {
             "File Group"
@@ -527,6 +525,7 @@ impl OptimalPAnalysis {
             "  Td source: {} — {} flights, {} throttle-punches\n",
             source_label, self.source_files, self.source_events,
         ));
+        output.push_str(&format!("  Noise: {}\n", self.noise_level.name()));
 
         // Deviation
         let deviation_sign = if self.td_deviation_percent > 0.0 {
