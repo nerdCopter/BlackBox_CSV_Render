@@ -8,12 +8,56 @@ use crate::types::StepResponseResult;
 
 use crate::constants::{
     APPLY_INDIVIDUAL_RESPONSE_Y_CORRECTION, ENABLE_NORMALIZED_STEADY_STATE_MEAN_CHECK,
-    FRAME_LENGTH_S, INITIAL_GYRO_SMOOTHING_WINDOW, MOVEMENT_THRESHOLD_DEG_S,
+    FRAME_LENGTH_S, HIGH_AUTHORITY_SETPOINT_THRESHOLD_DEG_S, INITIAL_GYRO_SMOOTHING_WINDOW,
+    LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S, MOVEMENT_THRESHOLD_DEG_S,
     NORMALIZED_STEADY_STATE_MAX_VAL, NORMALIZED_STEADY_STATE_MEAN_MAX,
     NORMALIZED_STEADY_STATE_MEAN_MIN, NORMALIZED_STEADY_STATE_MIN_VAL, RESPONSE_LENGTH_S,
     STEADY_STATE_END_S, STEADY_STATE_START_S, SUPERPOSITION_FACTOR, TUKEY_ALPHA,
     Y_CORRECTION_MIN_UNNORMALIZED_MEAN_ABS,
 };
+
+/// Setpoint authority classification derived from the mean of per-window max setpoints.
+/// Describes how aggressively the pilot flew during the step-response windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetpointAuthority {
+    Low,      // mean < LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S
+    Moderate, // LOW..HIGH
+    High,     // >= HIGH_AUTHORITY_SETPOINT_THRESHOLD_DEG_S
+}
+
+impl SetpointAuthority {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Low => "LOW",
+            Self::Moderate => "MODERATE",
+            Self::High => "HIGH",
+        }
+    }
+
+    pub fn is_low(&self) -> bool {
+        matches!(self, Self::Low)
+    }
+}
+
+/// Compute SetpointAuthority and mean window-max setpoint from QC-passed window data.
+/// Returns None if the slice is empty.
+pub fn compute_setpoint_authority(
+    valid_window_max_setpoints: &[f32],
+) -> Option<(SetpointAuthority, f32)> {
+    if valid_window_max_setpoints.is_empty() {
+        return None;
+    }
+    let mean =
+        valid_window_max_setpoints.iter().sum::<f32>() / valid_window_max_setpoints.len() as f32;
+    let level = if mean < LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S {
+        SetpointAuthority::Low
+    } else if mean < HIGH_AUTHORITY_SETPOINT_THRESHOLD_DEG_S {
+        SetpointAuthority::Moderate
+    } else {
+        SetpointAuthority::High
+    };
+    Some((level, mean))
+}
 
 use crate::data_analysis::fft_utils;
 

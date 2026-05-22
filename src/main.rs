@@ -159,6 +159,7 @@ use crate::pid_context::PidContext;
 
 // Data analysis imports
 use crate::data_analysis::calc_step_response;
+use crate::data_analysis::calc_step_response::{compute_setpoint_authority, SetpointAuthority};
 
 /// Expand input paths to a list of CSV files.
 /// If a path is a file, validate CSV extension before adding.
@@ -933,7 +934,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     }
                                 }
 
-                                println!("{axis_name}: Peak={peak_value:.3} → {assessment}");
+                                println!("{axis_name}: Actual Peak={peak_value:.3} → {assessment}");
+                                println!();
 
                                 // Always show current P:D ratio with quality assessment
                                 let axis_pid = if axis_index == 0 {
@@ -942,24 +944,22 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     &pid_metadata.pitch
                                 };
 
-                                if let Some(p_val) = axis_pid.p {
+                                if axis_pid.p.is_some() {
                                     println!("  Current P:D={current_pd_ratio:.2}");
                                     // Needed in both branches below
                                     let dmax_enabled = pid_metadata.is_dmax_enabled();
 
-                                    // Low-authority check from step-response window setpoints
-                                    let max_sp_base = valid_window_max_setpoints
-                                        .iter()
-                                        .cloned()
-                                        .fold(0.0_f32, f32::max);
-                                    let is_low_authority_base = max_sp_base
-                                        < crate::constants::LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S;
-                                    if is_low_authority_base {
-                                        println!(
-                                            "  [LOW AUTHORITY] max={:.0}dps — moderate/aggressive recommendations skipped",
-                                            max_sp_base
-                                        );
-                                    }
+                                    // Setpoint Authority from mean of per-window max setpoints
+                                    let (authority, authority_mean) = compute_setpoint_authority(
+                                        valid_window_max_setpoints.as_slice().unwrap_or(&[]),
+                                    )
+                                    .unwrap_or((SetpointAuthority::Low, 0.0));
+                                    println!(
+                                        "  Setpoint Authority: {} (mean={:.0}dps \u{22a2}\u{2265}{}dps)",
+                                        authority.name(),
+                                        authority_mean,
+                                        crate::constants::LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S as u32
+                                    );
 
                                     // Show recommendations if they were computed (threshold exceeded)
                                     if recommended_pd_conservative[axis_index].is_some() {
@@ -1004,25 +1004,22 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             let d_max_str = recommended_d_max_conservative
                                                 [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("  Recommendation (conservative): P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                            println!("  Recommendation (conservative): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                                                 recommended_pd_conservative[axis_index].unwrap(),
-                                                d_min_str, d_max_str, p_val);
+                                                d_min_str, d_max_str);
                                         } else if let Some(recommended_d) =
                                             recommended_d_conservative[axis_index]
                                         {
                                             // D-Min/D-Max disabled: show only base D
                                             println!(
-                                                "  Recommendation (conservative): P:D={:.2} → D≈{} (P={})",
+                                                "  Recommendation (conservative): P:D={:.2} (D≈{})",
                                                 recommended_pd_conservative[axis_index].unwrap(),
-                                                recommended_d,
-                                                p_val
+                                                recommended_d
                                             );
                                         }
 
                                         // Show secondary (moderate) recommendation
-                                        if is_low_authority_base {
-                                            println!("  Recommendation (moderate): Skipped [LOW AUTHORITY]");
-                                        } else if dmax_enabled
+                                        if dmax_enabled
                                             && (recommended_d_min_aggressive[axis_index].is_some()
                                                 || recommended_d_max_aggressive[axis_index]
                                                     .is_some())
@@ -1034,25 +1031,22 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             let d_max_str = recommended_d_max_aggressive
                                                 [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("  Recommendation (moderate): P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                            println!("  Recommendation (moderate): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                                                 recommended_pd_aggressive[axis_index].unwrap(),
-                                                d_min_str, d_max_str, p_val);
+                                                d_min_str, d_max_str);
                                         } else if let Some(recommended_d_mod) =
                                             recommended_d_aggressive[axis_index]
                                         {
                                             // D-Min/D-Max disabled: show only base D
                                             println!(
-                                                "  Recommendation (moderate): P:D={:.2} → D≈{} (P={})",
+                                                "  Recommendation (moderate): P:D={:.2} (D≈{})",
                                                 recommended_pd_aggressive[axis_index].unwrap(),
-                                                recommended_d_mod,
-                                                p_val
+                                                recommended_d_mod
                                             );
                                         }
 
                                         // Show tertiary (aggressive) recommendation for significant overshoot only
-                                        if !is_low_authority_base
-                                            && assessment == "Significant overshoot"
-                                        {
+                                        if assessment == "Significant overshoot" {
                                             let aggressive_pd = current_pd_ratio
                                                 * crate::constants::PD_RATIO_AGGRESSIVE_MULTIPLIER;
                                             let (rec_d_agg, rec_d_min_agg, rec_d_max_agg) =
@@ -1075,11 +1069,11 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                                     .map_or("N/A".to_string(), |v| v.to_string());
                                                 let d_max_str = rec_d_max_agg
                                                     .map_or("N/A".to_string(), |v| v.to_string());
-                                                println!("  Recommendation (aggressive): P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
-                                                    aggressive_pd, d_min_str, d_max_str, p_val);
+                                                println!("  Recommendation (aggressive): P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                                                    aggressive_pd, d_min_str, d_max_str);
                                             } else if let Some(rec_d3) = rec_d_agg {
-                                                println!("  Recommendation (aggressive): P:D={:.2} → D≈{} (P={})",
-                                                    aggressive_pd, rec_d3, p_val);
+                                                println!("  Recommendation (aggressive): P:D={:.2} (D≈{})",
+                                                    aggressive_pd, rec_d3);
                                             }
                                         }
                                     } else if assessment == "Near optimal" {
@@ -1104,16 +1098,15 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                                 })
                                                 .map_or("N/A".to_string(), |v| v.to_string());
                                             println!(
-                                                "  Recommendation (conservative): D-Min≈{}, D-Max≈{} (P={}) [optional D−1]",
-                                                d_min_str, d_max_str, p_val
+                                                "  Recommendation (conservative): D-Min≈{}, D-Max≈{} [optional D−1]",
+                                                d_min_str, d_max_str
                                             );
                                         } else if let Some(current_d) = axis_pid.d {
                                             println!(
-                                                "  Recommendation (conservative): D≈{} (P={}) [optional D−1]",
+                                                "  Recommendation (conservative): D≈{} [optional D−1]",
                                                 current_d.saturating_sub(
                                                     crate::constants::D_STEP_OPTIONAL
-                                                ),
-                                                p_val
+                                                )
                                             );
                                         }
                                     } else {
@@ -1161,22 +1154,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                 // Only Roll (0) and Pitch (1) - Yaw excluded by ROLL_PITCH_AXIS_COUNT
                 let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
 
-                if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) =
+                if let Some((response_time, valid_stacked_responses, _valid_window_max_setpoints)) =
                     &step_response_calculation_results[axis_index]
                 {
                     if valid_stacked_responses.shape()[0] > 0 && !response_time.is_empty() {
-                        // Warn when inputs are too gentle to produce reliable step-response data
-                        let max_sp = valid_window_max_setpoints
-                            .iter()
-                            .cloned()
-                            .fold(0.0_f32, f32::max);
-                        if max_sp < crate::constants::LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S {
-                            println!(
-                                "  ⚠ {axis_name}: [LOW AUTHORITY] max={:.0}dps — recommendations unreliable",
-                                max_sp
-                            );
-                        }
-
                         // Collect individual Td samples from each valid response window
                         let mut td_samples_ms: Vec<f64> = Vec::new();
 
