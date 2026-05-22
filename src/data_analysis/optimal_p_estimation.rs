@@ -506,16 +506,16 @@ impl OptimalPAnalysis {
     pub fn format_console_output(&self, axis_name: &str) -> String {
         let mut output = String::new();
 
-        // Header: axis name, Td measurement, Noise
+        // Header: axis name and Td measurement
         output.push_str(&format!(
-            "{}: Td={:.1}ms (target: {:.1}±{:.1}ms, windows={}), Noise={}\n",
+            "{}: Td={:.1}ms (target: {:.1}±{:.1}ms, windows={})\n",
             axis_name,
             self.td_stats.mean_ms,
             self.td_target_ms,
             self.td_tolerance_ms,
             self.td_stats.num_samples,
-            self.noise_level.name(),
         ));
+        output.push_str(&format!("  Noise: {}\n", self.noise_level.name()));
 
         // Td source: group/single, flights, punches
         let source_label = if self.source_files > 1 {

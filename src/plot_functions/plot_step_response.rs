@@ -591,17 +591,24 @@ pub fn plot_step_response(
                             stroke_width: 0,
                         });
 
-                        // Td measurement + Noise
+                        // Td measurement
                         series.push(PlotSeries {
                             data: vec![],
                             label: format!(
-                                "  Td: {:.1}ms (target: {:.1}±{:.1}ms, windows={}), Noise={}",
+                                "  Td: {:.1}ms (target: {:.1}±{:.1}ms, windows={})",
                                 analysis.td_stats.mean_ms,
                                 analysis.td_target_ms,
                                 analysis.td_tolerance_ms,
                                 analysis.td_stats.num_samples,
-                                analysis.noise_level.name(),
                             ),
+                            color: COLOR_OPTIMAL_P_TEXT,
+                            stroke_width: 0,
+                        });
+
+                        // Noise (independent line)
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!("  Noise: {}", analysis.noise_level.name()),
                             color: COLOR_OPTIMAL_P_TEXT,
                             stroke_width: 0,
                         });
