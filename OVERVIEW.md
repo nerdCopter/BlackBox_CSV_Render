@@ -241,7 +241,7 @@ Physics-derived P gain optimization using a Torque-Inertia Profiler that measure
   - `Current P=` — P gain value from the flight's metadata
   - `Recommendation` — one of `(Conservative)`, `(Decrease)`, `Current P is optimal`, or `Investigate —` with reason; includes calculated D adjustment
   - `Reliable:` / `Unreliable:` — always shows both `Consistency=N% (⊢≥70%)` and `CV=N% (⊢≤40%)`; `Unreliable` is highlighted in orange when either threshold is not met
-  - `[LOW AUTHORITY]` warning (console) when max setpoint is below `LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S`
+  - `Setpoint Authority:` — always shown; classifies flight inputs as `LOW`, `MODERATE`, or `HIGH` based on the **mean** of per-window max setpoints (see below). Orange for `LOW`.
   - When profiling is skipped (insufficient punch events), a skip reason replaces the above. See **Consistency and Reliability Interpretation** below.
 
 - **Consistency and Reliability Interpretation (CV):**
@@ -249,15 +249,19 @@ Physics-derived P gain optimization using a Torque-Inertia Profiler that measure
   - **Low CV:** Td measurements are tightly clustered — the log contains clean, repeatable dynamics and recommendations are trustworthy.
   - **High CV (exceeds `TD_COEFFICIENT_OF_VARIATION_MAX`):** Td measurements vary widely across windows — `Unreliable:` is shown (orange) in both console and PNG. Recommendations should be treated with caution.
   - **CV = N/A:** Fewer than `TD_SAMPLES_MIN_FOR_STDDEV` valid Td samples were available; standard deviation cannot be computed. The mean is still reported and `CV=N/A` appears in the reliability line.
-  - **Low-authority flight warning:** When the maximum setpoint across all valid windows is below `LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S`, a `[LOW AUTHORITY]` warning is shown in both console and PNG. Hover tests and slow-cruise logs never produce sharp inputs — step-response analysis and Td measurements from such logs are noise-dominated rather than dynamics-dominated, making all recommendations unreliable regardless of CV.
+  - **Setpoint Authority classification:** Always-visible line in both console and PNG. Uses the **mean** of per-window max setpoints (not the maximum) to classify the flight:
+    - `LOW` (`mean < 100 dps`, orange) — hover/slow-cruise inputs; all P:D recommendations are still shown, but the pilot should treat them with caution.
+    - `MODERATE` (`100–250 dps`) — normal sport/freestyle inputs.
+    - `HIGH` (`> 250 dps`) — aggressive or race-pace inputs.
+    Format: `Setpoint Authority: LOW (mean=68dps ⊢≥100dps)`. Using the mean rather than the max prevents a single high-input window from masking an otherwise gentle hover log.
   - **Why hover logs produce high CV:** Small setpoint inputs → deconvolution is noise-sensitive → each window captures a different noise realisation. The averaged response may appear plausible (noise averages out) while individual window variance remains high. CV exposes this where the mean alone cannot.
   - **Over-P limitation:** **When P is already too high and the aircraft oscillates, the profiler may report "Optimal" rather than "Decrease P."** An oscillatory step response produces a short, aggressive measured Td — which, fed into the physics formula, yields a P_optimal close to the current (excessive) P. The profiler cannot reliably distinguish a well-tuned fast response from an over-tuned oscillating one using Td alone. The indirect signal is CV: severe oscillation typically scatters Td samples widely and triggers the consistency warning. **If your gains feel high or the craft exhibits oscillation, start from a lower P before relying on these recommendations.** Optimal P estimation is most accurate when the craft is in a reasonable tuning range — it is a validator and refinement tool, not a recovery tool for badly mis-tuned aircraft. Only experienced pilots are likely to recognise this situation by feel.
-  - **High CV without `[LOW AUTHORITY]`:** If the consistency warning fires but `[LOW AUTHORITY]` is not shown, the scatter is not caused by low-energy hover inputs. Remaining causes include propwash, inconsistent maneuvers, and oscillation from over-P. **If gains feel high, treat this combination as a prompt to verify the craft is not oscillating before acting on any recommendation.**
+  - **High CV without LOW authority:** If the consistency warning fires but `Setpoint Authority` is `MODERATE` or `HIGH`, the scatter is not caused by low-energy hover inputs. Remaining causes include propwash, inconsistent maneuvers, and oscillation from over-P. **If gains feel high, treat this combination as a prompt to verify the craft is not oscillating before acting on any recommendation.**
   - **Summary of dependability signals in output:**
     - `windows=` on the Td line — number of valid step-response windows contributing to the Td mean; more windows = more statistical weight
     - `Td source:` — flight and throttle-punch counts that calibrated the physics target; `File Group` means data was pooled across multiple logs
     - `Reliable:` / `Unreliable:` with `Consistency %` and `CV` — how repeatable the per-flight step-response measurements are (independent of how many punches fed the physics target)
-    - `[LOW AUTHORITY]` — max setpoint too small for reliable step-response characterisation
+    - `Setpoint Authority:` — mean setpoint level across valid windows; `LOW` indicates hover/gentle inputs that may reduce step-response quality
     - Noise level (`LOW` / `MODERATE` / `HIGH`) — HF D-term energy for the current flight; high noise limits safe P increase
 
 - **Relationship to P:D Recommendations:**

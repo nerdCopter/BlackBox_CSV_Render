@@ -441,7 +441,7 @@ pub fn plot_step_response(
                     let auth_color = if is_low_authority {
                         COLOR_OPTIMAL_P_WARNING
                     } else {
-                        RGBColor(80, 80, 80)
+                        COLOR_OPTIMAL_P_TEXT
                     };
                     series.push(PlotSeries {
                         data: vec![],
