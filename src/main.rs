@@ -937,7 +937,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 }
 
                                 println!("{axis_name}: Actual Peak={peak_value:.3} → {assessment}");
-                                println!();
 
                                 // Always show current P:D ratio with quality assessment
                                 let axis_pid = if axis_index == 0 {
