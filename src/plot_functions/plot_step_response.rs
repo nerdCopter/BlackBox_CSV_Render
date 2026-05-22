@@ -591,23 +591,7 @@ pub fn plot_step_response(
                             stroke_width: 0,
                         });
 
-                        // Td target preamble (matches console header)
-                        let group_or_file_label = if analysis.source_files > 1 {
-                            "group"
-                        } else {
-                            "file"
-                        };
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: format!(
-                                "Td target: physics-derived from throttle-punch events in log {}.",
-                                group_or_file_label
-                            ),
-                            color: COLOR_OPTIMAL_P_TEXT,
-                            stroke_width: 0,
-                        });
-
-                        // Td measurement + Noise (identical to console header content)
+                        // Td measurement + Noise
                         series.push(PlotSeries {
                             data: vec![],
                             label: format!(
