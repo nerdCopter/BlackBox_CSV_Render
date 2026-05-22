@@ -15,6 +15,7 @@ use crate::constants::{
     TD_CONSISTENCY_MIN_THRESHOLD,
 };
 use crate::data_analysis::calc_step_response; // For average_responses and moving_average_smooth_f64
+use crate::data_analysis::calc_step_response::{compute_setpoint_authority, SetpointAuthority};
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
 use crate::data_input::pid_metadata::PidMetadata;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
@@ -305,7 +306,7 @@ pub fn plot_step_response(
                             .map(|(&t, &v)| (t, v))
                             .collect(),
                         label: format!(
-                            "< {} deg/s (Peak: {peak_str}, Td: {latency_str})",
+                            "< {} deg/s (Smoothed Peak: {peak_str}, Td: {latency_str})",
                             display.setpoint_threshold
                         ),
                         color: color_low_sp,
@@ -328,7 +329,7 @@ pub fn plot_step_response(
                             .map(|(&t, &v)| (t, v))
                             .collect(),
                         label: format!(
-                            "\u{2265} {} deg/s (Peak: {peak_str}, Td: {latency_str})",
+                            "\u{2265} {} deg/s (Smoothed Peak: {peak_str}, Td: {latency_str})",
                             display.setpoint_threshold
                         ),
                         color: color_high_sp,
@@ -350,7 +351,7 @@ pub fn plot_step_response(
                             .zip(resp.iter())
                             .map(|(&t, &v)| (t, v))
                             .collect(),
-                        label: format!("Combined (Peak: {peak_str}, Td: {latency_str})"), // This is the average of all Y-corrected & QC'd responses
+                        label: format!("Combined (Smoothed Peak: {peak_str}, Td: {latency_str})"), // average of all Y-corrected & QC'd responses, post-smoothed
                         color: color_combined,
                         stroke_width: line_stroke_plot,
                     });
@@ -372,7 +373,9 @@ pub fn plot_step_response(
                             .zip(resp.iter())
                             .map(|(&t, &v)| (t, v))
                             .collect(),
-                        label: format!("step-response (Peak: {peak_str}, Td: {latency_str})"), // This is the average of all Y-corrected & QC'd responses
+                        label: format!(
+                            "Step-Response Avg (Smoothed Peak: {peak_str}, Td: {latency_str})"
+                        ), // average of all Y-corrected & QC'd responses, post-smoothed
                         color: color_combined,
                         stroke_width: line_stroke_plot,
                     });
@@ -396,19 +399,27 @@ pub fn plot_step_response(
 
             // Add current P:D ratio with quality assessment as legend entries for Roll/Pitch
             if axis_index < 2 {
-                // Low-authority flight check: max setpoint across all valid windows.
-                let max_sp = valid_window_max_setpoints
-                    .iter()
-                    .cloned()
-                    .fold(0.0_f32, f32::max);
-                let is_low_authority = max_sp < LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S;
+                // Setpoint Authority from mean of per-window max setpoints.
+                let (authority, authority_mean) = compute_setpoint_authority(
+                    valid_window_max_setpoints.as_slice().unwrap_or(&[]),
+                )
+                .unwrap_or((SetpointAuthority::Low, 0.0));
+                let is_low_authority = authority.is_low();
+
+                // Separator between curve legend entries and P:D section
+                series.push(PlotSeries {
+                    data: vec![],
+                    label: "─────────────────────".to_string(),
+                    color: COLOR_OPTIMAL_P_DIVIDER,
+                    stroke_width: 0,
+                });
 
                 // Current P:D ratio and assessment
                 if let Some(current_pd) = current.pd_ratios[axis_index] {
                     let current_label = if let Some(assessment) = current.assessments[axis_index] {
                         if let Some(peak) = current.peak_values[axis_index] {
                             format!(
-                                "Current P:D={:.2} (Peak={:.2}, {})",
+                                "Current P:D={:.2} (Actual Peak={:.2}, {})",
                                 current_pd, peak, assessment
                             )
                         } else {
@@ -425,14 +436,22 @@ pub fn plot_step_response(
                     });
                 }
 
-                if is_low_authority {
+                // Setpoint Authority line — always shown, orange for LOW
+                {
+                    let auth_color = if is_low_authority {
+                        COLOR_OPTIMAL_P_WARNING
+                    } else {
+                        COLOR_OPTIMAL_P_TEXT
+                    };
                     series.push(PlotSeries {
                         data: vec![],
                         label: format!(
-                            "[LOW AUTHORITY] max={:.0}dps — recommendations unreliable",
-                            max_sp
+                            "  Setpoint Authority: {} (mean={:.0}dps \u{22a2}\u{2265}{}dps)",
+                            authority.name(),
+                            authority_mean,
+                            LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S as u32
                         ),
-                        color: COLOR_OPTIMAL_P_WARNING, // Orange warning
+                        color: auth_color,
                         stroke_width: 0,
                     });
                 }
@@ -446,17 +465,17 @@ pub fn plot_step_response(
                         let d_max_str = conservative.0.d_max_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Recommendation (conservative): P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "  Recommendation (conservative): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
                     } else if let Some(rec_d) = conservative.0.d_values[axis_index] {
                         // D-Min/D-Max disabled: show only base D
                         format!(
-                            "Recommendation (conservative): P:D={:.2} (D≈{})",
+                            "  Recommendation (conservative): P:D={:.2} (D≈{})",
                             rec_pd, rec_d
                         )
                     } else {
-                        format!("Recommendation (conservative): P:D={:.2}", rec_pd)
+                        format!("  Recommendation (conservative): P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
@@ -479,16 +498,16 @@ pub fn plot_step_response(
                                 .map(|v| v.saturating_sub(crate::constants::D_STEP_OPTIONAL))
                                 .map_or("N/A".to_string(), |v| v.to_string());
                             format!(
-                                "Recommendation (conservative): D-Min≈{}, D-Max≈{} [optional D−1]",
+                                "  Recommendation (conservative): D-Min≈{}, D-Max≈{} [optional D−1]",
                                 d_min_str, d_max_str
                             )
                         } else if let Some(current_d) = axis_pid_data.d {
                             format!(
-                                "Recommendation (conservative): D≈{} [optional D−1]",
+                                "  Recommendation (conservative): D≈{} [optional D−1]",
                                 current_d.saturating_sub(crate::constants::D_STEP_OPTIONAL)
                             )
                         } else {
-                            "Recommendation (none): No obvious tuning adjustments needed"
+                            "  Recommendation (none): No obvious tuning adjustments needed"
                                 .to_string()
                         };
                         series.push(PlotSeries {
@@ -502,7 +521,7 @@ pub fn plot_step_response(
                     // Optimal zone (1.02–1.08): no adjustment needed
                     series.push(PlotSeries {
                         data: vec![],
-                        label: "Recommendation (none): No obvious tuning adjustments needed"
+                        label: "  Recommendation (none): No obvious tuning adjustments needed"
                             .to_string(),
                         color: RGBColor(100, 100, 100),
                         stroke_width: 0,
@@ -518,14 +537,17 @@ pub fn plot_step_response(
                         let d_max_str = moderate.0.d_max_values[axis_index]
                             .map_or("N/A".to_string(), |v| v.to_string());
                         format!(
-                            "Recommendation (moderate): P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                            "  Recommendation (moderate): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                             rec_pd, d_min_str, d_max_str
                         )
                     } else if let Some(rec_d) = moderate.0.d_values[axis_index] {
                         // D-Min/D-Max disabled: show only base D
-                        format!("Recommendation (moderate): P:D={:.2} (D≈{})", rec_pd, rec_d)
+                        format!(
+                            "  Recommendation (moderate): P:D={:.2} (D≈{})",
+                            rec_pd, rec_d
+                        )
                     } else {
-                        format!("Recommendation (moderate): P:D={:.2}", rec_pd)
+                        format!("  Recommendation (moderate): P:D={:.2}", rec_pd)
                     };
                     series.push(PlotSeries {
                         data: vec![],
@@ -550,16 +572,19 @@ pub fn plot_step_response(
                                     let d_max_str =
                                         rec_d_max_agg.map_or("N/A".to_string(), |v| v.to_string());
                                     format!(
-                                        "Recommendation (aggressive): P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                                        "  Recommendation (aggressive): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                                         aggressive_pd, d_min_str, d_max_str
                                     )
                                 } else if let Some(rec_d3) = rec_d_agg {
                                     format!(
-                                        "Recommendation (aggressive): P:D={:.2} (D≈{})",
+                                        "  Recommendation (aggressive): P:D={:.2} (D≈{})",
                                         aggressive_pd, rec_d3
                                     )
                                 } else {
-                                    format!("Recommendation (aggressive): P:D={:.2}", aggressive_pd)
+                                    format!(
+                                        "  Recommendation (aggressive): P:D={:.2}",
+                                        aggressive_pd
+                                    )
                                 };
                                 series.push(PlotSeries {
                                     data: vec![],
@@ -587,7 +612,7 @@ pub fn plot_step_response(
                         series.push(PlotSeries {
                             data: vec![],
                             label: "Optimal P (Experimental, log-derived)".to_string(),
-                            color: COLOR_OPTIMAL_P_HEADER, // Blue for section header
+                            color: COLOR_OPTIMAL_P_HEADER,
                             stroke_width: 0,
                         });
 
@@ -595,16 +620,41 @@ pub fn plot_step_response(
                         series.push(PlotSeries {
                             data: vec![],
                             label: format!(
-                                "  Td: {:.1}ms (target: {:.1}ms, windows={})",
+                                "  Td: {:.1}ms (target: {:.1}±{:.1}ms, windows={})",
                                 analysis.td_stats.mean_ms,
                                 analysis.td_target_ms,
-                                analysis.td_stats.num_samples
+                                analysis.td_tolerance_ms,
+                                analysis.td_stats.num_samples,
                             ),
                             color: COLOR_OPTIMAL_P_TEXT,
                             stroke_width: 0,
                         });
 
-                        // Deviation: only prefix '+' for strictly positive deviations
+                        // Td source: group/single, flights, punches
+                        let source_label = if analysis.source_files > 1 {
+                            "File Group"
+                        } else {
+                            "Single File"
+                        };
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!(
+                                "  Td source: {} — {} flights, {} throttle-punches",
+                                source_label, analysis.source_files, analysis.source_events,
+                            ),
+                            color: COLOR_OPTIMAL_P_TEXT,
+                            stroke_width: 0,
+                        });
+
+                        // Noise
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: format!("  Noise: {}", analysis.noise_level.name()),
+                            color: COLOR_OPTIMAL_P_TEXT,
+                            stroke_width: 0,
+                        });
+
+                        // Deviation
                         let deviation_sign = if analysis.td_deviation_percent > 0.0 {
                             "+"
                         } else {
@@ -616,38 +666,93 @@ pub fn plot_step_response(
                                 "  Deviation: {}{:.1}% ({})",
                                 deviation_sign,
                                 analysis.td_deviation_percent,
-                                analysis.td_deviation.name()
+                                analysis.td_deviation.name(),
                             ),
                             color: COLOR_OPTIMAL_P_TEXT,
                             stroke_width: 0,
                         });
 
-                        // Noise level
+                        // Current P
                         series.push(PlotSeries {
                             data: vec![],
-                            label: format!("  Noise: {}", analysis.noise_level.name()),
+                            label: format!("  Current P={}", analysis.current_p),
                             color: COLOR_OPTIMAL_P_TEXT,
                             stroke_width: 0,
                         });
 
-                        // Reliability — always shown with both metrics; orange when poor
+                        // Recommendation — D-suffix helper
+                        let effective_pd = analysis.recommended_pd_conservative.or_else(|| {
+                            analysis
+                                .current_d
+                                .filter(|&d| d > 0)
+                                .map(|d| analysis.current_p as f64 / d as f64)
+                        });
+                        let d_suffix = |recommended_p: u32| -> String {
+                            if let (Some(current_d), Some(rec_pd)) =
+                                (analysis.current_d, effective_pd)
+                            {
+                                if rec_pd > 0.0 && current_d > 0 {
+                                    let rec_d = ((recommended_p as f64) / rec_pd).round() as u32;
+                                    let d_delta = (rec_d as i64) - (current_d as i64);
+                                    return format!(", D≈{} ({:+})", rec_d, d_delta);
+                                }
+                            }
+                            String::new()
+                        };
+
+                        let rec_label = match &analysis.recommendation {
+                            PRecommendation::Optimal { .. } => format!(
+                                "  Recommendation: Current P is optimal (P={})",
+                                analysis.current_p
+                            ),
+                            PRecommendation::Increase { conservative_p, .. } => {
+                                let p_delta =
+                                    (*conservative_p as i64) - (analysis.current_p as i64);
+                                format!(
+                                    "  Recommendation (Conservative): P≈{} ({:+}){}",
+                                    conservative_p,
+                                    p_delta,
+                                    d_suffix(*conservative_p),
+                                )
+                            }
+                            PRecommendation::Decrease { recommended_p, .. } => {
+                                let p_delta = (*recommended_p as i64) - (analysis.current_p as i64);
+                                format!(
+                                    "  Recommendation (Decrease): P≈{} ({:+}){}",
+                                    recommended_p,
+                                    p_delta,
+                                    d_suffix(*recommended_p),
+                                )
+                            }
+                            PRecommendation::Investigate { issue } => {
+                                format!("  Recommendation: Investigate — {}", issue)
+                            }
+                        };
+                        series.push(PlotSeries {
+                            data: vec![],
+                            label: rec_label,
+                            color: COLOR_OPTIMAL_P_RECOMMENDATION,
+                            stroke_width: 0,
+                        });
+
+                        // Reliability — always shown, after recommendation; orange when poor
                         {
                             let cv_str = analysis.td_stats.coefficient_of_variation.map_or_else(
                                 || "CV=N/A".to_string(),
                                 |cv| {
                                     format!(
-                                        "CV={:.1}% (≤{:.0}%)",
+                                        "CV={:.1}% (⊢≤{:.0}%)",
                                         cv * 100.0,
                                         TD_COEFFICIENT_OF_VARIATION_MAX * 100.0,
                                     )
                                 },
                             );
                             let cons_str = format!(
-                                "Consistency={:.0}% (≥{:.0}%)",
+                                "Consistency={:.0}% (⊢≥{:.0}%)",
                                 analysis.td_stats.consistency * 100.0,
                                 TD_CONSISTENCY_MIN_THRESHOLD * 100.0,
                             );
-                            let (cons_label, cons_color) = if analysis.td_stats.is_consistent() {
+                            let (rel_label, rel_color) = if analysis.td_stats.is_consistent() {
                                 (
                                     format!("  Reliable: {cons_str}, {cv_str}"),
                                     COLOR_OPTIMAL_P_TEXT,
@@ -660,72 +765,11 @@ pub fn plot_step_response(
                             };
                             series.push(PlotSeries {
                                 data: vec![],
-                                label: cons_label,
-                                color: cons_color,
+                                label: rel_label,
+                                color: rel_color,
                                 stroke_width: 0,
                             });
                         }
-                        // Recommendation summary
-                        // Helper closure to compute D recommendation suffix.
-                        // Prefers the step-response conservative P:D; falls back to the
-                        // current P:D ratio so D is always shown when D gain is known.
-                        let effective_pd = analysis.recommended_pd_conservative.or_else(|| {
-                            analysis
-                                .current_d
-                                .filter(|&d| d > 0)
-                                .map(|d| analysis.current_p as f64 / d as f64)
-                        });
-                        let append_d_recommendation = |recommended_p: u32| -> String {
-                            if let (Some(current_d), Some(rec_pd)) =
-                                (analysis.current_d, effective_pd)
-                            {
-                                if rec_pd > 0.0 && current_d > 0 {
-                                    let recommended_d =
-                                        ((recommended_p as f64) / rec_pd).round() as u32;
-                                    let d_delta = (recommended_d as i64) - (current_d as i64);
-                                    return format!(", D≈{} ({:+})", recommended_d, d_delta);
-                                }
-                            }
-                            String::new()
-                        };
-
-                        let rec_summary = match &analysis.recommendation {
-                            PRecommendation::Increase { conservative_p, .. } => {
-                                let p_delta =
-                                    (*conservative_p as i64) - (analysis.current_p as i64);
-                                let mut rec = format!(
-                                    "  Recommendation (Conservative): P≈{} ({:+})",
-                                    conservative_p, p_delta
-                                );
-                                rec.push_str(&append_d_recommendation(*conservative_p));
-                                rec
-                            }
-                            PRecommendation::Optimal { .. } => {
-                                format!(
-                                    "  Recommendation: Current P is optimal (P = {})",
-                                    analysis.current_p
-                                )
-                            }
-                            PRecommendation::Decrease { recommended_p, .. } => {
-                                let p_delta = (*recommended_p as i64) - (analysis.current_p as i64);
-                                let mut rec = format!(
-                                    "  Recommendation: P≈{} ({:+})",
-                                    recommended_p, p_delta
-                                );
-                                rec.push_str(&append_d_recommendation(*recommended_p));
-
-                                rec
-                            }
-                            PRecommendation::Investigate { .. } => {
-                                "  Recommendation: See console output for details".to_string()
-                            }
-                        };
-                        series.push(PlotSeries {
-                            data: vec![],
-                            label: rec_summary,
-                            color: COLOR_OPTIMAL_P_RECOMMENDATION, // Green for recommendation
-                            stroke_width: 0,
-                        });
                     } else if let Some(skip_reason) = &optimal_p.skip_reasons[axis_index] {
                         // Show skip reason if analysis failed but we have a reason
                         series.push(PlotSeries {
