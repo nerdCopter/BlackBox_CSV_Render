@@ -631,7 +631,7 @@ pub fn plot_step_response(
                         series.push(PlotSeries {
                             data: vec![],
                             label: format!(
-                                "  Td source: {} — {} flight(s), {} throttle-punch(es)",
+                                "  Td source: {} — {} flights, {} throttle-punches",
                                 source_label, analysis.source_files, analysis.source_events,
                             ),
                             color: COLOR_OPTIMAL_P_TEXT,

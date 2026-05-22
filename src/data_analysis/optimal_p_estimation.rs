@@ -524,7 +524,7 @@ impl OptimalPAnalysis {
             "Single File"
         };
         output.push_str(&format!(
-            "  Td source: {} — {} flight(s), {} throttle-punch(es)\n",
+            "  Td source: {} — {} flights, {} throttle-punches\n",
             source_label, self.source_files, self.source_events,
         ));
 
