@@ -50,7 +50,6 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
   --pid:           Generate only PID-related plots (Activity & Error).
   --psd:           Generate only PSD plots (Gyro & D-term).
   --heatmaps:      Generate only spectral heatmaps.
-  --setpoint-diff: Generate only setpoint derivative (FF) plot.
   --bode:          Bode plot analysis (requires chirp/sweep system-id test flight).
 
 === ANALYSIS OPTIONS ===

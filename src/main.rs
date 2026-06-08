@@ -401,11 +401,9 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  --pid:           Generate only PID-related plots (Activity & Error).");
     eprintln!("  --psd:           Generate only PSD plots (Gyro & D-term).");
     eprintln!("  --heatmaps:      Generate only spectral heatmaps.");
-    eprintln!("  --setpoint-diff: Generate only setpoint derivative (FF) plot.");
     eprintln!(
         "  --bode:          Bode plot analysis (requires chirp/sweep system-id test flight)."
     );
-
     eprintln!();
     eprintln!("=== ANALYSIS OPTIONS ===");
     eprintln!();
@@ -1559,7 +1557,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut pid_requested = false;
     let mut psd_requested = false;
     let mut heatmaps_requested = false;
-    let mut diff_requested = false;
     let mut core_requested = false;
     let mut extended_requested = false;
     let mut recursive = false;
@@ -1646,9 +1643,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--heatmaps" {
             has_only_flags = true;
             heatmaps_requested = true;
-        } else if arg == "--setpoint-diff" {
-            has_only_flags = true;
-            diff_requested = true;
         } else if arg == "--core" {
             has_only_flags = true;
             core_requested = true;
@@ -1710,9 +1704,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             plot_config.psd_db_heatmap = true;
             plot_config.throttle_freq_heatmap = true;
             plot_config.d_term_heatmap = true;
-        }
-        if diff_requested {
-            plot_config.setpoint_derivative = true;
         }
     }
 
