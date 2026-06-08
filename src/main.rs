@@ -50,23 +50,24 @@ struct PlotConfig {
 }
 
 impl Default for PlotConfig {
+    /// Core plots only (enabled by default)
     fn default() -> Self {
         Self {
             step_response: true,
-            pidsum_error_setpoint: true,
+            pidsum_error_setpoint: false,
             setpoint_vs_gyro: true,
-            setpoint_derivative: true,
+            setpoint_derivative: false,
             gyro_vs_unfilt: true,
             gyro_spectrums: true,
-            d_term_psd: true,
+            d_term_psd: false,
             d_term_spectrums: true,
-            psd: true,
-            psd_db_heatmap: true,
-            throttle_freq_heatmap: true,
-            d_term_heatmap: true,
+            psd: false,
+            psd_db_heatmap: false,
+            throttle_freq_heatmap: false,
+            d_term_heatmap: false,
             motor_spectrums: true,
             bode: false,
-            pid_activity: true,
+            pid_activity: false,
         }
     }
 }
@@ -89,6 +90,26 @@ impl PlotConfig {
             motor_spectrums: false,
             bode: false,
             pid_activity: false,
+        }
+    }
+
+    fn all() -> Self {
+        Self {
+            step_response: true,
+            pidsum_error_setpoint: true,
+            setpoint_vs_gyro: true,
+            setpoint_derivative: true,
+            gyro_vs_unfilt: true,
+            gyro_spectrums: true,
+            d_term_psd: true,
+            d_term_spectrums: true,
+            psd: true,
+            psd_db_heatmap: true,
+            throttle_freq_heatmap: true,
+            d_term_heatmap: true,
+            motor_spectrums: true,
+            bode: false, // Bode requires specialized logs
+            pid_activity: true,
         }
     }
 }
@@ -364,13 +385,27 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!();
     eprintln!("=== PLOT TYPE SELECTION ===");
     eprintln!();
-    eprintln!("  Note: Plot flags are combinable. Without flags, all plots generated.");
+    eprintln!("  Note: Plot flags are combinable and switch the application to \"Only\" mode.");
     eprintln!();
-    eprintln!("  --step: Generate only step response plots.");
-    eprintln!("  --motor: Generate only motor spectrum plots.");
-    eprintln!("  --setpoint: Generate only setpoint-related plots.");
-    eprintln!("  --pid: Generate only P, I, D activity plot.");
-    eprintln!("  --bode: Bode plot analysis (requires chirp/sweep system-id test flight, not normal logs).");
+    eprintln!(
+        "  --core:          Generate core plots (Step, Spectrums, Tracking, Latency) [DEFAULT]."
+    );
+    eprintln!("  --extended:      Generate all plots (except Bode).");
+    eprintln!();
+    eprintln!("  --step:          Generate only step response plots.");
+    eprintln!("  --motor:         Generate only motor spectrum plots.");
+    eprintln!("  --spectrums:     Generate only gyro and D-term spectrum plots.");
+    eprintln!("  --tracking:      Generate only setpoint vs gyro tracking plot.");
+    eprintln!("  --gyro-filt:     Generate only gyro vs unfiltered (latency) plot.");
+    eprintln!("  --setpoint:      Generate only setpoint-related plots (Tracking & FF).");
+    eprintln!("  --pid:           Generate only PID-related plots (Activity & Error).");
+    eprintln!("  --psd:           Generate only PSD plots (Gyro & D-term).");
+    eprintln!("  --heatmaps:      Generate only spectral heatmaps.");
+    eprintln!("  --setpoint-diff: Generate only setpoint derivative (FF) plot.");
+    eprintln!(
+        "  --bode:          Bode plot analysis (requires chirp/sweep system-id test flight)."
+    );
+
     eprintln!();
     eprintln!("=== ANALYSIS OPTIONS ===");
     eprintln!();
@@ -1516,9 +1551,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut has_only_flags = false;
     let mut step_requested = false;
     let mut motor_requested = false;
+    let mut spectrums_requested = false;
+    let mut tracking_requested = false;
+    let mut gyro_filt_requested = false;
     let mut setpoint_requested = false;
     let mut bode_requested = false;
     let mut pid_requested = false;
+    let mut psd_requested = false;
+    let mut heatmaps_requested = false;
+    let mut diff_requested = false;
+    let mut core_requested = false;
+    let mut extended_requested = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
 
@@ -1579,6 +1622,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--motor" {
             has_only_flags = true;
             motor_requested = true;
+        } else if arg == "--spectrums" {
+            has_only_flags = true;
+            spectrums_requested = true;
+        } else if arg == "--tracking" {
+            has_only_flags = true;
+            tracking_requested = true;
+        } else if arg == "--gyro-filt" {
+            has_only_flags = true;
+            gyro_filt_requested = true;
         } else if arg == "--setpoint" {
             has_only_flags = true;
             setpoint_requested = true;
@@ -1588,6 +1640,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--pid" {
             has_only_flags = true;
             pid_requested = true;
+        } else if arg == "--psd" {
+            has_only_flags = true;
+            psd_requested = true;
+        } else if arg == "--heatmaps" {
+            has_only_flags = true;
+            heatmaps_requested = true;
+        } else if arg == "--setpoint-diff" {
+            has_only_flags = true;
+            diff_requested = true;
+        } else if arg == "--core" {
+            has_only_flags = true;
+            core_requested = true;
+        } else if arg == "--extended" {
+            has_only_flags = true;
+            extended_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg.starts_with("--") {
@@ -1602,13 +1669,49 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Apply "only" flags if any were specified (non-mutually exclusive: OR together)
     if has_only_flags {
         plot_config = PlotConfig::none();
-        plot_config.step_response = step_requested;
-        plot_config.motor_spectrums = motor_requested;
-        plot_config.bode = bode_requested;
-        plot_config.pid_activity = pid_requested;
-        if setpoint_requested {
-            plot_config.pidsum_error_setpoint = true;
+        if core_requested {
+            plot_config = PlotConfig::default();
+        }
+        if extended_requested {
+            plot_config = PlotConfig::all();
+        }
+        if step_requested {
+            plot_config.step_response = true;
+        }
+        if motor_requested {
+            plot_config.motor_spectrums = true;
+        }
+        if spectrums_requested {
+            plot_config.gyro_spectrums = true;
+            plot_config.d_term_spectrums = true;
+        }
+        if tracking_requested {
             plot_config.setpoint_vs_gyro = true;
+        }
+        if gyro_filt_requested {
+            plot_config.gyro_vs_unfilt = true;
+        }
+        if bode_requested {
+            plot_config.bode = true;
+        }
+        if pid_requested {
+            plot_config.pid_activity = true;
+            plot_config.pidsum_error_setpoint = true;
+        }
+        if setpoint_requested {
+            plot_config.setpoint_vs_gyro = true;
+            plot_config.setpoint_derivative = true;
+        }
+        if psd_requested {
+            plot_config.psd = true;
+            plot_config.d_term_psd = true;
+        }
+        if heatmaps_requested {
+            plot_config.psd_db_heatmap = true;
+            plot_config.throttle_freq_heatmap = true;
+            plot_config.d_term_heatmap = true;
+        }
+        if diff_requested {
             plot_config.setpoint_derivative = true;
         }
     }
@@ -1743,5 +1846,3 @@ Some files could not be processed successfully."
         Ok(())
     }
 }
-
-// src/main.rs

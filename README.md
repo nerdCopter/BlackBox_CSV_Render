@@ -36,13 +36,22 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
 === PLOT TYPE SELECTION ===
 
-  Note: Plot flags are combinable. Without flags, all plots generated.
+  Note: Plot flags are combinable and switch the application to "Only" mode.
 
-  --step: Generate only step response plots.
-  --motor: Generate only motor spectrum plots.
-  --setpoint: Generate only setpoint-related plots.
-  --pid: Generate only P, I, D activity plot.
-  --bode: Bode plot analysis (requires chirp/sweep system-id test flight, not normal logs).
+  --core:          Generate core plots (Step, Spectrums, Tracking, Latency) [DEFAULT].
+  --extended:      Generate all plots (except Bode).
+
+  --step:          Generate only step response plots.
+  --motor:         Generate only motor spectrum plots.
+  --spectrums:     Generate only gyro and D-term spectrum plots.
+  --tracking:      Generate only setpoint vs gyro tracking plot.
+  --gyro-filt:     Generate only gyro vs unfiltered (latency) plot.
+  --setpoint:      Generate only setpoint-related plots (Tracking & FF).
+  --pid:           Generate only PID-related plots (Activity & Error).
+  --psd:           Generate only PSD plots (Gyro & D-term).
+  --heatmaps:      Generate only spectral heatmaps.
+  --setpoint-diff: Generate only setpoint derivative (FF) plot.
+  --bode:          Bode plot analysis (requires chirp/sweep system-id test flight).
 
 === ANALYSIS OPTIONS ===
 
