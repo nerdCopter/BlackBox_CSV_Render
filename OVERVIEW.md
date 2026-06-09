@@ -23,7 +23,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 ### Core Functionality
 
 1.  **Argument Parsing (`src/main.rs`):**
-    * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and plot-selection flags (`--core` [default], `--extended`, `--step`, `--motor`, `--spectrums`, `--tracking`, `--gyro-filt`, `--setpoint`, `--pid`, `--psd`, `--heatmaps`, `--bode`).
+    * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and plot-selection flags (`--core` [default], `--extended`, `--step`, `--motor`, `--spectrums`, `--tracking`, `--gyro-filt`, `--pid`, `--psd`, `--heatmaps`, `--bode`).
     * Additional options include `--help` and `--version` for user assistance.
     * The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     * Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
@@ -101,7 +101,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                 * **Extended plots (`--extended` or individual flags):**
                     * `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis. (`--pid`)
                     * `plot_pid_activity`: P, I, D term activity over time. (`--pid`)
-                    * `plot_setpoint_derivative`: Setpoint rate-of-change (feed-forward proxy) for each axis. (`--setpoint`)
+                    * `plot_setpoint_derivative`: Setpoint rate-of-change (feed-forward proxy) for each axis. (`--pid`)
                     * `plot_psd`: Power Spectral Density plots in dB scale with peak labeling. Includes enhanced cross-correlation filtering delay calculation. (`--psd`)
                     * `plot_d_term_psd`: Power Spectral Density plots of D-term data in dB scale with intelligent threshold filtering (`PSD_PEAK_LABEL_MIN_VALUE_DB` for filtered data) and enhanced formatting. Includes enhanced cross-correlation filtering delay calculation with intelligent D-term activity detection (skips axes where D gain = 0). (`--psd`)
                     * `plot_d_term_heatmap`: D-term throttle-frequency heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze D-term energy distribution across different throttle levels. (`--heatmaps`)
