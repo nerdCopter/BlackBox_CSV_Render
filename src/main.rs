@@ -398,9 +398,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  --spectrums:     Generate only gyro and D-term spectrum plots.");
     eprintln!("  --tracking:      Generate only setpoint vs gyro tracking plot.");
     eprintln!("  --gyro-filt:     Generate only gyro vs unfiltered (latency) plot.");
-    eprintln!(
-        "  --pid:           Generate only PID-related plots (Tracking, FF, Activity & Error)."
-    );
+    eprintln!("  --setpoint:      Generate only setpoint-related plots (Tracking & FF).");
+    eprintln!("  --pid:           Generate only PID-related plots (Activity & Error).");
     eprintln!("  --psd:           Generate only PSD plots (Gyro & D-term).");
     eprintln!("  --heatmaps:      Generate only spectral heatmaps.");
     eprintln!(
@@ -1554,6 +1553,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut spectrums_requested = false;
     let mut tracking_requested = false;
     let mut gyro_filt_requested = false;
+    let mut setpoint_requested = false;
     let mut bode_requested = false;
     let mut pid_requested = false;
     let mut psd_requested = false;
@@ -1629,6 +1629,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--gyro-filt" {
             has_only_flags = true;
             gyro_filt_requested = true;
+        } else if arg == "--setpoint" {
+            has_only_flags = true;
+            setpoint_requested = true;
         } else if arg == "--bode" {
             has_only_flags = true;
             bode_requested = true;
@@ -1694,6 +1697,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         if pid_requested {
             plot_config.pid_activity = true;
             plot_config.pidsum_error_setpoint = true;
+        }
+        if setpoint_requested {
             plot_config.setpoint_vs_gyro = true;
             plot_config.setpoint_derivative = true;
         }
@@ -1711,8 +1716,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Show debug information when the runtime --debug flag is present
     if debug_mode {
         println!(
-            "DEBUG: has_only_flags={}, step_requested={}, motor_requested={}, pid_requested={}, plot_config={:?}",
-            has_only_flags, step_requested, motor_requested, pid_requested, plot_config
+            "DEBUG: has_only_flags={}, step_requested={}, motor_requested={}, setpoint_requested={}, plot_config={:?}",
+            has_only_flags, step_requested, motor_requested, setpoint_requested, plot_config
         );
     }
 

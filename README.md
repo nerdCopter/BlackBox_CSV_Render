@@ -50,7 +50,8 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
   --spectrums:     Generate only gyro and D-term spectrum plots.
   --tracking:      Generate only setpoint vs gyro tracking plot.
   --gyro-filt:     Generate only gyro vs unfiltered (latency) plot.
-  --pid:           Generate only PID-related plots (Tracking, FF, Activity & Error).
+  --setpoint:      Generate only setpoint-related plots (Tracking & FF).
+  --pid:           Generate only PID-related plots (Activity & Error).
   --psd:           Generate only PSD plots (Gyro & D-term).
   --heatmaps:      Generate only spectral heatmaps.
   --bode:          Bode plot analysis (requires chirp/sweep system-id test flight).
@@ -107,7 +108,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 **Extended (`--extended`, or via individual flags):**
 - `*_PIDsum_PIDerror_Setpoint_stacked.png` — PIDsum, PID error, and setpoint traces (`--pid`)
 - `*_PID_Activity_stacked.png` — P, I, D term activity over time (`--pid`)
-- `*_SetpointDerivative_stacked.png` — Setpoint rate-of-change / feed-forward proxy (`--pid`)
+- `*_SetpointDerivative_stacked.png` — Setpoint rate-of-change / feed-forward proxy (`--setpoint`)
 - `*_Gyro_PSD_comparative.png` — Gyro power spectral density (dB scale) (`--psd`)
 - `*_D_Term_PSD_comparative.png` — D-term power spectral density (dB scale) (`--psd`)
 - `*_D_Term_Heatmap_comparative.png` — D-term throttle/frequency heatmap (`--heatmaps`)
