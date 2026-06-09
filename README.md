@@ -38,7 +38,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
   Note: Plot flags are combinable and switch the application to "Only" mode.
 
-  --core:          Generate core plots (Step, Spectrums, Tracking, Latency) [DEFAULT].
+  --core:          Generate core plots (Step, Spectrums, Tracking, Latency, Motor) [DEFAULT].
   --extended:      Generate all plots (except Bode).
 
   --step:          Generate only step response plots.

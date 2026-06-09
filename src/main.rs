@@ -388,7 +388,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  Note: Plot flags are combinable and switch the application to \"Only\" mode.");
     eprintln!();
     eprintln!(
-        "  --core:          Generate core plots (Step, Spectrums, Tracking, Latency) [DEFAULT]."
+        "  --core:          Generate core plots (Step, Spectrums, Tracking, Latency, Motor) [DEFAULT]."
     );
     eprintln!("  --extended:      Generate all plots (except Bode).");
     eprintln!();
