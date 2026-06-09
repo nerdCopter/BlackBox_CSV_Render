@@ -30,6 +30,7 @@ fn get_version_string() -> String {
 }
 
 // Plot configuration struct
+// NOTE: When adding a field here, update none(), Default::default(), and all() accordingly.
 #[derive(Debug, Clone, Copy)]
 struct PlotConfig {
     pub step_response: bool,
@@ -1660,15 +1661,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         i += 1;
     }
 
+    if core_requested && extended_requested {
+        eprintln!("Error: --core and --extended are mutually exclusive.");
+        print_usage_and_exit(program_name);
+    }
+
     // Apply "only" flags if any were specified (non-mutually exclusive: OR together)
     if has_only_flags {
-        plot_config = PlotConfig::none();
-        if core_requested {
-            plot_config = PlotConfig::default();
-        }
-        if extended_requested {
-            plot_config = PlotConfig::all();
-        }
+        plot_config = if core_requested {
+            PlotConfig::default()
+        } else if extended_requested {
+            PlotConfig::all()
+        } else {
+            PlotConfig::none()
+        };
         if step_requested {
             plot_config.step_response = true;
         }

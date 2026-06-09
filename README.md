@@ -25,6 +25,10 @@ cargo build --release
 ```
 
 ### Usage
+
+> **Notice:** Default output changed to **core plots only** (Step, Spectrums, Tracking, Latency, Motor).
+> Scripts or workflows that previously relied on all plots being generated without flags should add `--extended` to restore the full set.
+
 ```shell
 Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
@@ -92,19 +96,24 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ### Output
 
 #### PNG Files Generated
+
+**Core (default / `--core`):**
 - `*_Step_Response_stacked_plot_*.png` — Step response analysis with P:D recommendations
-- `*_PIDsum_PIDerror_Setpoint_stacked.png` — PIDsum, PID error, and setpoint traces
 - `*_SetpointVsGyro_stacked.png` — Setpoint vs. filtered gyro comparison
 - `*_GyroVsUnfilt_stacked.png` — Filtered vs. unfiltered gyro comparison with delay estimates
 - `*_Gyro_Spectrums_comparative.png` — Frequency-domain gyro amplitude spectrums
-- `*_Gyro_PSD_comparative.png` — Gyro power spectral density (dB scale)
 - `*_D_Term_Spectrums_comparative.png` — Frequency-domain D-term amplitude spectrums
-- `*_D_Term_PSD_comparative.png` — D-term power spectral density (dB scale)
-- `*_D_Term_Heatmap_comparative.png` — D-term throttle/frequency heatmap
-- `*_Gyro_PSD_Spectrogram_comparative.png` — Gyro spectrogram (PSD vs. time)
-- `*_Throttle_Freq_Heatmap_comparative.png` — Throttle/frequency heatmap analysis
 - `*_Motor_Spectrums_stacked.png` — Motor output frequency analysis (supports any motor count; colors wrap every 8 motors)
-- `*_PID_Activity_stacked.png` — P, I, D term activity over time (stacked plot showing all three PID components)
+
+**Extended (`--extended`, or via individual flags):**
+- `*_PIDsum_PIDerror_Setpoint_stacked.png` — PIDsum, PID error, and setpoint traces (`--pid`)
+- `*_PID_Activity_stacked.png` — P, I, D term activity over time (`--pid`)
+- `*_SetpointDerivative_stacked.png` — Setpoint rate-of-change / feed-forward proxy (`--setpoint`)
+- `*_Gyro_PSD_comparative.png` — Gyro power spectral density (dB scale) (`--psd`)
+- `*_D_Term_PSD_comparative.png` — D-term power spectral density (dB scale) (`--psd`)
+- `*_D_Term_Heatmap_comparative.png` — D-term throttle/frequency heatmap (`--heatmaps`)
+- `*_Gyro_PSD_Spectrogram_comparative.png` — Gyro spectrogram (PSD vs. time) (`--heatmaps`)
+- `*_Throttle_Freq_Heatmap_comparative.png` — Throttle/frequency heatmap analysis (`--heatmaps`)
 
 #### Console Output:
 - Current P:D ratio and peak analysis with response assessment

@@ -23,7 +23,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 ### Core Functionality
 
 1.  **Argument Parsing (`src/main.rs`):**
-    * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and an optional `--step` flag to generate only step response plots.
+    * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and plot-selection flags (`--core` [default], `--extended`, `--step`, `--motor`, `--spectrums`, `--tracking`, `--gyro-filt`, `--setpoint`, `--pid`, `--psd`, `--heatmaps`, `--bode`).
     * Additional options include `--help` and `--version` for user assistance.
     * The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     * Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
@@ -91,17 +91,22 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * Clear disclaimers that recommendations are starting points, not absolute values
                     * Works for all aircraft sizes including 10"+ where D > P (P:D < 1.0)
                 * Recommendations appear in both console output and step response plot legends
-            * **Other plots generated (`src/plot_functions/`):** When the `--step` flag is not used, the following additional plots are generated. These per-plot gates are controlled by the `PlotConfig` struct (defaults to all enabled; `PlotConfig::step_only()` when `--step` is specified):
-                * `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.
-                * `plot_setpoint_vs_gyro`: Setpoint and filtered gyro time-domain comparison for each axis.
-                * `plot_gyro_vs_unfilt`: Filtered vs. unfiltered gyro time-domain comparison for each axis. Includes enhanced cross-correlation filtering delay calculation.
-                * `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with intelligent peak detection and labeling using scale-aware thresholds (`FILTERED_GYRO_MIN_THRESHOLD` for filtered gyro data). Includes enhanced cross-correlation filtering delay calculation and flight firmware filter response curve overlays.
-                * `plot_psd`: Power Spectral Density plots in dB scale with peak labeling. Includes enhanced cross-correlation filtering delay calculation.
-                * `plot_d_term_spectrums`: Frequency-domain amplitude spectrums of D-term data with intelligent peak detection using scale-aware thresholds (`FILTERED_D_TERM_MIN_THRESHOLD` for filtered D-term data). Includes enhanced cross-correlation filtering delay calculation with intelligent D-term activity detection (skips axes where D gain = 0).
-                * `plot_d_term_psd`: Power Spectral Density plots of D-term data in dB scale with intelligent threshold filtering (`PSD_PEAK_LABEL_MIN_VALUE_DB` for filtered data) and enhanced formatting. Includes enhanced cross-correlation filtering delay calculation with intelligent D-term activity detection (skips axes where D gain = 0).
-                * `plot_d_term_heatmap`: D-term throttle-frequency heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze D-term energy distribution across different throttle levels.
-                * `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap.
-                * `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
+            * **Other plots generated (`src/plot_functions/`):** Which plots are generated is controlled by the `PlotConfig` struct. The default (`--core`) enables the core set; `--extended` enables all plots except Bode; individual flags enable specific subsets. Plots are gated per-field in `PlotConfig`:
+                * **Core plots (default):**
+                    * `plot_setpoint_vs_gyro`: Setpoint and filtered gyro time-domain comparison for each axis.
+                    * `plot_gyro_vs_unfilt`: Filtered vs. unfiltered gyro time-domain comparison for each axis. Includes enhanced cross-correlation filtering delay calculation.
+                    * `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with intelligent peak detection and labeling using scale-aware thresholds (`FILTERED_GYRO_MIN_THRESHOLD` for filtered gyro data). Includes enhanced cross-correlation filtering delay calculation and flight firmware filter response curve overlays.
+                    * `plot_d_term_spectrums`: Frequency-domain amplitude spectrums of D-term data with intelligent peak detection using scale-aware thresholds (`FILTERED_D_TERM_MIN_THRESHOLD` for filtered D-term data). Includes enhanced cross-correlation filtering delay calculation with intelligent D-term activity detection (skips axes where D gain = 0).
+                    * `plot_motor_spectrums`: Motor output frequency analysis.
+                * **Extended plots (`--extended` or individual flags):**
+                    * `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis. (`--pid`)
+                    * `plot_pid_activity`: P, I, D term activity over time. (`--pid`)
+                    * `plot_setpoint_derivative`: Setpoint rate-of-change (feed-forward proxy) for each axis. (`--setpoint`)
+                    * `plot_psd`: Power Spectral Density plots in dB scale with peak labeling. Includes enhanced cross-correlation filtering delay calculation. (`--psd`)
+                    * `plot_d_term_psd`: Power Spectral Density plots of D-term data in dB scale with intelligent threshold filtering (`PSD_PEAK_LABEL_MIN_VALUE_DB` for filtered data) and enhanced formatting. Includes enhanced cross-correlation filtering delay calculation with intelligent D-term activity detection (skips axes where D gain = 0). (`--psd`)
+                    * `plot_d_term_heatmap`: D-term throttle-frequency heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze D-term energy distribution across different throttle levels. (`--heatmaps`)
+                    * `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap. (`--heatmaps`)
+                    * `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels. (`--heatmaps`)
 
 ### Filtering Delay Calculation
 
