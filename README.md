@@ -39,31 +39,25 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
 === PLOT TYPE SELECTION ===
 
-  Default (no flag): Core plots — Step Response, Gyro Spectrums, D-term Spectrums,
-                     Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.
-
-  --extended:      All plots except Bode — adds PIDsum/Error, PID Activity,
-                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps
-                   (Gyro Spectrogram, Throttle/Freq, D-term) to the core set.
-
-  --step:          Step response plots only.
-  --bode:          Bode plot only (requires chirp/sweep system-id test flight).
-
-  --extended and --step/--bode are combinable: --extended --bode adds Bode to
-  the full set; --step --bode generates both in isolation.
+  --core           [default] Step Response, Gyro Spectrums, D-term Spectrums,
+                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.
+  --extended       All plots except Bode — adds PIDsum/Error, PID Activity,
+                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.
+  --step           Step response only.
+  --bode           Bode only (requires chirp/sweep system-id test flight).
 
 === ANALYSIS OPTIONS ===
 
-  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.
-  --dps <value>: Deg/s threshold for detailed step response plots (positive number).
-  --estimate-optimal-p: [EXPERIMENTAL] Optimal P estimation from throttle-punch
+  --butterworth    Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.
+  --dps <value>    Deg/s threshold for detailed step response plots (positive number).
+  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch
                         dynamics. Requires .headers.csv; skips if absent.
 
 === GENERAL ===
 
-  --debug: Show detailed metadata during processing.
-  -h, --help: Show this help message and exit.
-  -V, --version: Show version information.
+  --debug          Show detailed metadata during processing.
+  -h, --help       Show this help message and exit.
+  -V, --version    Show version information.
 ```
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns.

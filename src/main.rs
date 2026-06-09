@@ -386,33 +386,27 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!();
     eprintln!("=== PLOT TYPE SELECTION ===");
     eprintln!();
-    eprintln!("  Default (no flag): Core plots — Step Response, Gyro Spectrums, D-term Spectrums,");
-    eprintln!("                     Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.");
-    eprintln!();
-    eprintln!("  --extended:      All plots except Bode — adds PIDsum/Error, PID Activity,");
-    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps");
-    eprintln!("                   (Gyro Spectrogram, Throttle/Freq, D-term) to the core set.");
-    eprintln!();
-    eprintln!("  --step:          Step response plots only.");
-    eprintln!("  --bode:          Bode plot only (requires chirp/sweep system-id test flight).");
-    eprintln!();
-    eprintln!("  --extended and --step/--bode are combinable: --extended --bode adds Bode to");
-    eprintln!("  the full set; --step --bode generates both in isolation.");
+    eprintln!("  --core           [default] Step Response, Gyro Spectrums, D-term Spectrums,");
+    eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.");
+    eprintln!("  --extended       All plots except Bode — adds PIDsum/Error, PID Activity,");
+    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.");
+    eprintln!("  --step           Step response only.");
+    eprintln!("  --bode           Bode only (requires chirp/sweep system-id test flight).");
     eprintln!();
     eprintln!("=== ANALYSIS OPTIONS ===");
     eprintln!();
-    eprintln!("  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
+    eprintln!("  --butterworth    Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
     eprintln!(
-        "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
+        "  --dps <value>    Deg/s threshold for detailed step response plots (positive number)."
     );
-    eprintln!("  --estimate-optimal-p: [EXPERIMENTAL] Optimal P estimation from throttle-punch");
+    eprintln!("  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch");
     eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
     eprintln!();
     eprintln!("=== GENERAL ===");
     eprintln!();
-    eprintln!("  --debug: Show detailed metadata during processing.");
-    eprintln!("  -h, --help: Show this help message and exit.");
-    eprintln!("  -V, --version: Show version information.");
+    eprintln!("  --debug          Show detailed metadata during processing.");
+    eprintln!("  -h, --help       Show this help message and exit.");
+    eprintln!("  -V, --version    Show version information.");
     std::process::exit(1);
 }
 
@@ -1540,9 +1534,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
     let mut debug_mode = false;
     let mut show_butterworth = false;
+    let mut core_requested = false;
+    let mut extended_requested = false;
     let mut step_requested = false;
     let mut bode_requested = false;
-    let mut extended_requested = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
 
@@ -1597,12 +1592,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             debug_mode = true;
         } else if arg == "--butterworth" {
             show_butterworth = true;
+        } else if arg == "--core" {
+            core_requested = true;
+        } else if arg == "--extended" {
+            extended_requested = true;
         } else if arg == "--step" {
             step_requested = true;
         } else if arg == "--bode" {
             bode_requested = true;
-        } else if arg == "--extended" {
-            extended_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg.starts_with("--") {
@@ -1612,6 +1609,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             input_paths.push(arg.clone());
         }
         i += 1;
+    }
+
+    if core_requested && extended_requested {
+        eprintln!("Error: --core and --extended are mutually exclusive.");
+        print_usage_and_exit(program_name);
     }
 
     // Derive plot configuration from flags
