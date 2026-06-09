@@ -26,8 +26,7 @@ cargo build --release
 
 ### Usage
 
-> **Notice:** Default output changed to **core plots only** (Step, Spectrums, Tracking, Latency, Motor).
-> Scripts or workflows that previously relied on all plots being generated without flags should add `--extended` to restore the full set.
+> **Notice:** Default output is **core plots only**. Use `--extended` for all plots.
 
 ```shell
 Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
@@ -40,27 +39,25 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
 === PLOT TYPE SELECTION ===
 
-  Note: Plot flags are combinable and switch the application to "Only" mode.
+  Default (no flag): Core plots — Step Response, Gyro Spectrums, D-term Spectrums,
+                     Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.
 
-  --core:          Generate core plots (Step, Spectrums, Tracking, Latency, Motor) [DEFAULT].
-  --extended:      Generate all plots (except Bode).
+  --extended:      All plots except Bode — adds PIDsum/Error, PID Activity,
+                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps
+                   (Gyro Spectrogram, Throttle/Freq, D-term) to the core set.
 
-  --step:          Generate only step response plots.
-  --motor:         Generate only motor spectrum plots.
-  --spectrums:     Generate only gyro and D-term spectrum plots.
-  --tracking:      Generate only setpoint vs gyro tracking plot.
-  --gyro-filt:     Generate only gyro vs unfiltered (latency) plot.
-  --setpoint:      Generate only setpoint-related plots (Tracking & FF).
-  --pid:           Generate only PID-related plots (Activity & Error).
-  --psd:           Generate only PSD plots (Gyro & D-term).
-  --heatmaps:      Generate only spectral heatmaps.
-  --bode:          Bode plot analysis (requires chirp/sweep system-id test flight).
+  --step:          Step response plots only.
+  --bode:          Bode plot only (requires chirp/sweep system-id test flight).
+
+  --extended and --step/--bode are combinable: --extended --bode adds Bode to
+  the full set; --step --bode generates both in isolation.
 
 === ANALYSIS OPTIONS ===
 
   --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.
   --dps <value>: Deg/s threshold for detailed step response plots (positive number).
-  --estimate-optimal-p: Enable optimal P estimation from throttle-punch dynamics. Requires .headers.csv; skips P estimation if absent.
+  --estimate-optimal-p: [EXPERIMENTAL] Optimal P estimation from throttle-punch
+                        dynamics. Requires .headers.csv; skips if absent.
 
 === GENERAL ===
 
@@ -70,6 +67,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 ```
 
 Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and work with mixed file/directory patterns.
+
 ### Example execution commands
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv
@@ -84,10 +82,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ./target/release/BlackBox_CSV_Render path/to/ -R --step --output-dir ./step-only
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path/to/ --setpoint --output-dir ./setpoint-only
-```
-```shell
-./target/release/BlackBox_CSV_Render path/to/ --step --setpoint --motor --output-dir ./all-selective
+./target/release/BlackBox_CSV_Render path/to/ --extended --output-dir ./all-plots
 ```
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p
@@ -97,7 +92,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 
 #### PNG Files Generated
 
-**Core (default / `--core`):**
+**Core (default):**
 - `*_Step_Response_stacked_plot_*.png` — Step response analysis with P:D recommendations
 - `*_SetpointVsGyro_stacked.png` — Setpoint vs. filtered gyro comparison
 - `*_GyroVsUnfilt_stacked.png` — Filtered vs. unfiltered gyro comparison with delay estimates
@@ -105,15 +100,15 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 - `*_D_Term_Spectrums_comparative.png` — Frequency-domain D-term amplitude spectrums
 - `*_Motor_Spectrums_stacked.png` — Motor output frequency analysis (supports any motor count; colors wrap every 8 motors)
 
-**Extended (`--extended`, or via individual flags):**
-- `*_PIDsum_PIDerror_Setpoint_stacked.png` — PIDsum, PID error, and setpoint traces (`--pid`)
-- `*_PID_Activity_stacked.png` — P, I, D term activity over time (`--pid`)
-- `*_SetpointDerivative_stacked.png` — Setpoint rate-of-change / feed-forward proxy (`--setpoint`)
-- `*_Gyro_PSD_comparative.png` — Gyro power spectral density (dB scale) (`--psd`)
-- `*_D_Term_PSD_comparative.png` — D-term power spectral density (dB scale) (`--psd`)
-- `*_D_Term_Heatmap_comparative.png` — D-term throttle/frequency heatmap (`--heatmaps`)
-- `*_Gyro_PSD_Spectrogram_comparative.png` — Gyro spectrogram (PSD vs. time) (`--heatmaps`)
-- `*_Throttle_Freq_Heatmap_comparative.png` — Throttle/frequency heatmap analysis (`--heatmaps`)
+**Extended (`--extended` adds these to the core set):**
+- `*_PIDsum_PIDerror_Setpoint_stacked.png` — PIDsum, PID error, and setpoint traces
+- `*_PID_Activity_stacked.png` — P, I, D term activity over time
+- `*_SetpointDerivative_stacked.png` — Setpoint rate-of-change / feed-forward proxy
+- `*_Gyro_PSD_comparative.png` — Gyro power spectral density (dB scale)
+- `*_D_Term_PSD_comparative.png` — D-term power spectral density (dB scale)
+- `*_D_Term_Heatmap_comparative.png` — D-term throttle/frequency heatmap
+- `*_Gyro_PSD_Spectrogram_comparative.png` — Gyro spectrogram (PSD vs. time)
+- `*_Throttle_Freq_Heatmap_comparative.png` — Throttle/frequency heatmap analysis
 
 #### Console Output:
 - Current P:D ratio and peak analysis with response assessment

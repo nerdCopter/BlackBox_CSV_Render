@@ -386,25 +386,18 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!();
     eprintln!("=== PLOT TYPE SELECTION ===");
     eprintln!();
-    eprintln!("  Note: Plot flags are combinable and switch the application to \"Only\" mode.");
+    eprintln!("  Default (no flag): Core plots — Step Response, Gyro Spectrums, D-term Spectrums,");
+    eprintln!("                     Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.");
     eprintln!();
-    eprintln!(
-        "  --core:          Generate core plots (Step, Spectrums, Tracking, Latency, Motor) [DEFAULT]."
-    );
-    eprintln!("  --extended:      Generate all plots (except Bode).");
+    eprintln!("  --extended:      All plots except Bode — adds PIDsum/Error, PID Activity,");
+    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps");
+    eprintln!("                   (Gyro Spectrogram, Throttle/Freq, D-term) to the core set.");
     eprintln!();
-    eprintln!("  --step:          Generate only step response plots.");
-    eprintln!("  --motor:         Generate only motor spectrum plots.");
-    eprintln!("  --spectrums:     Generate only gyro and D-term spectrum plots.");
-    eprintln!("  --tracking:      Generate only setpoint vs gyro tracking plot.");
-    eprintln!("  --gyro-filt:     Generate only gyro vs unfiltered (latency) plot.");
-    eprintln!("  --setpoint:      Generate only setpoint-related plots (Tracking & FF).");
-    eprintln!("  --pid:           Generate only PID-related plots (Activity & Error).");
-    eprintln!("  --psd:           Generate only PSD plots (Gyro & D-term).");
-    eprintln!("  --heatmaps:      Generate only spectral heatmaps.");
-    eprintln!(
-        "  --bode:          Bode plot analysis (requires chirp/sweep system-id test flight)."
-    );
+    eprintln!("  --step:          Step response plots only.");
+    eprintln!("  --bode:          Bode plot only (requires chirp/sweep system-id test flight).");
+    eprintln!();
+    eprintln!("  --extended and --step/--bode are combinable: --extended --bode adds Bode to");
+    eprintln!("  the full set; --step --bode generates both in isolation.");
     eprintln!();
     eprintln!("=== ANALYSIS OPTIONS ===");
     eprintln!();
@@ -412,7 +405,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!(
         "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
     );
-    eprintln!("  --estimate-optimal-p: Enable optimal P estimation from throttle-punch dynamics. Requires .headers.csv; skips P estimation if absent.");
+    eprintln!("  --estimate-optimal-p: [EXPERIMENTAL] Optimal P estimation from throttle-punch");
+    eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
     eprintln!();
     eprintln!("=== GENERAL ===");
     eprintln!();
@@ -1546,19 +1540,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
     let mut debug_mode = false;
     let mut show_butterworth = false;
-    let mut plot_config = PlotConfig::default();
-    let mut has_only_flags = false;
     let mut step_requested = false;
-    let mut motor_requested = false;
-    let mut spectrums_requested = false;
-    let mut tracking_requested = false;
-    let mut gyro_filt_requested = false;
-    let mut setpoint_requested = false;
     let mut bode_requested = false;
-    let mut pid_requested = false;
-    let mut psd_requested = false;
-    let mut heatmaps_requested = false;
-    let mut core_requested = false;
     let mut extended_requested = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
@@ -1615,40 +1598,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--butterworth" {
             show_butterworth = true;
         } else if arg == "--step" {
-            has_only_flags = true;
             step_requested = true;
-        } else if arg == "--motor" {
-            has_only_flags = true;
-            motor_requested = true;
-        } else if arg == "--spectrums" {
-            has_only_flags = true;
-            spectrums_requested = true;
-        } else if arg == "--tracking" {
-            has_only_flags = true;
-            tracking_requested = true;
-        } else if arg == "--gyro-filt" {
-            has_only_flags = true;
-            gyro_filt_requested = true;
-        } else if arg == "--setpoint" {
-            has_only_flags = true;
-            setpoint_requested = true;
         } else if arg == "--bode" {
-            has_only_flags = true;
             bode_requested = true;
-        } else if arg == "--pid" {
-            has_only_flags = true;
-            pid_requested = true;
-        } else if arg == "--psd" {
-            has_only_flags = true;
-            psd_requested = true;
-        } else if arg == "--heatmaps" {
-            has_only_flags = true;
-            heatmaps_requested = true;
-        } else if arg == "--core" {
-            has_only_flags = true;
-            core_requested = true;
         } else if arg == "--extended" {
-            has_only_flags = true;
             extended_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
@@ -1661,63 +1614,31 @@ fn main() -> Result<(), Box<dyn Error>> {
         i += 1;
     }
 
-    if core_requested && extended_requested {
-        eprintln!("Error: --core and --extended are mutually exclusive.");
-        print_usage_and_exit(program_name);
-    }
-
-    // Apply "only" flags if any were specified (non-mutually exclusive: OR together)
-    if has_only_flags {
-        plot_config = if core_requested {
-            PlotConfig::default()
-        } else if extended_requested {
-            PlotConfig::all()
-        } else {
-            PlotConfig::none()
-        };
+    // Derive plot configuration from flags
+    let plot_config = if extended_requested {
+        let mut cfg = PlotConfig::all();
+        if bode_requested {
+            cfg.bode = true;
+        }
+        cfg
+    } else if step_requested || bode_requested {
+        let mut cfg = PlotConfig::none();
         if step_requested {
-            plot_config.step_response = true;
-        }
-        if motor_requested {
-            plot_config.motor_spectrums = true;
-        }
-        if spectrums_requested {
-            plot_config.gyro_spectrums = true;
-            plot_config.d_term_spectrums = true;
-        }
-        if tracking_requested {
-            plot_config.setpoint_vs_gyro = true;
-        }
-        if gyro_filt_requested {
-            plot_config.gyro_vs_unfilt = true;
+            cfg.step_response = true;
         }
         if bode_requested {
-            plot_config.bode = true;
+            cfg.bode = true;
         }
-        if pid_requested {
-            plot_config.pid_activity = true;
-            plot_config.pidsum_error_setpoint = true;
-        }
-        if setpoint_requested {
-            plot_config.setpoint_vs_gyro = true;
-            plot_config.setpoint_derivative = true;
-        }
-        if psd_requested {
-            plot_config.psd = true;
-            plot_config.d_term_psd = true;
-        }
-        if heatmaps_requested {
-            plot_config.psd_db_heatmap = true;
-            plot_config.throttle_freq_heatmap = true;
-            plot_config.d_term_heatmap = true;
-        }
-    }
+        cfg
+    } else {
+        PlotConfig::default()
+    };
 
     // Show debug information when the runtime --debug flag is present
     if debug_mode {
         println!(
-            "DEBUG: has_only_flags={}, step_requested={}, motor_requested={}, setpoint_requested={}, plot_config={:?}",
-            has_only_flags, step_requested, motor_requested, setpoint_requested, plot_config
+            "DEBUG: extended={}, step={}, bode={}, plot_config={:?}",
+            extended_requested, step_requested, bode_requested, plot_config
         );
     }
 
