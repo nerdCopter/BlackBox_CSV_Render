@@ -216,7 +216,9 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             .trim(csv::Trim::All)
             .from_reader(BufReader::new(file));
         let header_record = reader.headers()?.clone();
-        println!("Flight data keys found in CSV: {header_record:?}");
+        if debug_mode {
+            println!("Flight data keys found in CSV: {header_record:?}");
+        }
 
         // Detect motor channels dynamically (motor[0] through motor[N-1])
         // Collect all motor headers with their (motor_num, csv_idx) pairs, allowing out-of-order
@@ -271,12 +273,14 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                 motor_indices.push(*csv_idx);
             }
 
-            println!(
-                "Detected {} motor outputs: motor[{}] through motor[{}]",
-                motor_indices.len(),
-                motor_pairs.first().map(|&(n, _)| n).unwrap_or(0),
-                motor_pairs.last().map(|&(n, _)| n).unwrap_or(0)
-            );
+            if debug_mode {
+                println!(
+                    "Detected {} motor outputs: motor[{}] through motor[{}]",
+                    motor_indices.len(),
+                    motor_pairs.first().map(|&(n, _)| n).unwrap_or(0),
+                    motor_pairs.last().map(|&(n, _)| n).unwrap_or(0)
+                );
+            }
         }
 
         header_indices = target_headers
@@ -295,7 +299,9 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             })
             .collect();
 
-        println!("Flight data key mapping:");
+        if debug_mode {
+            println!("Flight data key mapping:");
+        }
         let mut essential_pid_headers_found = true;
 
         // Check essential PID headers (Time, P, I, D[0], D[1]).
@@ -303,11 +309,13 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             // Indices 0 through 8
             let name = target_headers[i];
             let found = header_indices[i].is_some();
-            println!(
-                "  '{}': {}",
-                name,
-                if found { "Found" } else { "Not Found" }
-            );
+            if debug_mode {
+                println!(
+                    "  '{}': {}",
+                    name,
+                    if found { "Found" } else { "Not Found" }
+                );
+            }
             if !found {
                 essential_pid_headers_found = false;
             }
@@ -315,23 +323,11 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
 
         // Check optional 'axisD[2]' header (Index 9).
         let axis_d2_found_in_csv = header_indices[9].is_some();
-        println!(
-            "  '{}': {} (Optional, defaults to 0.0 if not found)",
-            target_headers[9],
-            if axis_d2_found_in_csv {
-                "Found"
-            } else {
-                "Not Found"
-            }
-        );
-
-        // Check f_term headers (Indices 10-12).
-        for axis in 0..crate::axis_names::AXIS_NAMES.len() {
-            f_term_header_found[axis] = header_indices[10 + axis].is_some();
+        if debug_mode {
             println!(
                 "  '{}': {} (Optional, defaults to 0.0 if not found)",
-                target_headers[10 + axis],
-                if f_term_header_found[axis] {
+                target_headers[9],
+                if axis_d2_found_in_csv {
                     "Found"
                 } else {
                     "Not Found"
@@ -339,75 +335,99 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             );
         }
 
+        // Check f_term headers (Indices 10-12).
+        for axis in 0..crate::axis_names::AXIS_NAMES.len() {
+            f_term_header_found[axis] = header_indices[10 + axis].is_some();
+            if debug_mode {
+                println!(
+                    "  '{}': {} (Optional, defaults to 0.0 if not found)",
+                    target_headers[10 + axis],
+                    if f_term_header_found[axis] {
+                        "Found"
+                    } else {
+                        "Not Found"
+                    }
+                );
+            }
+        }
+
         // Check setpoint headers (Indices 13-16).
         for axis in 0..4 {
             // Check setpoint[0] to setpoint[3]
             setpoint_header_found[axis] = header_indices[13 + axis].is_some();
-            let purpose = if axis < 3 {
-                format!("Essential for Setpoint plots and Step Response Axis {axis}")
-            } else {
-                "Throttle (setpoint[3])".to_string()
-            };
-            println!(
-                "  '{}': {} ({})",
-                target_headers[13 + axis],
-                if setpoint_header_found[axis] {
-                    "Found"
+            if debug_mode {
+                let purpose = if axis < 3 {
+                    format!("Essential for Setpoint plots and Step Response Axis {axis}")
                 } else {
-                    "Not Found"
-                },
-                purpose
-            );
+                    "Throttle (setpoint[3])".to_string()
+                };
+                println!(
+                    "  '{}': {} ({})",
+                    target_headers[13 + axis],
+                    if setpoint_header_found[axis] {
+                        "Found"
+                    } else {
+                        "Not Found"
+                    },
+                    purpose
+                );
+            }
         }
 
         // Check gyro (filtered) headers (Indices 17-19).
         for axis in 0..crate::axis_names::AXIS_NAMES.len() {
             gyro_header_found[axis] = header_indices[17 + axis].is_some();
-            println!(
-                "  '{}': {} (Essential for Step Response, Gyro plots, and PID Error Axis {})",
-                target_headers[17 + axis],
-                if gyro_header_found[axis] {
-                    "Found"
-                } else {
-                    "Not Found"
-                },
-                axis
-            );
+            if debug_mode {
+                println!(
+                    "  '{}': {} (Essential for Step Response, Gyro plots, and PID Error Axis {})",
+                    target_headers[17 + axis],
+                    if gyro_header_found[axis] {
+                        "Found"
+                    } else {
+                        "Not Found"
+                    },
+                    axis
+                );
+            }
         }
 
         // Check gyroUnfilt headers (Indices 20-22).
         for axis in 0..crate::axis_names::AXIS_NAMES.len() {
             gyro_unfilt_header_found[axis] = header_indices[20 + axis].is_some();
-            println!(
-                "  '{}': {} (Fallback for Gyro vs Unfilt Axis {})",
-                target_headers[20 + axis],
-                if gyro_unfilt_header_found[axis] {
-                    "Found"
-                } else {
-                    "Not Found"
-                },
-                axis
-            );
+            if debug_mode {
+                println!(
+                    "  '{}': {} (Fallback for Gyro vs Unfilt Axis {})",
+                    target_headers[20 + axis],
+                    if gyro_unfilt_header_found[axis] {
+                        "Found"
+                    } else {
+                        "Not Found"
+                    },
+                    axis
+                );
+            }
         }
 
         // Check debug headers (Indices 23-26).
         for idx_offset in 0..4 {
             debug_header_found[idx_offset] = header_indices[23 + idx_offset].is_some();
-            let purpose = if idx_offset < 3 {
-                "Fallback for gyroUnfilt[0-2]"
-            } else {
-                "Optional debug channel"
-            };
-            println!(
-                "  '{}': {} ({})",
-                target_headers[23 + idx_offset],
-                if debug_header_found[idx_offset] {
-                    "Found"
+            if debug_mode {
+                let purpose = if idx_offset < 3 {
+                    "Fallback for gyroUnfilt[0-2]"
                 } else {
-                    "Not Found"
-                },
-                purpose
-            );
+                    "Optional debug channel"
+                };
+                println!(
+                    "  '{}': {} ({})",
+                    target_headers[23 + idx_offset],
+                    if debug_header_found[idx_offset] {
+                        "Found"
+                    } else {
+                        "Not Found"
+                    },
+                    purpose
+                );
+            }
         }
 
         if !essential_pid_headers_found {

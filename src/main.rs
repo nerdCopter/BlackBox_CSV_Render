@@ -30,6 +30,7 @@ fn get_version_string() -> String {
 }
 
 // Plot configuration struct
+// NOTE: When adding a field here, update none(), Default::default(), and all() accordingly.
 #[derive(Debug, Clone, Copy)]
 struct PlotConfig {
     pub step_response: bool,
@@ -50,23 +51,24 @@ struct PlotConfig {
 }
 
 impl Default for PlotConfig {
+    /// Core plots only (enabled by default)
     fn default() -> Self {
         Self {
             step_response: true,
-            pidsum_error_setpoint: true,
+            pidsum_error_setpoint: false,
             setpoint_vs_gyro: true,
-            setpoint_derivative: true,
+            setpoint_derivative: false,
             gyro_vs_unfilt: true,
             gyro_spectrums: true,
-            d_term_psd: true,
+            d_term_psd: false,
             d_term_spectrums: true,
-            psd: true,
-            psd_db_heatmap: true,
-            throttle_freq_heatmap: true,
-            d_term_heatmap: true,
+            psd: false,
+            psd_db_heatmap: false,
+            throttle_freq_heatmap: false,
+            d_term_heatmap: false,
             motor_spectrums: true,
             bode: false,
-            pid_activity: true,
+            pid_activity: false,
         }
     }
 }
@@ -89,6 +91,26 @@ impl PlotConfig {
             motor_spectrums: false,
             bode: false,
             pid_activity: false,
+        }
+    }
+
+    fn all() -> Self {
+        Self {
+            step_response: true,
+            pidsum_error_setpoint: true,
+            setpoint_vs_gyro: true,
+            setpoint_derivative: true,
+            gyro_vs_unfilt: true,
+            gyro_spectrums: true,
+            d_term_psd: true,
+            d_term_spectrums: true,
+            psd: true,
+            psd_db_heatmap: true,
+            throttle_freq_heatmap: true,
+            d_term_heatmap: true,
+            motor_spectrums: true,
+            bode: false, // Bode requires specialized logs
+            pid_activity: true,
         }
     }
 }
@@ -364,27 +386,27 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!();
     eprintln!("=== PLOT TYPE SELECTION ===");
     eprintln!();
-    eprintln!("  Note: Plot flags are combinable. Without flags, all plots generated.");
-    eprintln!();
-    eprintln!("  --step: Generate only step response plots.");
-    eprintln!("  --motor: Generate only motor spectrum plots.");
-    eprintln!("  --setpoint: Generate only setpoint-related plots.");
-    eprintln!("  --pid: Generate only P, I, D activity plot.");
-    eprintln!("  --bode: Bode plot analysis (requires chirp/sweep system-id test flight, not normal logs).");
+    eprintln!("  --core           [default] Step Response, Gyro Spectrums, D-term Spectrums,");
+    eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.");
+    eprintln!("  --extended       All plots except Bode — adds PIDsum/Error, PID Activity,");
+    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.");
+    eprintln!("  --step           Step response only.");
+    eprintln!("  --bode           Bode only (requires chirp/sweep system-id test flight).");
     eprintln!();
     eprintln!("=== ANALYSIS OPTIONS ===");
     eprintln!();
-    eprintln!("  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
+    eprintln!("  --butterworth    Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
     eprintln!(
-        "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
+        "  --dps <value>    Deg/s threshold for detailed step response plots (positive number)."
     );
-    eprintln!("  --estimate-optimal-p: Enable optimal P estimation from throttle-punch dynamics. Requires .headers.csv; skips P estimation if absent.");
+    eprintln!("  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch");
+    eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
     eprintln!();
     eprintln!("=== GENERAL ===");
     eprintln!();
-    eprintln!("  --debug: Show detailed metadata during processing.");
-    eprintln!("  -h, --help: Show this help message and exit.");
-    eprintln!("  -V, --version: Show version information.");
+    eprintln!("  --debug          Show detailed metadata during processing.");
+    eprintln!("  -h, --help       Show this help message and exit.");
+    eprintln!("  -V, --version    Show version information.");
     std::process::exit(1);
 }
 
@@ -1512,13 +1534,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
     let mut debug_mode = false;
     let mut show_butterworth = false;
-    let mut plot_config = PlotConfig::default();
-    let mut has_only_flags = false;
+    let mut core_requested = false;
+    let mut extended_requested = false;
     let mut step_requested = false;
-    let mut motor_requested = false;
-    let mut setpoint_requested = false;
     let mut bode_requested = false;
-    let mut pid_requested = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
 
@@ -1573,21 +1592,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             debug_mode = true;
         } else if arg == "--butterworth" {
             show_butterworth = true;
+        } else if arg == "--core" {
+            core_requested = true;
+        } else if arg == "--extended" {
+            extended_requested = true;
         } else if arg == "--step" {
-            has_only_flags = true;
             step_requested = true;
-        } else if arg == "--motor" {
-            has_only_flags = true;
-            motor_requested = true;
-        } else if arg == "--setpoint" {
-            has_only_flags = true;
-            setpoint_requested = true;
         } else if arg == "--bode" {
-            has_only_flags = true;
             bode_requested = true;
-        } else if arg == "--pid" {
-            has_only_flags = true;
-            pid_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg.starts_with("--") {
@@ -1599,25 +1611,36 @@ fn main() -> Result<(), Box<dyn Error>> {
         i += 1;
     }
 
-    // Apply "only" flags if any were specified (non-mutually exclusive: OR together)
-    if has_only_flags {
-        plot_config = PlotConfig::none();
-        plot_config.step_response = step_requested;
-        plot_config.motor_spectrums = motor_requested;
-        plot_config.bode = bode_requested;
-        plot_config.pid_activity = pid_requested;
-        if setpoint_requested {
-            plot_config.pidsum_error_setpoint = true;
-            plot_config.setpoint_vs_gyro = true;
-            plot_config.setpoint_derivative = true;
-        }
+    if core_requested && extended_requested {
+        eprintln!("Error: --core and --extended are mutually exclusive.");
+        print_usage_and_exit(program_name);
     }
+
+    // Derive plot configuration from flags
+    let plot_config = if extended_requested {
+        let mut cfg = PlotConfig::all();
+        if bode_requested {
+            cfg.bode = true;
+        }
+        cfg
+    } else if step_requested || bode_requested {
+        let mut cfg = PlotConfig::none();
+        if step_requested {
+            cfg.step_response = true;
+        }
+        if bode_requested {
+            cfg.bode = true;
+        }
+        cfg
+    } else {
+        PlotConfig::default()
+    };
 
     // Show debug information when the runtime --debug flag is present
     if debug_mode {
         println!(
-            "DEBUG: has_only_flags={}, step_requested={}, motor_requested={}, setpoint_requested={}, plot_config={:?}",
-            has_only_flags, step_requested, motor_requested, setpoint_requested, plot_config
+            "DEBUG: extended={}, step={}, bode={}, plot_config={:?}",
+            extended_requested, step_requested, bode_requested, plot_config
         );
     }
 
@@ -1743,5 +1766,3 @@ Some files could not be processed successfully."
         Ok(())
     }
 }
-
-// src/main.rs
