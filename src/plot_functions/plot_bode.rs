@@ -29,9 +29,7 @@ use crate::font_config::{
 const MIN_COHERENCE_FOR_PLOT: f64 = 0.1;
 
 /// Per-axis result from Bode analysis containing stability margins
-#[allow(dead_code)]
 pub struct BodeAxisResult {
-    pub axis: usize,
     pub axis_name: String,
     pub margins: StabilityMargins,
 }
@@ -192,7 +190,6 @@ pub fn plot_bode_analysis(
         .iter()
         .enumerate()
         .map(|(i, tf)| BodeAxisResult {
-            axis: i,
             axis_name: tf.axis_name.clone(),
             margins: margins_results[i].clone(),
         })

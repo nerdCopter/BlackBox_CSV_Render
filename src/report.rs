@@ -1,6 +1,7 @@
 // src/report.rs
-// Markdown statistical report generation for flight controller blackbox data.
-// Produces per-axis signal statistics and links to generated PNG plots.
+// Structured markdown report capturing computed flight analysis outputs.
+// Derives all content from typed structs returned by analysis functions —
+// no re-reading of CSV data, no duplication of println logic.
 
 use std::error::Error;
 use std::fmt::Write as FmtWrite;
@@ -8,118 +9,61 @@ use std::fs;
 use std::path::Path;
 
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
-use crate::data_input::log_data::LogRowData;
+use crate::constants::{MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ};
+use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
+use crate::data_analysis::transfer_function_estimation::Confidence;
+use crate::plot_functions::plot_bode::BodeAxisResult;
+use crate::plot_functions::plot_motor_spectrums::MotorOscillationResult;
 
-/// Descriptive statistics for a time-series signal.
-pub struct SignalStats {
-    pub mean: f64,
-    pub std_dev: f64,
-    pub min: f64,
-    pub max: f64,
-    pub rms: f64,
-    pub count: usize,
+/// D-term recommendation for one tier (conservative, moderate, or aggressive)
+pub struct DTermRec {
+    pub pd_ratio: f64,
+    pub d: Option<u32>,
+    pub d_min: Option<u32>,
+    pub d_max: Option<u32>,
 }
 
-/// Compute descriptive statistics for a slice of f64 values.
-/// Uses population variance (divide by N) appropriate for a complete time-series.
-/// Returns None if the slice is empty.
-pub fn compute_signal_stats(data: &[f64]) -> Option<SignalStats> {
-    let count = data.len();
-    if count == 0 {
-        return None;
-    }
-    let mean = data.iter().sum::<f64>() / count as f64;
-    let var = data.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / count as f64;
-    let std_dev = var.sqrt();
-    let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let rms = (data.iter().map(|x| x * x).sum::<f64>() / count as f64).sqrt();
-    Some(SignalStats {
-        mean,
-        std_dev,
-        min,
-        max,
-        rms,
-        count,
-    })
+/// Step response analysis result for one axis
+pub struct StepAxisReport {
+    pub axis_name: &'static str,
+    pub peak_value: f64,
+    pub assessment: &'static str,
+    pub current_pd_ratio: f64,
+    pub conservative: Option<DTermRec>,
+    pub moderate: Option<DTermRec>,
+    pub aggressive: Option<DTermRec>,
 }
 
-fn extract_axis_gyro(log_data: &[LogRowData], axis: usize) -> Vec<f64> {
-    log_data.iter().filter_map(|r| r.gyro[axis]).collect()
+/// Aggregated analysis results collected from one flight log
+pub struct FlightReport {
+    pub root_name: String,
+    pub sample_rate: Option<f64>,
+    pub header_metadata: Vec<(String, String)>,
+    pub pd_ratios: [Option<f64>; 3],
+    pub step_reports: Vec<StepAxisReport>,
+    pub optimal_p: [Option<OptimalPAnalysis>; AXIS_COUNT],
+    pub bode_results: Vec<BodeAxisResult>,
+    pub motor_results: Vec<MotorOscillationResult>,
+    pub png_links: Vec<String>,
 }
 
-fn extract_axis_setpoint(log_data: &[LogRowData], axis: usize) -> Vec<f64> {
-    log_data
-        .iter()
-        .filter_map(|r| r.setpoint.get(axis).copied().flatten())
-        .collect()
-}
-
-fn extract_axis_pid_term(log_data: &[LogRowData], axis: usize, term: u8) -> Vec<f64> {
-    log_data
-        .iter()
-        .filter_map(|r| match term {
-            0 => r.p_term[axis],
-            1 => r.i_term[axis],
-            2 => r.d_term[axis],
-            3 => r.f_term[axis],
-            _ => None,
-        })
-        .collect()
-}
-
-fn write_stats_row(md: &mut String, name: &str, stats: &SignalStats) -> std::fmt::Result {
-    writeln!(
-        md,
-        "| {} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | {} |",
-        name, stats.mean, stats.std_dev, stats.min, stats.max, stats.rms, stats.count
-    )
-}
-
-/// Generate a markdown statistical report and write it to `output_path`.
-///
-/// # Arguments
-/// * `log_data` - Parsed blackbox log rows.
-/// * `sample_rate` - Detected sample rate in Hz, or None if unknown.
-/// * `header_metadata` - Raw header key-value pairs from the log file.
-/// * `output_path` - Destination `.md` file path.
-/// * `png_links` - List of PNG filenames to link (relative, same directory).
+/// Generate a structured markdown report and write it to `output_path`.
 pub fn generate_markdown_report(
-    log_data: &[LogRowData],
-    sample_rate: Option<f64>,
-    header_metadata: &[(String, String)],
+    report: &FlightReport,
     output_path: &Path,
-    png_links: &[String],
 ) -> Result<(), Box<dyn Error>> {
     let mut md = String::new();
 
-    writeln!(md, "# BlackBox Statistical Report")?;
+    writeln!(md, "# BlackBox Flight Report: {}", report.root_name)?;
     writeln!(md)?;
 
     // --- Metadata ---
     writeln!(md, "## Metadata")?;
     writeln!(md)?;
-
-    match sample_rate {
+    match report.sample_rate {
         Some(sr) => writeln!(md, "- **Sample Rate:** {:.1} Hz", sr)?,
         None => writeln!(md, "- **Sample Rate:** Unknown")?,
     }
-    writeln!(md, "- **Total Rows:** {}", log_data.len())?;
-
-    if let (Some(first), Some(last)) = (
-        log_data.first().and_then(|r| r.time_sec),
-        log_data.last().and_then(|r| r.time_sec),
-    ) {
-        writeln!(
-            md,
-            "- **Duration:** {:.2} s  ({:.2} s – {:.2} s)",
-            last - first,
-            first,
-            last
-        )?;
-    }
-    writeln!(md)?;
-
     let interesting_keys = [
         "Firmware revision",
         "Craft name",
@@ -131,57 +75,224 @@ pub fn generate_markdown_report(
         "pitchPID",
         "yawPID",
     ];
-    let mut wrote_fw_header = false;
-    for (k, v) in header_metadata {
+    for (k, v) in &report.header_metadata {
         if interesting_keys.iter().any(|ik| k.eq_ignore_ascii_case(ik)) {
-            if !wrote_fw_header {
-                writeln!(md, "### Firmware / Configuration")?;
-                writeln!(md)?;
-                wrote_fw_header = true;
-            }
             writeln!(md, "- **{}:** {}", k, v)?;
         }
     }
-    if wrote_fw_header {
-        writeln!(md)?;
-    }
-
-    // --- Per-axis signal statistics ---
-    writeln!(md, "## Per-Axis Signal Statistics")?;
     writeln!(md)?;
 
-    for (axis_idx, axis_name) in AXIS_NAMES.iter().enumerate().take(AXIS_COUNT) {
-        writeln!(md, "### {}", axis_name)?;
-        writeln!(md)?;
-        writeln!(md, "| Signal | Mean | Std Dev | Min | Max | RMS | Count |")?;
-        writeln!(md, "|--------|------|---------|-----|-----|-----|-------|")?;
+    // --- PID Tuning ---
+    writeln!(md, "## PID Tuning")?;
+    writeln!(md)?;
+    writeln!(md, "| Axis | P:D Ratio |")?;
+    writeln!(md, "|------|-----------|")?;
+    let axis_labels = ["Roll", "Pitch", "Yaw (informational)"];
+    for (i, label) in axis_labels.iter().enumerate() {
+        match report.pd_ratios[i] {
+            Some(r) => writeln!(md, "| {} | {:.2} |", label, r)?,
+            None => writeln!(md, "| {} | N/A |", label)?,
+        }
+    }
+    writeln!(md)?;
 
-        if let Some(s) = compute_signal_stats(&extract_axis_gyro(log_data, axis_idx)) {
-            write_stats_row(&mut md, "Gyro (filt)", &s)?;
+    // --- Step Response Analysis ---
+    if !report.step_reports.is_empty() {
+        writeln!(md, "## Step Response Analysis")?;
+        writeln!(md)?;
+        for axis_report in &report.step_reports {
+            writeln!(md, "### {}", axis_report.axis_name)?;
+            writeln!(md)?;
+            writeln!(md, "- **Peak Value:** {:.3}", axis_report.peak_value)?;
+            writeln!(md, "- **Assessment:** {}", axis_report.assessment)?;
+            writeln!(md, "- **Current P:D:** {:.2}", axis_report.current_pd_ratio)?;
+            if let Some(rec) = &axis_report.conservative {
+                writeln!(
+                    md,
+                    "- **Recommendation (conservative):** {}",
+                    fmt_dterm_rec(rec)
+                )?;
+            }
+            if let Some(rec) = &axis_report.moderate {
+                writeln!(
+                    md,
+                    "- **Recommendation (moderate):** {}",
+                    fmt_dterm_rec(rec)
+                )?;
+            }
+            if let Some(rec) = &axis_report.aggressive {
+                writeln!(
+                    md,
+                    "- **Recommendation (aggressive):** {}",
+                    fmt_dterm_rec(rec)
+                )?;
+            }
+            if axis_report.conservative.is_none()
+                && axis_report.moderate.is_none()
+                && axis_report.aggressive.is_none()
+            {
+                writeln!(
+                    md,
+                    "- **Recommendation:** No obvious tuning adjustments needed"
+                )?;
+            }
+            writeln!(md)?;
         }
-        if let Some(s) = compute_signal_stats(&extract_axis_setpoint(log_data, axis_idx)) {
-            write_stats_row(&mut md, "Setpoint", &s)?;
+    }
+
+    // --- Optimal P Estimation ---
+    let has_optimal_p = report.optimal_p.iter().any(|o| o.is_some());
+    if has_optimal_p {
+        writeln!(md, "## Optimal P Estimation")?;
+        writeln!(md)?;
+        for (axis_index, opt) in report.optimal_p.iter().enumerate() {
+            if let Some(analysis) = opt {
+                writeln!(md, "### {}", AXIS_NAMES[axis_index])?;
+                writeln!(md)?;
+                writeln!(md, "- **Current P:** {}", analysis.current_p)?;
+                if let Some(d) = analysis.current_d {
+                    writeln!(md, "- **Current D:** {}", d)?;
+                }
+                writeln!(
+                    md,
+                    "- **Td measured:** {:.1} ms ({} samples)",
+                    analysis.td_stats.mean_ms, analysis.td_stats.num_samples
+                )?;
+                writeln!(
+                    md,
+                    "- **Td target:** {:.1} ms ± {:.1} ms",
+                    analysis.td_target_ms, analysis.td_tolerance_ms
+                )?;
+                writeln!(
+                    md,
+                    "- **Td deviation:** {:.1}% ({})",
+                    analysis.td_deviation_percent,
+                    analysis.td_deviation.name()
+                )?;
+                writeln!(md, "- **Noise level:** {}", analysis.noise_level.name())?;
+                let rec_text = match &analysis.recommendation {
+                    PRecommendation::Optimal { reasoning } => {
+                        format!("No change — {}", reasoning)
+                    }
+                    PRecommendation::Increase {
+                        conservative_p,
+                        reasoning,
+                    } => format!("Increase P to {} — {}", conservative_p, reasoning),
+                    PRecommendation::Decrease {
+                        recommended_p,
+                        reasoning,
+                    } => format!("Decrease P to {} — {}", recommended_p, reasoning),
+                    PRecommendation::Investigate { issue } => format!("Investigate — {}", issue),
+                };
+                writeln!(md, "- **Recommendation:** {}", rec_text)?;
+                if analysis.source_files > 1 {
+                    writeln!(
+                        md,
+                        "- **Source:** {} files, {} throttle-punch events",
+                        analysis.source_files, analysis.source_events
+                    )?;
+                } else {
+                    writeln!(
+                        md,
+                        "- **Source:** {} throttle-punch events",
+                        analysis.source_events
+                    )?;
+                }
+                writeln!(md)?;
+            }
         }
-        if let Some(s) = compute_signal_stats(&extract_axis_pid_term(log_data, axis_idx, 0)) {
-            write_stats_row(&mut md, "P-term", &s)?;
-        }
-        if let Some(s) = compute_signal_stats(&extract_axis_pid_term(log_data, axis_idx, 1)) {
-            write_stats_row(&mut md, "I-term", &s)?;
-        }
-        if let Some(s) = compute_signal_stats(&extract_axis_pid_term(log_data, axis_idx, 2)) {
-            write_stats_row(&mut md, "D-term", &s)?;
-        }
-        if let Some(s) = compute_signal_stats(&extract_axis_pid_term(log_data, axis_idx, 3)) {
-            write_stats_row(&mut md, "F-term", &s)?;
+    }
+
+    // --- Bode Analysis ---
+    if !report.bode_results.is_empty() {
+        writeln!(md, "## Bode Analysis")?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "> ⚠ Bode analysis is designed for controlled system-identification test flights."
+        )?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "| Axis | Phase Margin | Gain Margin | Gain Crossover | Bandwidth | Confidence |"
+        )?;
+        writeln!(
+            md,
+            "|------|-------------|-------------|----------------|-----------|------------|"
+        )?;
+        for r in &report.bode_results {
+            let m = &r.margins;
+            let pm = m
+                .phase_margin_deg
+                .map_or("N/A".into(), |v| format!("{:.1}°", v));
+            let gm = m
+                .gain_margin_db
+                .map_or("N/A".into(), |v| format!("{:.1} dB", v));
+            let gc = m
+                .gain_crossover_hz
+                .map_or("N/A".into(), |v| format!("{:.2} Hz", v));
+            let bw = m
+                .bandwidth_hz
+                .map_or("N/A".into(), |v| format!("{:.2} Hz", v));
+            let conf = match m.confidence {
+                Confidence::High => "High",
+                Confidence::Medium => "Medium",
+                Confidence::Low => "Low",
+            };
+            writeln!(
+                md,
+                "| {} | {} | {} | {} | {} | {} |",
+                r.axis_name, pm, gm, gc, bw, conf
+            )?;
         }
         writeln!(md)?;
     }
 
-    // --- Generated plots ---
-    if !png_links.is_empty() {
+    // --- Motor Oscillation ---
+    if !report.motor_results.is_empty() {
+        writeln!(md, "## Motor Oscillation")?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "Analysis range: {:.0}–{:.0} Hz",
+            MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ
+        )?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "| Motor | Max Amplitude | Oscillation | Peak in Range | Avg in Range |"
+        )?;
+        writeln!(
+            md,
+            "|-------|--------------|-------------|---------------|-------------|"
+        )?;
+        for r in &report.motor_results {
+            let max_amp = r
+                .max_amplitude
+                .map_or("N/A".into(), |v| format!("{:.2}", v));
+            let osc = if r.oscillation_detected {
+                "⚠ Detected"
+            } else {
+                "None"
+            };
+            let peak = r
+                .peak_in_range
+                .map_or("N/A".into(), |v| format!("{:.2}", v));
+            let avg = r.avg_in_range.map_or("N/A".into(), |v| format!("{:.2}", v));
+            writeln!(
+                md,
+                "| {} | {} | {} | {} | {} |",
+                r.motor_idx, max_amp, osc, peak, avg
+            )?;
+        }
+        writeln!(md)?;
+    }
+
+    // --- Generated Plots ---
+    if !report.png_links.is_empty() {
         writeln!(md, "## Generated Plots")?;
         writeln!(md)?;
-        for name in png_links {
+        for name in &report.png_links {
             writeln!(md, "- [{}]({})", name, name)?;
         }
         writeln!(md)?;
@@ -189,4 +300,19 @@ pub fn generate_markdown_report(
 
     fs::write(output_path, md)?;
     Ok(())
+}
+
+fn fmt_dterm_rec(rec: &DTermRec) -> String {
+    if rec.d_min.is_some() || rec.d_max.is_some() {
+        let d_min_s = rec.d_min.map_or("N/A".to_string(), |v| v.to_string());
+        let d_max_s = rec.d_max.map_or("N/A".to_string(), |v| v.to_string());
+        format!(
+            "P:D={:.2} (D-Min≈{}, D-Max≈{})",
+            rec.pd_ratio, d_min_s, d_max_s
+        )
+    } else if let Some(d) = rec.d {
+        format!("P:D={:.2} (D≈{})", rec.pd_ratio, d)
+    } else {
+        format!("P:D={:.2}", rec.pd_ratio)
+    }
 }

@@ -31,7 +31,6 @@ const MOTOR_COLORS: [RGBColor; 8] = [
 type MotorSpectrumData = (Vec<f64>, Vec<f64>, f64);
 
 /// Per-motor result from oscillation analysis in the MOTOR_OSCILLATION_FREQ range
-#[allow(dead_code)]
 pub struct MotorOscillationResult {
     pub motor_idx: usize,
     pub max_amplitude: Option<f64>,

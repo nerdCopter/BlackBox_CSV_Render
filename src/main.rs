@@ -648,6 +648,12 @@ fn process_file(
     println!("Note: Optimal P:D ratio varies per aircraft. Check step response for overshoot/undershoot.");
     println!();
 
+    let pd_ratios_for_report: [Option<f64>; 3] = [
+        pid_metadata.roll.calculate_pd_ratio(),
+        pid_metadata.pitch.calculate_pd_ratio(),
+        pid_metadata.yaw.calculate_pd_ratio(),
+    ];
+
     let mut has_nonzero_f_term_data = [false; 3];
     for axis in 0..crate::axis_names::AXIS_NAMES.len() {
         if f_term_header_found[axis]
@@ -1153,6 +1159,63 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         println!();
     }
 
+    // Collect step response analysis into typed report structs
+    let mut step_reports: Vec<report::StepAxisReport> = Vec::new();
+    {
+        let dmax_enabled = pid_metadata.is_dmax_enabled();
+        for axis_index in 0..2 {
+            if let (Some(peak_value), Some(current_pd_ratio), Some(assessment)) = (
+                peak_values[axis_index],
+                current_pd_ratios[axis_index],
+                assessments[axis_index],
+            ) {
+                let conservative =
+                    recommended_pd_conservative[axis_index].map(|pd| report::DTermRec {
+                        pd_ratio: pd,
+                        d: recommended_d_conservative[axis_index],
+                        d_min: recommended_d_min_conservative[axis_index],
+                        d_max: recommended_d_max_conservative[axis_index],
+                    });
+                let moderate = recommended_pd_aggressive[axis_index].map(|pd| report::DTermRec {
+                    pd_ratio: pd,
+                    d: recommended_d_aggressive[axis_index],
+                    d_min: recommended_d_min_aggressive[axis_index],
+                    d_max: recommended_d_max_aggressive[axis_index],
+                });
+                let aggressive = if assessment == "Significant overshoot" {
+                    let aggressive_pd =
+                        current_pd_ratio * crate::constants::PD_RATIO_AGGRESSIVE_MULTIPLIER;
+                    let (rec_d, rec_d_min, rec_d_max) = if axis_index == 0 {
+                        pid_metadata
+                            .roll
+                            .calculate_goal_d_with_range(aggressive_pd, dmax_enabled)
+                    } else {
+                        pid_metadata
+                            .pitch
+                            .calculate_goal_d_with_range(aggressive_pd, dmax_enabled)
+                    };
+                    Some(report::DTermRec {
+                        pd_ratio: aggressive_pd,
+                        d: rec_d,
+                        d_min: rec_d_min,
+                        d_max: rec_d_max,
+                    })
+                } else {
+                    None
+                };
+                step_reports.push(report::StepAxisReport {
+                    axis_name: crate::axis_names::AXIS_NAMES[axis_index],
+                    peak_value,
+                    assessment,
+                    current_pd_ratio,
+                    conservative,
+                    moderate,
+                    aggressive,
+                });
+            }
+        }
+    }
+
     // Optimal P Estimation Analysis (if enabled)
     // Store results for both console output and PNG overlay
     let mut optimal_p_analyses: [Option<
@@ -1306,6 +1369,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         }
     }
 
+    let optimal_p_for_report = optimal_p_analyses.clone();
+
     // Create RAII guard BEFORE changing directory if needed
     let _cwd_guard = if let Some(output_dir) = output_dir {
         // Create guard to save current directory BEFORE changing it
@@ -1454,9 +1519,11 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         )?;
     }
 
-    if plot_config.motor_spectrums {
-        plot_motor_spectrums(&all_log_data, &root_name_string, sample_rate)?;
-    }
+    let motor_results = if plot_config.motor_spectrums {
+        plot_motor_spectrums(&all_log_data, &root_name_string, sample_rate)?
+    } else {
+        vec![]
+    };
 
     if plot_config.psd {
         plot_psd(
@@ -1468,7 +1535,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         )?;
     }
 
-    if plot_config.bode {
+    let bode_results = if plot_config.bode {
         eprintln!();
         eprintln!("⚠️  WARNING: Bode plots are designed for controlled test flights with system-identification inputs.");
         eprintln!(
@@ -1480,8 +1547,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             analysis_opts.debug_mode,
-        )?;
-    }
+        )?
+    } else {
+        vec![]
+    };
 
     if plot_config.psd_db_heatmap {
         plot_psd_db_heatmap(
@@ -1578,17 +1647,22 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         png_links.push(format!("{root_name_string}_PID_Activity_stacked.png"));
     }
 
-    // --- Markdown Statistical Report ---
+    // --- Markdown Report ---
     let report_filename = format!("{root_name_string}_report.md");
     let report_path = std::path::Path::new(&report_filename);
     println!("\n--- Generating Report: {report_filename} ---");
-    match report::generate_markdown_report(
-        &all_log_data,
+    let flight_report = report::FlightReport {
+        root_name: root_name_string,
         sample_rate,
-        &header_metadata,
-        report_path,
-        &png_links,
-    ) {
+        header_metadata,
+        pd_ratios: pd_ratios_for_report,
+        step_reports,
+        optimal_p: optimal_p_for_report,
+        bode_results,
+        motor_results,
+        png_links,
+    };
+    match report::generate_markdown_report(&flight_report, report_path) {
         Ok(()) => println!("  [OK] Report written."),
         Err(e) => eprintln!("  [ERROR] Report generation failed: {e}"),
     }
