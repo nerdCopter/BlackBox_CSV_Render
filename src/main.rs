@@ -1683,7 +1683,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let report_path = std::path::Path::new(&report_filename);
     println!("\n--- Generating Report: {report_filename} ---");
     let flight_report = report::FlightReport {
-        root_name: root_name_string,
+        root_name: root_name_string.clone(),
         sample_rate,
         header_metadata,
         pd_ratios: pd_ratios_for_report,
