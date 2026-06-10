@@ -1517,7 +1517,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         )?;
     }
 
-    if plot_config.d_term_spectrums {
+    let dterm_results = if plot_config.d_term_spectrums {
         plot_d_term_spectrums(
             &all_log_data,
             &root_name_string,
@@ -1526,8 +1526,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             analysis_opts.show_butterworth,
             using_debug_fallback,
             debug_mode_label,
-        )?;
-    }
+        )?
+    } else {
+        vec![]
+    };
 
     let motor_results = if plot_config.motor_spectrums {
         plot_motor_spectrums(&all_log_data, &root_name_string, sample_rate)?
@@ -1669,6 +1671,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         step_reports,
         optimal_p: optimal_p_for_report,
         gyro_analysis,
+        dterm_results,
         bode_results,
         motor_results,
         png_links,

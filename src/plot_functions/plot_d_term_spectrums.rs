@@ -21,6 +21,14 @@ use crate::plot_framework::{
 use crate::plot_functions::peak_detection::find_and_sort_peaks_with_threshold;
 use plotters::style::RGBColor;
 
+/// Per-axis D-term spectrum analysis: primary peak and filtering delay
+pub struct DTermAxisResult {
+    pub axis_name: &'static str,
+    pub primary_peak: Option<(f64, f64)>, // (freq_hz, amplitude)
+    pub delay_ms: Option<f32>,
+    pub delay_confidence: Option<f32>, // 0.0–1.0
+}
+
 /// Generates a stacked plot with two columns per axis, showing Unfiltered D-term and Filtered D-term spectrums (linear amplitude).
 /// Now includes filter response curve overlays based on header metadata.
 /// Unfiltered D-term is calculated as the derivative of gyroUnfilt.
@@ -33,12 +41,12 @@ pub fn plot_d_term_spectrums(
     show_butterworth: bool,
     using_debug_fallback: bool,
     debug_mode_name: Option<&str>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<Vec<DTermAxisResult>, Box<dyn Error>> {
     // Clone debug mode name to move into closures
     let debug_mode_name_owned = debug_mode_name.map(|s| s.to_string());
     // Input validation
     if log_data.is_empty() {
-        return Ok(()); // No data to process
+        return Ok(vec![]); // No data to process
     }
 
     if root_name.is_empty() {
@@ -52,11 +60,11 @@ pub fn plot_d_term_spectrums(
             sr
         } else {
             println!("\nINFO: Skipping D-Term Spectrum Plot: Invalid sample rate provided.");
-            return Ok(());
+            return Ok(vec![]);
         }
     } else {
         println!("\nINFO: Skipping D-Term Spectrum Plot: Sample rate could not be determined.");
-        return Ok(());
+        return Ok(vec![]);
     };
 
     // Calculate filtering delay using enhanced cross-correlation on D-terms
@@ -80,6 +88,8 @@ pub fn plot_d_term_spectrums(
 
     // Store axis spectrum data
     let mut axis_spectrums: Vec<AxisSpectrum> = Vec::new();
+    // Per-axis analysis results for the report
+    let mut dterm_results: Vec<DTermAxisResult> = Vec::new();
 
     // Iterate safely over the minimum of AXIS_NAMES.len() and the fixed array size
     let axis_count = AXIS_NAMES.len().min(3);
@@ -262,6 +272,19 @@ pub fn plot_d_term_spectrums(
         // Per issue #92: Skip peak detection on filtered plots entirely - they won't be rendered
         let _filt_primary_peak = filt_primary_peak;
         let filt_peaks = Vec::new();
+
+        // Capture per-axis data for report before peaks are moved into plot configs
+        let dterm_primary_peak = unfilt_peaks.first().copied();
+        let dterm_delay_info = delay_by_axis
+            .get(axis_idx)
+            .and_then(|r| r.as_ref())
+            .map(|r| (r.delay_ms, r.confidence));
+        dterm_results.push(DTermAxisResult {
+            axis_name,
+            primary_peak: dterm_primary_peak,
+            delay_ms: dterm_delay_info.map(|(d, _)| d),
+            delay_confidence: dterm_delay_info.map(|(_, c)| c),
+        });
 
         // Get delay string for this axis for legend display
         let delay_str = if let Some(result) = delay_by_axis.get(axis_idx).and_then(|r| r.as_ref()) {
@@ -541,7 +564,7 @@ pub fn plot_d_term_spectrums(
 
     if overall_max_y_amplitude <= 0.0 {
         println!("  No valid D-term spectrum data found. Skipping D-term spectrum plot.");
-        return Ok(());
+        return Ok(dterm_results);
     }
 
     draw_dual_spectrum_plot(
@@ -558,7 +581,7 @@ pub fn plot_d_term_spectrums(
     )?;
 
     println!("  D-term spectrum plot saved as '{}'", output_file);
-    Ok(())
+    Ok(dterm_results)
 }
 
 // Removed duplicate function: calculate_d_term_filtering_delay_comparison

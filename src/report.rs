@@ -13,6 +13,7 @@ use crate::constants::{MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
 use crate::data_analysis::transfer_function_estimation::Confidence;
 use crate::plot_functions::plot_bode::BodeAxisResult;
+use crate::plot_functions::plot_d_term_spectrums::DTermAxisResult;
 use crate::plot_functions::plot_gyro_spectrums::GyroAnalysisResult;
 use crate::plot_functions::plot_motor_spectrums::MotorOscillationResult;
 
@@ -46,6 +47,7 @@ pub struct FlightReport {
     pub step_reports: Vec<StepAxisReport>,
     pub optimal_p: [Option<OptimalPAnalysis>; AXIS_COUNT],
     pub gyro_analysis: Option<GyroAnalysisResult>,
+    pub dterm_results: Vec<DTermAxisResult>,
     pub bode_results: Vec<BodeAxisResult>,
     pub motor_results: Vec<MotorOscillationResult>,
     pub png_links: Vec<String>,
@@ -179,6 +181,41 @@ pub fn generate_markdown_report(
                     writeln!(md, "| {} | {:.1} | {:.2} |", axis.axis_name, freq, amp)?;
                 }
             }
+        }
+        writeln!(md)?;
+    }
+
+    // --- D-Term Analysis (per-axis delay + spectrum peaks) ---
+    let has_dterm_data = report
+        .dterm_results
+        .iter()
+        .any(|r| r.primary_peak.is_some() || r.delay_ms.is_some());
+    if has_dterm_data {
+        writeln!(md, "## D-Term Analysis")?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "| Axis | Delay (ms) | Confidence | Primary Peak (Hz) | Amplitude |"
+        )?;
+        writeln!(
+            md,
+            "|------|-----------|------------|------------------|-----------|"
+        )?;
+        for r in &report.dterm_results {
+            let delay = r.delay_ms.map_or("N/A".into(), |v| format!("{:.1}", v));
+            let conf = r
+                .delay_confidence
+                .map_or("N/A".into(), |v| format!("{:.0}%", v * 100.0));
+            let (freq, amp) = if let Some((f, a)) = r.primary_peak {
+                (format!("{:.1}", f), format!("{:.2}", a))
+            } else {
+                ("N/A".into(), "N/A".into())
+            };
+            writeln!(
+                md,
+                "| {} | {} | {} | {} | {} |",
+                r.axis_name, delay, conf, freq, amp
+            )?;
         }
         writeln!(md)?;
     }
