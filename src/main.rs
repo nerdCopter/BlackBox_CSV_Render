@@ -1491,8 +1491,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         )?;
     }
 
-    if plot_config.gyro_spectrums {
-        plot_gyro_spectrums(
+    let gyro_analysis = if plot_config.gyro_spectrums {
+        Some(plot_gyro_spectrums(
             &all_log_data,
             &root_name_string,
             sample_rate,
@@ -1500,8 +1500,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             analysis_opts.show_butterworth,
             using_debug_fallback,
             debug_mode_label,
-        )?;
-    }
+        )?)
+    } else {
+        None
+    };
 
     if plot_config.d_term_psd {
         plot_d_term_psd(
@@ -1666,6 +1668,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         pd_ratios: pd_ratios_for_report,
         step_reports,
         optimal_p: optimal_p_for_report,
+        gyro_analysis,
         bode_results,
         motor_results,
         png_links,

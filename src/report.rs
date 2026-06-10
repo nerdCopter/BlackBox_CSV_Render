@@ -13,6 +13,7 @@ use crate::constants::{MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
 use crate::data_analysis::transfer_function_estimation::Confidence;
 use crate::plot_functions::plot_bode::BodeAxisResult;
+use crate::plot_functions::plot_gyro_spectrums::GyroAnalysisResult;
 use crate::plot_functions::plot_motor_spectrums::MotorOscillationResult;
 
 /// D-term recommendation for one tier (conservative, moderate, or aggressive)
@@ -44,6 +45,7 @@ pub struct FlightReport {
     pub pd_ratios: [Option<f64>; 3],
     pub step_reports: Vec<StepAxisReport>,
     pub optimal_p: [Option<OptimalPAnalysis>; AXIS_COUNT],
+    pub gyro_analysis: Option<GyroAnalysisResult>,
     pub bode_results: Vec<BodeAxisResult>,
     pub motor_results: Vec<MotorOscillationResult>,
     pub png_links: Vec<String>,
@@ -150,6 +152,35 @@ pub fn generate_markdown_report(
             }
             writeln!(md)?;
         }
+    }
+
+    // --- Gyro Analysis (filtering delay + spectrum peaks) ---
+    if let Some(gyro) = &report.gyro_analysis {
+        writeln!(md, "## Gyro Analysis")?;
+        writeln!(md)?;
+        if let Some(delay_ms) = gyro.average_delay_ms {
+            writeln!(
+                md,
+                "- **Filtering Delay:** {:.2} ms (average across axes)",
+                delay_ms
+            )?;
+        }
+        let axes_with_peaks: Vec<_> = gyro
+            .axes
+            .iter()
+            .filter(|a| a.primary_peak.is_some())
+            .collect();
+        if !axes_with_peaks.is_empty() {
+            writeln!(md)?;
+            writeln!(md, "| Axis | Primary Peak (Hz) | Amplitude |")?;
+            writeln!(md, "|------|------------------|-----------|")?;
+            for axis in &gyro.axes {
+                if let Some((freq, amp)) = axis.primary_peak {
+                    writeln!(md, "| {} | {:.1} | {:.2} |", axis.axis_name, freq, amp)?;
+                }
+            }
+        }
+        writeln!(md)?;
     }
 
     // --- Optimal P Estimation ---
