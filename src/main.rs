@@ -9,6 +9,7 @@ mod font_config;
 mod pid_context;
 mod plot_framework;
 mod plot_functions;
+mod report;
 mod types;
 
 use std::collections::{BTreeMap, HashSet};
@@ -1508,6 +1509,88 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
     if plot_config.pid_activity {
         plot_pid_activity(&all_log_data, &root_name_string, Some(&header_metadata))?;
+    }
+
+    // --- Collect generated PNG filenames ---
+    let mut png_links: Vec<String> = Vec::new();
+
+    if plot_config.step_response {
+        // Step response filename includes duration and optional dps suffix — scan for it.
+        let prefix = format!("{root_name_string}_Step_Response_stacked_plot_");
+        if let Ok(entries) = std::fs::read_dir(".") {
+            let mut matches: Vec<String> = entries
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with(&prefix) && n.ends_with(".png"))
+                .collect();
+            matches.sort();
+            png_links.extend(matches);
+        }
+    }
+    if plot_config.pidsum_error_setpoint {
+        png_links.push(format!(
+            "{root_name_string}_PIDsum_PIDerror_Setpoint_stacked.png"
+        ));
+    }
+    if plot_config.setpoint_vs_gyro {
+        png_links.push(format!("{root_name_string}_SetpointVsGyro_stacked.png"));
+    }
+    if plot_config.setpoint_derivative {
+        png_links.push(format!("{root_name_string}_SetpointDerivative_stacked.png"));
+    }
+    if plot_config.gyro_vs_unfilt {
+        png_links.push(format!("{root_name_string}_GyroVsUnfilt_stacked.png"));
+    }
+    if plot_config.gyro_spectrums {
+        png_links.push(format!("{root_name_string}_Gyro_Spectrums_comparative.png"));
+    }
+    if plot_config.d_term_psd {
+        png_links.push(format!("{root_name_string}_D_Term_PSD_comparative.png"));
+    }
+    if plot_config.d_term_spectrums {
+        png_links.push(format!(
+            "{root_name_string}_D_Term_Spectrums_comparative.png"
+        ));
+    }
+    if plot_config.motor_spectrums {
+        png_links.push(format!("{root_name_string}_Motor_Spectrums_stacked.png"));
+    }
+    if plot_config.psd {
+        png_links.push(format!("{root_name_string}_Gyro_PSD_comparative.png"));
+    }
+    if plot_config.psd_db_heatmap {
+        png_links.push(format!(
+            "{root_name_string}_Gyro_PSD_Spectrogram_comparative.png"
+        ));
+    }
+    if plot_config.throttle_freq_heatmap {
+        png_links.push(format!(
+            "{root_name_string}_Throttle_Freq_Heatmap_comparative.png"
+        ));
+    }
+    if plot_config.d_term_heatmap {
+        png_links.push(format!("{root_name_string}_D_Term_Heatmap_comparative.png"));
+    }
+    if plot_config.bode {
+        png_links.push(format!("{root_name_string}_Bode_Analysis.png"));
+    }
+    if plot_config.pid_activity {
+        png_links.push(format!("{root_name_string}_PID_Activity_stacked.png"));
+    }
+
+    // --- Markdown Statistical Report ---
+    let report_filename = format!("{root_name_string}_report.md");
+    let report_path = std::path::Path::new(&report_filename);
+    println!("\n--- Generating Report: {report_filename} ---");
+    match report::generate_markdown_report(
+        &all_log_data,
+        sample_rate,
+        &header_metadata,
+        report_path,
+        &png_links,
+    ) {
+        Ok(()) => println!("  [OK] Report written."),
+        Err(e) => eprintln!("  [ERROR] Report generation failed: {e}"),
     }
 
     // CWD restoration happens automatically when _cwd_guard goes out of scope
