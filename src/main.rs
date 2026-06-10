@@ -762,6 +762,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let mut recommended_d_min_aggressive: [Option<u32>; 3] = [None, None, None];
     let mut recommended_d_max_aggressive: [Option<u32>; 3] = [None, None, None];
 
+    // Setpoint authority per axis (captured for report)
+    let mut setpoint_authority_names: [Option<&'static str>; 3] = [None, None, None];
+    let mut setpoint_authority_means: [Option<f32>; 3] = [None, None, None];
+
     if let Some(sr) = sample_rate {
         for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
@@ -984,6 +988,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         valid_window_max_setpoints.as_slice().unwrap_or(&[]),
                                     )
                                     .unwrap_or((SetpointAuthority::Low, 0.0));
+                                    setpoint_authority_names[axis_index] = Some(authority.name());
+                                    setpoint_authority_means[axis_index] = Some(authority_mean);
                                     println!(
                                         "  Setpoint Authority: {} (mean={:.0}dps \u{22a2}\u{2265}{}dps)",
                                         authority.name(),
@@ -1211,6 +1217,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                     conservative,
                     moderate,
                     aggressive,
+                    setpoint_authority_name: setpoint_authority_names[axis_index],
+                    setpoint_authority_mean: setpoint_authority_means[axis_index],
                 });
             }
         }

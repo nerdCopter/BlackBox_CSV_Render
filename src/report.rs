@@ -32,6 +32,8 @@ pub struct StepAxisReport {
     pub conservative: Option<DTermRec>,
     pub moderate: Option<DTermRec>,
     pub aggressive: Option<DTermRec>,
+    pub setpoint_authority_name: Option<&'static str>,
+    pub setpoint_authority_mean: Option<f32>,
 }
 
 /// Aggregated analysis results collected from one flight log
@@ -106,6 +108,16 @@ pub fn generate_markdown_report(
             writeln!(md, "- **Peak Value:** {:.3}", axis_report.peak_value)?;
             writeln!(md, "- **Assessment:** {}", axis_report.assessment)?;
             writeln!(md, "- **Current P:D:** {:.2}", axis_report.current_pd_ratio)?;
+            if let (Some(name), Some(mean)) = (
+                axis_report.setpoint_authority_name,
+                axis_report.setpoint_authority_mean,
+            ) {
+                writeln!(
+                    md,
+                    "- **Setpoint Authority:** {} (mean {:.0} dps)",
+                    name, mean
+                )?;
+            }
             if let Some(rec) = &axis_report.conservative {
                 writeln!(
                     md,
