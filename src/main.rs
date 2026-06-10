@@ -1697,6 +1697,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         filter_config,
         dynamic_notch,
         rpm_filter,
+        debug_fallback: using_debug_fallback,
+        debug_mode_name: debug_mode_label,
     };
     match report::generate_markdown_report(&flight_report, report_path) {
         Ok(()) => println!("  [OK] Report written."),

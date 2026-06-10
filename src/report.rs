@@ -58,6 +58,9 @@ pub struct FlightReport {
     pub filter_config: Option<AllFilterConfigs>,
     pub dynamic_notch: Option<DynamicNotchConfig>,
     pub rpm_filter: Option<RpmFilterConfig>,
+    /// True when gyroUnfilt came from debug channels instead of dedicated gyroUnfilt columns.
+    pub debug_fallback: bool,
+    pub debug_mode_name: Option<&'static str>,
 }
 
 /// Generate a structured markdown report and write it to `output_path`.
@@ -92,6 +95,16 @@ pub fn generate_markdown_report(
         if interesting_keys.iter().any(|ik| k.eq_ignore_ascii_case(ik)) {
             writeln!(md, "- **{}:** {}", k, v)?;
         }
+    }
+    if report.debug_fallback {
+        let mode_str = report
+            .debug_mode_name
+            .map_or(String::new(), |m| format!(" ({})", m));
+        writeln!(
+            md,
+            "- **⚠ gyroUnfilt source:** debug[0-2] fallback{} — unfiltered gyro spectrum and filtering delay derived from debug channels, not dedicated gyroUnfilt columns",
+            mode_str
+        )?;
     }
     writeln!(md)?;
 
