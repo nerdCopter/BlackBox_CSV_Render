@@ -22,15 +22,16 @@ use crate::plot_functions::peak_detection::find_and_sort_peaks_with_threshold;
 use crate::types::AllFFTData;
 use plotters::style::RGBColor;
 
-/// Per-axis primary spectrum peak (unfiltered gyro)
+/// Per-axis spectrum peaks and filtering delay (unfiltered gyro)
 pub struct GyroSpectrumAxisResult {
     pub axis_name: &'static str,
-    pub primary_peak: Option<(f64, f64)>, // (freq_hz, amplitude)
+    pub peaks: Vec<(f64, f64)>, // (freq_hz, amplitude); [0] = primary, rest = subordinates
+    pub delay_ms: Option<f32>,
+    pub delay_confidence: Option<f32>, // 0.0–1.0
 }
 
-/// Gyro spectrum analysis: per-axis peaks and average filtering delay
+/// Gyro spectrum analysis: per-axis peaks and filtering delay
 pub struct GyroAnalysisResult {
-    pub average_delay_ms: Option<f32>,
     pub axes: Vec<GyroSpectrumAxisResult>,
 }
 
@@ -54,16 +55,13 @@ pub fn plot_gyro_spectrums(
         sr
     } else {
         println!("\nINFO: Skipping Gyro Spectrum Plot: Sample rate could not be determined.");
-        return Ok(GyroAnalysisResult {
-            average_delay_ms: None,
-            axes: vec![],
-        });
+        return Ok(GyroAnalysisResult { axes: vec![] });
     };
 
     // Calculate filtering delay using enhanced cross-correlation
     let delay_analysis =
         filter_delay::calculate_average_filtering_delay_comparison(log_data, sr_value);
-    let average_delay_ms = delay_analysis.average_delay;
+    let axis_delays = delay_analysis.axis_delays.clone();
     let delay_comparison_results = if !delay_analysis.results.is_empty() {
         Some(delay_analysis.results)
     } else {
@@ -223,15 +221,21 @@ pub fn plot_gyro_spectrums(
         overall_max_y_amplitude = SPECTRUM_Y_AXIS_FLOOR;
     }
 
-    // Extract per-axis primary peaks before the closure takes ownership of all_fft_raw_data
+    // Extract per-axis peaks and delay before the closure takes ownership of all_fft_raw_data
     let gyro_axes: Vec<GyroSpectrumAxisResult> = (0..axis_count)
         .map(|axis_idx| {
-            let primary_peak = all_fft_raw_data[axis_idx]
+            let peaks = all_fft_raw_data[axis_idx]
                 .as_ref()
-                .and_then(|(_, unfilt_peaks, _, _)| unfilt_peaks.first().copied());
+                .map_or(vec![], |(_, unfilt_peaks, _, _)| unfilt_peaks.clone());
+            let (delay_ms, delay_confidence) = axis_delays
+                .get(axis_idx)
+                .and_then(|d| *d)
+                .map_or((None, None), |(d, c)| (Some(d), Some(c)));
             GyroSpectrumAxisResult {
                 axis_name: AXIS_NAMES[axis_idx],
-                primary_peak,
+                peaks,
+                delay_ms,
+                delay_confidence,
             }
         })
         .collect();
@@ -609,10 +613,7 @@ pub fn plot_gyro_spectrums(
         }
     })?;
 
-    Ok(GyroAnalysisResult {
-        average_delay_ms,
-        axes: gyro_axes,
-    })
+    Ok(GyroAnalysisResult { axes: gyro_axes })
 }
 
 // src/plot_functions/plot_gyro_spectrums.rs

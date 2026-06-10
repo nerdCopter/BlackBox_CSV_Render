@@ -188,6 +188,7 @@ pub fn calculate_average_filtering_delay_comparison(
     sample_rate: f64,
 ) -> DelayAnalysisResult {
     let mut all_results: Vec<DelayResult> = Vec::new();
+    let mut axis_delays: Vec<Option<(f32, f32)>> = vec![None; AXIS_NAMES.len()];
 
     // First, diagnose data availability
     println!("=== Gyro Data Availability Diagnostic ===");
@@ -274,6 +275,13 @@ pub fn calculate_average_filtering_delay_comparison(
                 }
             }
 
+            // Capture per-axis delay for callers that need it (e.g. report)
+            if let Some(r) = axis_results
+                .iter()
+                .find(|r| r.method == "Enhanced Cross-Correlation")
+            {
+                axis_delays[axis] = Some((r.delay_ms, r.confidence));
+            }
             all_results.extend(axis_results);
         }
     }
@@ -298,17 +306,20 @@ pub fn calculate_average_filtering_delay_comparison(
             DelayAnalysisResult {
                 average_delay: Some(avg_delay),
                 results: method_summaries,
+                axis_delays,
             }
         } else {
             DelayAnalysisResult {
                 average_delay: None,
                 results: method_summaries,
+                axis_delays,
             }
         }
     } else {
         DelayAnalysisResult {
             average_delay: None,
             results: Vec::new(),
+            axis_delays,
         }
     }
 }
@@ -325,6 +336,8 @@ pub struct DelayResult {
 pub struct DelayAnalysisResult {
     pub average_delay: Option<f32>,
     pub results: Vec<DelayResult>,
+    /// Per-axis (delay_ms, confidence 0–1); index matches AXIS_NAMES order
+    pub axis_delays: Vec<Option<(f32, f32)>>,
 }
 
 /// Calculate filtering delay using enhanced cross-correlation method only

@@ -21,10 +21,10 @@ use crate::plot_framework::{
 use crate::plot_functions::peak_detection::find_and_sort_peaks_with_threshold;
 use plotters::style::RGBColor;
 
-/// Per-axis D-term spectrum analysis: primary peak and filtering delay
+/// Per-axis D-term spectrum analysis: peaks (sorted by amplitude) and filtering delay
 pub struct DTermAxisResult {
     pub axis_name: &'static str,
-    pub primary_peak: Option<(f64, f64)>, // (freq_hz, amplitude)
+    pub peaks: Vec<(f64, f64)>, // (freq_hz, amplitude); [0] = primary, rest = subordinates
     pub delay_ms: Option<f32>,
     pub delay_confidence: Option<f32>, // 0.0–1.0
 }
@@ -274,14 +274,13 @@ pub fn plot_d_term_spectrums(
         let filt_peaks = Vec::new();
 
         // Capture per-axis data for report before peaks are moved into plot configs
-        let dterm_primary_peak = unfilt_peaks.first().copied();
         let dterm_delay_info = delay_by_axis
             .get(axis_idx)
             .and_then(|r| r.as_ref())
             .map(|r| (r.delay_ms, r.confidence));
         dterm_results.push(DTermAxisResult {
             axis_name,
-            primary_peak: dterm_primary_peak,
+            peaks: unfilt_peaks.clone(),
             delay_ms: dterm_delay_info.map(|(d, _)| d),
             delay_confidence: dterm_delay_info.map(|(_, c)| c),
         });

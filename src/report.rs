@@ -156,66 +156,104 @@ pub fn generate_markdown_report(
         }
     }
 
-    // --- Gyro Analysis (filtering delay + spectrum peaks) ---
+    // --- Gyro Analysis (per-axis filtering delay + spectrum peaks) ---
     if let Some(gyro) = &report.gyro_analysis {
-        writeln!(md, "## Gyro Analysis")?;
-        writeln!(md)?;
-        if let Some(delay_ms) = gyro.average_delay_ms {
-            writeln!(
-                md,
-                "- **Filtering Delay:** {:.2} ms (average across axes)",
-                delay_ms
-            )?;
-        }
-        let axes_with_peaks: Vec<_> = gyro
+        let has_gyro_data = gyro
             .axes
             .iter()
-            .filter(|a| a.primary_peak.is_some())
-            .collect();
-        if !axes_with_peaks.is_empty() {
+            .any(|a| !a.peaks.is_empty() || a.delay_ms.is_some());
+        if has_gyro_data {
+            writeln!(md, "## Gyro Analysis")?;
             writeln!(md)?;
-            writeln!(md, "| Axis | Primary Peak (Hz) | Amplitude |")?;
-            writeln!(md, "|------|------------------|-----------|")?;
+            writeln!(
+                md,
+                "| Axis | Delay (ms) | Confidence | Peak | Freq (Hz) | Amplitude |"
+            )?;
+            writeln!(
+                md,
+                "|------|-----------|------------|------|-----------|-----------|"
+            )?;
             for axis in &gyro.axes {
-                if let Some((freq, amp)) = axis.primary_peak {
-                    writeln!(md, "| {} | {:.1} | {:.2} |", axis.axis_name, freq, amp)?;
+                let delay = axis.delay_ms.map_or("N/A".into(), |v| format!("{:.2}", v));
+                let conf = axis
+                    .delay_confidence
+                    .map_or("N/A".into(), |v| format!("{:.0}%", v * 100.0));
+                if axis.peaks.is_empty() {
+                    writeln!(
+                        md,
+                        "| {} | {} | {} | N/A | N/A | N/A |",
+                        axis.axis_name, delay, conf
+                    )?;
+                } else {
+                    for (idx, (freq, amp)) in axis.peaks.iter().enumerate() {
+                        let label = if idx == 0 {
+                            "Primary".to_string()
+                        } else {
+                            format!("Sub {}", idx)
+                        };
+                        let (d_col, c_col) = if idx == 0 {
+                            (delay.clone(), conf.clone())
+                        } else {
+                            ("".into(), "".into())
+                        };
+                        writeln!(
+                            md,
+                            "| {} | {} | {} | {} | {:.1} | {:.2} |",
+                            axis.axis_name, d_col, c_col, label, freq, amp
+                        )?;
+                    }
                 }
             }
+            writeln!(md)?;
         }
-        writeln!(md)?;
     }
 
     // --- D-Term Analysis (per-axis delay + spectrum peaks) ---
     let has_dterm_data = report
         .dterm_results
         .iter()
-        .any(|r| r.primary_peak.is_some() || r.delay_ms.is_some());
+        .any(|r| !r.peaks.is_empty() || r.delay_ms.is_some());
     if has_dterm_data {
         writeln!(md, "## D-Term Analysis")?;
         writeln!(md)?;
         writeln!(
             md,
-            "| Axis | Delay (ms) | Confidence | Primary Peak (Hz) | Amplitude |"
+            "| Axis | Delay (ms) | Confidence | Peak | Freq (Hz) | Amplitude |"
         )?;
         writeln!(
             md,
-            "|------|-----------|------------|------------------|-----------|"
+            "|------|-----------|------------|------|-----------|-----------|"
         )?;
         for r in &report.dterm_results {
             let delay = r.delay_ms.map_or("N/A".into(), |v| format!("{:.1}", v));
             let conf = r
                 .delay_confidence
                 .map_or("N/A".into(), |v| format!("{:.0}%", v * 100.0));
-            let (freq, amp) = if let Some((f, a)) = r.primary_peak {
-                (format!("{:.1}", f), format!("{:.2}", a))
+            if r.peaks.is_empty() {
+                writeln!(
+                    md,
+                    "| {} | {} | {} | N/A | N/A | N/A |",
+                    r.axis_name, delay, conf
+                )?;
             } else {
-                ("N/A".into(), "N/A".into())
-            };
-            writeln!(
-                md,
-                "| {} | {} | {} | {} | {} |",
-                r.axis_name, delay, conf, freq, amp
-            )?;
+                for (idx, (freq, amp)) in r.peaks.iter().enumerate() {
+                    let label = if idx == 0 {
+                        "Primary".to_string()
+                    } else {
+                        format!("Sub {}", idx)
+                    };
+                    let (d_col, c_col) = if idx == 0 {
+                        (delay.clone(), conf.clone())
+                    } else {
+                        ("".into(), "".into())
+                    };
+                    writeln!(
+                        md,
+                        "| {} | {} | {} | {} | {:.1} | {:.2} |",
+                        r.axis_name, d_col, c_col, label, freq, amp
+                    )?;
+                }
+            }
         }
         writeln!(md)?;
     }

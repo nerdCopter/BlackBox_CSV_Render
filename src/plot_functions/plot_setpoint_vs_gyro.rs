@@ -31,6 +31,7 @@ pub fn plot_setpoint_vs_gyro(
         DelayAnalysisResult {
             average_delay: None,
             results: Vec::new(),
+            axis_delays: Vec::new(),
         }
     };
 
