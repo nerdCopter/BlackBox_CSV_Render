@@ -67,6 +67,7 @@ pub struct EsoResult {
     /// N-step-ahead prediction MSE at the optimal omega0.
     pub mse: f64,
     /// Number of samples used in the optimization.
+    #[allow(dead_code)]
     pub sample_count: usize,
     /// Timestamps (seconds) aligned to the trace data.
     pub timestamps: Vec<f64>,

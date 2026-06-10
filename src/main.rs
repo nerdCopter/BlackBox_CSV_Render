@@ -10,10 +10,9 @@ mod font_config;
 mod pid_context;
 mod plot_framework;
 mod plot_functions;
-mod report;
 mod types;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -22,6 +21,7 @@ use std::path::{Path, PathBuf};
 use ndarray::Array1;
 
 use crate::axis_names::AXIS_COUNT;
+use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, AircraftProfile};
 use crate::types::StepResponseResults;
 
 // Build version string from git info with fallbacks for builds without vergen metadata
@@ -32,6 +32,7 @@ fn get_version_string() -> String {
 }
 
 // Plot configuration struct
+// NOTE: When adding a field here, update none(), Default::default(), and all() accordingly.
 #[derive(Debug, Clone, Copy)]
 struct PlotConfig {
     pub step_response: bool,
@@ -50,14 +51,61 @@ struct PlotConfig {
     pub bode: bool,
     pub pid_activity: bool,
     pub run_eso: bool,
-    pub run_report: bool,
     pub eso_b0: f64,
     pub eso_b0_user_override: bool,
-    pub eso_axes: [bool; AXIS_COUNT],
 }
 
 impl Default for PlotConfig {
+    /// Core plots only (enabled by default)
     fn default() -> Self {
+        Self {
+            step_response: true,
+            pidsum_error_setpoint: false,
+            setpoint_vs_gyro: true,
+            setpoint_derivative: false,
+            gyro_vs_unfilt: true,
+            gyro_spectrums: true,
+            d_term_psd: false,
+            d_term_spectrums: true,
+            psd: false,
+            psd_db_heatmap: false,
+            throttle_freq_heatmap: false,
+            d_term_heatmap: false,
+            motor_spectrums: true,
+            bode: false,
+            pid_activity: false,
+            run_eso: false,
+            eso_b0: crate::constants::ESO_DEFAULT_B0,
+            eso_b0_user_override: false,
+        }
+    }
+}
+
+impl PlotConfig {
+    fn none() -> Self {
+        Self {
+            step_response: false,
+            pidsum_error_setpoint: false,
+            setpoint_vs_gyro: false,
+            setpoint_derivative: false,
+            gyro_vs_unfilt: false,
+            gyro_spectrums: false,
+            d_term_psd: false,
+            d_term_spectrums: false,
+            psd: false,
+            psd_db_heatmap: false,
+            throttle_freq_heatmap: false,
+            d_term_heatmap: false,
+            motor_spectrums: false,
+            bode: false,
+            pid_activity: false,
+            run_eso: false,
+            eso_b0: crate::constants::ESO_DEFAULT_B0,
+            eso_b0_user_override: false,
+        }
+    }
+
+    fn all() -> Self {
         Self {
             step_response: true,
             pidsum_error_setpoint: true,
@@ -72,37 +120,23 @@ impl Default for PlotConfig {
             throttle_freq_heatmap: true,
             d_term_heatmap: true,
             motor_spectrums: true,
-            bode: false,
+            bode: false, // Bode requires specialized logs
             pid_activity: true,
             run_eso: false,
-            run_report: false,
             eso_b0: crate::constants::ESO_DEFAULT_B0,
             eso_b0_user_override: false,
-            eso_axes: [true; AXIS_COUNT],
         }
     }
 }
 
-impl PlotConfig {
-    /// Reset all plot-type flags to `false` while preserving ESO and report settings
-    /// (`run_eso`, `run_report`, `eso_b0`, `eso_b0_user_override`, `eso_axes`).
-    fn disable_plots(&mut self) {
-        self.step_response = false;
-        self.pidsum_error_setpoint = false;
-        self.setpoint_vs_gyro = false;
-        self.setpoint_derivative = false;
-        self.gyro_vs_unfilt = false;
-        self.gyro_spectrums = false;
-        self.d_term_psd = false;
-        self.d_term_spectrums = false;
-        self.psd = false;
-        self.psd_db_heatmap = false;
-        self.throttle_freq_heatmap = false;
-        self.d_term_heatmap = false;
-        self.motor_spectrums = false;
-        self.bode = false;
-        self.pid_activity = false;
-    }
+// Analysis options struct to group related analysis parameters
+#[derive(Debug, Clone, Copy)]
+struct AnalysisOptions {
+    pub setpoint_threshold: f64,
+    pub show_legend: bool,
+    pub debug_mode: bool,
+    pub show_butterworth: bool,
+    pub estimate_optimal_p: bool,
 }
 
 use crate::constants::{
@@ -161,6 +195,7 @@ use crate::pid_context::PidContext;
 
 // Data analysis imports
 use crate::data_analysis::calc_step_response;
+use crate::data_analysis::calc_step_response::{compute_setpoint_authority, SetpointAuthority};
 
 /// Expand input paths to a list of CSV files.
 /// If a path is a file, validate CSV extension before adding.
@@ -365,45 +400,171 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!();
     eprintln!("=== PLOT TYPE SELECTION ===");
     eprintln!();
-    eprintln!("  Note: Plot flags are combinable. Without flags, all plots generated.");
-    eprintln!();
-    eprintln!("  --step: Generate only step response plots.");
-    eprintln!("  --motor: Generate only motor spectrum plots.");
-    eprintln!("  --setpoint: Generate only setpoint-related plots.");
-    eprintln!("  --pid: Generate only P, I, D activity plot.");
-    eprintln!("  --bode: Bode plot analysis (requires chirp/sweep system-id test flight, not normal logs).");
+    eprintln!("  --core           [default] Step Response, Gyro Spectrums, D-term Spectrums,");
+    eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.");
+    eprintln!("  --extended       All plots except Bode — adds PIDsum/Error, PID Activity,");
+    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.");
+    eprintln!("  --step           Step response only.");
+    eprintln!("  --bode           Bode only (requires chirp/sweep system-id test flight).");
     eprintln!();
     eprintln!("=== ANALYSIS OPTIONS ===");
     eprintln!();
-    eprintln!("  --butterworth: Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
+    eprintln!("  --butterworth    Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
     eprintln!(
-        "  --dps <value>: Deg/s threshold for detailed step response plots (positive number)."
+        "  --dps <value>    Deg/s threshold for detailed step response plots (positive number)."
     );
-    eprintln!("  --eso: Run 2nd-order LESO bandwidth optimization (omega_0) per axis.");
-    eprintln!(
-        "  --eso-axis <axes>: Axes to optimize (comma-separated: roll,pitch,yaw,all or 0,1,2). Default: all."
-    );
-    eprintln!("  --eso-b0 <value>: Control effectiveness b0 for ESO (default: 1.0).");
-    eprintln!("  --report: Write a markdown statistical report (<stem>_report.md).");
+    eprintln!("  --eso            Run 2nd-order LESO bandwidth optimization (omega_0) per axis.");
+    eprintln!("  --eso-b0 <value> Control effectiveness b0 for ESO (default: 1.0).");
+    eprintln!("  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch");
+    eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
     eprintln!();
     eprintln!("=== GENERAL ===");
     eprintln!();
-    eprintln!("  --debug: Show detailed metadata during processing.");
-    eprintln!("  -h, --help: Show this help message and exit.");
-    eprintln!("  -V, --version: Show version information.");
+    eprintln!("  --debug          Show detailed metadata during processing.");
+    eprintln!("  -h, --help       Show this help message and exit.");
+    eprintln!("  -V, --version    Show version information.");
     std::process::exit(1);
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Extract an aircraft grouping key from a file path.
+///
+/// Strips the date-time portion (`_YYYYMMDD_HHMMSS`) so files from the same aircraft
+/// across multiple sessions share one key.  When the craft name follows the timestamp
+/// (e.g. the standard Betaflight naming scheme), it is appended to the prefix so that
+/// different craft logged under the same generic prefix remain distinct.
+///
+/// Examples:
+///   `EMUF_BLACKBOX_LOG_FOXEERF722V4_426_20240406_132335_notes.19.csv`
+///     → `EMUF_BLACKBOX_LOG_FOXEERF722V4_426`  (craft name precedes date)
+///   `BTFL_BLACKBOX_LOG_20250517_130413_STELLARH7DEV.02.csv`
+///     → `BTFL_BLACKBOX_LOG_STELLARH7DEV`  (generic prefix; craft name appended from suffix)
+///
+/// Files without a date pattern are treated as unique aircraft (full stem as key).
+fn extract_aircraft_key(path: &Path) -> String {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+
+    // Scan for the pattern _YYYYMMDD_HHMMSS (8-digit date, underscore, 6-digit time).
+    let bytes = stem.as_bytes();
+    let min_len = 16; // '_' + 8 digits + '_' + 6 digits
+    if bytes.len() >= min_len {
+        for i in 0..=(bytes.len() - min_len) {
+            if bytes[i] == b'_'
+                && bytes[i + 1..i + 9].iter().all(|&b| b.is_ascii_digit())
+                && bytes[i + 9] == b'_'
+                && bytes[i + 10..i + 16].iter().all(|&b| b.is_ascii_digit())
+            {
+                // i == 0 would give an empty key; fall through to full stem.
+                if i > 0 {
+                    let prefix = &stem[..i];
+                    let after_datetime = &stem[(i + 16)..];
+                    // When the prefix is a generic firmware placeholder (ends with
+                    // "BLACKBOX_LOG"), the craft name sits in the suffix; include it
+                    // so files from different craft don't collapse into one group.
+                    if !after_datetime.is_empty() && prefix.ends_with("BLACKBOX_LOG") {
+                        let craft = after_datetime.strip_prefix('_').unwrap_or(after_datetime);
+                        // Strip trailing log-number suffix (e.g. ".02", ".19").
+                        let craft = if let Some(dot) = craft.rfind('.') {
+                            let tail = &craft[dot + 1..];
+                            if tail.chars().all(|c| c.is_ascii_digit()) {
+                                &craft[..dot]
+                            } else {
+                                craft
+                            }
+                        } else {
+                            craft
+                        };
+                        if !craft.is_empty() {
+                            return format!("{}_{}", prefix, craft);
+                        }
+                    }
+                    return prefix.to_string();
+                }
+            }
+        }
+    }
+
+    // No date pattern found — use full stem.
+    stem.to_string()
+}
+
+/// Group a list of file paths by aircraft key.
+///
+/// Returns a `BTreeMap` (sorted by key) mapping each aircraft key to its files.
+fn group_files_by_aircraft(input_files: &[String]) -> BTreeMap<String, Vec<String>> {
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for file in input_files {
+        let key = extract_aircraft_key(Path::new(file));
+        groups.entry(key).or_default().push(file.clone());
+    }
+    groups
+}
+
+/// Parse all files in a group and collect torque-inertia ratio estimates.
+///
+/// This is the Phase 1 profiling pass. Each file is parsed minimally and the
+/// punch-event ratios are aggregated into a single `AircraftProfile`.
+fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile {
+    let mut all_axis_ratios: [Vec<f64>; crate::axis_names::AXIS_COUNT] =
+        std::array::from_fn(|_| Vec::new());
+    let mut files_profiled: usize = 0;
+
+    for file_str in files {
+        let path = Path::new(file_str);
+        match parse_log_file(path, debug_mode) {
+            Ok((log_data, Some(sr), ..)) => {
+                let ratios = extract_punch_ratios(&log_data, sr);
+                let total_events: usize = ratios.iter().map(|v| v.len()).sum();
+                for (axis, axis_ratio_vec) in all_axis_ratios.iter_mut().enumerate() {
+                    axis_ratio_vec.extend_from_slice(&ratios[axis]);
+                }
+                if debug_mode {
+                    println!(
+                        "  [torque-profile] {}: {} throttle-punch events across all axes",
+                        path.file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(file_str),
+                        total_events
+                    );
+                }
+                if total_events > 0 {
+                    files_profiled += 1;
+                }
+            }
+            Ok((_, None, ..)) => {
+                if debug_mode {
+                    eprintln!("  [torque-profile] Skipping {} (no sample rate)", file_str);
+                }
+            }
+            Err(e) => {
+                if debug_mode {
+                    eprintln!("  [torque-profile] Failed to parse {}: {}", file_str, e);
+                }
+            }
+        }
+    }
+
+    if debug_mode {
+        println!(
+            "  [torque-profile] Profiled {} file(s). Events: Roll={}, Pitch={}, Yaw={}",
+            files_profiled,
+            all_axis_ratios[0].len(),
+            all_axis_ratios[1].len(),
+            all_axis_ratios[2].len()
+        );
+    }
+
+    let mut profile = AircraftProfile::from_axis_ratios(all_axis_ratios);
+    profile.file_count = files_profiled;
+    profile
+}
+
 fn process_file(
     input_file_str: &str,
-    setpoint_threshold: f64,
-    show_legend: bool,
     use_dir_prefix: bool,
     output_dir: Option<&Path>,
-    debug_mode: bool,
-    show_butterworth: bool,
     plot_config: PlotConfig,
+    analysis_opts: AnalysisOptions,
+    aircraft_profile: &AircraftProfile,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -455,7 +616,7 @@ fn process_file(
         gyro_unfilt_header_found,
         debug_header_found,
         header_metadata,
-    ) = match parse_log_file(input_path, debug_mode) {
+    ) = match parse_log_file(input_path, analysis_opts.debug_mode) {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Error parsing log file {input_file_str}: {e}");
@@ -658,6 +819,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     if sample_rate.is_some() {
         println!("\n--- Step Response Analysis & P:D Ratio Recommendations ---");
         println!("NOTE: These are STARTING POINTS based on step response analysis.");
+        println!("      These recommendations focus on D-term tuning (P:D ratio).");
+        if analysis_opts.estimate_optimal_p {
+            println!(
+                "      See 'Optimal P Estimation' below for P gain magnitude recommendations."
+            );
+        }
         println!("      Always test in a safe environment. Conservative = safer first step.");
         println!("      Moderate = for experienced pilots (test carefully to avoid hot motors).");
         println!();
@@ -665,7 +832,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             // Only Roll (0) and Pitch (1)
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
 
-            if let Some((response_time, valid_stacked_responses, _valid_window_max_setpoints)) =
+            if let Some((response_time, valid_stacked_responses, valid_window_max_setpoints)) =
                 &step_response_calculation_results[axis_index]
             {
                 if valid_stacked_responses.shape()[0] > 0 && !response_time.is_empty() {
@@ -690,49 +857,42 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
                             if let Some(current_pd_ratio) = current_ratio {
                                 // Analyze overshoot/undershoot based on peak response and calculate recommended ratio
-                                // Peak ranges:
-                                //   0.95-1.05 = optimal (0-5% overshoot/undershoot)
-                                //   1.05-1.10 = acceptable (5-10% overshoot, improvable)
-                                //   1.10-1.15 = minor overshoot (11-15%, needs improvement)
-                                //   >1.15     = moderate/severe overshoot (needs significant D increase)
+                                // Peak zones (see constants.rs for threshold values):
+                                //   < PEAK_UNDERSHOOT_MAX        = undershoot:   Recommendation (conservative) proportional D decrease
+                                //   PEAK_UNDERSHOOT_MAX..PEAK_OPTIMAL_MIN = near optimal: Recommendation (none)
+                                //   PEAK_OPTIMAL_MIN..PEAK_ACCEPTABLE_MIN = optimal:      Recommendation (none)
+                                //   PEAK_ACCEPTABLE_MIN..PEAK_ACCEPTABLE_MAX = acceptable: Recommendation (conservative)
+                                //   PEAK_ACCEPTABLE_MAX..PEAK_SIGNIFICANT_MIN = overshoot:  Recommendation (conservative)
+                                //   > PEAK_SIGNIFICANT_MIN       = significant:  conservative + moderate + aggressive
                                 let (assessment, recommended_ratio) = if peak_value
                                     > crate::constants::PEAK_SIGNIFICANT_MIN
                                 {
-                                    // Significant overshoot (>20%) - use conservative multiplier
                                     (
                                         "Significant overshoot",
                                         current_pd_ratio
                                             * crate::constants::PD_RATIO_CONSERVATIVE_MULTIPLIER,
                                     )
-                                } else if peak_value > crate::constants::PEAK_MODERATE_MIN {
-                                    // Moderate overshoot (16-20%) - graduated adjustment
-                                    (
-                                        "Moderate overshoot",
-                                        current_pd_ratio
-                                            * crate::constants::PEAK_MODERATE_MULTIPLIER,
-                                    )
                                 } else if peak_value > crate::constants::PEAK_ACCEPTABLE_MAX {
-                                    // Minor overshoot (11-15%) - smaller adjustment
                                     (
-                                        "Minor overshoot",
-                                        current_pd_ratio * crate::constants::PEAK_MINOR_MULTIPLIER,
+                                        "Overshoot",
+                                        current_pd_ratio
+                                            * crate::constants::PEAK_OVERSHOOT_MULTIPLIER,
                                     )
                                 } else if peak_value >= crate::constants::PEAK_ACCEPTABLE_MIN {
-                                    // Acceptable (5-10% overshoot) - minimal adjustment
                                     (
-                                        "Acceptable response",
+                                        "Acceptable",
                                         current_pd_ratio
                                             * crate::constants::PEAK_ACCEPTABLE_MULTIPLIER,
                                     )
                                 } else if peak_value >= crate::constants::PEAK_OPTIMAL_MIN {
-                                    // Optimal (0-5% overshoot/undershoot) - no change
-                                    ("Optimal response", current_pd_ratio)
-                                } else if peak_value >= 0.85 {
-                                    // Minor undershoot (6-15%) - small decrease
-                                    ("Minor undershoot", current_pd_ratio * 1.05)
+                                    ("Optimal", current_pd_ratio)
+                                } else if peak_value >= crate::constants::PEAK_UNDERSHOOT_MAX {
+                                    ("Near optimal", current_pd_ratio)
                                 } else {
-                                    // Significant undershoot (>15%) - moderate decrease
-                                    ("Significant undershoot", current_pd_ratio * 1.15)
+                                    // Proportional D decrease: scale P:D toward the optimal sweet-spot centre
+                                    let multiplier = crate::constants::PEAK_OPTIMAL_TARGET
+                                        / peak_value.max(crate::constants::PEAK_VALUE_MIN_CLAMP);
+                                    ("Undershoot", current_pd_ratio * multiplier)
                                 };
 
                                 // Store peak value, current P:D ratio, and assessment for plot legends
@@ -740,22 +900,26 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 current_pd_ratios[axis_index] = Some(current_pd_ratio);
                                 assessments[axis_index] = Some(assessment);
 
-                                // Only store recommendations if change exceeds threshold
-                                // (to avoid showing recommendations for already-good responses)
-                                if (recommended_ratio - current_pd_ratio).abs()
-                                    > crate::constants::PD_RATIO_MIN_CHANGE_THRESHOLD
+                                // Always store recommendations for zones where the delta is small by
+                                // design (Acceptable ≈2%, Undershoot near-boundary ≈5% at low P:D)
+                                // to avoid the 5% gate suppressing valid recommendations.
+                                if assessment == "Acceptable"
+                                    || assessment == "Undershoot"
+                                    || (recommended_ratio - current_pd_ratio).abs()
+                                        > crate::constants::PD_RATIO_MIN_CHANGE_THRESHOLD
                                 {
                                     // store conservative recommendation for later use in plots
                                     recommended_pd_conservative[axis_index] =
                                         Some(recommended_ratio);
 
-                                    // Calculate moderate recommendation ONLY for moderate/significant overshoot (>1.15)
-                                    // For acceptable/minor overshoot (1.05-1.15), show conservative only
+                                    // Calculate moderate recommendation for any overshoot (>PEAK_ACCEPTABLE_MAX)
+                                    // Base directly on current_pd_ratio so the result is always
+                                    // current * PD_RATIO_MODERATE_MULTIPLIER regardless of which
+                                    // conservative-tier multiplier was applied to recommended_ratio.
                                     let moderate_ratio =
-                                        if peak_value > crate::constants::PEAK_MINOR_MAX {
-                                            let ratio = recommended_ratio
-                                            * crate::constants::PD_RATIO_MODERATE_MULTIPLIER
-                                            / crate::constants::PD_RATIO_CONSERVATIVE_MULTIPLIER;
+                                        if peak_value > crate::constants::PEAK_ACCEPTABLE_MAX {
+                                            let ratio = current_pd_ratio
+                                                * crate::constants::PD_RATIO_MODERATE_MULTIPLIER;
                                             recommended_pd_aggressive[axis_index] = Some(ratio);
                                             Some(ratio)
                                         } else {
@@ -810,7 +974,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     }
                                 }
 
-                                println!("{axis_name}: Peak={peak_value:.3} → {assessment}");
+                                println!("{axis_name}: Actual Peak={peak_value:.3} → {assessment}");
 
                                 // Always show current P:D ratio with quality assessment
                                 let axis_pid = if axis_index == 0 {
@@ -819,8 +983,22 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                     &pid_metadata.pitch
                                 };
 
-                                if let Some(p_val) = axis_pid.p {
+                                if axis_pid.p.is_some() {
                                     println!("  Current P:D={current_pd_ratio:.2}");
+                                    // Needed in both branches below
+                                    let dmax_enabled = pid_metadata.is_dmax_enabled();
+
+                                    // Setpoint Authority from mean of per-window max setpoints
+                                    let (authority, authority_mean) = compute_setpoint_authority(
+                                        valid_window_max_setpoints.as_slice().unwrap_or(&[]),
+                                    )
+                                    .unwrap_or((SetpointAuthority::Low, 0.0));
+                                    println!(
+                                        "  Setpoint Authority: {} (mean={:.0}dps \u{22a2}\u{2265}{}dps)",
+                                        authority.name(),
+                                        authority_mean,
+                                        crate::constants::LOW_AUTHORITY_SETPOINT_THRESHOLD_DEG_S as u32
+                                    );
 
                                     // Show recommendations if they were computed (threshold exceeded)
                                     if recommended_pd_conservative[axis_index].is_some() {
@@ -851,9 +1029,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             println!("      Consider decreasing P or checking for overdamped response");
                                         }
 
-                                        // Check if D-Min/D-Max is enabled
-                                        let dmax_enabled = pid_metadata.is_dmax_enabled();
-
                                         // Show conservative recommendation
                                         if dmax_enabled
                                             && (recommended_d_min_conservative[axis_index]
@@ -868,22 +1043,21 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             let d_max_str = recommended_d_max_conservative
                                                 [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("    Conservative: P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                            println!("  Recommendation (conservative): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                                                 recommended_pd_conservative[axis_index].unwrap(),
-                                                d_min_str, d_max_str, p_val);
+                                                d_min_str, d_max_str);
                                         } else if let Some(recommended_d) =
                                             recommended_d_conservative[axis_index]
                                         {
                                             // D-Min/D-Max disabled: show only base D
                                             println!(
-                                                "    Conservative: P:D={:.2} → D≈{} (P={})",
+                                                "  Recommendation (conservative): P:D={:.2} (D≈{})",
                                                 recommended_pd_conservative[axis_index].unwrap(),
-                                                recommended_d,
-                                                p_val
+                                                recommended_d
                                             );
                                         }
 
-                                        // Show moderate recommendation
+                                        // Show secondary (moderate) recommendation
                                         if dmax_enabled
                                             && (recommended_d_min_aggressive[axis_index].is_some()
                                                 || recommended_d_max_aggressive[axis_index]
@@ -896,24 +1070,88 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             let d_max_str = recommended_d_max_aggressive
                                                 [axis_index]
                                                 .map_or("N/A".to_string(), |v| v.to_string());
-                                            println!("    Moderate:     P:D={:.2} → D-Min≈{}, D-Max≈{} (P={})",
+                                            println!("  Recommendation (moderate): P:D={:.2} (D-Min≈{}, D-Max≈{})",
                                                 recommended_pd_aggressive[axis_index].unwrap(),
-                                                d_min_str, d_max_str, p_val);
+                                                d_min_str, d_max_str);
                                         } else if let Some(recommended_d_mod) =
                                             recommended_d_aggressive[axis_index]
                                         {
                                             // D-Min/D-Max disabled: show only base D
                                             println!(
-                                                "    Moderate:     P:D={:.2} → D≈{} (P={})",
+                                                "  Recommendation (moderate): P:D={:.2} (D≈{})",
                                                 recommended_pd_aggressive[axis_index].unwrap(),
-                                                recommended_d_mod,
-                                                p_val
+                                                recommended_d_mod
+                                            );
+                                        }
+
+                                        // Show tertiary (aggressive) recommendation for significant overshoot only
+                                        if assessment == "Significant overshoot" {
+                                            let aggressive_pd = current_pd_ratio
+                                                * crate::constants::PD_RATIO_AGGRESSIVE_MULTIPLIER;
+                                            let (rec_d_agg, rec_d_min_agg, rec_d_max_agg) =
+                                                if axis_index == 0 {
+                                                    pid_metadata.roll.calculate_goal_d_with_range(
+                                                        aggressive_pd,
+                                                        dmax_enabled,
+                                                    )
+                                                } else {
+                                                    pid_metadata.pitch.calculate_goal_d_with_range(
+                                                        aggressive_pd,
+                                                        dmax_enabled,
+                                                    )
+                                                };
+                                            if dmax_enabled
+                                                && (rec_d_min_agg.is_some()
+                                                    || rec_d_max_agg.is_some())
+                                            {
+                                                let d_min_str = rec_d_min_agg
+                                                    .map_or("N/A".to_string(), |v| v.to_string());
+                                                let d_max_str = rec_d_max_agg
+                                                    .map_or("N/A".to_string(), |v| v.to_string());
+                                                println!("  Recommendation (aggressive): P:D={:.2} (D-Min≈{}, D-Max≈{})",
+                                                    aggressive_pd, d_min_str, d_max_str);
+                                            } else if let Some(rec_d3) = rec_d_agg {
+                                                println!("  Recommendation (aggressive): P:D={:.2} (D≈{})",
+                                                    aggressive_pd, rec_d3);
+                                            }
+                                        }
+                                    } else if assessment == "Near optimal" {
+                                        // Near optimal (1.00–1.02): D−1 hint only — no "none" line,
+                                        // since "none" and a concrete suggestion are contradictory.
+                                        if dmax_enabled {
+                                            let d_min_str = axis_pid
+                                                .d_min
+                                                .map(|v| {
+                                                    v.saturating_sub(
+                                                        crate::constants::D_STEP_OPTIONAL,
+                                                    )
+                                                })
+                                                .map_or("N/A".to_string(), |v| v.to_string());
+                                            let d_max_str = axis_pid
+                                                .d_max
+                                                .or(axis_pid.d)
+                                                .map(|v| {
+                                                    v.saturating_sub(
+                                                        crate::constants::D_STEP_OPTIONAL,
+                                                    )
+                                                })
+                                                .map_or("N/A".to_string(), |v| v.to_string());
+                                            println!(
+                                                "  Recommendation (conservative): D-Min≈{}, D-Max≈{} [optional D−1]",
+                                                d_min_str, d_max_str
+                                            );
+                                        } else if let Some(current_d) = axis_pid.d {
+                                            println!(
+                                                "  Recommendation (conservative): D≈{} [optional D−1]",
+                                                current_d.saturating_sub(
+                                                    crate::constants::D_STEP_OPTIONAL
+                                                )
                                             );
                                         }
                                     } else {
-                                        // No recommendations needed - response is already good
+                                        // Optimal zone (1.02–1.08): no adjustment needed
                                         println!(
-                                            "  ({assessment} - no obvious tuning adjustments needed)"
+                                            "  Recommendation (none): No obvious tuning adjustments needed"
                                         );
                                     }
                                 } else {
@@ -928,6 +1166,159 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             }
         }
         println!();
+    }
+
+    // Optimal P Estimation Analysis (if enabled)
+    // Store results for both console output and PNG overlay
+    let mut optimal_p_analyses: [Option<
+        crate::data_analysis::optimal_p_estimation::OptimalPAnalysis,
+    >; crate::axis_names::AXIS_COUNT] = std::array::from_fn(|_| None);
+    let mut optimal_p_skip_reasons: [Option<String>; crate::axis_names::AXIS_COUNT] =
+        std::array::from_fn(|_| None);
+
+    if analysis_opts.estimate_optimal_p {
+        if let Some(sr) = sample_rate {
+            let group_or_file = if aircraft_profile.file_count > 1 {
+                "group"
+            } else {
+                "file"
+            };
+            println!("\n--- Optimal P (Experimental, log-derived) ---");
+            println!(
+                "Td target: physics-derived from throttle-punch events in log {group_or_file}."
+            );
+            println!();
+
+            for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {
+                // Only Roll (0) and Pitch (1) - Yaw excluded by ROLL_PITCH_AXIS_COUNT
+                let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
+
+                if let Some((response_time, valid_stacked_responses, _valid_window_max_setpoints)) =
+                    &step_response_calculation_results[axis_index]
+                {
+                    if valid_stacked_responses.shape()[0] > 0 && !response_time.is_empty() {
+                        // Collect individual Td samples from each valid response window
+                        let mut td_samples_ms: Vec<f64> = Vec::new();
+
+                        for window_idx in 0..valid_stacked_responses.shape()[0] {
+                            let response = valid_stacked_responses.row(window_idx);
+                            let response_f64: Vec<f64> =
+                                response.iter().map(|&x| x as f64).collect();
+                            let response_arr = Array1::from_vec(response_f64);
+
+                            if let Some(td_seconds) =
+                                calc_step_response::calculate_delay_time(&response_arr, sr)
+                            {
+                                td_samples_ms.push(
+                                    td_seconds
+                                        * crate::constants::OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER,
+                                );
+                            }
+                        }
+
+                        if td_samples_ms.is_empty() {
+                            println!("  No valid Td measurements for {axis_name}. Skipping optimal P analysis.");
+                            optimal_p_skip_reasons[axis_index] =
+                                Some("No valid Td measurements".to_string());
+                            continue;
+                        }
+
+                        // Get current P gain
+                        let current_p = if axis_index == 0 {
+                            pid_metadata.roll.p
+                        } else {
+                            pid_metadata.pitch.p
+                        };
+
+                        // Get current D gain
+                        let current_d = if axis_index == 0 {
+                            pid_metadata.roll.d
+                        } else {
+                            pid_metadata.pitch.d
+                        };
+
+                        if let Some(p_gain) = current_p {
+                            // Calculate HF noise energy from D-term data if available
+                            let hf_energy_ratio: Option<f64> = {
+                                // Collect D-term data for this axis from the log
+                                let d_term_data: Vec<f32> = all_log_data
+                                    .iter()
+                                    .filter_map(|row| row.d_term[axis_index].map(|v| v as f32))
+                                    .collect();
+
+                                // Only analyze if we have sufficient D-term data and sample rate
+                                if !d_term_data.is_empty()
+                                    && d_term_data.len()
+                                        >= crate::constants::OPTIMAL_P_MIN_DTERM_SAMPLES
+                                {
+                                    crate::data_analysis::spectral_analysis::calculate_hf_energy_ratio(
+                                        &d_term_data,
+                                        sr,
+                                        crate::constants::DTERM_HF_CUTOFF_HZ,
+                                    )
+                                } else {
+                                    None
+                                }
+                            };
+
+                            // Compute physics-derived Td target for this axis
+                            // using the group's torque-inertia profile and current P gain.
+                            let physics_td = aircraft_profile.axes[axis_index].td_target_ms(p_gain);
+
+                            if physics_td.is_none() {
+                                let events = aircraft_profile.axes[axis_index].event_count;
+                                if events < crate::constants::TORQUE_PROFILER_MIN_EVENTS {
+                                    let msg = format!(
+                                        "SKIPPED: insufficient throttle dynamics ({} events, need >={})",
+                                        events, crate::constants::TORQUE_PROFILER_MIN_EVENTS
+                                    );
+                                    println!("  {}: {}.", axis_name, msg);
+                                    println!("    Provide logs with more throttle variation or fly deliberate punch sequences.");
+                                    optimal_p_skip_reasons[axis_index] = Some(msg);
+                                } else {
+                                    let msg =
+                                        "SKIPPED: could not compute Td target from profiling data"
+                                            .to_string();
+                                    println!("  {}: {}.", axis_name, msg);
+                                    optimal_p_skip_reasons[axis_index] = Some(msg);
+                                }
+                                continue;
+                            }
+
+                            // Perform optimal P analysis
+                            match crate::data_analysis::optimal_p_estimation::OptimalPAnalysis::analyze(
+                            &td_samples_ms,
+                            p_gain,
+                            current_d,
+                            hf_energy_ratio,
+                            recommended_pd_conservative[axis_index],
+                            physics_td,
+                        ) {
+                                Ok(mut analysis) => {
+                                    analysis.source_events =
+                                        aircraft_profile.axes[axis_index].event_count;
+                                    analysis.source_files = aircraft_profile.file_count;
+                                    // Print console output
+                                    println!("{}", analysis.format_console_output(axis_name));
+                                    // Store for PNG overlay (move instead of clone)
+                                    optimal_p_analyses[axis_index] = Some(analysis);
+                                }
+                                Err(e) => {
+                                    // Log the error for user visibility
+                                    eprintln!("Warning: {}", e);
+                                    optimal_p_skip_reasons[axis_index] = Some(e.to_string());
+                                }
+                            }
+                        } else {
+                            let msg = "SKIPPED: P gain not available".to_string();
+                            println!("  {axis_name}: {msg}");
+                            optimal_p_skip_reasons[axis_index] = Some(msg);
+                        }
+                    }
+                }
+            }
+            println!();
+        }
     }
 
     // Create RAII guard BEFORE changing directory if needed
@@ -948,25 +1339,53 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
 
     if plot_config.step_response {
+        // Group related parameters into structs for cleaner API
+        use crate::plot_functions::plot_step_response::{
+            ConservativeRecommendations, CurrentPeakAndRatios, ModerateRecommendations,
+            OptimalPConfig, PdRecommendations, PlotDisplayConfig,
+        };
+
+        let current = CurrentPeakAndRatios {
+            peak_values,
+            pd_ratios: current_pd_ratios,
+            assessments,
+        };
+
+        let conservative = ConservativeRecommendations(PdRecommendations {
+            pd_ratios: recommended_pd_conservative,
+            d_values: recommended_d_conservative,
+            d_min_values: recommended_d_min_conservative,
+            d_max_values: recommended_d_max_conservative,
+        });
+
+        let moderate = ModerateRecommendations(PdRecommendations {
+            pd_ratios: recommended_pd_aggressive,
+            d_values: recommended_d_aggressive,
+            d_min_values: recommended_d_min_aggressive,
+            d_max_values: recommended_d_max_aggressive,
+        });
+
+        let display = PlotDisplayConfig {
+            has_nonzero_f_term: has_nonzero_f_term_data,
+            setpoint_threshold: analysis_opts.setpoint_threshold,
+            show_legend: analysis_opts.show_legend,
+        };
+
+        let optimal_p = OptimalPConfig {
+            analyses: optimal_p_analyses,
+            skip_reasons: optimal_p_skip_reasons,
+        };
+
         plot_step_response(
             &step_response_calculation_results,
             &root_name_string,
             sample_rate,
-            &has_nonzero_f_term_data,
-            setpoint_threshold,
-            show_legend,
             &pid_context.pid_metadata,
-            &peak_values,
-            &current_pd_ratios,
-            &assessments,
-            &recommended_pd_conservative,
-            &recommended_d_conservative,
-            &recommended_d_min_conservative,
-            &recommended_d_max_conservative,
-            &recommended_pd_aggressive,
-            &recommended_d_aggressive,
-            &recommended_d_min_aggressive,
-            &recommended_d_max_aggressive,
+            &current,
+            &conservative,
+            &moderate,
+            &display,
+            &optimal_p,
         )?;
     }
 
@@ -1020,7 +1439,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             Some(&header_metadata),
-            show_butterworth,
+            analysis_opts.show_butterworth,
             using_debug_fallback,
             debug_mode_label,
         )?;
@@ -1032,7 +1451,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             Some(&header_metadata),
-            debug_mode,
+            analysis_opts.debug_mode,
             using_debug_fallback,
             debug_mode_label,
         )?;
@@ -1044,7 +1463,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             Some(&header_metadata),
-            show_butterworth,
+            analysis_opts.show_butterworth,
             using_debug_fallback,
             debug_mode_label,
         )?;
@@ -1071,7 +1490,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             "    For normal flight log analysis, use spectrum plots (default behavior) instead."
         );
         eprintln!();
-        plot_bode_analysis(&all_log_data, &root_name_string, sample_rate, debug_mode)?;
+        plot_bode_analysis(
+            &all_log_data,
+            &root_name_string,
+            sample_rate,
+            analysis_opts.debug_mode,
+        )?;
     }
 
     if plot_config.psd_db_heatmap {
@@ -1114,32 +1538,25 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                 b0_user_override: plot_config.eso_b0_user_override,
                 ..Default::default()
             };
-            for (axis_idx, (axis_enabled, eso_slot)) in plot_config
-                .eso_axes
-                .iter()
-                .zip(eso_results.iter_mut())
-                .enumerate()
-            {
-                if *axis_enabled {
-                    let axis_name = crate::axis_names::AXIS_NAMES
-                        .get(axis_idx)
-                        .unwrap_or(&"Unknown");
-                    print!("  {axis_name}: running ... ");
-                    match eso::run_eso_optimization(&all_log_data, sr, axis_idx, &config) {
-                        Ok(result) => {
-                            let b0_label = if result.b0_auto {
-                                "(estimated)"
-                            } else {
-                                "(user)"
-                            };
-                            println!(
-                                "[OK] omega0={:.1} rad/s  b0={:.4} {b0_label}  beta1={:.2}  beta2={:.2}  MSE={:.6}",
-                                result.omega0_opt, result.b0, result.beta1, result.beta2, result.mse
-                            );
-                            *eso_slot = Some(result);
-                        }
-                        Err(e) => eprintln!("[WARN] Skipped: {e}"),
+            for (axis_idx, eso_slot) in eso_results.iter_mut().enumerate() {
+                let axis_name = crate::axis_names::AXIS_NAMES
+                    .get(axis_idx)
+                    .unwrap_or(&"Unknown");
+                print!("  {axis_name}: running ... ");
+                match eso::run_eso_optimization(&all_log_data, sr, axis_idx, &config) {
+                    Ok(result) => {
+                        let b0_label = if result.b0_auto {
+                            "(estimated)"
+                        } else {
+                            "(user)"
+                        };
+                        println!(
+                            "[OK] omega0={:.1} rad/s  b0={:.4} {b0_label}  beta1={:.2}  beta2={:.2}  MSE={:.6}",
+                            result.omega0_opt, result.b0, result.beta1, result.beta2, result.mse
+                        );
+                        *eso_slot = Some(result);
                     }
+                    Err(e) => eprintln!("[WARN] Skipped: {e}"),
                 }
             }
         } else {
@@ -1154,23 +1571,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                 Ok(()) => println!("  [OK] ESO output plot written."),
                 Err(e) => eprintln!("  [ERROR] ESO output plot failed: {e}"),
             }
-        }
-    }
-
-    // --- Markdown Statistical Report ---
-    if plot_config.run_report {
-        let report_filename = format!("{root_name_string}_report.md");
-        let report_path = std::path::Path::new(&report_filename);
-        println!("\n--- Generating Markdown Report: {report_filename} ---");
-        match report::generate_markdown_report(
-            &all_log_data,
-            sample_rate,
-            &header_metadata,
-            report_path,
-            &eso_results,
-        ) {
-            Ok(()) => println!("  [OK] Report written."),
-            Err(e) => eprintln!("  [ERROR] Report generation failed: {e}"),
         }
     }
 
@@ -1195,18 +1595,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut setpoint_threshold_override: Option<f64> = None;
     let mut dps_flag_present = false;
     let mut eso_b0_flag_present = false;
-    let mut eso_axis_flag_present = false;
     let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
     let mut debug_mode = false;
     let mut show_butterworth = false;
-    let mut plot_config = PlotConfig::default();
-    let mut has_only_flags = false;
+    let mut core_requested = false;
+    let mut extended_requested = false;
     let mut step_requested = false;
-    let mut motor_requested = false;
-    let mut setpoint_requested = false;
     let mut bode_requested = false;
-    let mut pid_requested = false;
+    let mut eso_requested = false;
+    let mut eso_b0_value: f64 = crate::constants::ESO_DEFAULT_B0;
+    let mut eso_b0_user_override = false;
     let mut recursive = false;
+    let mut estimate_optimal_p = false;
 
     let mut version_flag_set = false;
 
@@ -1259,25 +1659,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             debug_mode = true;
         } else if arg == "--butterworth" {
             show_butterworth = true;
+        } else if arg == "--core" {
+            core_requested = true;
+        } else if arg == "--extended" {
+            extended_requested = true;
         } else if arg == "--step" {
-            has_only_flags = true;
             step_requested = true;
-        } else if arg == "--motor" {
-            has_only_flags = true;
-            motor_requested = true;
-        } else if arg == "--setpoint" {
-            has_only_flags = true;
-            setpoint_requested = true;
         } else if arg == "--bode" {
-            has_only_flags = true;
             bode_requested = true;
-        } else if arg == "--pid" {
-            has_only_flags = true;
-            pid_requested = true;
         } else if arg == "--eso" {
-            plot_config.run_eso = true;
-        } else if arg == "--report" {
-            plot_config.run_report = true;
+            eso_requested = true;
         } else if arg == "--eso-b0" {
             if eso_b0_flag_present {
                 eprintln!("Error: --eso-b0 argument specified more than once.");
@@ -1289,9 +1680,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             match args[i + 1].parse::<f64>() {
                 Ok(val) if val > 0.0 && val.is_finite() => {
-                    plot_config.eso_b0 = val;
-                    plot_config.eso_b0_user_override = true;
-                    plot_config.run_eso = true;
+                    eso_b0_value = val;
+                    eso_b0_user_override = true;
+                    eso_requested = true;
                     eso_b0_flag_present = true;
                     i += 1;
                 }
@@ -1303,46 +1694,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     print_usage_and_exit(program_name);
                 }
             }
-        } else if arg == "--eso-axis" {
-            if eso_axis_flag_present {
-                eprintln!("Error: --eso-axis argument specified more than once.");
-                print_usage_and_exit(program_name);
-            }
-            if i + 1 >= args.len() {
-                eprintln!(
-                    "Error: --eso-axis requires a comma-separated list of axes (roll,pitch,yaw,all or 0,1,2)."
-                );
-                print_usage_and_exit(program_name);
-            }
-            let val = args[i + 1].to_ascii_lowercase();
-            let mut axes = [false; AXIS_COUNT];
-            for part in val.split(',') {
-                match part.trim() {
-                    "roll" | "0" => {
-                        axes[0] = true;
-                    }
-                    "pitch" | "1" => {
-                        axes[1] = true;
-                    }
-                    "yaw" | "2" => {
-                        axes[2] = true;
-                    }
-                    "all" => {
-                        axes = [true; AXIS_COUNT];
-                    }
-                    other => {
-                        eprintln!(
-                            "Error: Unknown axis '{}'. Use: roll, pitch, yaw, all, or 0, 1, 2.",
-                            other
-                        );
-                        print_usage_and_exit(program_name);
-                    }
-                }
-            }
-            plot_config.eso_axes = axes;
-            plot_config.run_eso = true;
-            eso_axis_flag_present = true;
-            i += 1;
+        } else if arg == "--estimate-optimal-p" {
+            estimate_optimal_p = true;
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1352,25 +1705,42 @@ fn main() -> Result<(), Box<dyn Error>> {
         i += 1;
     }
 
-    // Apply "only" flags if any were specified (non-mutually exclusive: OR together)
-    if has_only_flags {
-        plot_config.disable_plots();
-        plot_config.step_response = step_requested;
-        plot_config.motor_spectrums = motor_requested;
-        plot_config.bode = bode_requested;
-        plot_config.pid_activity = pid_requested;
-        if setpoint_requested {
-            plot_config.pidsum_error_setpoint = true;
-            plot_config.setpoint_vs_gyro = true;
-            plot_config.setpoint_derivative = true;
-        }
+    if core_requested && extended_requested {
+        eprintln!("Error: --core and --extended are mutually exclusive.");
+        print_usage_and_exit(program_name);
     }
+
+    // Derive plot configuration from flags
+    let mut plot_config = if extended_requested {
+        let mut cfg = PlotConfig::all();
+        if bode_requested {
+            cfg.bode = true;
+        }
+        cfg
+    } else if step_requested || bode_requested {
+        let mut cfg = PlotConfig::none();
+        if step_requested {
+            cfg.step_response = true;
+        }
+        if bode_requested {
+            cfg.bode = true;
+        }
+        cfg
+    } else if eso_requested && !core_requested {
+        // --eso alone (no core/extended/step/bode): ESO analysis only, no regular plots
+        PlotConfig::none()
+    } else {
+        PlotConfig::default()
+    };
+    plot_config.run_eso = eso_requested;
+    plot_config.eso_b0 = eso_b0_value;
+    plot_config.eso_b0_user_override = eso_b0_user_override;
 
     // Show debug information when the runtime --debug flag is present
     if debug_mode {
         println!(
-            "DEBUG: has_only_flags={}, step_requested={}, motor_requested={}, setpoint_requested={}, plot_config={:?}",
-            has_only_flags, step_requested, motor_requested, setpoint_requested, plot_config
+            "DEBUG: extended={}, step={}, bode={}, eso={}, plot_config={:?}",
+            extended_requested, step_requested, bode_requested, eso_requested, plot_config
         );
     }
 
@@ -1427,29 +1797,54 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    // Construct AnalysisOptions once before the loop (Copy type, reusable across all files)
+    let analysis_opts = AnalysisOptions {
+        setpoint_threshold,
+        show_legend,
+        debug_mode,
+        show_butterworth,
+        estimate_optimal_p,
+    };
+
+    // Group input files by aircraft key for two-phase processing.
+    // Phase 1 (profiling) aggregates throttle-punch events across all logs for each group.
+    // Phase 2 (processing) runs the standard per-file analysis with the group's Td target.
+    let grouped_files = group_files_by_aircraft(&input_files);
+
     let mut overall_success = true;
-    for input_file_str in &input_files {
-        // Determine the actual output directory for this file
-        let actual_output_dir = match &output_dir {
-            None => {
-                // No --output-dir specified, use input file's directory (source folder)
-                Path::new(input_file_str).parent()
-            }
-            Some(dir) => Some(Path::new(dir)), // --output-dir with specific directory
+    for (craft_key, group_files) in &grouped_files {
+        // Phase 1: torque-inertia profiling across all files in the group.
+        let aircraft_profile = if analysis_opts.estimate_optimal_p {
+            println!(
+                "\n--- Torque-Inertia Profiling: '{}' ({} file(s)) ---",
+                craft_key,
+                group_files.len()
+            );
+            let profile = profile_aircraft_group(group_files, debug_mode);
+            print!("{}", profile.summary());
+            profile
+        } else {
+            AircraftProfile::default()
         };
 
-        if let Err(e) = process_file(
-            input_file_str,
-            setpoint_threshold,
-            show_legend,
-            use_dir_prefix_for_root_name,
-            actual_output_dir,
-            debug_mode,
-            show_butterworth,
-            plot_config,
-        ) {
-            eprintln!("An error occurred while processing {input_file_str}: {e}");
-            overall_success = false;
+        // Phase 2: process each file in the group.
+        for input_file_str in group_files {
+            let actual_output_dir = match &output_dir {
+                None => Path::new(input_file_str).parent(),
+                Some(dir) => Some(Path::new(dir)),
+            };
+
+            if let Err(e) = process_file(
+                input_file_str,
+                use_dir_prefix_for_root_name,
+                actual_output_dir,
+                plot_config,
+                analysis_opts,
+                &aircraft_profile,
+            ) {
+                eprintln!("An error occurred while processing {input_file_str}: {e}");
+                overall_success = false;
+            }
         }
     }
 
@@ -1471,5 +1866,3 @@ Some files could not be processed successfully."
         Ok(())
     }
 }
-
-// src/main.rs

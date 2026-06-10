@@ -11,5 +11,4 @@ pub mod font_config;
 pub mod pid_context;
 pub mod plot_framework;
 pub mod plot_functions;
-pub mod report;
 pub mod types;
