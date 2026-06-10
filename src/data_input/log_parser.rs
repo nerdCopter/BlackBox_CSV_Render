@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
+use crate::constants::DEBUG_MODE_GYRO_SCALED;
 use crate::data_input::log_data::LogRowData;
 use crate::types::LogParseResult;
 
@@ -453,7 +454,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                 .find(|(k, _)| k == "debug_mode")
                 .and_then(|(_, v)| v.parse::<u32>().ok());
             match debug_mode_val {
-                Some(6) => {
+                Some(DEBUG_MODE_GYRO_SCALED) => {
                     // GYRO_SCALED: debug[0-2] contains raw unfiltered gyro
                     println!(
                         "  ⚠️  Using debug[0-2] as gyroUnfilt fallback (debug_mode=GYRO_SCALED)"
@@ -462,8 +463,8 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                 }
                 Some(mode) => {
                     println!(
-                        "  ⚠️  Skipping debug[0-2] gyroUnfilt fallback: debug_mode={} is not GYRO_SCALED (6) — unfiltered gyro analysis unavailable",
-                        mode
+                        "  ⚠️  Skipping debug[0-2] gyroUnfilt fallback: debug_mode={} is not GYRO_SCALED ({}) — unfiltered gyro analysis unavailable",
+                        mode, DEBUG_MODE_GYRO_SCALED
                     );
                     false
                 }

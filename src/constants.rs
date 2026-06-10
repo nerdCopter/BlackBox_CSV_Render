@@ -393,3 +393,8 @@ pub const TORQUE_PROFILER_P_SCALE: f64 = 100.0;
 /// Empirically calibrated on a 5" 6S freestyle build (HELIO H7); may need
 /// adjustment for significantly heavier or lighter aircraft classes.
 pub const TORQUE_PROFILER_ACHIEVABILITY_FACTOR: f64 = 2.50;
+
+/// Betaflight/EmuFlight debug_mode value for GYRO_SCALED.
+/// Only this mode populates debug[0-2] with raw unfiltered gyro data,
+/// making it a valid fallback source for gyroUnfilt.
+pub const DEBUG_MODE_GYRO_SCALED: u32 = 6;
