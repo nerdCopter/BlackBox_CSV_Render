@@ -183,6 +183,7 @@ use crate::pid_context::PidContext;
 // Data analysis imports
 use crate::data_analysis::calc_step_response;
 use crate::data_analysis::calc_step_response::{compute_setpoint_authority, SetpointAuthority};
+use crate::data_analysis::filter_response;
 
 /// Expand input paths to a list of CSV files.
 /// If a path is a file, validate CSV extension before adding.
@@ -766,6 +767,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let mut setpoint_authority_names: [Option<&'static str>; 3] = [None, None, None];
     let mut setpoint_authority_means: [Option<f32>; 3] = [None, None, None];
 
+    // Step response warnings per axis (captured for report)
+    let mut step_warnings: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+
     if let Some(sr) = sample_rate {
         for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
@@ -1009,6 +1013,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             println!(
                                                 "      - Check for bent props, loose hardware, or damaged motors"
                                             );
+                                            step_warnings[axis_index].push(format!(
+                                                "Severe overshoot (Peak={peak_value:.2}): P may be too high, or check for bent props/loose hardware/damaged motors"
+                                            ));
                                         }
 
                                         // Check for unreasonable P:D ratios
@@ -1019,11 +1026,17 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             println!(
                                                 "      Consider increasing P instead of only adding D"
                                             );
+                                            step_warnings[axis_index].push(format!(
+                                                "Recommended P:D ratio ({rec_ratio:.2}) is very low — consider increasing P instead of only adding D"
+                                            ));
                                         } else if rec_ratio
                                             > crate::constants::MAX_REASONABLE_PD_RATIO
                                         {
                                             println!("  ⚠️  WARNING: Recommended P:D ratio ({rec_ratio:.2}) is very high");
                                             println!("      Consider decreasing P or checking for overdamped response");
+                                            step_warnings[axis_index].push(format!(
+                                                "Recommended P:D ratio ({rec_ratio:.2}) is very high — consider decreasing P or checking for overdamped response"
+                                            ));
                                         }
 
                                         // Show conservative recommendation
@@ -1219,6 +1232,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                     aggressive,
                     setpoint_authority_name: setpoint_authority_names[axis_index],
                     setpoint_authority_mean: setpoint_authority_means[axis_index],
+                    warnings: std::mem::take(&mut step_warnings[axis_index]),
                 });
             }
         }
@@ -1592,6 +1606,11 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         plot_pid_activity(&all_log_data, &root_name_string, Some(&header_metadata))?;
     }
 
+    // --- Filter configuration (from header metadata, independent of CSV data) ---
+    let filter_config = Some(filter_response::parse_filter_config(&header_metadata));
+    let dynamic_notch = filter_response::extract_dynamic_notch_range(Some(&header_metadata));
+    let rpm_filter = filter_response::extract_rpm_filter_config(Some(&header_metadata));
+
     // --- Collect generated PNG filenames ---
     let mut png_links: Vec<String> = Vec::new();
 
@@ -1675,6 +1694,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         bode_results,
         motor_results,
         png_links,
+        filter_config,
+        dynamic_notch,
+        rpm_filter,
     };
     match report::generate_markdown_report(&flight_report, report_path) {
         Ok(()) => println!("  [OK] Report written."),

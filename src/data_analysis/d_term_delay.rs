@@ -12,6 +12,13 @@ use crate::data_analysis::derivative::calculate_derivative;
 use crate::data_analysis::filter_delay;
 use crate::data_input::log_data::LogRowData;
 
+/// Per-axis outcome from D-term delay calculation, including why delay is unavailable.
+pub struct DTermAxisDelay {
+    pub result: Option<filter_delay::DelayResult>,
+    /// Human-readable reason when result is None (None when result is Some).
+    pub na_reason: Option<&'static str>,
+}
+
 /// Calculate filtering delay comparison between unfiltered and filtered D-terms.
 ///
 /// This function computes the delay between the unfiltered D-term (calculated as derivative of gyroUnfilt)
@@ -44,23 +51,36 @@ use crate::data_input::log_data::LogRowData;
 pub fn calculate_d_term_filtering_delay_comparison(
     log_data: &[LogRowData],
     sample_rate: f64,
-) -> Vec<Option<filter_delay::DelayResult>> {
-    // Validate input parameters
+) -> Vec<DTermAxisDelay> {
+    let make_empty = |reason: &'static str| -> Vec<DTermAxisDelay> {
+        (0..AXIS_NAMES.len())
+            .map(|_| DTermAxisDelay {
+                result: None,
+                na_reason: Some(reason),
+            })
+            .collect()
+    };
+
     if !sample_rate.is_finite() || sample_rate <= 0.0 {
         eprintln!(
             "Error: Invalid sample rate ({}) for D-term delay analysis",
             sample_rate
         );
-        return vec![None; AXIS_NAMES.len()];
+        return make_empty("Invalid sample rate");
     }
 
     if log_data.is_empty() {
         eprintln!("Error: Empty log data provided for D-term delay analysis");
-        return vec![None; AXIS_NAMES.len()];
+        return make_empty("No log data");
     }
 
-    // Initialize with None for all axes to preserve axis alignment
-    let mut results: Vec<Option<filter_delay::DelayResult>> = vec![None; AXIS_NAMES.len()];
+    // Initialize with no-data reason; overwritten when data is found
+    let mut results: Vec<DTermAxisDelay> = (0..AXIS_NAMES.len())
+        .map(|_| DTermAxisDelay {
+            result: None,
+            na_reason: Some("No D-term data"),
+        })
+        .collect();
 
     // First, check data availability for diagnosis
     let mut gyro_unfilt_available = [false; 3];
@@ -114,6 +134,7 @@ pub fn calculate_d_term_filtering_delay_comparison(
     for (axis_idx, axis_name) in AXIS_NAMES.iter().enumerate() {
         // Skip if either data type is unavailable
         if !gyro_unfilt_available[axis_idx] || !d_term_available[axis_idx] {
+            // na_reason already set to "No D-term data" at init
             continue;
         }
 
@@ -141,6 +162,7 @@ pub fn calculate_d_term_filtering_delay_comparison(
                 gyro_unfilt_data.len(),
                 d_term_filtered_data.len()
             );
+            results[axis_idx].na_reason = Some("Insufficient samples");
             continue;
         }
 
@@ -157,6 +179,7 @@ pub fn calculate_d_term_filtering_delay_comparison(
                 "  {}: D-term appears disabled (max abs value: {:.2e}, likely D gain = 0)",
                 axis_name, d_term_max_abs
             );
+            results[axis_idx].na_reason = Some("D gain disabled");
             continue;
         }
 
@@ -175,6 +198,7 @@ pub fn calculate_d_term_filtering_delay_comparison(
                 "  {}: D-term has no variation (std dev: {:.2e}, likely D gain = 0)",
                 axis_name, d_term_std_dev
             );
+            results[axis_idx].na_reason = Some("D gain disabled");
             continue;
         }
 
@@ -203,12 +227,16 @@ pub fn calculate_d_term_filtering_delay_comparison(
                     result.delay_ms,
                     result.confidence * 100.0
                 );
-                results[axis_idx] = Some(result);
+                results[axis_idx] = DTermAxisDelay {
+                    result: Some(result),
+                    na_reason: None,
+                };
             } else {
                 println!(
                     "  {}: D-term delay calculation failed - correlation below D-term threshold",
                     axis_name
                 );
+                results[axis_idx].na_reason = Some("Low signal correlation");
             }
         } else if let Some(result) = calculate_d_term_filtering_delay_enhanced_xcorr(
             &Array1::from_vec(d_term_filtered_data),
@@ -221,12 +249,16 @@ pub fn calculate_d_term_filtering_delay_comparison(
                 result.delay_ms,
                 result.confidence * 100.0
             );
-            results[axis_idx] = Some(result);
+            results[axis_idx] = DTermAxisDelay {
+                result: Some(result),
+                na_reason: None,
+            };
         } else {
             println!(
                 "  {}: D-term delay calculation failed - correlation below D-term threshold",
                 axis_name
             );
+            results[axis_idx].na_reason = Some("Low signal correlation");
         }
     }
 
@@ -235,7 +267,7 @@ pub fn calculate_d_term_filtering_delay_comparison(
         .iter()
         .enumerate()
         .filter_map(|(idx, result)| {
-            if result.is_some() {
+            if result.result.is_some() {
                 Some(AXIS_NAMES[idx])
             } else {
                 None

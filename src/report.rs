@@ -10,6 +10,9 @@ use std::path::Path;
 
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
 use crate::constants::{MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ};
+use crate::data_analysis::filter_response::{
+    AllFilterConfigs, DynamicNotchConfig, RpmFilterConfig,
+};
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
 use crate::data_analysis::transfer_function_estimation::Confidence;
 use crate::plot_functions::plot_bode::BodeAxisResult;
@@ -36,6 +39,7 @@ pub struct StepAxisReport {
     pub aggressive: Option<DTermRec>,
     pub setpoint_authority_name: Option<&'static str>,
     pub setpoint_authority_mean: Option<f32>,
+    pub warnings: Vec<String>,
 }
 
 /// Aggregated analysis results collected from one flight log
@@ -51,6 +55,9 @@ pub struct FlightReport {
     pub bode_results: Vec<BodeAxisResult>,
     pub motor_results: Vec<MotorOscillationResult>,
     pub png_links: Vec<String>,
+    pub filter_config: Option<AllFilterConfigs>,
+    pub dynamic_notch: Option<DynamicNotchConfig>,
+    pub rpm_filter: Option<RpmFilterConfig>,
 }
 
 /// Generate a structured markdown report and write it to `output_path`.
@@ -87,6 +94,60 @@ pub fn generate_markdown_report(
         }
     }
     writeln!(md)?;
+
+    // --- Filter Configuration ---
+    if let Some(ref fc) = report.filter_config {
+        let axis_labels = ["Roll", "Pitch", "Yaw"];
+        // Only emit section if at least one axis has any filter configured
+        let has_any = (0..3).any(|i| {
+            fc.gyro[i].lpf1.is_some()
+                || fc.gyro[i].lpf2.is_some()
+                || fc.gyro[i].dynamic_lpf1.is_some()
+                || fc.gyro[i].imuf.is_some()
+        });
+        if has_any {
+            writeln!(md, "## Filter Configuration")?;
+            writeln!(md)?;
+            writeln!(md, "| Axis | LPF1 | LPF2 | IMUF / Pseudo-Kalman |")?;
+            writeln!(md, "|------|------|------|----------------------|")?;
+            for (i, label) in axis_labels.iter().enumerate() {
+                let lpf1 =
+                    fmt_filter_stage(fc.gyro[i].lpf1.as_ref(), fc.gyro[i].dynamic_lpf1.as_ref());
+                let lpf2 = fc.gyro[i]
+                    .lpf2
+                    .as_ref()
+                    .map_or("—".into(), fmt_static_filter);
+                let imuf = fc.gyro[i].imuf.as_ref().map_or("—".into(), fmt_imuf);
+                writeln!(md, "| {} | {} | {} | {} |", label, lpf1, lpf2, imuf)?;
+            }
+            writeln!(md)?;
+
+            if let Some(ref dn) = report.dynamic_notch {
+                writeln!(
+                    md,
+                    "- **Dynamic Notch:** {:.0}–{:.0} Hz, Q={:.0}, {} notch{}",
+                    dn.min_hz,
+                    dn.max_hz,
+                    dn.q_factor,
+                    dn.notch_count,
+                    if dn.notch_count == 1 { "" } else { "es" }
+                )?;
+            }
+            if let Some(ref rpm) = report.rpm_filter {
+                writeln!(
+                    md,
+                    "- **RPM Filter:** {} harmonic{}, Q={:.0}, min {:.0} Hz",
+                    rpm.harmonics,
+                    if rpm.harmonics == 1 { "" } else { "s" },
+                    rpm.q_factor,
+                    rpm.min_hz
+                )?;
+            }
+            if report.dynamic_notch.is_some() || report.rpm_filter.is_some() {
+                writeln!(md)?;
+            }
+        }
+    }
 
     // --- PID Tuning ---
     writeln!(md, "## PID Tuning")?;
@@ -151,6 +212,9 @@ pub fn generate_markdown_report(
                     md,
                     "- **Recommendation:** No obvious tuning adjustments needed"
                 )?;
+            }
+            for w in &axis_report.warnings {
+                writeln!(md, "- **⚠ Warning:** {}", w)?;
             }
             writeln!(md)?;
         }
@@ -225,7 +289,13 @@ pub fn generate_markdown_report(
             "|------|-----------|------------|------|-----------|-----------|"
         )?;
         for r in &report.dterm_results {
-            let delay = r.delay_ms.map_or("N/A".into(), |v| format!("{:.1}", v));
+            let delay = r.delay_ms.map_or_else(
+                || {
+                    r.na_reason
+                        .map_or("N/A".into(), |reason| format!("N/A ({})", reason))
+                },
+                |v| format!("{:.1}", v),
+            );
             let conf = r
                 .delay_confidence
                 .map_or("N/A".into(), |v| format!("{:.0}%", v * 100.0));
@@ -418,6 +488,61 @@ pub fn generate_markdown_report(
 
     fs::write(output_path, md)?;
     Ok(())
+}
+
+fn fmt_static_filter(f: &crate::data_analysis::filter_response::FilterConfig) -> String {
+    match f.q_factor {
+        Some(q) => format!(
+            "{} @ {:.0} Hz (Q={:.2})",
+            f.filter_type.name(),
+            f.cutoff_hz,
+            q
+        ),
+        None => format!("{} @ {:.0} Hz", f.filter_type.name(), f.cutoff_hz),
+    }
+}
+
+fn fmt_filter_stage(
+    lpf1: Option<&crate::data_analysis::filter_response::FilterConfig>,
+    dyn_lpf: Option<&crate::data_analysis::filter_response::DynamicFilterConfig>,
+) -> String {
+    if let Some(f) = lpf1 {
+        fmt_static_filter(f)
+    } else if let Some(d) = dyn_lpf {
+        format!(
+            "Dyn {} {:.0}–{:.0} Hz",
+            d.filter_type.name(),
+            d.min_cutoff_hz,
+            d.max_cutoff_hz
+        )
+    } else {
+        "—".into()
+    }
+}
+
+fn fmt_imuf(f: &crate::data_analysis::filter_response::ImufFilterConfig) -> String {
+    if f.lowpass_cutoff_hz > 0.0 {
+        let stages = match f.ptn_order {
+            1 => "PT1",
+            2 => "2×PT1",
+            3 => "3×PT1",
+            4 => "4×PT1",
+            _ => "2×PT1",
+        };
+        let rev = f.revision.map_or("IMUF".into(), |r| format!("IMUF v{}", r));
+        let w_part = f
+            .pseudo_kalman_w
+            .map_or(String::new(), |w| format!(", w={:.0}", w));
+        format!(
+            "{}: {} Combined={:.0} Hz per-stage={:.0} Hz (Q={:.1}{})",
+            rev, stages, f.lowpass_cutoff_hz, f.effective_cutoff_hz, f.q_factor, w_part
+        )
+    } else {
+        let w_part = f
+            .pseudo_kalman_w
+            .map_or(String::new(), |w| format!(", w={:.0}", w));
+        format!("Pseudo-Kalman Q={:.1}{}", f.q_factor, w_part)
+    }
 }
 
 fn fmt_dterm_rec(rec: &DTermRec) -> String {

@@ -27,6 +27,8 @@ pub struct DTermAxisResult {
     pub peaks: Vec<(f64, f64)>, // (freq_hz, amplitude); [0] = primary, rest = subordinates
     pub delay_ms: Option<f32>,
     pub delay_confidence: Option<f32>, // 0.0–1.0
+    /// Why delay is N/A (None when delay_ms is Some)
+    pub na_reason: Option<&'static str>,
 }
 
 /// Generates a stacked plot with two columns per axis, showing Unfiltered D-term and Filtered D-term spectrums (linear amplitude).
@@ -274,19 +276,19 @@ pub fn plot_d_term_spectrums(
         let filt_peaks = Vec::new();
 
         // Capture per-axis data for report before peaks are moved into plot configs
-        let dterm_delay_info = delay_by_axis
-            .get(axis_idx)
-            .and_then(|r| r.as_ref())
-            .map(|r| (r.delay_ms, r.confidence));
+        let axis_delay = delay_by_axis.get(axis_idx);
+        let delay_result = axis_delay.and_then(|d| d.result.as_ref());
+        let na_reason = axis_delay.and_then(|d| d.na_reason);
         dterm_results.push(DTermAxisResult {
             axis_name,
             peaks: unfilt_peaks.clone(),
-            delay_ms: dterm_delay_info.map(|(d, _)| d),
-            delay_confidence: dterm_delay_info.map(|(_, c)| c),
+            delay_ms: delay_result.map(|r| r.delay_ms),
+            delay_confidence: delay_result.map(|r| r.confidence),
+            na_reason,
         });
 
         // Get delay string for this axis for legend display
-        let delay_str = if let Some(result) = delay_by_axis.get(axis_idx).and_then(|r| r.as_ref()) {
+        let delay_str = if let Some(result) = delay_result {
             format!(
                 "Delay: {:.1}ms(c:{:.0}%)",
                 result.delay_ms,
