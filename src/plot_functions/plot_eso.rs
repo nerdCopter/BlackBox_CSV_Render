@@ -80,10 +80,13 @@ pub fn plot_eso_output(
         let mut series = vec![
             PlotSeries {
                 data: hat_data,
-                label: format!(
-                    "ESO estimate (omega_hat, omega0={:.0} rad/s, b0={:.2})",
-                    data.omega0_opt, data.b0
-                ),
+                label: {
+                    let ceiling = if data.at_ceiling { " [at ceiling]" } else { "" };
+                    format!(
+                        "ESO estimate (omega_hat, omega0={:.0} rad/s, b0={:.2}){ceiling}",
+                        data.omega0_opt, data.b0
+                    )
+                },
                 color: color_hat,
                 stroke_width: stroke + 1,
             },
@@ -123,6 +126,7 @@ pub fn plot_eso_output(
 struct AxisEsoData {
     omega0_opt: f64,
     b0: f64,
+    at_ceiling: bool,
     /// (time, omega_meas, omega_hat) triples
     meas_hat: Vec<(f64, f64, f64)>,
     /// (time, f_hat_raw) before visual scaling
@@ -158,6 +162,7 @@ fn build_axis_data(eso: &EsoResult) -> AxisEsoData {
     AxisEsoData {
         omega0_opt: eso.omega0_opt,
         b0: eso.b0,
+        at_ceiling: eso.at_ceiling,
         meas_hat,
         fhat,
         fhat_max_abs,

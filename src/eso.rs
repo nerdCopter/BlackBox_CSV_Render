@@ -66,6 +66,8 @@ pub struct EsoResult {
     pub b0_auto: bool,
     /// N-step-ahead prediction MSE at the optimal omega0.
     pub mse: f64,
+    /// True when omega0_opt is at the search ceiling (result may not be the true optimum).
+    pub at_ceiling: bool,
     /// Number of samples used in the optimization.
     #[allow(dead_code)]
     pub sample_count: usize,
@@ -362,6 +364,7 @@ pub fn run_eso_optimization(
         .best_param
         .ok_or("ESO optimization returned no solution")?;
     let mse = run_result.state().best_cost;
+    let at_ceiling = omega0_opt >= omega0_max_stable - ESO_GSS_TOLERANCE;
 
     let (beta1, beta2) = leso2_gains(omega0_opt);
 
@@ -376,6 +379,7 @@ pub fn run_eso_optimization(
         b0,
         b0_auto,
         mse,
+        at_ceiling,
         sample_count: omega_meas.len(),
         timestamps,
         omega_meas_trace: omega_meas,
