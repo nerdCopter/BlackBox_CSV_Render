@@ -455,6 +455,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                 .and_then(|(_, v)| v.parse::<u32>().ok());
             match debug_mode_val {
                 Some(DEBUG_MODE_GYRO_SCALED) => {
+                    // GYRO_SCALED: debug[0-2] contains raw unfiltered gyro
                     println!(
                         "  ⚠️  Using debug[0-2] as gyroUnfilt fallback (debug_mode=GYRO_SCALED)"
                     );
