@@ -9,6 +9,7 @@ mod font_config;
 mod pid_context;
 mod plot_framework;
 mod plot_functions;
+mod report;
 mod types;
 
 use std::collections::{BTreeMap, HashSet};
@@ -19,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 use ndarray::Array1;
 
+use crate::axis_names::AXIS_COUNT;
 use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, AircraftProfile};
 use crate::types::StepResponseResults;
 
@@ -182,6 +184,7 @@ use crate::pid_context::PidContext;
 // Data analysis imports
 use crate::data_analysis::calc_step_response;
 use crate::data_analysis::calc_step_response::{compute_setpoint_authority, SetpointAuthority};
+use crate::data_analysis::filter_response;
 
 /// Expand input paths to a list of CSV files.
 /// If a path is a file, validate CSV extension before adding.
@@ -647,6 +650,12 @@ fn process_file(
     println!("Note: Optimal P:D ratio varies per aircraft. Check step response for overshoot/undershoot.");
     println!();
 
+    let pd_ratios_for_report: [Option<f64>; AXIS_COUNT] = [
+        pid_metadata.roll.calculate_pd_ratio(),
+        pid_metadata.pitch.calculate_pd_ratio(),
+        pid_metadata.yaw.calculate_pd_ratio(),
+    ];
+
     let mut has_nonzero_f_term_data = [false; 3];
     for axis in 0..crate::axis_names::AXIS_NAMES.len() {
         if f_term_header_found[axis]
@@ -755,6 +764,14 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let mut recommended_d_min_aggressive: [Option<u32>; 3] = [None, None, None];
     let mut recommended_d_max_aggressive: [Option<u32>; 3] = [None, None, None];
 
+    // Setpoint authority per axis (captured for report)
+    let mut setpoint_authority_names: [Option<&'static str>; AXIS_COUNT] =
+        std::array::from_fn(|_| None);
+    let mut setpoint_authority_means: [Option<f32>; AXIS_COUNT] = std::array::from_fn(|_| None);
+
+    // Step response warnings per axis (captured for report)
+    let mut step_warnings: [Vec<String>; AXIS_COUNT] = std::array::from_fn(|_| Vec::new());
+
     if let Some(sr) = sample_rate {
         for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
@@ -812,7 +829,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         println!("      Always test in a safe environment. Conservative = safer first step.");
         println!("      Moderate = for experienced pilots (test carefully to avoid hot motors).");
         println!();
-        for axis_index in 0..2 {
+        for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {
             // Only Roll (0) and Pitch (1)
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
 
@@ -977,6 +994,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         valid_window_max_setpoints.as_slice().unwrap_or(&[]),
                                     )
                                     .unwrap_or((SetpointAuthority::Low, 0.0));
+                                    setpoint_authority_names[axis_index] = Some(authority.name());
+                                    setpoint_authority_means[axis_index] = Some(authority_mean);
                                     println!(
                                         "  Setpoint Authority: {} (mean={:.0}dps \u{22a2}\u{2265}{}dps)",
                                         authority.name(),
@@ -996,6 +1015,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             println!(
                                                 "      - Check for bent props, loose hardware, or damaged motors"
                                             );
+                                            step_warnings[axis_index].push(format!(
+                                                "Severe overshoot (Peak={peak_value:.2}): P may be too high, or check for bent props/loose hardware/damaged motors"
+                                            ));
                                         }
 
                                         // Check for unreasonable P:D ratios
@@ -1006,11 +1028,17 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                             println!(
                                                 "      Consider increasing P instead of only adding D"
                                             );
+                                            step_warnings[axis_index].push(format!(
+                                                "Recommended P:D ratio ({rec_ratio:.2}) is very low — consider increasing P instead of only adding D"
+                                            ));
                                         } else if rec_ratio
                                             > crate::constants::MAX_REASONABLE_PD_RATIO
                                         {
                                             println!("  ⚠️  WARNING: Recommended P:D ratio ({rec_ratio:.2}) is very high");
                                             println!("      Consider decreasing P or checking for overdamped response");
+                                            step_warnings[axis_index].push(format!(
+                                                "Recommended P:D ratio ({rec_ratio:.2}) is very high — consider decreasing P or checking for overdamped response"
+                                            ));
                                         }
 
                                         // Show conservative recommendation
@@ -1150,6 +1178,66 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             }
         }
         println!();
+    }
+
+    // Collect step response analysis into typed report structs
+    let mut step_reports: Vec<report::StepAxisReport> = Vec::new();
+    {
+        let dmax_enabled = pid_metadata.is_dmax_enabled();
+        for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {
+            if let (Some(peak_value), Some(current_pd_ratio), Some(assessment)) = (
+                peak_values[axis_index],
+                current_pd_ratios[axis_index],
+                assessments[axis_index],
+            ) {
+                let conservative =
+                    recommended_pd_conservative[axis_index].map(|pd| report::DTermRec {
+                        pd_ratio: pd,
+                        d: recommended_d_conservative[axis_index],
+                        d_min: recommended_d_min_conservative[axis_index],
+                        d_max: recommended_d_max_conservative[axis_index],
+                    });
+                let moderate = recommended_pd_aggressive[axis_index].map(|pd| report::DTermRec {
+                    pd_ratio: pd,
+                    d: recommended_d_aggressive[axis_index],
+                    d_min: recommended_d_min_aggressive[axis_index],
+                    d_max: recommended_d_max_aggressive[axis_index],
+                });
+                let aggressive = if assessment == "Significant overshoot" {
+                    let aggressive_pd =
+                        current_pd_ratio * crate::constants::PD_RATIO_AGGRESSIVE_MULTIPLIER;
+                    let (rec_d, rec_d_min, rec_d_max) = if axis_index == 0 {
+                        pid_metadata
+                            .roll
+                            .calculate_goal_d_with_range(aggressive_pd, dmax_enabled)
+                    } else {
+                        pid_metadata
+                            .pitch
+                            .calculate_goal_d_with_range(aggressive_pd, dmax_enabled)
+                    };
+                    Some(report::DTermRec {
+                        pd_ratio: aggressive_pd,
+                        d: rec_d,
+                        d_min: rec_d_min,
+                        d_max: rec_d_max,
+                    })
+                } else {
+                    None
+                };
+                step_reports.push(report::StepAxisReport {
+                    axis_name: crate::axis_names::AXIS_NAMES[axis_index],
+                    peak_value,
+                    assessment,
+                    current_pd_ratio,
+                    conservative,
+                    moderate,
+                    aggressive,
+                    setpoint_authority_name: setpoint_authority_names[axis_index],
+                    setpoint_authority_mean: setpoint_authority_means[axis_index],
+                    warnings: std::mem::take(&mut step_warnings[axis_index]),
+                });
+            }
+        }
     }
 
     // Optimal P Estimation Analysis (if enabled)
@@ -1305,6 +1393,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         }
     }
 
+    let optimal_p_for_report = optimal_p_analyses.clone();
+
     // Create RAII guard BEFORE changing directory if needed
     let _cwd_guard = if let Some(output_dir) = output_dir {
         // Create guard to save current directory BEFORE changing it
@@ -1417,8 +1507,8 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         )?;
     }
 
-    if plot_config.gyro_spectrums {
-        plot_gyro_spectrums(
+    let gyro_analysis = if plot_config.gyro_spectrums {
+        Some(plot_gyro_spectrums(
             &all_log_data,
             &root_name_string,
             sample_rate,
@@ -1426,8 +1516,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             analysis_opts.show_butterworth,
             using_debug_fallback,
             debug_mode_label,
-        )?;
-    }
+        )?)
+    } else {
+        None
+    };
 
     if plot_config.d_term_psd {
         plot_d_term_psd(
@@ -1441,7 +1533,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         )?;
     }
 
-    if plot_config.d_term_spectrums {
+    let dterm_results = if plot_config.d_term_spectrums {
         plot_d_term_spectrums(
             &all_log_data,
             &root_name_string,
@@ -1450,12 +1542,16 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             analysis_opts.show_butterworth,
             using_debug_fallback,
             debug_mode_label,
-        )?;
-    }
+        )?
+    } else {
+        vec![]
+    };
 
-    if plot_config.motor_spectrums {
-        plot_motor_spectrums(&all_log_data, &root_name_string, sample_rate)?;
-    }
+    let motor_results = if plot_config.motor_spectrums {
+        plot_motor_spectrums(&all_log_data, &root_name_string, sample_rate)?
+    } else {
+        vec![]
+    };
 
     if plot_config.psd {
         plot_psd(
@@ -1467,7 +1563,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         )?;
     }
 
-    if plot_config.bode {
+    let bode_results = if plot_config.bode {
         eprintln!();
         eprintln!("⚠️  WARNING: Bode plots are designed for controlled test flights with system-identification inputs.");
         eprintln!(
@@ -1479,8 +1575,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
             &root_name_string,
             sample_rate,
             analysis_opts.debug_mode,
-        )?;
-    }
+        )?
+    } else {
+        vec![]
+    };
 
     if plot_config.psd_db_heatmap {
         plot_psd_db_heatmap(
@@ -1510,7 +1608,107 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         plot_pid_activity(&all_log_data, &root_name_string, Some(&header_metadata))?;
     }
 
+    // --- Filter configuration (from header metadata, independent of CSV data) ---
+    let filter_config = Some(filter_response::parse_filter_config(&header_metadata));
+    let dynamic_notch = filter_response::extract_dynamic_notch_range(Some(&header_metadata));
+    let rpm_filter = filter_response::extract_rpm_filter_config(Some(&header_metadata));
+
+    // --- Collect generated PNG filenames ---
+    let mut png_links: Vec<String> = Vec::new();
+
+    if plot_config.step_response {
+        // Step response filename includes duration and optional dps suffix — scan for it.
+        let prefix = format!("{root_name_string}_Step_Response_stacked_plot_");
+        if let Ok(entries) = std::fs::read_dir(".") {
+            let mut matches: Vec<String> = entries
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with(&prefix) && n.ends_with(".png"))
+                .collect();
+            matches.sort();
+            png_links.extend(matches);
+        }
+    }
+    if plot_config.pidsum_error_setpoint {
+        png_links.push(format!(
+            "{root_name_string}_PIDsum_PIDerror_Setpoint_stacked.png"
+        ));
+    }
+    if plot_config.setpoint_vs_gyro {
+        png_links.push(format!("{root_name_string}_SetpointVsGyro_stacked.png"));
+    }
+    if plot_config.setpoint_derivative {
+        png_links.push(format!("{root_name_string}_SetpointDerivative_stacked.png"));
+    }
+    if plot_config.gyro_vs_unfilt {
+        png_links.push(format!("{root_name_string}_GyroVsUnfilt_stacked.png"));
+    }
+    if plot_config.gyro_spectrums {
+        png_links.push(format!("{root_name_string}_Gyro_Spectrums_comparative.png"));
+    }
+    if plot_config.d_term_psd {
+        png_links.push(format!("{root_name_string}_D_Term_PSD_comparative.png"));
+    }
+    if plot_config.d_term_spectrums {
+        png_links.push(format!(
+            "{root_name_string}_D_Term_Spectrums_comparative.png"
+        ));
+    }
+    if plot_config.motor_spectrums {
+        png_links.push(format!("{root_name_string}_Motor_Spectrums_stacked.png"));
+    }
+    if plot_config.psd {
+        png_links.push(format!("{root_name_string}_Gyro_PSD_comparative.png"));
+    }
+    if plot_config.psd_db_heatmap {
+        png_links.push(format!(
+            "{root_name_string}_Gyro_PSD_Spectrogram_comparative.png"
+        ));
+    }
+    if plot_config.throttle_freq_heatmap {
+        png_links.push(format!(
+            "{root_name_string}_Throttle_Freq_Heatmap_comparative.png"
+        ));
+    }
+    if plot_config.d_term_heatmap {
+        png_links.push(format!("{root_name_string}_D_Term_Heatmap_comparative.png"));
+    }
+    if plot_config.bode {
+        png_links.push(format!("{root_name_string}_Bode_Analysis.png"));
+    }
+    if plot_config.pid_activity {
+        png_links.push(format!("{root_name_string}_PID_Activity_stacked.png"));
+    }
+
+    // --- Markdown Report ---
+    // Must run after all plots so png_links is complete.
+    let report_filename = format!("{root_name_string}_report.md");
+    let report_path = std::path::Path::new(&report_filename);
+    println!("\n--- Generating Report: {report_filename} ---");
+    let flight_report = report::FlightReport {
+        root_name: root_name_string.clone(),
+        sample_rate,
+        header_metadata,
+        pd_ratios: pd_ratios_for_report,
+        step_reports,
+        optimal_p: optimal_p_for_report,
+        gyro_analysis,
+        dterm_results,
+        bode_results,
+        motor_results,
+        png_links,
+        filter_config,
+        dynamic_notch,
+        rpm_filter,
+        debug_fallback: using_debug_fallback,
+        debug_mode_name: debug_mode_label,
+    };
+    report::generate_markdown_report(&flight_report, report_path)
+        .map_err(|e| format!("Report generation failed: {e}"))?;
+    println!("  [OK] Report written.");
+
     // CWD restoration happens automatically when _cwd_guard goes out of scope
+
     println!("--- Finished processing file: {input_file_str} ---");
     Ok(())
 }

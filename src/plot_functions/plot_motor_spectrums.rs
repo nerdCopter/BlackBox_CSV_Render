@@ -30,20 +30,29 @@ const MOTOR_COLORS: [RGBColor; 8] = [
 /// Type alias for motor spectrum data: (frequencies, amplitudes, max_amplitude)
 type MotorSpectrumData = (Vec<f64>, Vec<f64>, f64);
 
+/// Per-motor result from oscillation analysis in the MOTOR_OSCILLATION_FREQ range
+pub struct MotorOscillationResult {
+    pub motor_idx: usize,
+    pub max_amplitude: Option<f64>,
+    pub oscillation_detected: bool,
+    pub peak_in_range: Option<f64>,
+    pub avg_in_range: Option<f64>,
+}
+
 /// Generates stacked motor spectrum plots showing frequency content of each motor output.
 /// Useful for identifying motor oscillations, ESC noise, and saturation issues.
 pub fn plot_motor_spectrums(
     log_data: &[LogRowData],
     root_name: &str,
     sample_rate: Option<f64>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<Vec<MotorOscillationResult>, Box<dyn Error>> {
     let output_file = format!("{root_name}_Motor_Spectrums_stacked.png");
 
     let sr_value = if let Some(sr) = sample_rate {
         sr
     } else {
         println!("\nINFO: Skipping Motor Spectrum Plot: Sample rate could not be determined.");
-        return Ok(());
+        return Ok(vec![]);
     };
 
     // Determine motor count from first row
@@ -51,7 +60,7 @@ pub fn plot_motor_spectrums(
 
     if motor_count == 0 {
         println!("\nINFO: Skipping Motor Spectrum Plot: No motor data available.");
-        return Ok(());
+        return Ok(vec![]);
     }
 
     println!(
@@ -134,9 +143,15 @@ pub fn plot_motor_spectrums(
     }
 
     // Check for oscillation issues (peaks > 3× average in 50-200 Hz range)
+    let mut motor_osc_results: Vec<MotorOscillationResult> = Vec::new();
     for (motor_idx, spectrum_data) in motor_spectrums.iter().enumerate() {
+        let max_amplitude = spectrum_data.as_ref().map(|(_, _, max)| *max);
+        let mut oscillation_detected = false;
+        let mut peak_in_range: Option<f64> = None;
+        let mut avg_in_range: Option<f64> = None;
+
         if let Some((frequencies, amplitudes, _)) = spectrum_data {
-            let freq_range_50_200: Vec<(f64, f64)> = frequencies
+            let freq_range: Vec<(f64, f64)> = frequencies
                 .iter()
                 .zip(amplitudes.iter())
                 .filter(|(f, _)| {
@@ -145,24 +160,32 @@ pub fn plot_motor_spectrums(
                 .map(|(f, a)| (*f, *a))
                 .collect();
 
-            if !freq_range_50_200.is_empty() {
-                let avg_amplitude: f64 = freq_range_50_200.iter().map(|(_, a)| a).sum::<f64>()
-                    / freq_range_50_200.len() as f64;
-                let max_in_range = freq_range_50_200
-                    .iter()
-                    .map(|(_, a)| *a)
-                    .fold(0.0f64, f64::max);
+            if !freq_range.is_empty() {
+                let avg: f64 =
+                    freq_range.iter().map(|(_, a)| a).sum::<f64>() / freq_range.len() as f64;
+                let max = freq_range.iter().map(|(_, a)| *a).fold(0.0f64, f64::max);
+                peak_in_range = Some(max);
+                avg_in_range = Some(avg);
 
-                if max_in_range > MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER * avg_amplitude
-                    && max_in_range > MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD
+                if max > MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER * avg
+                    && max > MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD
                 {
+                    oscillation_detected = true;
                     println!(
                         "  ⚠ Motor {}: Potential oscillation detected in {:.0}-{:.0} Hz range (peak {:.1} >> avg {:.1})",
-                        motor_idx, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ, max_in_range, avg_amplitude
+                        motor_idx, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ, max, avg
                     );
                 }
             }
         }
+
+        motor_osc_results.push(MotorOscillationResult {
+            motor_idx,
+            max_amplitude,
+            oscillation_detected,
+            peak_in_range,
+            avg_in_range,
+        });
     }
 
     // Generate stacked plots with dynamic row count for motors
@@ -274,5 +297,5 @@ pub fn plot_motor_spectrums(
         println!("  Skipping '{}': No motor data to plot.", output_file);
     }
 
-    Ok(())
+    Ok(motor_osc_results)
 }

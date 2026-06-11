@@ -59,7 +59,7 @@ pub fn plot_d_term_psd(
         d_term_delay::calculate_d_term_filtering_delay_comparison(log_data, sr_value);
 
     // Check if any delay calculations succeeded - if not, don't show delay in legends
-    let any_delay_calculated = delay_by_axis.iter().any(|result| result.is_some());
+    let any_delay_calculated = delay_by_axis.iter().any(|result| result.result.is_some());
 
     let mut global_max_y_unfilt = f64::NEG_INFINITY;
     let mut global_max_y_filt = f64::NEG_INFINITY;
@@ -329,7 +329,7 @@ pub fn plot_d_term_psd(
 
         // Get delay string for this axis for legend display
         let delay_str = if any_delay_calculated {
-            if let Some(result) = delay_by_axis.get(axis_idx).and_then(|r| r.as_ref()) {
+            if let Some(result) = delay_by_axis.get(axis_idx).and_then(|d| d.result.as_ref()) {
                 format!(
                     "Delay: {:.1}ms(c:{:.0}%)",
                     result.delay_ms,
