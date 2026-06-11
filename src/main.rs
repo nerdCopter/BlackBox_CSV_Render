@@ -5,6 +5,7 @@ mod constants;
 mod data_analysis;
 mod data_input;
 mod debug_mode_lookup;
+mod eso;
 mod font_config;
 mod pid_context;
 mod plot_framework;
@@ -50,6 +51,9 @@ struct PlotConfig {
     pub motor_spectrums: bool,
     pub bode: bool,
     pub pid_activity: bool,
+    pub run_eso: bool,
+    pub eso_b0: f64,
+    pub eso_b0_user_override: bool,
 }
 
 impl Default for PlotConfig {
@@ -71,6 +75,9 @@ impl Default for PlotConfig {
             motor_spectrums: true,
             bode: false,
             pid_activity: false,
+            run_eso: false,
+            eso_b0: crate::constants::ESO_DEFAULT_B0,
+            eso_b0_user_override: false,
         }
     }
 }
@@ -93,6 +100,9 @@ impl PlotConfig {
             motor_spectrums: false,
             bode: false,
             pid_activity: false,
+            run_eso: false,
+            eso_b0: crate::constants::ESO_DEFAULT_B0,
+            eso_b0_user_override: false,
         }
     }
 
@@ -113,6 +123,9 @@ impl PlotConfig {
             motor_spectrums: true,
             bode: false, // Bode requires specialized logs
             pid_activity: true,
+            run_eso: false,
+            eso_b0: crate::constants::ESO_DEFAULT_B0,
+            eso_b0_user_override: false,
         }
     }
 }
@@ -402,6 +415,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!(
         "  --dps <value>    Deg/s threshold for detailed step response plots (positive number)."
     );
+    eprintln!("  --eso            Run 2nd-order LESO bandwidth optimization (omega_0) per axis.");
+    eprintln!("  --eso-b0 <value> Control effectiveness b0 for ESO (default: 1.0).");
     eprintln!("  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch");
     eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
     eprintln!();
@@ -1680,8 +1695,58 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         png_links.push(format!("{root_name_string}_PID_Activity_stacked.png"));
     }
 
+    // --- ESO Gain Optimization ---
+    // Runs before report so results and PNG link are included.
+    let mut eso_results: [Option<eso::EsoResult>; AXIS_COUNT] = [None, None, None];
+    if plot_config.run_eso {
+        println!("\n--- ESO Gain Optimization (2nd-order LESO) ---");
+        if let Some(sr) = sample_rate {
+            let config = eso::EsoConfig {
+                b0: plot_config.eso_b0,
+                b0_user_override: plot_config.eso_b0_user_override,
+                ..Default::default()
+            };
+            for (axis_idx, eso_slot) in eso_results.iter_mut().enumerate() {
+                let axis_name = crate::axis_names::AXIS_NAMES
+                    .get(axis_idx)
+                    .unwrap_or(&"Unknown");
+                print!("  {axis_name}: running ... ");
+                match eso::run_eso_optimization(&all_log_data, sr, axis_idx, &config) {
+                    Ok(result) => {
+                        let b0_label = if result.b0_auto {
+                            "(estimated)"
+                        } else {
+                            "(user)"
+                        };
+                        println!(
+                            "[OK] omega0={:.1} rad/s  b0={:.4} {b0_label}  beta1={:.2}  beta2={:.2}  MSE={:.6}",
+                            result.omega0_opt, result.b0, result.beta1, result.beta2, result.mse
+                        );
+                        *eso_slot = Some(result);
+                    }
+                    Err(e) => eprintln!("[WARN] Skipped: {e}"),
+                }
+            }
+        } else {
+            println!("  [WARN] Sample rate unknown — skipping ESO optimization.");
+        }
+
+        // --- ESO Output Plot ---
+        let any_eso = eso_results.iter().any(|r| r.is_some());
+        if any_eso {
+            println!("\n--- Generating ESO Output Plot ---");
+            match plot_functions::plot_eso::plot_eso_output(&eso_results, &root_name_string) {
+                Ok(()) => {
+                    println!("  [OK] ESO output plot written.");
+                    png_links.push(format!("{root_name_string}_ESO_output_stacked.png"));
+                }
+                Err(e) => eprintln!("  [ERROR] ESO output plot failed: {e}"),
+            }
+        }
+    }
+
     // --- Markdown Report ---
-    // Must run after all plots so png_links is complete.
+    // Must run after all plots (including ESO) so png_links and eso_results are complete.
     let report_filename = format!("{root_name_string}_report.md");
     let report_path = std::path::Path::new(&report_filename);
     println!("\n--- Generating Report: {report_filename} ---");
@@ -1696,6 +1761,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         dterm_results,
         bode_results,
         motor_results,
+        eso_results,
         png_links,
         filter_config,
         dynamic_notch,
@@ -1706,8 +1772,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     report::generate_markdown_report(&flight_report, report_path)
         .map_err(|e| format!("Report generation failed: {e}"))?;
     println!("  [OK] Report written.");
-
-    // CWD restoration happens automatically when _cwd_guard goes out of scope
 
     println!("--- Finished processing file: {input_file_str} ---");
     Ok(())
@@ -1729,6 +1793,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_paths: Vec<String> = Vec::new();
     let mut setpoint_threshold_override: Option<f64> = None;
     let mut dps_flag_present = false;
+    let mut eso_b0_flag_present = false;
     let mut output_dir: Option<String> = None; // None = not specified (use source folder), Some(dir) = --output-dir with value
     let mut debug_mode = false;
     let mut show_butterworth = false;
@@ -1736,6 +1801,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut extended_requested = false;
     let mut step_requested = false;
     let mut bode_requested = false;
+    let mut eso_requested = false;
+    let mut eso_b0_value: f64 = crate::constants::ESO_DEFAULT_B0;
+    let mut eso_b0_user_override = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
 
@@ -1798,6 +1866,33 @@ fn main() -> Result<(), Box<dyn Error>> {
             step_requested = true;
         } else if arg == "--bode" {
             bode_requested = true;
+        } else if arg == "--eso" {
+            eso_requested = true;
+        } else if arg == "--eso-b0" {
+            if eso_b0_flag_present {
+                eprintln!("Error: --eso-b0 argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --eso-b0 requires a numeric value.");
+                print_usage_and_exit(program_name);
+            }
+            match args[i + 1].parse::<f64>() {
+                Ok(val) if val > 0.0 && val.is_finite() => {
+                    eso_b0_value = val;
+                    eso_b0_user_override = true;
+                    eso_requested = true;
+                    eso_b0_flag_present = true;
+                    i += 1;
+                }
+                _ => {
+                    eprintln!(
+                        "Error: --eso-b0 must be a positive finite number: {}",
+                        args[i + 1]
+                    );
+                    print_usage_and_exit(program_name);
+                }
+            }
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg.starts_with("--") {
@@ -1815,7 +1910,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Derive plot configuration from flags
-    let plot_config = if extended_requested {
+    let mut plot_config = if extended_requested {
         let mut cfg = PlotConfig::all();
         if bode_requested {
             cfg.bode = true;
@@ -1830,15 +1925,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             cfg.bode = true;
         }
         cfg
+    } else if eso_requested && !core_requested {
+        // --eso alone (no core/extended/step/bode): ESO analysis only, no regular plots
+        PlotConfig::none()
     } else {
         PlotConfig::default()
     };
+    plot_config.run_eso = eso_requested;
+    plot_config.eso_b0 = eso_b0_value;
+    plot_config.eso_b0_user_override = eso_b0_user_override;
 
     // Show debug information when the runtime --debug flag is present
     if debug_mode {
         println!(
-            "DEBUG: extended={}, step={}, bode={}, plot_config={:?}",
-            extended_requested, step_requested, bode_requested, plot_config
+            "DEBUG: extended={}, step={}, bode={}, eso={}, plot_config={:?}",
+            extended_requested, step_requested, bode_requested, eso_requested, plot_config
         );
     }
 
