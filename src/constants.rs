@@ -273,29 +273,6 @@ pub const PSD_EPSILON: f64 = 1e-12; // Guard against division by zero for PSD va
 pub const MAGNITUDE_PLOT_MARGIN_DB: f64 = 10.0; // Padding above/below magnitude data for plot range
 pub const PHASE_PLOT_MARGIN_DEG: f64 = 30.0; // Padding above/below phase data for plot range
 
-// ESO (Extended State Observer) optimization constants
-pub const ESO_OMEGA0_MIN: f64 = 50.0; // Lower bound for observer bandwidth search (rad/s)
-                                      // Conservative ceiling kept intentionally below sample_rate/3 for typical 1–2 kHz logs.
-                                      // At ≥4 kHz the discrete-stability cap (sample_rate/3) would allow ~1300–2660 rad/s, but
-                                      // empirical tuning shows gains above ~500 rad/s rarely improve MSE and amplify noise.
-                                      // Override per-run with --eso-b0 or raise this if higher bandwidths are needed.
-pub const ESO_OMEGA0_MAX: f64 = 500.0; // Upper bound for observer bandwidth search (rad/s); conservative ceiling (~80 Hz) — even at high loop rates where sample_rate/3 would allow more, this cap avoids instability in noisy logs
-pub const ESO_GSS_TOLERANCE: f64 = 0.01; // Golden-section search convergence tolerance (rad/s)
-pub const ESO_GSS_MAX_ITER: u64 = 100; // Maximum iterations for golden-section search
-pub const ESO_DEFAULT_B0: f64 = 1.0; // Default control effectiveness (dimensionless)
-pub const ESO_N_AHEAD_STEPS: usize = 5; // Steps ahead for open-loop prediction cost (unimodal objective)
-pub const ESO_WARMUP_FRACTION: f64 = 0.20; // Fraction of data used for observer spin-up before cost evaluation
-pub const ESO_B0_MIN_CONTROL_THRESHOLD: f64 = 10.0; // Minimum |PID sum| to include a sample in b0 OLS estimation
-pub const ESO_B0_MIN_OLS_SAMPLES: usize = 10; // Minimum high-excitation samples required for OLS b0 estimation
-pub const ESO_B0_ESTIMATE_MIN_POSITIVE: f64 = 1e-9; // Minimum strictly-positive b0 to accept (rejects ~0 and negative estimates)
-pub const ESO_OMEGA0_STABILITY_RATIO: f64 = 3.0; // LESO discrete-time stability divisor: omega_0 < sample_rate / ESO_OMEGA0_STABILITY_RATIO
-pub const ESO_FHAT_Y_FRACTION: f64 = 0.5; // f_hat is scaled to fill this fraction of the Y half-range in the ESO plot
-
-// ESO output plot colors
-pub const COLOR_ESO_MEAS: &RGBColor = &LIGHTBLUE; // Measured gyro rate
-pub const COLOR_ESO_HAT: &RGBColor = &ORANGE; // ESO estimated rate (omega_hat)
-pub const COLOR_ESO_FHAT: &RGBColor = &GREEN; // ESO disturbance estimate (f_hat, scaled)
-
 // High-frequency noise analysis for P headroom estimation
 // D-term energy above this frequency threshold indicates noise constraints
 pub const DTERM_HF_CUTOFF_HZ: f64 = 200.0; // Frequency above which high-frequency noise is measured
@@ -393,8 +370,3 @@ pub const TORQUE_PROFILER_P_SCALE: f64 = 100.0;
 /// Empirically calibrated on a 5" 6S freestyle build (HELIO H7); may need
 /// adjustment for significantly heavier or lighter aircraft classes.
 pub const TORQUE_PROFILER_ACHIEVABILITY_FACTOR: f64 = 2.50;
-
-/// Betaflight/EmuFlight debug_mode value for GYRO_SCALED.
-/// Only this mode populates debug[0-2] with raw unfiltered gyro data,
-/// making it a valid fallback source for gyroUnfilt.
-pub const DEBUG_MODE_GYRO_SCALED: u32 = 6;
