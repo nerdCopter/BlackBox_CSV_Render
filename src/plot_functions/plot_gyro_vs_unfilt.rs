@@ -35,6 +35,7 @@ pub fn plot_gyro_vs_unfilt(
         DelayAnalysisResult {
             average_delay: None,
             results: Vec::new(),
+            axis_delays: Vec::new(),
         }
     };
 

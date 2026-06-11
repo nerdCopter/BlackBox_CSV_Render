@@ -28,6 +28,12 @@ use crate::font_config::{
 /// Minimum coherence threshold for filtering Bode plot data
 const MIN_COHERENCE_FOR_PLOT: f64 = 0.1;
 
+/// Per-axis result from Bode analysis containing stability margins
+pub struct BodeAxisResult {
+    pub axis_name: String,
+    pub margins: StabilityMargins,
+}
+
 /// Plot Bode analysis for all three axes (Roll, Pitch, Yaw)
 ///
 /// Generates a single 3×3 grid plot with magnitude, phase, and coherence for all axes
@@ -36,12 +42,12 @@ pub fn plot_bode_analysis(
     root_name: &str,
     sample_rate: Option<f64>,
     debug_mode: bool,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<Vec<BodeAxisResult>, Box<dyn Error>> {
     let sr_value = if let Some(sr) = sample_rate {
         sr
     } else {
         println!("\nINFO: Skipping Bode Plot: Sample rate could not be determined.");
-        return Ok(());
+        return Ok(vec![]);
     };
 
     // Estimate transfer functions for all three axes
@@ -154,7 +160,7 @@ pub fn plot_bode_analysis(
     // Early exit if no valid axes
     if tf_results.is_empty() {
         println!("\nINFO: Skipping Bode Plot: No valid transfer function data for any axis.");
-        return Ok(());
+        return Ok(vec![]);
     }
 
     // Generate single combined plot filename
@@ -180,7 +186,14 @@ pub fn plot_bode_analysis(
         }
     }
 
-    Ok(())
+    Ok(tf_results
+        .iter()
+        .enumerate()
+        .map(|(i, tf)| BodeAxisResult {
+            axis_name: tf.axis_name.clone(),
+            margins: margins_results[i].clone(),
+        })
+        .collect())
 }
 
 /// Create a grid Bode plot (1 to 3 axes × 3 plot types)
