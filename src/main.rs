@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 use ndarray::Array1;
 
+use crate::axis_names::AXIS_COUNT;
 use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, AircraftProfile};
 use crate::types::StepResponseResults;
 
@@ -649,7 +650,7 @@ fn process_file(
     println!("Note: Optimal P:D ratio varies per aircraft. Check step response for overshoot/undershoot.");
     println!();
 
-    let pd_ratios_for_report: [Option<f64>; 3] = [
+    let pd_ratios_for_report: [Option<f64>; AXIS_COUNT] = [
         pid_metadata.roll.calculate_pd_ratio(),
         pid_metadata.pitch.calculate_pd_ratio(),
         pid_metadata.yaw.calculate_pd_ratio(),
@@ -764,11 +765,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let mut recommended_d_max_aggressive: [Option<u32>; 3] = [None, None, None];
 
     // Setpoint authority per axis (captured for report)
-    let mut setpoint_authority_names: [Option<&'static str>; 3] = [None, None, None];
-    let mut setpoint_authority_means: [Option<f32>; 3] = [None, None, None];
+    let mut setpoint_authority_names: [Option<&'static str>; AXIS_COUNT] =
+        std::array::from_fn(|_| None);
+    let mut setpoint_authority_means: [Option<f32>; AXIS_COUNT] = std::array::from_fn(|_| None);
 
     // Step response warnings per axis (captured for report)
-    let mut step_warnings: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut step_warnings: [Vec<String>; AXIS_COUNT] = std::array::from_fn(|_| Vec::new());
 
     if let Some(sr) = sample_rate {
         for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
@@ -827,7 +829,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         println!("      Always test in a safe environment. Conservative = safer first step.");
         println!("      Moderate = for experienced pilots (test carefully to avoid hot motors).");
         println!();
-        for axis_index in 0..2 {
+        for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {
             // Only Roll (0) and Pitch (1)
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
 
@@ -1182,7 +1184,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let mut step_reports: Vec<report::StepAxisReport> = Vec::new();
     {
         let dmax_enabled = pid_metadata.is_dmax_enabled();
-        for axis_index in 0..2 {
+        for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {
             if let (Some(peak_value), Some(current_pd_ratio), Some(assessment)) = (
                 peak_values[axis_index],
                 current_pd_ratios[axis_index],
@@ -1679,6 +1681,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     }
 
     // --- Markdown Report ---
+    // Must run after all plots so png_links is complete.
     let report_filename = format!("{root_name_string}_report.md");
     let report_path = std::path::Path::new(&report_filename);
     println!("\n--- Generating Report: {report_filename} ---");
@@ -1700,12 +1703,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         debug_fallback: using_debug_fallback,
         debug_mode_name: debug_mode_label,
     };
-    match report::generate_markdown_report(&flight_report, report_path) {
-        Ok(()) => println!("  [OK] Report written."),
-        Err(e) => eprintln!("  [ERROR] Report generation failed: {e}"),
-    }
+    report::generate_markdown_report(&flight_report, report_path)
+        .map_err(|e| format!("Report generation failed: {e}"))?;
+    println!("  [OK] Report written.");
 
     // CWD restoration happens automatically when _cwd_guard goes out of scope
+
     println!("--- Finished processing file: {input_file_str} ---");
     Ok(())
 }

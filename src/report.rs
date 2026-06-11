@@ -47,7 +47,7 @@ pub struct FlightReport {
     pub root_name: String,
     pub sample_rate: Option<f64>,
     pub header_metadata: Vec<(String, String)>,
-    pub pd_ratios: [Option<f64>; 3],
+    pub pd_ratios: [Option<f64>; AXIS_COUNT],
     pub step_reports: Vec<StepAxisReport>,
     pub optimal_p: [Option<OptimalPAnalysis>; AXIS_COUNT],
     pub gyro_analysis: Option<GyroAnalysisResult>,
