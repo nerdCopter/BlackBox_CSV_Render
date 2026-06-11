@@ -104,6 +104,10 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 - `*_Gyro_PSD_Spectrogram_comparative.png` — Gyro spectrogram (PSD vs. time)
 - `*_Throttle_Freq_Heatmap_comparative.png` — Throttle/frequency heatmap analysis
 
+#### Markdown Report (always generated)
+
+- `*_report.md` — Structured flight report written alongside PNGs on every run. Sections: Metadata (firmware, PIDs, sample rate, gyroUnfilt source), Filter Configuration (LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning, Step Response Analysis (Roll/Pitch with P:D assessment and setpoint authority), Gyro Analysis (filtering delay, confidence, spectrum peaks per axis), D-Term Analysis (filtering delay with N/A reason, spectrum peaks), Motor Oscillation, and links to all generated PNGs. Optimal P Estimation and Bode Analysis sections appear when those features are active.
+
 #### Console Output:
 - Current P:D ratio and peak analysis with response assessment
 - Conservative and Moderate tuning recommendations (with D/D-Min/D-Max values)
