@@ -132,9 +132,12 @@ pub fn calculate_d_term_filtering_delay_comparison(
 
     // Use AXIS_NAMES.iter().enumerate() for consistency with other parts of the codebase
     for (axis_idx, axis_name) in AXIS_NAMES.iter().enumerate() {
-        // Skip if either data type is unavailable
-        if !gyro_unfilt_available[axis_idx] || !d_term_available[axis_idx] {
-            // na_reason already set to "No D-term data" at init
+        if !gyro_unfilt_available[axis_idx] {
+            results[axis_idx].na_reason = Some("No gyroUnfilt data");
+            continue;
+        }
+        if !d_term_available[axis_idx] {
+            // na_reason already "No D-term data" from init
             continue;
         }
 

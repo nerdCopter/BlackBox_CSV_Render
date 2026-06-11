@@ -540,7 +540,7 @@ fn fmt_imuf(f: &crate::data_analysis::filter_response::ImufFilterConfig) -> Stri
             2 => "2×PT1",
             3 => "3×PT1",
             4 => "4×PT1",
-            _ => "2×PT1",
+            _ => "PT?",
         };
         let rev = f.revision.map_or("IMUF".into(), |r| format!("IMUF v{}", r));
         let w_part = f
