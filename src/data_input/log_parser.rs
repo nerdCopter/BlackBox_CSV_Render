@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
+use crate::constants::DEBUG_MODE_GYRO_SCALED;
 use crate::data_input::log_data::LogRowData;
 use crate::types::LogParseResult;
 
@@ -206,6 +207,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
 
     let header_indices: Vec<Option<usize>>;
     let mut motor_indices: Vec<usize> = Vec::new();
+    let using_debug_fallback: bool;
 
     // Read CSV header and map target headers to indices.
     {
@@ -442,22 +444,38 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             .into());
         }
 
-        // Report debug fallback usage if applicable
-        let using_debug_fallback = !gyro_unfilt_header_found.iter().any(|&found| found)
-            && debug_header_found.iter().take(3).any(|&found| found);
-
-        if using_debug_fallback {
-            println!("  ⚠️  Using debug[0-2] as fallback for gyroUnfilt[0-2]");
-
-            // Try to report which debug mode is being used
-            if let Some((_, debug_mode_value)) =
-                header_metadata.iter().find(|(k, _)| k == "debug_mode")
-            {
-                if let Ok(debug_int) = debug_mode_value.parse::<u32>() {
-                    println!("  Debug mode value: {}", debug_int);
+        // Apply debug[0-2] fallback for gyroUnfilt only when debug_mode=GYRO_SCALED (6).
+        // Other debug modes do not populate debug[0-2] with raw gyro data.
+        let have_gyro_unfilt = gyro_unfilt_header_found.iter().any(|&found| found);
+        let have_debug_axes = debug_header_found.iter().take(3).any(|&found| found);
+        using_debug_fallback = if !have_gyro_unfilt && have_debug_axes {
+            let debug_mode_val = header_metadata
+                .iter()
+                .find(|(k, _)| k == "debug_mode")
+                .and_then(|(_, v)| v.parse::<u32>().ok());
+            match debug_mode_val {
+                Some(DEBUG_MODE_GYRO_SCALED) => {
+                    println!(
+                        "  ⚠️  Using debug[0-2] as gyroUnfilt fallback (debug_mode=GYRO_SCALED)"
+                    );
+                    true
+                }
+                Some(mode) => {
+                    println!(
+                        "  ⚠️  Skipping debug[0-2] gyroUnfilt fallback: debug_mode={} is not GYRO_SCALED ({}) — unfiltered gyro analysis unavailable",
+                        mode, DEBUG_MODE_GYRO_SCALED
+                    );
+                    false
+                }
+                None => {
+                    // debug_mode absent from headers — allow but warn
+                    println!("  ⚠️  Using debug[0-2] as gyroUnfilt fallback (debug_mode unknown, assuming GYRO_SCALED)");
+                    true
                 }
             }
-        }
+        } else {
+            false
+        };
     }
 
     // --- Data Reading and Storage ---
@@ -547,10 +565,12 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                     }
 
                     // Apply Fallback Logic for gyro_unfilt (debug[0-2] --> gyroUnfilt[0-2])
+                    // Fallback is only valid when debug_mode=GYRO_SCALED (6); see using_debug_fallback.
                     for axis in 0..crate::axis_names::AXIS_NAMES.len() {
                         current_row_data.gyro_unfilt[axis] = match parsed_gyro_unfilt[axis] {
                             Some(val) => Some(val),
-                            None => parsed_debug[axis],
+                            None if using_debug_fallback => parsed_debug[axis],
+                            None => None,
                         };
                     }
 
