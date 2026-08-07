@@ -8,7 +8,8 @@ use crate::types::{AllAxisPlotData3, AxisPlotData3};
 
 use crate::constants::{
     COLOR_P_TERM, COLOR_RC_COMMAND, COLOR_SETPOINT_MAIN, LINE_WIDTH_PLOT,
-    RC_COMMAND_ACTIVITY_Y_AXIS_MIN, RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS, RC_STEP_MIN_JUMP_SIZE,
+    RC_COMMAND_ACTIVITY_Y_AXIS_MIN, RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS,
+    RC_STEP_MIN_COUNT_FOR_ASSESSMENT, RC_STEP_MIN_JUMP_SIZE,
 };
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
@@ -43,6 +44,7 @@ fn detect_rc_command_steps(data: &AxisPlotData3, sample_rate: Option<f64>) -> Rc
 
     let mut plateau_samples: Vec<usize> = Vec::new();
     let mut plateau_len = 1usize;
+    let mut saw_any_change = false;
 
     for i in 1..rc_points.len() {
         let prev = rc_points[i - 1].1;
@@ -50,20 +52,34 @@ fn detect_rc_command_steps(data: &AxisPlotData3, sample_rate: Option<f64>) -> Rc
         if (curr - prev).abs() < f64::EPSILON {
             plateau_len += 1;
         } else {
+            saw_any_change = true;
             if (curr - prev).abs() >= RC_STEP_MIN_JUMP_SIZE {
                 plateau_samples.push(plateau_len);
             }
             plateau_len = 1;
         }
     }
+    // Include the trailing run, but only if the value ever actually changed — a fully
+    // static series (no rc_command movement) must stay unclassified (None), not "maximally
+    // blocky" from one giant plateau spanning the whole log.
+    if saw_any_change {
+        plateau_samples.push(plateau_len);
+    }
 
     let step_count = plateau_samples.len();
-    let median_plateau_ms = if plateau_samples.is_empty() {
+    let median_plateau_ms = if step_count < RC_STEP_MIN_COUNT_FOR_ASSESSMENT {
         None
     } else {
         plateau_samples.sort_unstable();
-        let median_samples = plateau_samples[plateau_samples.len() / 2] as f64;
-        sample_rate.map(|sr| (median_samples / sr) * 1000.0)
+        let mid = plateau_samples.len() / 2;
+        let median_samples = if plateau_samples.len() % 2 == 0 {
+            (plateau_samples[mid - 1] + plateau_samples[mid]) as f64 / 2.0
+        } else {
+            plateau_samples[mid] as f64
+        };
+        sample_rate
+            .filter(|sr| *sr > 0.0)
+            .map(|sr| (median_samples / sr) * 1000.0)
     };
 
     let is_blocky = median_plateau_ms
