@@ -50,6 +50,7 @@ struct PlotConfig {
     pub motor_spectrums: bool,
     pub bode: bool,
     pub pid_activity: bool,
+    pub rc_command_activity: bool,
 }
 
 impl Default for PlotConfig {
@@ -71,6 +72,7 @@ impl Default for PlotConfig {
             motor_spectrums: true,
             bode: false,
             pid_activity: false,
+            rc_command_activity: true,
         }
     }
 }
@@ -93,6 +95,7 @@ impl PlotConfig {
             motor_spectrums: false,
             bode: false,
             pid_activity: false,
+            rc_command_activity: false,
         }
     }
 
@@ -113,6 +116,7 @@ impl PlotConfig {
             motor_spectrums: true,
             bode: false, // Bode requires specialized logs
             pid_activity: true,
+            rc_command_activity: true,
         }
     }
 }
@@ -143,6 +147,7 @@ use crate::plot_functions::plot_pid_activity::plot_pid_activity;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
 use crate::plot_functions::plot_psd::plot_psd;
 use crate::plot_functions::plot_psd_db_heatmap::plot_psd_db_heatmap;
+use crate::plot_functions::plot_rc_command_activity::plot_rc_command_activity;
 use crate::plot_functions::plot_setpoint_derivative::plot_setpoint_derivative;
 use crate::plot_functions::plot_setpoint_vs_gyro::plot_setpoint_vs_gyro;
 use crate::plot_functions::plot_step_response::plot_step_response;
@@ -390,7 +395,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("=== PLOT TYPE SELECTION ===");
     eprintln!();
     eprintln!("  --core           [default] Step Response, Gyro Spectrums, D-term Spectrums,");
-    eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.");
+    eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums,");
+    eprintln!("                   RC Command Activity.");
     eprintln!("  --extended       All plots except Bode — adds PIDsum/Error, PID Activity,");
     eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.");
     eprintln!("  --step           Step response only.");
@@ -565,9 +571,7 @@ fn process_file(
         .file_stem()
         .unwrap_or_else(|| std::ffi::OsStr::new("unknown_filestem"))
         .to_string_lossy();
-    let root_name_string: String;
-
-    if use_dir_prefix {
+    let root_name_string: String = if use_dir_prefix {
         let mut dir_prefix_to_add = String::new();
         if let Some(parent_dir) = input_path.parent() {
             if let Some(dir_os_str) = parent_dir.file_name() {
@@ -588,10 +592,10 @@ fn process_file(
                 }
             }
         }
-        root_name_string = format!("{dir_prefix_to_add}{file_stem_cow}");
+        format!("{dir_prefix_to_add}{file_stem_cow}")
     } else {
-        root_name_string = file_stem_cow.into_owned();
-    }
+        file_stem_cow.into_owned()
+    };
 
     // --- Data Reading and Header Status ---
     let (
@@ -1608,6 +1612,12 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         plot_pid_activity(&all_log_data, &root_name_string, Some(&header_metadata))?;
     }
 
+    let rc_command_steps = if plot_config.rc_command_activity {
+        plot_rc_command_activity(&all_log_data, &root_name_string, sample_rate)?
+    } else {
+        vec![]
+    };
+
     // --- Filter configuration (from header metadata, independent of CSV data) ---
     let filter_config = Some(filter_response::parse_filter_config(&header_metadata));
     let dynamic_notch = filter_response::extract_dynamic_notch_range(Some(&header_metadata));
@@ -1679,6 +1689,11 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     if plot_config.pid_activity {
         png_links.push(format!("{root_name_string}_PID_Activity_stacked.png"));
     }
+    if plot_config.rc_command_activity {
+        png_links.push(format!(
+            "{root_name_string}_RC_Command_Activity_stacked.png"
+        ));
+    }
 
     // --- Markdown Report ---
     // Must run after all plots so png_links is complete.
@@ -1696,6 +1711,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         dterm_results,
         bode_results,
         motor_results,
+        rc_command_steps,
         png_links,
         filter_config,
         dynamic_notch,

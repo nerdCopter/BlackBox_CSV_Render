@@ -91,6 +91,10 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         "debug[1]",
         "debug[2]",
         "debug[3]", // 23, 24, 25, 26
+        "rcCommand[0]",
+        "rcCommand[1]",
+        "rcCommand[2]",
+        "rcCommand[3]", // 27, 28, 29, 30 (rcCommand[3] is throttle)
     ];
 
     // --- Header Metadata Extraction and CSV Position Tracking ---
@@ -204,6 +208,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
     let mut gyro_unfilt_header_found = [false; 3];
     let mut debug_header_found = [false; 4];
     let mut f_term_header_found = [false; 3];
+    let mut rc_command_header_found = [false; 4];
 
     let header_indices: Vec<Option<usize>>;
     let mut motor_indices: Vec<usize> = Vec::new();
@@ -432,6 +437,29 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             }
         }
 
+        // Check rcCommand headers (Indices 27-30).
+        for axis in 0..4 {
+            // Check rcCommand[0] to rcCommand[3]
+            rc_command_header_found[axis] = header_indices[27 + axis].is_some();
+            if debug_mode {
+                let purpose = if axis < 3 {
+                    format!("Optional for RC Command Activity plot Axis {axis}")
+                } else {
+                    "Throttle (rcCommand[3])".to_string()
+                };
+                println!(
+                    "  '{}': {} ({})",
+                    target_headers[27 + axis],
+                    if rc_command_header_found[axis] {
+                        "Found"
+                    } else {
+                        "Not Found"
+                    },
+                    purpose
+                );
+            }
+        }
+
         if !essential_pid_headers_found {
             let missing_essentials: Vec<String> = (0..=8)
                 .filter(|&i| header_indices[i].is_none())
@@ -544,6 +572,15 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                     for axis in 0..4 {
                         current_row_data.setpoint[axis] = parse_f64_by_target_idx(13 + axis);
                         // Indices 13,14,15,16
+                    }
+
+                    // Parse rcCommand (for axes 0-3)
+                    #[allow(clippy::needless_range_loop)]
+                    for axis in 0..4 {
+                        if rc_command_header_found[axis] {
+                            current_row_data.rc_command[axis] = parse_f64_by_target_idx(27 + axis);
+                            // Indices 27,28,29,30
+                        }
                     }
 
                     // Parse gyroUnfilt and debug
