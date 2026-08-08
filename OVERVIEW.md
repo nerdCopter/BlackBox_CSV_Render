@@ -99,7 +99,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with intelligent peak detection and labeling using scale-aware thresholds (`FILTERED_GYRO_MIN_THRESHOLD` for filtered gyro data). Includes enhanced cross-correlation filtering delay calculation and flight firmware filter response curve overlays.
                     * `plot_d_term_spectrums`: Frequency-domain amplitude spectrums of D-term data with intelligent peak detection using scale-aware thresholds (`FILTERED_D_TERM_MIN_THRESHOLD` for filtered D-term data). Includes enhanced cross-correlation filtering delay calculation with intelligent D-term activity detection (skips axes where D gain = 0).
                     * `plot_motor_spectrums`: Motor output frequency analysis.
-                    * `plot_rc_command_activity`: Setpoint, P-term, and RC Command time-domain overlay for each axis, to visually correlate blocky/unfiltered stick input against the flight controller's response. Also runs RC Command step detection (see below) for the markdown report.
+                    * `plot_rc_command_activity`: Setpoint vs. RC Command time-domain overlay for each axis, to visually correlate blocky/unfiltered stick input against the flight controller's response. Also runs RC Command step detection (see below) for the markdown report.
                 * **Extended plots (`--extended` adds these to the core set):**
                     * `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.
                     * `plot_pid_activity`: P, I, D term activity over time.
@@ -112,7 +112,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 ### RC Command Step Detection
 
-* **Purpose:** Diagnoses raw, unsmoothed RX-link input reaching the PID loop — visible as a staircase in RC Command, and as jitter in the Setpoint/P-term response (`src/plot_functions/plot_rc_command_activity.rs`).
+* **Purpose:** Diagnoses raw, unsmoothed RX-link input reaching the PID loop — visible as a staircase in RC Command, and as jitter in the Setpoint response (`src/plot_functions/plot_rc_command_activity.rs`).
 * **Metric:** For each axis (Roll, Pitch, Yaw), walks the RC Command time series and measures the **median "plateau" duration** — how long the value is held flat before jumping to a new value (any change at or above `RC_STEP_MIN_JUMP_SIZE` counts, including a single rcCommand unit; only sub-unit float-precision noise is excluded). A smoothly-interpolated signal changes almost every sample (short plateaus); a raw, unsmoothed RX-link signal is held flat for the RX update interval (long plateaus).
 * **Classification:** An axis is flagged **Blocky** when its median plateau duration is at or above `RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS` (12.0 ms); otherwise **Smooth**. `Median Plateau (ms)` and `Step Count` are shown in the `## Stick Input Smoothness` section of the markdown report; the section is omitted entirely when the log has no rcCommand headers, no RC movement, or when `--step`/`--bode` mode disabled the plot (detection runs only alongside `plot_rc_command_activity`).
 * **Calibration:** Thresholds were set by measuring median plateau duration on a small set of real flight logs (Betaflight and EmuFlight): smooth logs measured ~4 ms, logs with a visible RC Command staircase measured 20–140 ms. This is a heuristic, not a certified diagnostic — thresholds may need revisiting against a broader log set.
@@ -191,7 +191,7 @@ When `--step` flag is not used, all plots below are generated:
 - **`*_Gyro_PSD_Spectrogram_comparative.png`** — Gyro spectrogram (PSD vs. time) using Short-Time Fourier Transform
 - **`*_Throttle_Freq_Heatmap_comparative.png`** — System noise characteristics across throttle levels and frequencies
 - **`*_PID_Activity_stacked.png`** — P, I, D term activity over time for each axis (Roll, Pitch, Yaw). Displays all three PID components on the same time-domain plot with unified Y-axis scaling for visual comparison. Each term shows min/avg/max statistics in the legend. Useful for visualizing PID contribution balance during flight and identifying control issues (persistent P-term offset, I-term wind direction, D-term phase lag).
-- **`*_RC_Command_Activity_stacked.png`** — Setpoint, P-term, and RC Command overlay for each axis (Roll, Pitch, Yaw). Visualizes blocky/unfiltered stick input against the flight controller's response; see [RC Command Step Detection](#rc-command-step-detection).
+- **`*_RC_Command_Activity_stacked.png`** — Setpoint vs. RC Command overlay for each axis (Roll, Pitch, Yaw). Visualizes blocky/unfiltered stick input against the flight controller's response; see [RC Command Step Detection](#rc-command-step-detection).
 
 #### Generated Reports
 

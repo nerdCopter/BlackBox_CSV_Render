@@ -94,7 +94,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 - `*_Gyro_Spectrums_comparative.png` — Frequency-domain gyro amplitude spectrums
 - `*_D_Term_Spectrums_comparative.png` — Frequency-domain D-term amplitude spectrums
 - `*_Motor_Spectrums_stacked.png` — Motor output frequency analysis (supports any motor count; colors wrap every 8 motors)
-- `*_RC_Command_Activity_stacked.png` — Setpoint, P-term, and RC Command overlay per axis; visualizes blocky/unfiltered stick input against the flight controller's response
+- `*_RC_Command_Activity_stacked.png` — Setpoint vs. RC Command overlay per axis; visualizes blocky/unfiltered stick input against the flight controller's response
 
 **Extended (`--extended` adds these to the core set):**
 - `*_PIDsum_PIDerror_Setpoint_stacked.png` — PIDsum, PID error, and setpoint traces
