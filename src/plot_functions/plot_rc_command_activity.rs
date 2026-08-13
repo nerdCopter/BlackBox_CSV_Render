@@ -43,7 +43,8 @@ fn detect_rc_command_steps(data: &AxisPlotData2, sample_rate: Option<f64>) -> Rc
 
     let mut plateau_samples: Vec<usize> = Vec::new();
     let mut plateau_len = 1usize;
-    let mut saw_any_change = false;
+    // Whether the transition that started the *current* run was itself a qualifying jump.
+    let mut current_run_follows_qualifying_jump = false;
 
     for i in 1..rc_points.len() {
         let prev = rc_points[i - 1].1;
@@ -51,17 +52,19 @@ fn detect_rc_command_steps(data: &AxisPlotData2, sample_rate: Option<f64>) -> Rc
         if (curr - prev).abs() < f64::EPSILON {
             plateau_len += 1;
         } else {
-            saw_any_change = true;
-            if (curr - prev).abs() >= RC_STEP_MIN_JUMP_SIZE {
+            let qualifies = (curr - prev).abs() >= RC_STEP_MIN_JUMP_SIZE;
+            if qualifies {
                 plateau_samples.push(plateau_len);
             }
             plateau_len = 1;
+            current_run_follows_qualifying_jump = qualifies;
         }
     }
-    // Include the trailing run, but only if the value ever actually changed — a fully
-    // static series (no rc_command movement) must stay unclassified (None), not "maximally
-    // blocky" from one giant plateau spanning the whole log.
-    if saw_any_change {
+    // Include the trailing run, but only if the transition that started it was itself a
+    // qualifying jump — a plateau following sub-threshold float noise isn't a real "held"
+    // measurement, and a fully static series (no rc_command movement at all) must stay
+    // unclassified (None), not "maximally blocky" from one giant plateau spanning the whole log.
+    if current_run_follows_qualifying_jump {
         plateau_samples.push(plateau_len);
     }
 
