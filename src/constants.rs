@@ -1,7 +1,7 @@
 // src/constants.rs
 
 // Import specific colors needed
-use plotters::style::colors::full_palette::{AMBER, GREEN, LIGHTBLUE, ORANGE, PURPLE, RED};
+use plotters::style::colors::full_palette::{AMBER, CYAN, GREEN, LIGHTBLUE, ORANGE, PURPLE, RED};
 use plotters::style::RGBColor;
 
 // Plot dimensions.
@@ -185,6 +185,27 @@ pub const UNIFIED_Y_AXIS_PERCENTILE: f64 = 0.95; // Use 95th percentile for Y-ax
 // Minimum Y-axis scale for P, I, D activity plots (symmetric range)
 // 200.0 provides good visibility for human interpretation
 pub const PID_ACTIVITY_Y_AXIS_MIN: f64 = 200.0;
+
+// RC Command / Setpoint Activity Plot
+pub const COLOR_RC_COMMAND: &RGBColor = &CYAN;
+
+// Minimum Y-axis scale for RC Command activity plot (symmetric range)
+pub const RC_COMMAND_ACTIVITY_Y_AXIS_MIN: f64 = 200.0;
+
+// RC Command step detection (diagnoses raw/unsmoothed RX-link input reaching the PID loop).
+// Classifies by median held-flat ("plateau") duration between RC Command value changes.
+// A smooth/interpolated signal changes almost every sample, producing short plateaus.
+// A raw, unsmoothed RX-link signal holds flat for the RX update interval, producing long
+// plateaus. Calibrated against real flight logs: smooth logs measured ~4ms median plateau;
+// logs with visible staircase steps measured 20-140ms. Kept low (not e.g. 2.0): real
+// rcCommand data can step by exactly 1 unit during deliberate movement, and a higher
+// threshold would blind the detector to those transitions.
+pub const RC_STEP_MIN_JUMP_SIZE: f64 = 0.5; // Minimum jump magnitude (rcCommand units) to count as a real value change
+pub const RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS: f64 = 12.0; // Median plateau duration above which stick input is flagged as blocky
+                                                        // A median from only a handful of transitions is unreliable. One isolated noise blip in an
+                                                        // otherwise-idle log can produce a median spanning most of the log. Require enough
+                                                        // qualifying transitions before classifying smooth/blocky at all.
+pub const RC_STEP_MIN_COUNT_FOR_ASSESSMENT: usize = 20;
 
 // D-term Plot Colors (distinct from gyro colors)
 pub const COLOR_D_TERM_FILT: &RGBColor = &GREEN; // Use green for filtered D-term (distinct from gyro blue/amber)

@@ -12,6 +12,7 @@ pub mod plot_pid_activity;
 pub mod plot_pidsum_error_setpoint;
 pub mod plot_psd;
 pub mod plot_psd_db_heatmap;
+pub mod plot_rc_command_activity;
 pub mod plot_setpoint_derivative;
 pub mod plot_setpoint_vs_gyro;
 pub mod plot_step_response;

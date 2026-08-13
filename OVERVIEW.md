@@ -4,6 +4,7 @@
 - [Code Overview and Step Response Calculation](#code-overview-and-step-response-calculation)
   - [Configuration](#configuration)
   - [Core Functionality](#core-functionality)
+  - [RC Command Step Detection](#rc-command-step-detection)
   - [Filtering Delay Calculation](#filtering-delay-calculation)
   - [Enhanced Cross-Correlation Method (Primary Implementation)](#enhanced-cross-correlation-method-primary-implementation)
   - [Implementation Details](#implementation-details)
@@ -98,6 +99,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * `plot_gyro_spectrums`: Frequency-domain amplitude spectrums of filtered and unfiltered gyro data with intelligent peak detection and labeling using scale-aware thresholds (`FILTERED_GYRO_MIN_THRESHOLD` for filtered gyro data). Includes enhanced cross-correlation filtering delay calculation and flight firmware filter response curve overlays.
                     * `plot_d_term_spectrums`: Frequency-domain amplitude spectrums of D-term data with intelligent peak detection using scale-aware thresholds (`FILTERED_D_TERM_MIN_THRESHOLD` for filtered D-term data). Includes enhanced cross-correlation filtering delay calculation with intelligent D-term activity detection (skips axes where D gain = 0).
                     * `plot_motor_spectrums`: Motor output frequency analysis.
+                    * `plot_rc_command_activity`: Setpoint vs. RC Command time-domain overlay for each axis, to visually correlate blocky/unfiltered stick input against the flight controller's response. Also runs RC Command step detection (see below) for the markdown report.
                 * **Extended plots (`--extended` adds these to the core set):**
                     * `plot_pidsum_error_setpoint`: PIDsum (P+I+D), PID Error (Setpoint - GyroADC), and Setpoint time-domain traces for each axis.
                     * `plot_pid_activity`: P, I, D term activity over time.
@@ -107,6 +109,14 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * `plot_d_term_heatmap`: D-term throttle-frequency heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze D-term energy distribution across different throttle levels.
                     * `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap.
                     * `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
+
+### RC Command Step Detection
+
+* **Purpose:** Diagnoses raw, unsmoothed RX-link input reaching the PID loop — visible as a staircase in RC Command, and as jitter in the Setpoint response (`src/plot_functions/plot_rc_command_activity.rs`).
+* **Metric:** For each axis (Roll, Pitch, Yaw), walks the RC Command time series and measures the **median "plateau" duration** — how long the value is held flat before jumping to a new value (any change at or above `RC_STEP_MIN_JUMP_SIZE` counts, including a single rcCommand unit; only sub-unit float-precision noise is excluded). A smoothly-interpolated signal changes almost every sample (short plateaus); a raw, unsmoothed RX-link signal is held flat for the RX update interval (long plateaus).
+* **Classification:** An axis is flagged **Blocky** when its median plateau duration is at or above `RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS` (12.0 ms); otherwise **Smooth**. Below `RC_STEP_MIN_COUNT_FOR_ASSESSMENT` (20) qualifying transitions, the axis is left unclassified (N/A) rather than guessed — a median computed from only a handful of transitions is unreliable. `Median Plateau (ms)` and `Step Count` are shown in the `## Stick Input Smoothness` section of the markdown report; the section is omitted entirely when the log has no rcCommand headers, no RC movement, or when `--step`/`--bode` mode disabled the plot (detection runs only alongside `plot_rc_command_activity`).
+* **Calibration:** Thresholds were set by measuring median plateau duration on 5 real flight logs (Betaflight and EmuFlight): smooth logs measured ~4 ms, logs with a visible RC Command staircase measured 20–140 ms. Re-validated against 56 additional real logs spanning multiple firmware branches and sample rates (1–16 kHz): 149 classified axes clustered at 0.6–7 ms for smooth input, with exactly one log crossing into Blocky territory at 19.8–20.8 ms — a clean ~5x gap with zero samples in an 8–16 ms gray zone. That one flagged log was independently confirmed (Betaflight Blackbox Explorer, plus the pilot's own knowledge of the craft) to have visibly blocky RC Command input. This is a heuristic, not a certified diagnostic, but is now backed by both a wide statistical separation and a confirmed true positive.
+* **Recommendation:** When any axis is flagged Blocky, the report adds a note to review the aircraft's `rc_smoothing_*` settings or confirm the RX link update rate.
 
 ### Filtering Delay Calculation
 
@@ -167,7 +177,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 #### Generated PNG Plots
 
-When `--step` flag is not used, all plots below are generated:
+When neither `--step` nor `--bode` is used, all plots below are generated:
 
 - **`*_Step_Response_stacked_plot_*.png`** — Step response visualization with P:D recommendations overlay
 - **`*_PIDsum_PIDerror_Setpoint_stacked.png`** — Time-domain traces of PIDsum, PID error, and setpoint
@@ -181,10 +191,11 @@ When `--step` flag is not used, all plots below are generated:
 - **`*_Gyro_PSD_Spectrogram_comparative.png`** — Gyro spectrogram (PSD vs. time) using Short-Time Fourier Transform
 - **`*_Throttle_Freq_Heatmap_comparative.png`** — System noise characteristics across throttle levels and frequencies
 - **`*_PID_Activity_stacked.png`** — P, I, D term activity over time for each axis (Roll, Pitch, Yaw). Displays all three PID components on the same time-domain plot with unified Y-axis scaling for visual comparison. Each term shows min/avg/max statistics in the legend. Useful for visualizing PID contribution balance during flight and identifying control issues (persistent P-term offset, I-term wind direction, D-term phase lag).
+- **`*_RC_Command_Activity_stacked.png`** — Setpoint vs. RC Command overlay for each axis (Roll, Pitch, Yaw). Visualizes blocky/unfiltered stick input against the flight controller's response; see [RC Command Step Detection](#rc-command-step-detection).
 
 #### Generated Reports
 
-- **`*_report.md`** — Structured markdown flight report written alongside PNGs on every run. Content is assembled from typed result structs returned by each analysis pass — no CSV re-reading. Sections: Metadata (firmware revision, craft name, PIDs, sample rate, gyroUnfilt source warning), Filter Configuration (per-axis LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning P:D ratios, Step Response Analysis (Roll/Pitch: peak value, assessment, setpoint authority, P:D recommendations), Gyro Analysis (per-axis filtering delay with confidence, spectrum peaks), D-Term Analysis (per-axis filtering delay with N/A disambiguation, spectrum peaks), Motor Oscillation table, and relative links to all generated PNGs. Optimal P Estimation and Bode Analysis sections are included when those features produce results.
+- **`*_report.md`** — Structured markdown flight report written alongside PNGs on every run. Content is assembled from typed result structs returned by each analysis pass — no CSV re-reading. Sections: Metadata (firmware revision, craft name, PIDs, sample rate, gyroUnfilt source warning), Filter Configuration (per-axis LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning P:D ratios, Step Response Analysis (Roll/Pitch: peak value, assessment, setpoint authority, P:D recommendations), Gyro Analysis (per-axis filtering delay with confidence, spectrum peaks), D-Term Analysis (per-axis filtering delay with N/A disambiguation, spectrum peaks), Motor Oscillation table, Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), and relative links to all generated PNGs. Optimal P Estimation and Bode Analysis sections are included when those features produce results.
 
 
 #### P:D Ratio Recommendations

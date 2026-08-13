@@ -40,7 +40,8 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 === PLOT TYPE SELECTION ===
 
   --core           [default] Step Response, Gyro Spectrums, D-term Spectrums,
-                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.
+                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums,
+                   RC Command Activity.
   --extended       All plots except Bode — adds PIDsum/Error, PID Activity,
                    Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.
   --step           Step response only.
@@ -93,6 +94,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 - `*_Gyro_Spectrums_comparative.png` — Frequency-domain gyro amplitude spectrums
 - `*_D_Term_Spectrums_comparative.png` — Frequency-domain D-term amplitude spectrums
 - `*_Motor_Spectrums_stacked.png` — Motor output frequency analysis (supports any motor count; colors wrap every 8 motors)
+- `*_RC_Command_Activity_stacked.png` — Setpoint vs. RC Command overlay per axis; visualizes blocky/unfiltered stick input against the flight controller's response
 
 **Extended (`--extended` adds these to the core set):**
 - `*_PIDsum_PIDerror_Setpoint_stacked.png` — PIDsum, PID error, and setpoint traces
@@ -106,7 +108,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 
 #### Markdown Report (always generated)
 
-- `*_report.md` — Structured flight report written alongside PNGs on every run. Sections: Metadata (firmware, PIDs, sample rate, gyroUnfilt source), Filter Configuration (LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning, Step Response Analysis (Roll/Pitch with P:D assessment and setpoint authority), Gyro Analysis (filtering delay, confidence, spectrum peaks per axis), D-Term Analysis (filtering delay with N/A reason, spectrum peaks), Motor Oscillation, and links to all generated PNGs. Optimal P Estimation and Bode Analysis sections appear when those features are active.
+- `*_report.md` — Structured flight report written alongside PNGs on every run. Sections: Metadata (firmware, PIDs, sample rate, gyroUnfilt source), Filter Configuration (LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning, Step Response Analysis (Roll/Pitch with P:D assessment and setpoint authority), Gyro Analysis (filtering delay, confidence, spectrum peaks per axis), D-Term Analysis (filtering delay with N/A reason, spectrum peaks), Motor Oscillation, Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), and links to all generated PNGs. Optimal P Estimation and Bode Analysis sections appear when those features are active.
 
 #### Console Output:
 - Current P:D ratio and peak analysis with response assessment
