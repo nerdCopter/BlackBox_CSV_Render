@@ -177,7 +177,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 #### Generated PNG Plots
 
-When `--step` flag is not used, all plots below are generated:
+When neither `--step` nor `--bode` is used, all plots below are generated:
 
 - **`*_Step_Response_stacked_plot_*.png`** — Step response visualization with P:D recommendations overlay
 - **`*_PIDsum_PIDerror_Setpoint_stacked.png`** — Time-domain traces of PIDsum, PID error, and setpoint
@@ -195,7 +195,7 @@ When `--step` flag is not used, all plots below are generated:
 
 #### Generated Reports
 
-- **`*_report.md`** — Structured markdown flight report written alongside PNGs on every run. Content is assembled from typed result structs returned by each analysis pass — no CSV re-reading. Sections: Metadata (firmware revision, craft name, PIDs, sample rate, gyroUnfilt source warning), Filter Configuration (per-axis LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning P:D ratios, Step Response Analysis (Roll/Pitch: peak value, assessment, setpoint authority, P:D recommendations), Gyro Analysis (per-axis filtering delay with confidence, spectrum peaks), D-Term Analysis (per-axis filtering delay with N/A disambiguation, spectrum peaks), Motor Oscillation table, Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when steps are found), and relative links to all generated PNGs. Optimal P Estimation and Bode Analysis sections are included when those features produce results.
+- **`*_report.md`** — Structured markdown flight report written alongside PNGs on every run. Content is assembled from typed result structs returned by each analysis pass — no CSV re-reading. Sections: Metadata (firmware revision, craft name, PIDs, sample rate, gyroUnfilt source warning), Filter Configuration (per-axis LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning P:D ratios, Step Response Analysis (Roll/Pitch: peak value, assessment, setpoint authority, P:D recommendations), Gyro Analysis (per-axis filtering delay with confidence, spectrum peaks), D-Term Analysis (per-axis filtering delay with N/A disambiguation, spectrum peaks), Motor Oscillation table, Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), and relative links to all generated PNGs. Optimal P Estimation and Bode Analysis sections are included when those features produce results.
 
 
 #### P:D Ratio Recommendations
