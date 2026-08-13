@@ -22,10 +22,10 @@ pub struct RcCommandStepResult {
 }
 
 /// Detects discrete quantization steps in an RC Command time series by measuring the
-/// median "plateau" duration between value changes: a smoothly-interpolated signal
-/// changes almost every sample (short plateaus), while raw/unsmoothed RX-link input is
-/// held flat for the RX update interval (long plateaus) — the signature of a visible
-/// staircase in RC Command, and of jitter leaking into the Setpoint response.
+/// median "plateau" duration between value changes.
+/// A smoothly-interpolated signal changes almost every sample, producing short plateaus.
+/// Raw, unsmoothed RX-link input holds flat for the RX update interval, producing long
+/// plateaus — visible as a staircase in RC Command, and as jitter in the Setpoint response.
 fn detect_rc_command_steps(data: &AxisPlotData2, sample_rate: Option<f64>) -> RcCommandStepResult {
     let rc_points: Vec<(f64, f64)> = data
         .iter()
@@ -265,6 +265,108 @@ pub fn plot_rc_command_activity(
     )?;
 
     Ok(step_results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SAMPLE_RATE: f64 = 1000.0;
+
+    fn axis_data_from(rc_values: &[f64]) -> AxisPlotData2 {
+        rc_values
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i as f64 / TEST_SAMPLE_RATE, Some(0.0), Some(v)))
+            .collect()
+    }
+
+    #[test]
+    fn smooth_signal_classified_smooth() {
+        // Value changes by 1 unit every sample (continuous interpolation) — no held plateaus.
+        let values: Vec<f64> = (0..200).map(|i| i as f64).collect();
+        let data = axis_data_from(&values);
+        let result = detect_rc_command_steps(&data, Some(TEST_SAMPLE_RATE));
+
+        assert!(result.step_count >= RC_STEP_MIN_COUNT_FOR_ASSESSMENT);
+        let median_ms = result.median_plateau_ms.expect("expected a classification");
+        assert!(median_ms < RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS);
+        assert!(!result.is_blocky);
+    }
+
+    #[test]
+    fn blocky_signal_classified_blocky() {
+        // Held flat for 20 samples (20ms at 1kHz), then jumps by 10 units — repeated 30 times.
+        let mut values: Vec<f64> = Vec::new();
+        for step in 0..30 {
+            for _ in 0..20 {
+                values.push((step * 10) as f64);
+            }
+        }
+        let data = axis_data_from(&values);
+        let result = detect_rc_command_steps(&data, Some(TEST_SAMPLE_RATE));
+
+        assert!(result.step_count >= RC_STEP_MIN_COUNT_FOR_ASSESSMENT);
+        let median_ms = result.median_plateau_ms.expect("expected a classification");
+        assert!(median_ms >= RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS);
+        assert!(result.is_blocky);
+    }
+
+    #[test]
+    fn static_signal_stays_unclassified() {
+        // rcCommand never changes at all — must not read as "maximally blocky".
+        let values = vec![0.0; 500];
+        let data = axis_data_from(&values);
+        let result = detect_rc_command_steps(&data, Some(TEST_SAMPLE_RATE));
+
+        assert_eq!(result.step_count, 0);
+        assert_eq!(result.median_plateau_ms, None);
+        assert!(!result.is_blocky);
+    }
+
+    #[test]
+    fn too_few_transitions_stays_unclassified() {
+        // Only 5 qualifying jumps — below RC_STEP_MIN_COUNT_FOR_ASSESSMENT (20), even though
+        // each individual plateau is long enough to look "blocky" in isolation.
+        let mut values: Vec<f64> = Vec::new();
+        for step in 0..5 {
+            for _ in 0..50 {
+                values.push((step * 10) as f64);
+            }
+        }
+        let data = axis_data_from(&values);
+        let result = detect_rc_command_steps(&data, Some(TEST_SAMPLE_RATE));
+
+        assert!(result.step_count < RC_STEP_MIN_COUNT_FOR_ASSESSMENT);
+        assert_eq!(result.median_plateau_ms, None);
+        assert!(!result.is_blocky);
+    }
+
+    #[test]
+    fn trailing_plateau_excluded_after_sub_threshold_blip() {
+        // Enough qualifying jumps to pass the count gate, then a long trailing run following
+        // a sub-threshold (< RC_STEP_MIN_JUMP_SIZE) blip. The trailing run must NOT be counted,
+        // since the transition that started it wasn't a real step — regression test for the
+        // fix that replaced a whole-series "saw_any_change" flag with a per-transition check.
+        let mut values: Vec<f64> = Vec::new();
+        for step in 0..30 {
+            for _ in 0..20 {
+                values.push((step * 10) as f64);
+            }
+        }
+        let last_value = *values.last().unwrap();
+        values.push(last_value + 0.1); // sub-threshold blip, does not qualify
+        for _ in 0..5000 {
+            values.push(last_value + 0.1); // long trailing hold — must be excluded
+        }
+
+        let data = axis_data_from(&values);
+        let result = detect_rc_command_steps(&data, Some(TEST_SAMPLE_RATE));
+
+        // If the trailing 5000-sample run were included, the median would jump to ~2500ms.
+        let median_ms = result.median_plateau_ms.expect("expected a classification");
+        assert!(median_ms < RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS * 5.0);
+    }
 }
 
 // src/plot_functions/plot_rc_command_activity.rs
