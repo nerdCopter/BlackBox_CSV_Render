@@ -530,7 +530,7 @@ pub fn generate_markdown_report(
         if any_blocky {
             writeln!(
                 md,
-                "**⚠ Recommendation:** Discrete steps detected in RC Command on one or more axes. Raw, unsmoothed stick input can appear as jitter in the Setpoint/P-term response. Review the aircraft's `rc_smoothing_*` settings, or confirm the RX link update rate."
+                "**⚠ Recommendation:** Discrete steps detected in RC Command on one or more axes. Raw, unsmoothed stick input can appear as jitter in the Setpoint response. Review the aircraft's `rc_smoothing_*` settings, or confirm the RX link update rate."
             )?;
             writeln!(md)?;
         }
