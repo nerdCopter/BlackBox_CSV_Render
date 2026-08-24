@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::axis_names::AXIS_NAMES;
+use crate::constants::RATIO_TO_PERCENT;
 
 /// Filter types supported by flight controllers
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1352,10 +1353,20 @@ pub struct RpmFilterConfig {
     pub lpf_hz: f64, // RPM signal LPF
 }
 
+impl RpmFilterConfig {
+    /// Per-harmonic weights as percentages, e.g. "100%, 100%, 100%"
+    pub fn weights_percent_display(&self) -> String {
+        self.weights
+            .iter()
+            .map(|w| format!("{:.0}%", w * RATIO_TO_PERCENT))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 /// Extract RPM filter configuration for Betaflight
 /// Returns RpmFilterConfig if RPM filter is enabled
 /// Only Betaflight has RPM filter feature
-#[allow(dead_code)] // Used in Phase 5 (visualization)
 pub fn extract_rpm_filter_config(
     header_metadata: Option<&[(String, String)]>,
 ) -> Option<RpmFilterConfig> {
@@ -1439,7 +1450,6 @@ pub fn extract_rpm_filter_config(
 
 /// Estimate motor base frequency from gyro spectrum peaks
 /// Looks for primary peak in spectrum and estimates fundamental motor frequency
-#[allow(dead_code)] // Used in Phase 5 (visualization)
 pub fn estimate_motor_base_frequency(
     gyro_spectrum_data: &[(f64, f64)], // (frequency, amplitude) pairs
     min_hz: f64,
@@ -1476,7 +1486,6 @@ pub fn estimate_motor_base_frequency(
 /// Calculate RPM notch filter frequency response (S-curve)
 /// Transfer function: H(f) = 1 - depth * (1 / (1 + ((f - f0) / (f0 / Q))^2))
 /// Returns amplitude multiplication factor (0.0 = full attenuation, 1.0 = no filtering)
-#[allow(dead_code)] // Used in Phase 5 (visualization)
 pub fn rpm_notch_response(
     frequency_hz: f64,
     notch_center_hz: f64,
@@ -1507,7 +1516,6 @@ pub fn rpm_notch_response(
 
 /// Generate RPM filter notch curves for all harmonics
 /// Returns vector of (harmonic_num, label, curve_points, center_hz) for each harmonic
-#[allow(dead_code)] // Used in Phase 5 (visualization)
 pub fn generate_rpm_filter_curves(
     config: &RpmFilterConfig,
     motor_base_hz: f64,
