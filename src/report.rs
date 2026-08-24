@@ -149,13 +149,20 @@ pub fn generate_markdown_report(
                 )?;
             }
             if let Some(ref rpm) = report.rpm_filter {
+                let weights_str = rpm
+                    .weights
+                    .iter()
+                    .map(|w| format!("{:.0}%", w * 100.0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 writeln!(
                     md,
-                    "- **RPM Filter:** {} harmonic{}, Q={:.0}, min {:.0} Hz",
+                    "- **RPM Filter:** {} harmonic{}, Q={:.0}, min {:.0} Hz, weights: [{}]",
                     rpm.harmonics,
                     if rpm.harmonics == 1 { "" } else { "s" },
                     rpm.q_factor,
-                    rpm.min_hz
+                    rpm.min_hz,
+                    weights_str
                 )?;
             }
             if report.dynamic_notch.is_some() || report.rpm_filter.is_some() {
