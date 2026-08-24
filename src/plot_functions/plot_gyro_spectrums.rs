@@ -6,7 +6,7 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_GYRO_VS_UNFILT_FILT, COLOR_GYRO_VS_UNFILT_UNFILT, LINE_WIDTH_PLOT,
-    PEAK_LABEL_MIN_AMPLITUDE, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR,
+    PEAK_LABEL_MIN_AMPLITUDE, RATIO_TO_PERCENT, SPECTRUM_NOISE_FLOOR_HZ, SPECTRUM_Y_AXIS_FLOOR,
     SPECTRUM_Y_AXIS_HEADROOM_FACTOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
@@ -84,7 +84,7 @@ pub fn plot_gyro_spectrums(
         let weights_str = config
             .weights
             .iter()
-            .map(|w| format!("{:.0}%", w * 100.0))
+            .map(|w| format!("{:.0}%", w * RATIO_TO_PERCENT))
             .collect::<Vec<_>>()
             .join(", ");
         println!(

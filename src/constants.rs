@@ -396,3 +396,6 @@ pub const TORQUE_PROFILER_ACHIEVABILITY_FACTOR: f64 = 2.50;
 /// Only this mode populates debug[0-2] with raw unfiltered gyro data,
 /// making it a valid fallback source for gyroUnfilt.
 pub const DEBUG_MODE_GYRO_SCALED: u32 = 6;
+
+/// Multiplier to convert a 0.0-1.0 ratio (e.g. RPM filter harmonic weight) to a percentage.
+pub const RATIO_TO_PERCENT: f64 = 100.0;
