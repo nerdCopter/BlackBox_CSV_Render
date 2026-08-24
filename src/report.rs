@@ -9,9 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
-use crate::constants::{
-    MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ, RATIO_TO_PERCENT,
-};
+use crate::constants::{MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ};
 use crate::data_analysis::filter_response::{
     AllFilterConfigs, DynamicNotchConfig, RpmFilterConfig,
 };
@@ -151,12 +149,7 @@ pub fn generate_markdown_report(
                 )?;
             }
             if let Some(ref rpm) = report.rpm_filter {
-                let weights_str = rpm
-                    .weights
-                    .iter()
-                    .map(|w| format!("{:.0}%", w * RATIO_TO_PERCENT))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let weights_str = rpm.weights_percent_display();
                 writeln!(
                     md,
                     "- **RPM Filter:** {} harmonic{}, Q={:.0}, min {:.0} Hz, weights: [{}]",

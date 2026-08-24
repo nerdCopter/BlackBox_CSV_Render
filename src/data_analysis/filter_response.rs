@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::axis_names::AXIS_NAMES;
+use crate::constants::RATIO_TO_PERCENT;
 
 /// Filter types supported by flight controllers
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1350,6 +1351,17 @@ pub struct RpmFilterConfig {
     pub fade_range_hz: f64, // Fade-in range
     #[allow(dead_code)] // Reserved for future use
     pub lpf_hz: f64, // RPM signal LPF
+}
+
+impl RpmFilterConfig {
+    /// Per-harmonic weights as percentages, e.g. "100%, 100%, 100%"
+    pub fn weights_percent_display(&self) -> String {
+        self.weights
+            .iter()
+            .map(|w| format!("{:.0}%", w * RATIO_TO_PERCENT))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 /// Extract RPM filter configuration for Betaflight
