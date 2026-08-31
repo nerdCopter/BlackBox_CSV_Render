@@ -476,7 +476,9 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         // Other debug modes do not populate debug[0-2] with raw gyro data.
         let have_gyro_unfilt = gyro_unfilt_header_found.iter().any(|&found| found);
         let have_debug_axes = debug_header_found.iter().take(3).any(|&found| found);
-        using_debug_fallback = if !have_gyro_unfilt && have_debug_axes {
+        using_debug_fallback = if have_gyro_unfilt {
+            false
+        } else if have_debug_axes {
             let debug_mode_val = header_metadata
                 .iter()
                 .find(|(k, _)| k == "debug_mode")
@@ -502,6 +504,9 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                 }
             }
         } else {
+            println!(
+                "  ⚠️  No gyroUnfilt[0-2] or debug[0-2] data found — unfiltered gyro analysis unavailable, affected plots will be skipped"
+            );
             false
         };
     }
@@ -569,8 +574,8 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                     }
 
                     // Parse Setpoint (for axes 0-3)
-                    for axis in 0..4 {
-                        current_row_data.setpoint[axis] = parse_f64_by_target_idx(13 + axis);
+                    for (axis, setpoint) in current_row_data.setpoint.iter_mut().enumerate() {
+                        *setpoint = parse_f64_by_target_idx(13 + axis);
                         // Indices 13,14,15,16
                     }
 
@@ -673,6 +678,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         gyro_header_found,
         gyro_unfilt_header_found,
         debug_header_found,
+        using_debug_fallback,
         header_metadata,
     ))
 }

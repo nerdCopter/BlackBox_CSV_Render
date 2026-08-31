@@ -604,8 +604,9 @@ fn process_file(
         f_term_header_found,
         setpoint_header_found,
         gyro_header_found,
-        gyro_unfilt_header_found,
-        debug_header_found,
+        _gyro_unfilt_header_found,
+        _debug_header_found,
+        using_debug_fallback,
         header_metadata,
     ) = match parse_log_file(input_path, analysis_opts.debug_mode) {
         Ok(data) => data,
@@ -1478,10 +1479,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     if plot_config.setpoint_derivative {
         plot_setpoint_derivative(&all_log_data, &root_name_string, sample_rate)?;
     }
-
-    // Determine if debug fallback is being used for gyroUnfilt
-    let using_debug_fallback = !gyro_unfilt_header_found.iter().any(|&found| found)
-        && debug_header_found.iter().take(3).any(|&found| found);
 
     // Get debug mode name if available
     let debug_mode_label = if using_debug_fallback {

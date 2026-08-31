@@ -31,6 +31,7 @@ pub type LogParseResult = Result<
         [bool; 3],             // gyro_header_found (fixed: 3 fields)
         [bool; 3],             // gyro_unfilt_header_found (fixed: 3 fields)
         [bool; 4],             // debug_header_found (fixed: 4 fields)
+        bool,                  // using_debug_fallback (debug_mode-validated, see log_parser)
         Vec<(String, String)>, // header_metadata
     ),
     Box<dyn Error>,

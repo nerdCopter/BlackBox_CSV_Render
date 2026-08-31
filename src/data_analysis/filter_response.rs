@@ -724,10 +724,10 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                 };
 
                 // Apply to all axes - prioritize dynamic over static when both are present
-                for axis_idx in 0..AXIS_NAMES.len() {
+                for axis_cfg in config.dterm.iter_mut().take(AXIS_NAMES.len()) {
                     if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
                         // Dynamic mode takes precedence
-                        config.dterm[axis_idx].dynamic_lpf1 = Some(DynamicFilterConfig {
+                        axis_cfg.dynamic_lpf1 = Some(DynamicFilterConfig {
                             filter_type,
                             min_cutoff_hz: dynamic_cutoffs.0,
                             max_cutoff_hz: dynamic_cutoffs.1,
@@ -736,7 +736,7 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                         });
                     } else if static_cutoff > 0.0 {
                         // Static mode fallback
-                        config.dterm[axis_idx].lpf1 = Some(FilterConfig {
+                        axis_cfg.lpf1 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
                             q_factor,
@@ -767,8 +767,8 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                 };
 
                 if static_cutoff > 0.0 {
-                    for axis_idx in 0..AXIS_NAMES.len() {
-                        config.dterm[axis_idx].lpf2 = Some(FilterConfig {
+                    for axis_cfg in config.dterm.iter_mut().take(AXIS_NAMES.len()) {
+                        axis_cfg.lpf2 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
                             q_factor,
@@ -808,10 +808,10 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     None
                 };
 
-                for axis_idx in 0..AXIS_NAMES.len() {
+                for axis_cfg in config.gyro.iter_mut().take(AXIS_NAMES.len()) {
                     if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
                         // Dynamic mode takes precedence
-                        config.gyro[axis_idx].dynamic_lpf1 = Some(DynamicFilterConfig {
+                        axis_cfg.dynamic_lpf1 = Some(DynamicFilterConfig {
                             filter_type,
                             min_cutoff_hz: dynamic_cutoffs.0,
                             max_cutoff_hz: dynamic_cutoffs.1,
@@ -820,7 +820,7 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                         });
                     } else if static_cutoff > 0.0 {
                         // Static mode fallback
-                        config.gyro[axis_idx].lpf1 = Some(FilterConfig {
+                        axis_cfg.lpf1 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
                             q_factor,
@@ -851,8 +851,8 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                 };
 
                 if static_cutoff > 0.0 {
-                    for axis_idx in 0..AXIS_NAMES.len() {
-                        config.gyro[axis_idx].lpf2 = Some(FilterConfig {
+                    for axis_cfg in config.gyro.iter_mut().take(AXIS_NAMES.len()) {
+                        axis_cfg.lpf2 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
                             q_factor,
