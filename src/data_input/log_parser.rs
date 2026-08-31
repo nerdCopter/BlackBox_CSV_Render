@@ -474,7 +474,10 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
 
         // Apply debug[0-2] fallback for gyroUnfilt only when debug_mode=GYRO_SCALED (6).
         // Other debug modes do not populate debug[0-2] with raw gyro data.
-        let have_gyro_unfilt = gyro_unfilt_header_found.iter().any(|&found| found);
+        // have_gyro_unfilt requires ALL 3 axes (not any) so a log with gyroUnfilt on only
+        // some axes still gets debug fallback for the axes actually missing it — the
+        // per-axis merge below already picks gyroUnfilt over debug per axis when both exist.
+        let have_gyro_unfilt = gyro_unfilt_header_found.iter().all(|&found| found);
         let have_debug_axes = debug_header_found.iter().take(3).any(|&found| found);
         using_debug_fallback = if have_gyro_unfilt {
             false
