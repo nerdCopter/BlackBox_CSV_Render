@@ -474,10 +474,15 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
 
         // Apply debug[0-2] fallback for gyroUnfilt only when debug_mode=GYRO_SCALED (6).
         // Other debug modes do not populate debug[0-2] with raw gyro data.
-        // have_gyro_unfilt requires ALL 3 axes (not any) so a log with gyroUnfilt on only
-        // some axes still gets debug fallback for the axes actually missing it — the
-        // per-axis merge below already picks gyroUnfilt over debug per axis when both exist.
-        let have_gyro_unfilt = gyro_unfilt_header_found.iter().all(|&found| found);
+        // have_gyro_unfilt requires only Roll+Pitch (ROLL_PITCH_AXIS_COUNT), not Yaw: some
+        // firmware configs legitimately omit Yaw from gyroUnfilt logging (see
+        // ROLL_PITCH_AXIS_COUNT usage elsewhere for Yaw-exclusion), so that alone must not
+        // disable the fallback. The per-axis merge below still picks gyroUnfilt over debug
+        // per axis when both exist, so Yaw independently falls back to debug when needed.
+        let have_gyro_unfilt = gyro_unfilt_header_found
+            .iter()
+            .take(crate::axis_names::ROLL_PITCH_AXIS_COUNT)
+            .all(|&found| found);
         let have_debug_axes = debug_header_found.iter().take(3).any(|&found| found);
         using_debug_fallback = if have_gyro_unfilt {
             false
@@ -508,7 +513,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             }
         } else {
             println!(
-                "  ⚠️  No gyroUnfilt[0-2] or debug[0-2] data found — unfiltered gyro analysis unavailable, affected plots will be skipped"
+                "  ⚠️  No gyroUnfilt (Roll/Pitch) or debug[0-2] fallback available — unfiltered gyro analysis unavailable, affected plots will be skipped"
             );
             false
         };
