@@ -664,7 +664,13 @@ where
     if any_axis_plotted {
         println!("  Stacked plot saved as '{output_filename}'.");
     } else {
-        let _ = std::fs::remove_file(output_filename);
+        // Drop every DrawingArea sharing the backend before deleting the file it wrote.
+        drop(sub_plot_areas);
+        drop(margined_root_area);
+        drop(root_area);
+        if let Err(e) = std::fs::remove_file(output_filename) {
+            println!("  ⚠️  Failed to remove placeholder-only '{output_filename}': {e}");
+        }
         println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
     }
     Ok(())
@@ -736,7 +742,13 @@ where
     if any_plot_drawn {
         println!("  Stacked plot saved as '{output_filename}'.");
     } else {
-        let _ = std::fs::remove_file(output_filename);
+        // Drop every DrawingArea sharing the backend before deleting the file it wrote.
+        drop(sub_plot_areas);
+        drop(margined_root_area);
+        drop(root_area);
+        if let Err(e) = std::fs::remove_file(output_filename) {
+            println!("  ⚠️  Failed to remove placeholder-only '{output_filename}': {e}");
+        }
         println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
     }
     Ok(())
@@ -920,7 +932,13 @@ where
     if any_plot_drawn {
         println!("  Stacked heatmap plot saved as '{output_filename}'.");
     } else {
-        let _ = std::fs::remove_file(output_filename);
+        // Drop every DrawingArea sharing the backend before deleting the file it wrote.
+        drop(sub_plot_areas);
+        drop(margined_root_area);
+        drop(root_area);
+        if let Err(e) = std::fs::remove_file(output_filename) {
+            println!("  ⚠️  Failed to remove placeholder-only '{output_filename}': {e}");
+        }
         println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
     }
     Ok(())

@@ -297,7 +297,13 @@ pub fn plot_motor_spectrums(
     if any_motor_plotted {
         println!("  Stacked plot saved as '{}'.", output_file);
     } else {
-        let _ = std::fs::remove_file(&output_file);
+        // Drop every DrawingArea sharing the backend before deleting the file it wrote.
+        drop(sub_plot_areas);
+        drop(margined_root_area);
+        drop(root_area);
+        if let Err(e) = std::fs::remove_file(&output_file) {
+            println!("  ⚠️  Failed to remove placeholder-only '{output_file}': {e}");
+        }
         println!("  ⚠️  Skipping Motor Spectrums: no motor data to plot.");
     }
 
