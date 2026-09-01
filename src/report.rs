@@ -554,7 +554,7 @@ pub fn generate_markdown_report(
     if !report.skipped_plots.is_empty() {
         writeln!(md, "## Skipped Plots")?;
         writeln!(md)?;
-        writeln!(md, "No plottable data for any axis:")?;
+        writeln!(md, "No plottable data:")?;
         for name in &report.skipped_plots {
             writeln!(md, "- {name}")?;
         }
