@@ -38,23 +38,27 @@ pub fn plot_throttle_freq_heatmap(
         sr
     } else {
         println!("\nINFO: Skipping Throttle-Frequency Heatmap Plot: Sample rate could not be determined.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     };
 
     if !(0.0..1.0).contains(&STFT_OVERLAP_FACTOR) {
         eprintln!("Error: STFT_OVERLAP_FACTOR must be in [0,1).");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
     let window_size_samples = (STFT_WINDOW_DURATION_S * sr_value) as usize;
     let hop_size_samples = (window_size_samples as f64 * (1.0 - STFT_OVERLAP_FACTOR)) as usize;
     if hop_size_samples == 0 {
         eprintln!("Error: Hop size is zero, cannot perform STFT. Adjust STFT_OVERLAP_FACTOR or STFT_WINDOW_DURATION_S.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
     if window_size_samples == 0 {
         eprintln!(
             "Error: Window size is zero, cannot perform STFT. Adjust STFT_WINDOW_DURATION_S."
         );
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
 

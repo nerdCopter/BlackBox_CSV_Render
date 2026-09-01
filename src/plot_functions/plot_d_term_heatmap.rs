@@ -48,6 +48,7 @@ pub fn plot_d_term_heatmap(
         sr
     } else {
         println!("\nINFO: Skipping D-Term Throttle-Frequency Heatmap Plot: Sample rate could not be determined.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     };
 
@@ -55,17 +56,20 @@ pub fn plot_d_term_heatmap(
     let hop_size_raw = window_size_samples as f64 * (1.0 - STFT_OVERLAP_FACTOR);
     if !hop_size_raw.is_finite() || hop_size_raw <= 0.0 {
         eprintln!("Error: Invalid hop size calculation. Check STFT parameters.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
     let hop_size_samples = hop_size_raw as usize;
     if hop_size_samples == 0 {
         eprintln!("Error: Hop size is zero, cannot perform STFT. Adjust STFT_OVERLAP_FACTOR or STFT_WINDOW_DURATION_S.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
     if window_size_samples == 0 {
         eprintln!(
             "Error: Window size is zero, cannot perform STFT. Adjust STFT_WINDOW_DURATION_S."
         );
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
 
@@ -76,11 +80,13 @@ pub fn plot_d_term_heatmap(
             "Error: Invalid FFT length calculated: {}. Check window size.",
             fft_padded_len
         );
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
     let freq_step = sample_rate_hz / fft_padded_len as f64;
     if !freq_step.is_finite() || freq_step <= 0.0 {
         eprintln!("Error: Invalid frequency step calculated.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
     let num_unique_freqs = if fft_padded_len % 2 == 0 {
@@ -101,11 +107,13 @@ pub fn plot_d_term_heatmap(
     let throttle_range = THROTTLE_Y_MAX_VALUE - THROTTLE_Y_MIN_VALUE;
     if throttle_range <= 0.0 {
         eprintln!("Error: Invalid throttle range for heatmap. Check THROTTLE_Y_MIN_VALUE and THROTTLE_Y_MAX_VALUE.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
     let throttle_bin_size = throttle_range / THROTTLE_Y_BINS_COUNT as f64;
     if !throttle_bin_size.is_finite() || throttle_bin_size <= 0.0 {
         eprintln!("Error: Invalid throttle bin size calculated.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
     let throttle_y_bins: Vec<f64> = (0..THROTTLE_Y_BINS_COUNT)
@@ -432,6 +440,7 @@ pub fn plot_d_term_heatmap(
         .any(|axis| axis.unfiltered.is_some() || axis.filtered.is_some());
     if !has_data {
         println!("INFO: No valid D-term heatmap data found for any axis. Skipping D-term heatmap plot generation.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(());
     }
 

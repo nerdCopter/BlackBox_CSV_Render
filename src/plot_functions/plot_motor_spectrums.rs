@@ -52,6 +52,7 @@ pub fn plot_motor_spectrums(
         sr
     } else {
         println!("\nINFO: Skipping Motor Spectrum Plot: Sample rate could not be determined.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(vec![]);
     };
 
@@ -60,6 +61,7 @@ pub fn plot_motor_spectrums(
 
     if motor_count == 0 {
         println!("\nINFO: Skipping Motor Spectrum Plot: No motor data available.");
+        crate::plot_framework::remove_stale_output_file(&output_file);
         return Ok(vec![]);
     }
 
