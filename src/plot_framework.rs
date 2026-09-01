@@ -86,6 +86,19 @@ pub fn draw_unavailable_message(
     Ok(())
 }
 
+/// Remove any file left at `output_filename` from a prior run, when the current run decides
+/// there's nothing to plot. Cache-then-render never writes a file on skip, so without this a
+/// stale PNG from an earlier run in the same output directory would linger and get
+/// misreported as "generated" (main.rs classifies plots by `Path::exists()`). Missing-file is
+/// the common case (no prior run) and isn't a failure; only a genuine removal error is reported.
+pub fn remove_stale_output_file(output_filename: &str) {
+    if let Err(e) = std::fs::remove_file(output_filename) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            println!("  ⚠️  Failed to remove stale '{output_filename}': {e}");
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PlotSeries {
     pub data: Vec<(f64, f64)>,
@@ -679,6 +692,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_stacked_axis_data_valid) {
+        remove_stale_output_file(output_filename);
         println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
         return Ok(());
     }
@@ -753,6 +767,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_axis_spectrum_valid) {
+        remove_stale_output_file(output_filename);
         println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
         return Ok(());
     }
@@ -900,6 +915,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_axis_heatmap_spectrum_valid) {
+        remove_stale_output_file(output_filename);
         println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
         return Ok(());
     }
