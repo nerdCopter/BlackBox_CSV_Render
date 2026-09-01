@@ -90,13 +90,17 @@ pub fn draw_unavailable_message(
 /// there's nothing to plot. Cache-then-render never writes a file on skip, so without this a
 /// stale PNG from an earlier run in the same output directory would linger and get
 /// misreported as "generated" (main.rs classifies plots by `Path::exists()`). Missing-file is
-/// the common case (no prior run) and isn't a failure; only a genuine removal error is reported.
-pub fn remove_stale_output_file(output_filename: &str) {
+/// the common case (no prior run) and returns `Ok(())`; a genuine removal failure is reported
+/// and returned as `Err` so the caller aborts rather than silently reporting the skip as
+/// successful while a stale, misclassified file remains on disk.
+pub fn remove_stale_output_file(output_filename: &str) -> std::io::Result<()> {
     if let Err(e) = std::fs::remove_file(output_filename) {
         if e.kind() != std::io::ErrorKind::NotFound {
             println!("  ⚠️  Failed to remove stale '{output_filename}': {e}");
+            return Err(e);
         }
     }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -692,7 +696,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_stacked_axis_data_valid) {
-        remove_stale_output_file(output_filename);
+        remove_stale_output_file(output_filename)?;
         println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
         return Ok(());
     }
@@ -767,7 +771,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_axis_spectrum_valid) {
-        remove_stale_output_file(output_filename);
+        remove_stale_output_file(output_filename)?;
         println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
         return Ok(());
     }
@@ -915,7 +919,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_axis_heatmap_spectrum_valid) {
-        remove_stale_output_file(output_filename);
+        remove_stale_output_file(output_filename)?;
         println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
         return Ok(());
     }

@@ -55,7 +55,7 @@ pub fn plot_gyro_spectrums(
         sr
     } else {
         println!("\nINFO: Skipping Gyro Spectrum Plot: Sample rate could not be determined.");
-        crate::plot_framework::remove_stale_output_file(&output_file);
+        crate::plot_framework::remove_stale_output_file(&output_file)?;
         return Ok(GyroAnalysisResult { axes: vec![] });
     };
 

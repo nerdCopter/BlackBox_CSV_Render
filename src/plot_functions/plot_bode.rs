@@ -49,7 +49,7 @@ pub fn plot_bode_analysis(
         sr
     } else {
         println!("\nINFO: Skipping Bode Plot: Sample rate could not be determined.");
-        crate::plot_framework::remove_stale_output_file(&output_file);
+        crate::plot_framework::remove_stale_output_file(&output_file)?;
         return Ok(vec![]);
     };
 
@@ -163,7 +163,7 @@ pub fn plot_bode_analysis(
     // Early exit if no valid axes
     if tf_results.is_empty() {
         println!("\nINFO: Skipping Bode Plot: No valid transfer function data for any axis.");
-        crate::plot_framework::remove_stale_output_file(&output_file);
+        crate::plot_framework::remove_stale_output_file(&output_file)?;
         return Ok(vec![]);
     }
 
@@ -244,7 +244,7 @@ fn create_bode_grid_plot(
     // Guard against all axes having empty filtered data
     if global_freq_min.is_infinite() || global_freq_max.is_infinite() {
         println!("\nINFO: Skipping Bode Plot: All axes have insufficient coherence for plotting.");
-        crate::plot_framework::remove_stale_output_file(output_file);
+        crate::plot_framework::remove_stale_output_file(output_file)?;
         return Ok(false);
     }
 
