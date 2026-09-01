@@ -625,14 +625,25 @@ fn is_axis_spectrum_valid(axis_spectrum: &Option<AxisSpectrum>) -> bool {
     })
 }
 
+/// Whether at least one cell is indexable by `x_bins`/`y_bins` — the same condition
+/// `draw_single_heatmap_chart`'s bin iteration requires to draw anything. A non-empty
+/// `values` row alone isn't enough: if `x_bins`/`y_bins` is empty or shorter than `values`,
+/// the draw loop iterates zero times and nothing gets drawn even though `values` has rows.
+fn has_plottable_heatmap_cell(heatmap_data: &HeatmapData) -> bool {
+    (0..heatmap_data.x_bins.len()).any(|x_idx| {
+        (0..heatmap_data.y_bins.len()).any(|y_idx| {
+            heatmap_data
+                .values
+                .get(x_idx)
+                .and_then(|row| row.get(y_idx))
+                .is_some()
+        })
+    })
+}
+
 /// Whether this `HeatmapPlotConfig` has real, plottable data.
 fn is_heatmap_plot_config_valid(plot_config: &HeatmapPlotConfig) -> bool {
-    let has_data = !plot_config.heatmap_data.values.is_empty()
-        && plot_config
-            .heatmap_data
-            .values
-            .iter()
-            .any(|row| !row.is_empty());
+    let has_data = has_plottable_heatmap_cell(&plot_config.heatmap_data);
     let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
         && plot_config.y_range.end > plot_config.y_range.start;
     has_data && valid_ranges
@@ -950,12 +961,7 @@ where
             });
 
             if let Some(plot_config) = plot_config_option {
-                let has_data = !plot_config.heatmap_data.values.is_empty()
-                    && plot_config
-                        .heatmap_data
-                        .values
-                        .iter()
-                        .any(|row| !row.is_empty());
+                let has_data = has_plottable_heatmap_cell(&plot_config.heatmap_data);
                 let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
                     && plot_config.y_range.end > plot_config.y_range.start;
 
