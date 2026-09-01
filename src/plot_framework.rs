@@ -585,6 +585,71 @@ fn draw_single_axis_chart_with_config(
     Ok(())
 }
 
+/// Per-axis data for `draw_stacked_plot`: title, x/y ranges, series, axis labels.
+type StackedAxisData = Option<(
+    String,
+    Range<f64>,
+    Range<f64>,
+    Vec<PlotSeries>,
+    String,
+    String,
+)>;
+
+/// Whether this axis has real, plottable data — same rule the draw loop uses, kept in one
+/// place so the pre-render skip check and the draw loop can never disagree.
+fn is_stacked_axis_data_valid(data: &StackedAxisData) -> bool {
+    match data {
+        Some((_, x_range, y_range, series_data, _, _)) => {
+            let has_data = series_data.iter().any(|s| !s.data.is_empty());
+            let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
+            has_data && valid_ranges
+        }
+        None => false,
+    }
+}
+
+/// Whether this `PlotConfig` has real, plottable data.
+fn is_plot_config_valid(plot_config: &PlotConfig) -> bool {
+    let has_data =
+        !plot_config.series.is_empty() && plot_config.series.iter().any(|s| !s.data.is_empty());
+    let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
+        && plot_config.y_range.end > plot_config.y_range.start;
+    has_data && valid_ranges
+}
+
+/// Whether either column (unfiltered or filtered) of this axis has real, plottable data.
+fn is_axis_spectrum_valid(axis_spectrum: &Option<AxisSpectrum>) -> bool {
+    axis_spectrum.as_ref().is_some_and(|s| {
+        s.unfiltered.as_ref().is_some_and(is_plot_config_valid)
+            || s.filtered.as_ref().is_some_and(is_plot_config_valid)
+    })
+}
+
+/// Whether this `HeatmapPlotConfig` has real, plottable data.
+fn is_heatmap_plot_config_valid(plot_config: &HeatmapPlotConfig) -> bool {
+    let has_data = !plot_config.heatmap_data.values.is_empty()
+        && plot_config
+            .heatmap_data
+            .values
+            .iter()
+            .any(|row| !row.is_empty());
+    let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
+        && plot_config.y_range.end > plot_config.y_range.start;
+    has_data && valid_ranges
+}
+
+/// Whether either column (unfiltered or filtered) of this axis has real, plottable data.
+fn is_axis_heatmap_spectrum_valid(axis_spectrum: &Option<AxisHeatmapSpectrum>) -> bool {
+    axis_spectrum.as_ref().is_some_and(|s| {
+        s.unfiltered
+            .as_ref()
+            .is_some_and(is_heatmap_plot_config_valid)
+            || s.filtered
+                .as_ref()
+                .is_some_and(is_heatmap_plot_config_valid)
+    })
+}
+
 /// Creates a stacked plot image with three subplots for Roll, Pitch, and Yaw.
 pub fn draw_stacked_plot<'a, F>(
     output_filename: &'a str,
@@ -607,6 +672,17 @@ where
         + 'static,
     <BitMapBackend<'a> as DrawingBackend>::ErrorType: 'static,
 {
+    // Fetch every axis's data and decide whether there's anything to plot before creating the
+    // output file at all — "skip" means the file is never written, not written then deleted.
+    let axis_data: Vec<StackedAxisData> = (0..crate::axis_names::AXIS_NAMES.len())
+        .map(&mut get_axis_plot_data)
+        .collect();
+
+    if !axis_data.iter().any(is_stacked_axis_data_valid) {
+        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        return Ok(());
+    }
+
     let root_area =
         BitMapBackend::new(output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
     root_area.fill(&WHITE)?;
@@ -617,12 +693,10 @@ where
     ))?;
     let margined_root_area = root_area.margin(50, 5, 5, 5);
     let sub_plot_areas = margined_root_area.split_evenly((3, 1));
-    let mut any_axis_plotted = false;
 
-    #[allow(clippy::needless_range_loop)]
-    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
+    for (axis_index, data) in axis_data.into_iter().enumerate() {
         let area = &sub_plot_areas[axis_index];
-        match get_axis_plot_data(axis_index) {
+        match data {
             Some((chart_title, x_range, y_range, series_data, x_label, y_label)) => {
                 let has_data = series_data.iter().any(|s| !s.data.is_empty());
                 let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
@@ -640,7 +714,6 @@ where
                         frequency_ranges: None,
                     };
                     draw_single_axis_chart_with_config(area, &temp_plot_config)?;
-                    any_axis_plotted = true;
                 } else {
                     let reason = if !has_data {
                         "No data points"
@@ -657,22 +730,8 @@ where
         }
     }
 
-    // BitMapBackend writes a best-effort file on Drop even without an explicit present()
-    // (see plotters-bitmap's Drop impl), so present() must always run to mark it saved;
-    // an unwanted placeholder-only image is then deleted right after instead.
     root_area.present()?;
-    if any_axis_plotted {
-        println!("  Stacked plot saved as '{output_filename}'.");
-    } else {
-        // Drop every DrawingArea sharing the backend before deleting the file it wrote.
-        drop(sub_plot_areas);
-        drop(margined_root_area);
-        drop(root_area);
-        if let Err(e) = std::fs::remove_file(output_filename) {
-            println!("  ⚠️  Failed to remove placeholder-only '{output_filename}': {e}");
-        }
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
-    }
+    println!("  Stacked plot saved as '{output_filename}'.");
     Ok(())
 }
 
@@ -687,6 +746,17 @@ where
     F: FnMut(usize) -> Option<AxisSpectrum> + Send + Sync + 'static,
     <BitMapBackend<'a> as DrawingBackend>::ErrorType: 'static,
 {
+    // Fetch every axis's data and decide whether there's anything to plot before creating the
+    // output file at all — "skip" means the file is never written, not written then deleted.
+    let axis_data: Vec<Option<AxisSpectrum>> = (0..crate::axis_names::AXIS_NAMES.len())
+        .map(&mut get_axis_plot_data)
+        .collect();
+
+    if !axis_data.iter().any(is_axis_spectrum_valid) {
+        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        return Ok(());
+    }
+
     let root_area =
         BitMapBackend::new(output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
     root_area.fill(&WHITE)?;
@@ -697,11 +767,8 @@ where
     ))?;
     let margined_root_area = root_area.margin(50, 5, 5, 5);
     let sub_plot_areas = margined_root_area.split_evenly((3, 2));
-    let mut any_plot_drawn = false;
 
-    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
-        let plots_for_axis_option = get_axis_plot_data(axis_index);
-
+    for (axis_index, plots_for_axis_option) in axis_data.into_iter().enumerate() {
         for col_idx in 0..2 {
             let area = &sub_plot_areas[axis_index * 2 + col_idx];
             let plot_config_option = plots_for_axis_option.as_ref().and_then(|axis_spectrum| {
@@ -720,7 +787,6 @@ where
 
                 if has_data && valid_ranges {
                     draw_single_axis_chart_with_config(area, plot_config)?;
-                    any_plot_drawn = true;
                 } else {
                     let reason = if !has_data {
                         "No data points"
@@ -735,22 +801,8 @@ where
         }
     }
 
-    // BitMapBackend writes a best-effort file on Drop even without an explicit present()
-    // (see plotters-bitmap's Drop impl), so present() must always run to mark it saved;
-    // an unwanted placeholder-only image is then deleted right after instead.
     root_area.present()?;
-    if any_plot_drawn {
-        println!("  Stacked plot saved as '{output_filename}'.");
-    } else {
-        // Drop every DrawingArea sharing the backend before deleting the file it wrote.
-        drop(sub_plot_areas);
-        drop(margined_root_area);
-        drop(root_area);
-        if let Err(e) = std::fs::remove_file(output_filename) {
-            println!("  ⚠️  Failed to remove placeholder-only '{output_filename}': {e}");
-        }
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
-    }
+    println!("  Stacked plot saved as '{output_filename}'.");
     Ok(())
 }
 
@@ -841,6 +893,17 @@ where
     F: FnMut(usize) -> Option<AxisHeatmapSpectrum> + Send + Sync + 'static,
     <BitMapBackend<'a> as DrawingBackend>::ErrorType: 'static,
 {
+    // Fetch every axis's data and decide whether there's anything to plot before creating the
+    // output file at all — "skip" means the file is never written, not written then deleted.
+    let axis_data: Vec<Option<AxisHeatmapSpectrum>> = (0..crate::axis_names::AXIS_NAMES.len())
+        .map(&mut get_axis_plot_data)
+        .collect();
+
+    if !axis_data.iter().any(is_axis_heatmap_spectrum_valid) {
+        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        return Ok(());
+    }
+
     let root_area =
         BitMapBackend::new(output_filename, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
     root_area.fill(&WHITE)?;
@@ -851,11 +914,8 @@ where
     ))?;
     let margined_root_area = root_area.margin(50, 5, 5, 5);
     let sub_plot_areas = margined_root_area.split_evenly((3, 2));
-    let mut any_plot_drawn = false;
 
-    for axis_index in 0..crate::axis_names::AXIS_NAMES.len() {
-        let plots_for_axis_option = get_axis_plot_data(axis_index);
-
+    for (axis_index, plots_for_axis_option) in axis_data.into_iter().enumerate() {
         // Compute a single axis_max_db for both unfiltered and filtered plots
         let axis_max_db = if let Some(ref axis_spectrum) = plots_for_axis_option {
             let unfilt_max = axis_spectrum
@@ -910,7 +970,6 @@ where
                         &plot_config.heatmap_data,
                         axis_max_db,
                     )?;
-                    any_plot_drawn = true;
                 } else {
                     let reason = if !has_data {
                         "No data points"
@@ -925,22 +984,8 @@ where
         }
     }
 
-    // BitMapBackend writes a best-effort file on Drop even without an explicit present()
-    // (see plotters-bitmap's Drop impl), so present() must always run to mark it saved;
-    // an unwanted placeholder-only image is then deleted right after instead.
     root_area.present()?;
-    if any_plot_drawn {
-        println!("  Stacked heatmap plot saved as '{output_filename}'.");
-    } else {
-        // Drop every DrawingArea sharing the backend before deleting the file it wrote.
-        drop(sub_plot_areas);
-        drop(margined_root_area);
-        drop(root_area);
-        if let Err(e) = std::fs::remove_file(output_filename) {
-            println!("  ⚠️  Failed to remove placeholder-only '{output_filename}': {e}");
-        }
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
-    }
+    println!("  Stacked heatmap plot saved as '{output_filename}'.");
     Ok(())
 }
 
