@@ -191,7 +191,7 @@ pub fn calculate_average_filtering_delay_comparison(
     let mut axis_delays: Vec<Option<(f32, f32)>> = vec![None; AXIS_NAMES.len()];
 
     // First, diagnose data availability
-    println!("=== Gyro Data Availability Diagnostic ===");
+    println!("\n--- Gyro Data Availability Diagnostic ---");
     #[allow(clippy::needless_range_loop)]
     for axis in 0..AXIS_NAMES.len() {
         let mut gyro_count = 0;
