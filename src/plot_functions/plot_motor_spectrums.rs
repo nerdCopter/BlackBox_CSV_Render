@@ -290,11 +290,15 @@ pub fn plot_motor_spectrums(
         }
     }
 
+    // BitMapBackend writes a best-effort file on Drop even without an explicit present()
+    // (see plotters-bitmap's Drop impl), so present() must always run to mark it saved;
+    // an unwanted placeholder-only image is then deleted right after instead.
+    root_area.present()?;
     if any_motor_plotted {
-        root_area.present()?;
         println!("  Stacked plot saved as '{}'.", output_file);
     } else {
-        println!("  Skipping '{}': No motor data to plot.", output_file);
+        let _ = std::fs::remove_file(&output_file);
+        println!("  ⚠️  Skipping Motor Spectrums: no motor data to plot.");
     }
 
     Ok(motor_osc_results)

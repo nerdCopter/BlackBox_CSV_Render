@@ -657,12 +657,15 @@ where
         }
     }
 
+    // BitMapBackend writes a best-effort file on Drop even without an explicit present()
+    // (see plotters-bitmap's Drop impl), so present() must always run to mark it saved;
+    // an unwanted placeholder-only image is then deleted right after instead.
+    root_area.present()?;
     if any_axis_plotted {
-        root_area.present()?;
         println!("  Stacked plot saved as '{output_filename}'.");
     } else {
-        root_area.present()?;
-        println!("  Skipping '{output_filename}' plot saving: No data available for any axis to plot, only placeholder messages shown.");
+        let _ = std::fs::remove_file(output_filename);
+        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
     }
     Ok(())
 }
@@ -726,12 +729,15 @@ where
         }
     }
 
+    // BitMapBackend writes a best-effort file on Drop even without an explicit present()
+    // (see plotters-bitmap's Drop impl), so present() must always run to mark it saved;
+    // an unwanted placeholder-only image is then deleted right after instead.
+    root_area.present()?;
     if any_plot_drawn {
-        root_area.present()?;
         println!("  Stacked plot saved as '{output_filename}'.");
     } else {
-        root_area.present()?;
-        println!("  Skipping '{output_filename}' plot saving: No data available for any axis to plot, only placeholder messages shown.");
+        let _ = std::fs::remove_file(output_filename);
+        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
     }
     Ok(())
 }
@@ -907,12 +913,15 @@ where
         }
     }
 
+    // BitMapBackend writes a best-effort file on Drop even without an explicit present()
+    // (see plotters-bitmap's Drop impl), so present() must always run to mark it saved;
+    // an unwanted placeholder-only image is then deleted right after instead.
+    root_area.present()?;
     if any_plot_drawn {
-        root_area.present()?;
         println!("  Stacked heatmap plot saved as '{output_filename}'.");
     } else {
-        root_area.present()?;
-        println!("  Skipping '{output_filename}' heatmap plot saving: No data available for any axis to plot, only placeholder messages shown.");
+        let _ = std::fs::remove_file(output_filename);
+        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
     }
     Ok(())
 }

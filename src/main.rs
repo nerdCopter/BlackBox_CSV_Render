@@ -1621,10 +1621,18 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let rpm_filter = filter_response::extract_rpm_filter_config(Some(&header_metadata));
 
     // --- Collect generated PNG filenames ---
+    // Only link files that actually exist: a plot type being enabled doesn't mean its PNG
+    // was written — plot_framework.rs skips writing when every axis is data-unavailable.
     let mut png_links: Vec<String> = Vec::new();
+    let push_if_exists = |links: &mut Vec<String>, filename: String| {
+        if std::path::Path::new(&filename).exists() {
+            links.push(filename);
+        }
+    };
 
     if plot_config.step_response {
         // Step response filename includes duration and optional dps suffix — scan for it.
+        // A directory scan only finds files that exist, so this is already exists-checked.
         let prefix = format!("{root_name_string}_Step_Response_stacked_plot_");
         if let Ok(entries) = std::fs::read_dir(".") {
             let mut matches: Vec<String> = entries
@@ -1637,59 +1645,94 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         }
     }
     if plot_config.pidsum_error_setpoint {
-        png_links.push(format!(
-            "{root_name_string}_PIDsum_PIDerror_Setpoint_stacked.png"
-        ));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_PIDsum_PIDerror_Setpoint_stacked.png"),
+        );
     }
     if plot_config.setpoint_vs_gyro {
-        png_links.push(format!("{root_name_string}_SetpointVsGyro_stacked.png"));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_SetpointVsGyro_stacked.png"),
+        );
     }
     if plot_config.setpoint_derivative {
-        png_links.push(format!("{root_name_string}_SetpointDerivative_stacked.png"));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_SetpointDerivative_stacked.png"),
+        );
     }
     if plot_config.gyro_vs_unfilt {
-        png_links.push(format!("{root_name_string}_GyroVsUnfilt_stacked.png"));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_GyroVsUnfilt_stacked.png"),
+        );
     }
     if plot_config.gyro_spectrums {
-        png_links.push(format!("{root_name_string}_Gyro_Spectrums_comparative.png"));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_Gyro_Spectrums_comparative.png"),
+        );
     }
     if plot_config.d_term_psd {
-        png_links.push(format!("{root_name_string}_D_Term_PSD_comparative.png"));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_D_Term_PSD_comparative.png"),
+        );
     }
     if plot_config.d_term_spectrums {
-        png_links.push(format!(
-            "{root_name_string}_D_Term_Spectrums_comparative.png"
-        ));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_D_Term_Spectrums_comparative.png"),
+        );
     }
     if plot_config.motor_spectrums {
-        png_links.push(format!("{root_name_string}_Motor_Spectrums_stacked.png"));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_Motor_Spectrums_stacked.png"),
+        );
     }
     if plot_config.psd {
-        png_links.push(format!("{root_name_string}_Gyro_PSD_comparative.png"));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_Gyro_PSD_comparative.png"),
+        );
     }
     if plot_config.psd_db_heatmap {
-        png_links.push(format!(
-            "{root_name_string}_Gyro_PSD_Spectrogram_comparative.png"
-        ));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_Gyro_PSD_Spectrogram_comparative.png"),
+        );
     }
     if plot_config.throttle_freq_heatmap {
-        png_links.push(format!(
-            "{root_name_string}_Throttle_Freq_Heatmap_comparative.png"
-        ));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_Throttle_Freq_Heatmap_comparative.png"),
+        );
     }
     if plot_config.d_term_heatmap {
-        png_links.push(format!("{root_name_string}_D_Term_Heatmap_comparative.png"));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_D_Term_Heatmap_comparative.png"),
+        );
     }
     if plot_config.bode {
-        png_links.push(format!("{root_name_string}_Bode_Analysis.png"));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_Bode_Analysis.png"),
+        );
     }
     if plot_config.pid_activity {
-        png_links.push(format!("{root_name_string}_PID_Activity_stacked.png"));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_PID_Activity_stacked.png"),
+        );
     }
     if plot_config.rc_command_activity {
-        png_links.push(format!(
-            "{root_name_string}_RC_Command_Activity_stacked.png"
-        ));
+        push_if_exists(
+            &mut png_links,
+            format!("{root_name_string}_RC_Command_Activity_stacked.png"),
+        );
     }
 
     // --- Markdown Report ---
