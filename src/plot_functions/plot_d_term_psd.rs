@@ -46,12 +46,10 @@ pub fn plot_d_term_psd(
             sr
         } else {
             println!("\nINFO: Skipping D-Term Power Spectral Density (PSD) Plot: Sample rate could not be determined.");
-            crate::plot_framework::remove_stale_output_file(&output_file)?;
             return Ok(());
         }
     } else {
         println!("\nINFO: Skipping D-Term Power Spectral Density (PSD) Plot: Sample rate could not be determined.");
-        crate::plot_framework::remove_stale_output_file(&output_file)?;
         return Ok(());
     };
 
@@ -519,7 +517,6 @@ pub fn plot_d_term_psd(
 
     if overall_max_y_amplitude == f64::NEG_INFINITY || overall_max_y_amplitude <= -100.0 {
         println!("  No valid D-term spectrum data found. Skipping D-term spectrum plot.");
-        crate::plot_framework::remove_stale_output_file(&output_file)?;
         return Ok(());
     }
 

@@ -62,12 +62,10 @@ pub fn plot_d_term_spectrums(
             sr
         } else {
             println!("\nINFO: Skipping D-Term Spectrum Plot: Invalid sample rate provided.");
-            crate::plot_framework::remove_stale_output_file(&output_file)?;
             return Ok(vec![]);
         }
     } else {
         println!("\nINFO: Skipping D-Term Spectrum Plot: Sample rate could not be determined.");
-        crate::plot_framework::remove_stale_output_file(&output_file)?;
         return Ok(vec![]);
     };
 
@@ -567,7 +565,6 @@ pub fn plot_d_term_spectrums(
 
     if overall_max_y_amplitude <= 0.0 {
         println!("  No valid D-term spectrum data found. Skipping D-term spectrum plot.");
-        crate::plot_framework::remove_stale_output_file(&output_file)?;
         return Ok(dterm_results);
     }
 
