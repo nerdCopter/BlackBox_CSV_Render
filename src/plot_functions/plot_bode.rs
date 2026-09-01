@@ -169,7 +169,8 @@ pub fn plot_bode_analysis(
 
     // Create the 3×3 grid plot
     match create_bode_grid_plot(&output_file, root_name, &tf_results, &margins_results) {
-        Ok(_) => println!("  Generated Bode analysis plot: {}", output_file),
+        Ok(true) => println!("  Generated Bode analysis plot: {}", output_file),
+        Ok(false) => {} // Skipped internally (insufficient coherence); already logged there.
         Err(e) => {
             println!("  Error creating Bode plot: {}", e);
             return Err(e);
@@ -197,13 +198,15 @@ pub fn plot_bode_analysis(
         .collect())
 }
 
-/// Create a grid Bode plot (1 to 3 axes × 3 plot types)
+/// Create a grid Bode plot (1 to 3 axes × 3 plot types).
+/// Returns `Ok(true)` when the PNG was actually rendered, `Ok(false)` when skipped (no axis
+/// had enough coherence to plot) — the caller must not report "generated" on `Ok(false)`.
 fn create_bode_grid_plot(
     output_file: &str,
     root_name: &str,
     tf_results: &[TransferFunctionResult],
     margins_results: &[StabilityMargins],
-) -> Result<(), Box<dyn Error>> {
+) -> Result<bool, Box<dyn Error>> {
     if tf_results.is_empty() || tf_results.len() > 3 {
         return Err(format!(
             "Expected 1-3 axes for Bode grid plot, got {}",
@@ -242,7 +245,7 @@ fn create_bode_grid_plot(
     if global_freq_min.is_infinite() || global_freq_max.is_infinite() {
         println!("\nINFO: Skipping Bode Plot: All axes have insufficient coherence for plotting.");
         crate::plot_framework::remove_stale_output_file(output_file);
-        return Ok(());
+        return Ok(false);
     }
 
     let freq_min = global_freq_min.max(1.0);
@@ -318,7 +321,7 @@ fn create_bode_grid_plot(
     }
 
     root.present()?;
-    Ok(())
+    Ok(true)
 }
 
 /// Filter transfer function data by coherence threshold
