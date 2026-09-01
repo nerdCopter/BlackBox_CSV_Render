@@ -57,6 +57,8 @@ pub struct FlightReport {
     pub motor_results: Vec<MotorOscillationResult>,
     pub rc_command_steps: Vec<RcCommandStepResult>,
     pub png_links: Vec<String>,
+    /// Human-readable labels of plot types that were enabled but produced no plottable data.
+    pub skipped_plots: Vec<String>,
     pub filter_config: Option<AllFilterConfigs>,
     pub dynamic_notch: Option<DynamicNotchConfig>,
     pub rpm_filter: Option<RpmFilterConfig>,
@@ -544,6 +546,17 @@ pub fn generate_markdown_report(
         writeln!(md)?;
         for name in &report.png_links {
             writeln!(md, "- [{}]({})", name, name)?;
+        }
+        writeln!(md)?;
+    }
+
+    // --- Skipped Plots ---
+    if !report.skipped_plots.is_empty() {
+        writeln!(md, "## Skipped Plots")?;
+        writeln!(md)?;
+        writeln!(md, "No plottable data:")?;
+        for name in &report.skipped_plots {
+            writeln!(md, "- {name}")?;
         }
         writeln!(md)?;
     }

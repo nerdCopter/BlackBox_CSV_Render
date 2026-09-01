@@ -188,6 +188,39 @@ pub fn plot_motor_spectrums(
         });
     }
 
+    // Use full frequency range starting from 0 Hz with static Y-cap.
+    // This shows throttle-dominated low frequencies (0-10 Hz) and motor diagnostics (10+Hz).
+    let nyquist_freq = sr_value / 2.0;
+
+    // Pre-filter each motor's spectrum to the plotted frequency range before deciding whether
+    // there's anything to plot at all — "skip" means the file is never written, not written
+    // then deleted. The draw loop below reuses this same cached, filtered data.
+    let motor_plot_data: Vec<Option<Vec<(f64, f64)>>> = motor_spectrums
+        .iter()
+        .map(|spectrum_data| {
+            spectrum_data
+                .as_ref()
+                .and_then(|(frequencies, amplitudes, _)| {
+                    let filtered: Vec<(f64, f64)> = frequencies
+                        .iter()
+                        .zip(amplitudes.iter())
+                        .take_while(|(f, _)| **f <= nyquist_freq)
+                        .map(|(f, a)| (*f, *a))
+                        .collect();
+                    if filtered.is_empty() {
+                        None
+                    } else {
+                        Some(filtered)
+                    }
+                })
+        })
+        .collect();
+
+    if motor_plot_data.iter().all(Option::is_none) {
+        println!("  ⚠️  Skipping Motor Spectrums: no motor data to plot.");
+        return Ok(motor_osc_results);
+    }
+
     // Generate stacked plots with dynamic row count for motors
     let root_area = BitMapBackend::new(
         &output_file,
@@ -205,107 +238,75 @@ pub fn plot_motor_spectrums(
 
     let margined_root_area = root_area.margin(50, 5, 5, 5);
     let sub_plot_areas = margined_root_area.split_evenly((motor_count, 1));
-    let mut any_motor_plotted = false;
 
-    for motor_idx in 0..motor_count {
+    for (motor_idx, filtered_data) in motor_plot_data.iter().enumerate().take(motor_count) {
         let area = &sub_plot_areas[motor_idx];
 
-        if let Some(spectrum_data) = motor_spectrums.get(motor_idx).and_then(|opt| opt.as_ref()) {
-            let (frequencies, amplitudes, _) = spectrum_data;
+        if let Some(filtered_data) = filtered_data {
+            // Use static Y-axis range for standardized comparison across copters.
+            // MOTOR_SPECTRUM_Y_AXIS_MAX provides consistent visual scaling and future-proofs against outliers.
+            let y_range = 0.0..crate::constants::MOTOR_SPECTRUM_Y_AXIS_MAX;
 
-            // Use full frequency range starting from 0 Hz with static Y-cap
-            // This shows throttle-dominated low frequencies (0-10 Hz) and motor diagnostics (10+Hz)
-            let nyquist_freq = sr_value / 2.0;
+            // X-axis: show full range from 0 Hz (includes throttle and motor data)
+            let x_max = filtered_data
+                .last()
+                .map(|(f, _)| *f)
+                .unwrap_or(nyquist_freq);
+            let x_range = 0.0..x_max;
 
-            let filtered_data: Vec<(f64, f64)> = frequencies
-                .iter()
-                .zip(amplitudes.iter())
-                .take_while(|(f, _)| **f <= nyquist_freq)
-                .map(|(f, a)| (*f, *a))
-                .collect();
+            // Create chart
+            let motor_color = MOTOR_COLORS[motor_idx % MOTOR_COLORS.len()];
+            let chart_title = format!("Motor {} Spectrum", motor_idx);
 
-            if !filtered_data.is_empty() {
-                // Use static Y-axis range for standardized comparison across copters.
-                // MOTOR_SPECTRUM_Y_AXIS_MAX provides consistent visual scaling and future-proofs against outliers.
-                let y_range = 0.0..crate::constants::MOTOR_SPECTRUM_Y_AXIS_MAX;
+            let mut chart = ChartBuilder::on(area)
+                .caption(&chart_title, crate::font_config::FONT_TUPLE_CHART_TITLE)
+                .margin(5)
+                .x_label_area_size(50)
+                .y_label_area_size(50)
+                .build_cartesian_2d(x_range, y_range)?;
 
-                // X-axis: show full range from 0 Hz (includes throttle and motor data)
-                let x_max = filtered_data
-                    .last()
-                    .map(|(f, _)| *f)
-                    .unwrap_or(nyquist_freq);
-                let x_range = 0.0..x_max;
+            chart
+                .configure_mesh()
+                .x_desc("Frequency (Hz)")
+                .y_desc("Amplitude")
+                .x_labels(20)
+                .y_labels(10)
+                .x_label_formatter(&|x| format!("{:.0}", x))
+                .y_label_formatter(&|y| {
+                    // Show tenths for Y-axis if max is < 5, otherwise show integers
+                    if crate::constants::MOTOR_SPECTRUM_Y_AXIS_MAX < 5.0 {
+                        format!("{:.1}", y)
+                    } else {
+                        format!("{:.0}", y)
+                    }
+                })
+                .light_line_style(WHITE.mix(0.7))
+                .label_style(crate::font_config::FONT_TUPLE_AXIS_LABEL)
+                .draw()?;
 
-                // Create chart
-                let motor_color = MOTOR_COLORS[motor_idx % MOTOR_COLORS.len()];
-                let chart_title = format!("Motor {} Spectrum", motor_idx);
+            chart
+                .draw_series(LineSeries::new(
+                    filtered_data.iter().copied(),
+                    ShapeStyle::from(motor_color).stroke_width(LINE_WIDTH_PLOT),
+                ))?
+                .label(format!("Motor {}", motor_idx))
+                .legend(move |(x, y)| {
+                    PathElement::new(
+                        vec![(x, y), (x + 20, y)],
+                        ShapeStyle::from(&motor_color).stroke_width(LINE_WIDTH_PLOT),
+                    )
+                });
 
-                let mut chart = ChartBuilder::on(area)
-                    .caption(&chart_title, crate::font_config::FONT_TUPLE_CHART_TITLE)
-                    .margin(5)
-                    .x_label_area_size(50)
-                    .y_label_area_size(50)
-                    .build_cartesian_2d(x_range, y_range)?;
-
-                chart
-                    .configure_mesh()
-                    .x_desc("Frequency (Hz)")
-                    .y_desc("Amplitude")
-                    .x_labels(20)
-                    .y_labels(10)
-                    .x_label_formatter(&|x| format!("{:.0}", x))
-                    .y_label_formatter(&|y| {
-                        // Show tenths for Y-axis if max is < 5, otherwise show integers
-                        if crate::constants::MOTOR_SPECTRUM_Y_AXIS_MAX < 5.0 {
-                            format!("{:.1}", y)
-                        } else {
-                            format!("{:.0}", y)
-                        }
-                    })
-                    .light_line_style(WHITE.mix(0.7))
-                    .label_style(crate::font_config::FONT_TUPLE_AXIS_LABEL)
-                    .draw()?;
-
-                chart
-                    .draw_series(LineSeries::new(
-                        filtered_data.iter().copied(),
-                        ShapeStyle::from(motor_color).stroke_width(LINE_WIDTH_PLOT),
-                    ))?
-                    .label(format!("Motor {}", motor_idx))
-                    .legend(move |(x, y)| {
-                        PathElement::new(
-                            vec![(x, y), (x + 20, y)],
-                            ShapeStyle::from(&motor_color).stroke_width(LINE_WIDTH_PLOT),
-                        )
-                    });
-
-                chart
-                    .configure_series_labels()
-                    .background_style(WHITE.mix(0.8))
-                    .border_style(BLACK)
-                    .draw()?;
-
-                any_motor_plotted = true;
-            }
+            chart
+                .configure_series_labels()
+                .background_style(WHITE.mix(0.8))
+                .border_style(BLACK)
+                .draw()?;
         }
     }
 
-    // BitMapBackend writes a best-effort file on Drop even without an explicit present()
-    // (see plotters-bitmap's Drop impl), so present() must always run to mark it saved;
-    // an unwanted placeholder-only image is then deleted right after instead.
     root_area.present()?;
-    if any_motor_plotted {
-        println!("  Stacked plot saved as '{}'.", output_file);
-    } else {
-        // Drop every DrawingArea sharing the backend before deleting the file it wrote.
-        drop(sub_plot_areas);
-        drop(margined_root_area);
-        drop(root_area);
-        if let Err(e) = std::fs::remove_file(&output_file) {
-            println!("  ⚠️  Failed to remove placeholder-only '{output_file}': {e}");
-        }
-        println!("  ⚠️  Skipping Motor Spectrums: no motor data to plot.");
-    }
+    println!("  Stacked plot saved as '{}'.", output_file);
 
     Ok(motor_osc_results)
 }
