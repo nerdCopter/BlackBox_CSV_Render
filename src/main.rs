@@ -1621,114 +1621,156 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     // --- Collect generated PNG filenames ---
     // Only link files that actually exist: a plot type being enabled doesn't mean its PNG
     // was written — plot_framework.rs skips writing when every axis is data-unavailable.
+    // skipped_plots records the human-readable label for each enabled plot type whose file
+    // wasn't produced, so the report can note it (see push_if_exists below).
     let mut png_links: Vec<String> = Vec::new();
-    let push_if_exists = |links: &mut Vec<String>, filename: String| {
-        if std::path::Path::new(&filename).exists() {
-            links.push(filename);
-        }
-    };
+    let mut skipped_plots: Vec<String> = Vec::new();
+    let push_if_exists =
+        |links: &mut Vec<String>, skipped: &mut Vec<String>, label: &str, filename: String| {
+            if std::path::Path::new(&filename).exists() {
+                links.push(filename);
+            } else {
+                skipped.push(label.to_string());
+            }
+        };
 
     if plot_config.step_response {
         // Step response filename includes duration and optional dps suffix — scan for it.
         // A directory scan only finds files that exist, so this is already exists-checked.
         let prefix = format!("{root_name_string}_Step_Response_stacked_plot_");
-        if let Ok(entries) = std::fs::read_dir(".") {
-            let mut matches: Vec<String> = entries
-                .flatten()
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .filter(|n| n.starts_with(&prefix) && n.ends_with(".png"))
-                .collect();
-            matches.sort();
+        let mut matches: Vec<String> = std::fs::read_dir(".")
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|n| n.starts_with(&prefix) && n.ends_with(".png"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        matches.sort();
+        if matches.is_empty() {
+            skipped_plots.push("Step Response".to_string());
+        } else {
             png_links.extend(matches);
         }
     }
     if plot_config.pidsum_error_setpoint {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "PIDsum/PIDerror/Setpoint",
             format!("{root_name_string}_PIDsum_PIDerror_Setpoint_stacked.png"),
         );
     }
     if plot_config.setpoint_vs_gyro {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "Setpoint/Gyro",
             format!("{root_name_string}_SetpointVsGyro_stacked.png"),
         );
     }
     if plot_config.setpoint_derivative {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "Setpoint Derivative",
             format!("{root_name_string}_SetpointDerivative_stacked.png"),
         );
     }
     if plot_config.gyro_vs_unfilt {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "Gyro/UnfiltGyro",
             format!("{root_name_string}_GyroVsUnfilt_stacked.png"),
         );
     }
     if plot_config.gyro_spectrums {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "Gyro Spectrums",
             format!("{root_name_string}_Gyro_Spectrums_comparative.png"),
         );
     }
     if plot_config.d_term_psd {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "D-term PSD",
             format!("{root_name_string}_D_Term_PSD_comparative.png"),
         );
     }
     if plot_config.d_term_spectrums {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "D-term Spectrums",
             format!("{root_name_string}_D_Term_Spectrums_comparative.png"),
         );
     }
     if plot_config.motor_spectrums {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "Motor Spectrums",
             format!("{root_name_string}_Motor_Spectrums_stacked.png"),
         );
     }
     if plot_config.psd {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "Gyro PSD",
             format!("{root_name_string}_Gyro_PSD_comparative.png"),
         );
     }
     if plot_config.psd_db_heatmap {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "Gyro PSD Spectrogram",
             format!("{root_name_string}_Gyro_PSD_Spectrogram_comparative.png"),
         );
     }
     if plot_config.throttle_freq_heatmap {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "Throttle-Frequency Heatmap",
             format!("{root_name_string}_Throttle_Freq_Heatmap_comparative.png"),
         );
     }
     if plot_config.d_term_heatmap {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "D-Term Throttle-Frequency Heatmap",
             format!("{root_name_string}_D_Term_Heatmap_comparative.png"),
         );
     }
     if plot_config.bode {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "Bode Analysis",
             format!("{root_name_string}_Bode_Analysis.png"),
         );
     }
     if plot_config.pid_activity {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "P, I, D Activity",
             format!("{root_name_string}_PID_Activity_stacked.png"),
         );
     }
     if plot_config.rc_command_activity {
         push_if_exists(
             &mut png_links,
+            &mut skipped_plots,
+            "RC Command Activity",
             format!("{root_name_string}_RC_Command_Activity_stacked.png"),
         );
     }
@@ -1751,6 +1793,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         motor_results,
         rc_command_steps,
         png_links,
+        skipped_plots,
         filter_config,
         dynamic_notch,
         rpm_filter,
