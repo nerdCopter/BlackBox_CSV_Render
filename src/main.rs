@@ -1638,21 +1638,21 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         // Step response filename includes duration and optional dps suffix — scan for it.
         // A directory scan only finds files that exist, so this is already exists-checked.
         let prefix = format!("{root_name_string}_Step_Response_stacked_plot_");
-        let mut matches: Vec<String> = std::fs::read_dir(".")
-            .map(|entries| {
-                entries
-                    .flatten()
-                    .map(|e| e.file_name().to_string_lossy().into_owned())
-                    .filter(|n| n.starts_with(&prefix) && n.ends_with(".png"))
-                    .collect()
-            })
-            .unwrap_or_default();
-        matches.sort();
-        if matches.is_empty() {
-            skipped_plots.push("Step Response".to_string());
-        } else {
-            png_links.extend(matches);
+        if let Ok(entries) = std::fs::read_dir(".") {
+            let mut matches: Vec<String> = entries
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with(&prefix) && n.ends_with(".png"))
+                .collect();
+            matches.sort();
+            if matches.is_empty() {
+                skipped_plots.push("Step Response".to_string());
+            } else {
+                png_links.extend(matches);
+            }
         }
+        // If the directory scan itself fails (unrelated I/O error), leave Step Response out
+        // of both lists rather than guessing whether the plot was generated or skipped.
     }
     if plot_config.pidsum_error_setpoint {
         push_if_exists(
