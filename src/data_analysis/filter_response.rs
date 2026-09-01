@@ -1008,13 +1008,13 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
         || header_map.contains_key("dterm_lpf1_dyn_hz");
 
     let mut config = if has_emuflight_pattern {
-        println!("\nDetected EmuFlight filter configuration (per-axis)");
+        println!("\n--- Detected EmuFlight filter configuration (per-axis) ---");
         parse_emuflight_filters(headers)
     } else if has_betaflight_pattern {
-        println!("\nDetected Betaflight filter configuration (unified)");
+        println!("\n--- Detected Betaflight filter configuration (unified) ---");
         parse_betaflight_filters(headers)
     } else {
-        println!("\nNo recognized filter configuration found in headers");
+        println!("\n--- No recognized filter configuration found in headers ---");
         AllFilterConfigs::default()
     };
 

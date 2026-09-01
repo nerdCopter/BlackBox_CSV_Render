@@ -101,7 +101,7 @@ pub fn calculate_d_term_filtering_delay_comparison(
         }
     }
 
-    println!("\nD-term delay analysis diagnostic:");
+    println!("\n--- D-term delay analysis diagnostic ---");
     // Print diagnosis for debugging with consistent formatting
     for (axis_idx, axis_name) in AXIS_NAMES.iter().enumerate() {
         if !gyro_unfilt_available[axis_idx] {
