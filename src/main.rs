@@ -653,7 +653,6 @@ fn process_file(
         println!("Yaw P:D Ratio: N/A (yaw often uses minimal or no D-term)");
     }
     println!("Note: Optimal P:D ratio varies per aircraft. Check step response for overshoot/undershoot.");
-    println!();
 
     let pd_ratios_for_report: [Option<f64>; AXIS_COUNT] = [
         pid_metadata.roll.calculate_pd_ratio(),
@@ -833,7 +832,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         }
         println!("      Always test in a safe environment. Conservative = safer first step.");
         println!("      Moderate = for experienced pilots (test carefully to avoid hot motors).");
-        println!();
         for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {
             // Only Roll (0) and Pitch (1)
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
@@ -1762,6 +1760,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     report::generate_markdown_report(&flight_report, report_path)
         .map_err(|e| format!("Report generation failed: {e}"))?;
     println!("  [OK] Report written.");
+    println!();
 
     // CWD restoration happens automatically when _cwd_guard goes out of scope
 
