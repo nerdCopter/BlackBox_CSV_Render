@@ -13,7 +13,8 @@ use crate::data_analysis::derivative::calculate_derivative;
 use crate::data_analysis::fft_utils;
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{
-    draw_dual_heatmap_plot, AxisHeatmapSpectrum, HeatmapData, HeatmapPlotConfig,
+    draw_dual_heatmap_plot, is_axis_heatmap_spectrum_data_valid, AxisHeatmapSpectrum, HeatmapData,
+    HeatmapPlotConfig,
 };
 
 /// Helper to convert linear power values to dB. Clamps values to prevent log(0) and provide a floor.
@@ -426,10 +427,11 @@ pub fn plot_d_term_heatmap(
         });
     }
 
-    // Check if we have any heatmap data to plot
+    // Check if we have any heatmap data to plot — same rule draw_dual_heatmap_plot uses
+    // internally, so this early exit can't diverge from the shared skip logic.
     let has_data = axis_heatmap_spectrums
         .iter()
-        .any(|axis| axis.unfiltered.is_some() || axis.filtered.is_some());
+        .any(is_axis_heatmap_spectrum_data_valid);
     if !has_data {
         println!("INFO: No valid D-term heatmap data found for any axis. Skipping D-term heatmap plot generation.");
         return Ok(());

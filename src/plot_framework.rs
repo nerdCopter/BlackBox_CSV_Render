@@ -86,6 +86,11 @@ pub fn draw_unavailable_message(
     Ok(())
 }
 
+/// Prints the standard "no axis has data" skip notice shared by all 3 `draw_*_plot` functions.
+fn print_no_axis_data_skip(plot_type_name: &str) {
+    println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+}
+
 #[derive(Clone)]
 pub struct PlotSeries {
     pub data: Vec<(f64, f64)>,
@@ -696,15 +701,21 @@ fn is_heatmap_plot_config_valid(plot_config: &HeatmapPlotConfig) -> bool {
 }
 
 /// Whether either column (unfiltered or filtered) of this axis has real, plottable data.
-fn is_axis_heatmap_spectrum_valid(axis_spectrum: &Option<AxisHeatmapSpectrum>) -> bool {
-    axis_spectrum.as_ref().is_some_and(|s| {
-        s.unfiltered
+pub(crate) fn is_axis_heatmap_spectrum_data_valid(axis_spectrum: &AxisHeatmapSpectrum) -> bool {
+    axis_spectrum
+        .unfiltered
+        .as_ref()
+        .is_some_and(is_heatmap_plot_config_valid)
+        || axis_spectrum
+            .filtered
             .as_ref()
             .is_some_and(is_heatmap_plot_config_valid)
-            || s.filtered
-                .as_ref()
-                .is_some_and(is_heatmap_plot_config_valid)
-    })
+}
+
+fn is_axis_heatmap_spectrum_valid(axis_spectrum: &Option<AxisHeatmapSpectrum>) -> bool {
+    axis_spectrum
+        .as_ref()
+        .is_some_and(is_axis_heatmap_spectrum_data_valid)
 }
 
 /// Creates a stacked plot image with three subplots for Roll, Pitch, and Yaw.
@@ -736,7 +747,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_stacked_axis_data_valid) {
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        print_no_axis_data_skip(plot_type_name);
         return Ok(());
     }
 
@@ -804,7 +815,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_axis_spectrum_valid) {
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        print_no_axis_data_skip(plot_type_name);
         return Ok(());
     }
 
@@ -941,7 +952,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_axis_heatmap_spectrum_valid) {
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        print_no_axis_data_skip(plot_type_name);
         return Ok(());
     }
 
