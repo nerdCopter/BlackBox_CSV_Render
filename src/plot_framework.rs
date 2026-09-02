@@ -1034,20 +1034,26 @@ where
 mod tests {
     use super::*;
 
+    // Fixture-only values, not domain constants — kept local per the precedent in
+    // plot_functions/plot_rc_command_activity.rs's own test module (TEST_SAMPLE_RATE).
+    const TEST_STROKE_WIDTH: u32 = 1;
+    const TEST_VALID_RANGE_MIN: f64 = 0.0;
+    const TEST_VALID_RANGE_MAX: f64 = 10.0;
+
     fn series_with_data(points: &[(f64, f64)]) -> PlotSeries {
         PlotSeries {
             data: points.to_vec(),
             label: "test".to_string(),
             color: BLACK,
-            stroke_width: 1,
+            stroke_width: TEST_STROKE_WIDTH,
         }
     }
 
     fn valid_plot_config(series: Vec<PlotSeries>) -> PlotConfig {
         PlotConfig {
             title: "test".to_string(),
-            x_range: 0.0..10.0,
-            y_range: 0.0..10.0,
+            x_range: TEST_VALID_RANGE_MIN..TEST_VALID_RANGE_MAX,
+            y_range: TEST_VALID_RANGE_MIN..TEST_VALID_RANGE_MAX,
             series,
             x_label: "x".to_string(),
             y_label: "y".to_string(),
@@ -1085,7 +1091,7 @@ mod tests {
     #[test]
     fn plot_config_validity_invalid_ranges_when_data_present_but_range_inverted() {
         let mut config = valid_plot_config(vec![series_with_data(&[(1.0, 1.0)])]);
-        config.x_range = 10.0..0.0; // end <= start
+        config.x_range = TEST_VALID_RANGE_MAX..TEST_VALID_RANGE_MIN; // end <= start
         assert_eq!(
             plot_config_validity(&config),
             PlotDataValidity::InvalidRanges
@@ -1095,7 +1101,7 @@ mod tests {
     #[test]
     fn plot_config_validity_precedence_no_data_wins_over_invalid_ranges() {
         let mut config = valid_plot_config(vec![]);
-        config.x_range = 10.0..0.0; // also invalid, but has_data fails first
+        config.x_range = TEST_VALID_RANGE_MAX..TEST_VALID_RANGE_MIN; // also invalid, but has_data fails first
         assert_eq!(
             plot_config_validity(&config),
             PlotDataValidity::NoDataPoints
