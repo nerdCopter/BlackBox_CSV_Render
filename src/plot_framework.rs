@@ -86,6 +86,11 @@ pub fn draw_unavailable_message(
     Ok(())
 }
 
+/// Prints the standard "no axis has data" skip notice shared by all 3 `draw_*_plot` functions.
+fn print_no_axis_data_skip(plot_type_name: &str) {
+    println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+}
+
 #[derive(Clone)]
 pub struct PlotSeries {
     pub data: Vec<(f64, f64)>,
@@ -595,26 +600,68 @@ type StackedAxisData = Option<(
     String,
 )>;
 
+/// Why a plot data source is or isn't plottable — the pre-render skip check and the draw
+/// loop both consume this so they can never disagree on the reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlotDataValidity {
+    Valid,
+    NoDataPoints,
+    InvalidRanges,
+}
+
+impl PlotDataValidity {
+    fn is_valid(self) -> bool {
+        matches!(self, Self::Valid)
+    }
+
+    /// `None` when plottable, else the message `draw_unavailable_message` should show.
+    fn unavailable_reason(self) -> Option<&'static str> {
+        match self {
+            Self::Valid => None,
+            Self::NoDataPoints => Some("No data points"),
+            Self::InvalidRanges => Some("Invalid ranges"),
+        }
+    }
+
+    fn from_checks(has_data: bool, valid_ranges: bool) -> Self {
+        if !has_data {
+            Self::NoDataPoints
+        } else if !valid_ranges {
+            Self::InvalidRanges
+        } else {
+            Self::Valid
+        }
+    }
+}
+
 /// Whether this axis has real, plottable data — same rule the draw loop uses, kept in one
 /// place so the pre-render skip check and the draw loop can never disagree.
-fn is_stacked_axis_data_valid(data: &StackedAxisData) -> bool {
+fn stacked_axis_data_validity(data: &StackedAxisData) -> PlotDataValidity {
     match data {
         Some((_, x_range, y_range, series_data, _, _)) => {
             let has_data = series_data.iter().any(|s| !s.data.is_empty());
             let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
-            has_data && valid_ranges
+            PlotDataValidity::from_checks(has_data, valid_ranges)
         }
-        None => false,
+        None => PlotDataValidity::NoDataPoints,
     }
 }
 
+fn is_stacked_axis_data_valid(data: &StackedAxisData) -> bool {
+    stacked_axis_data_validity(data).is_valid()
+}
+
 /// Whether this `PlotConfig` has real, plottable data.
-fn is_plot_config_valid(plot_config: &PlotConfig) -> bool {
+fn plot_config_validity(plot_config: &PlotConfig) -> PlotDataValidity {
     let has_data =
         !plot_config.series.is_empty() && plot_config.series.iter().any(|s| !s.data.is_empty());
     let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
         && plot_config.y_range.end > plot_config.y_range.start;
-    has_data && valid_ranges
+    PlotDataValidity::from_checks(has_data, valid_ranges)
+}
+
+fn is_plot_config_valid(plot_config: &PlotConfig) -> bool {
+    plot_config_validity(plot_config).is_valid()
 }
 
 /// Whether either column (unfiltered or filtered) of this axis has real, plottable data.
@@ -642,23 +689,33 @@ fn has_plottable_heatmap_cell(heatmap_data: &HeatmapData) -> bool {
 }
 
 /// Whether this `HeatmapPlotConfig` has real, plottable data.
-fn is_heatmap_plot_config_valid(plot_config: &HeatmapPlotConfig) -> bool {
+fn heatmap_plot_config_validity(plot_config: &HeatmapPlotConfig) -> PlotDataValidity {
     let has_data = has_plottable_heatmap_cell(&plot_config.heatmap_data);
     let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
         && plot_config.y_range.end > plot_config.y_range.start;
-    has_data && valid_ranges
+    PlotDataValidity::from_checks(has_data, valid_ranges)
+}
+
+fn is_heatmap_plot_config_valid(plot_config: &HeatmapPlotConfig) -> bool {
+    heatmap_plot_config_validity(plot_config).is_valid()
 }
 
 /// Whether either column (unfiltered or filtered) of this axis has real, plottable data.
-fn is_axis_heatmap_spectrum_valid(axis_spectrum: &Option<AxisHeatmapSpectrum>) -> bool {
-    axis_spectrum.as_ref().is_some_and(|s| {
-        s.unfiltered
+pub(crate) fn is_axis_heatmap_spectrum_data_valid(axis_spectrum: &AxisHeatmapSpectrum) -> bool {
+    axis_spectrum
+        .unfiltered
+        .as_ref()
+        .is_some_and(is_heatmap_plot_config_valid)
+        || axis_spectrum
+            .filtered
             .as_ref()
             .is_some_and(is_heatmap_plot_config_valid)
-            || s.filtered
-                .as_ref()
-                .is_some_and(is_heatmap_plot_config_valid)
-    })
+}
+
+fn is_axis_heatmap_spectrum_valid(axis_spectrum: &Option<AxisHeatmapSpectrum>) -> bool {
+    axis_spectrum
+        .as_ref()
+        .is_some_and(is_axis_heatmap_spectrum_data_valid)
 }
 
 /// Creates a stacked plot image with three subplots for Roll, Pitch, and Yaw.
@@ -690,7 +747,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_stacked_axis_data_valid) {
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        print_no_axis_data_skip(plot_type_name);
         return Ok(());
     }
 
@@ -707,11 +764,12 @@ where
 
     for (axis_index, data) in axis_data.into_iter().enumerate() {
         let area = &sub_plot_areas[axis_index];
+        let validity = stacked_axis_data_validity(&data);
         match data {
             Some((chart_title, x_range, y_range, series_data, x_label, y_label)) => {
-                let has_data = series_data.iter().any(|s| !s.data.is_empty());
-                let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
-                if has_data && valid_ranges {
+                if let Some(reason) = validity.unavailable_reason() {
+                    draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
+                } else {
                     let temp_plot_config = PlotConfig {
                         title: chart_title,
                         x_range,
@@ -725,13 +783,6 @@ where
                         frequency_ranges: None,
                     };
                     draw_single_axis_chart_with_config(area, &temp_plot_config)?;
-                } else {
-                    let reason = if !has_data {
-                        "No data points"
-                    } else {
-                        "Invalid ranges"
-                    };
-                    draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
                 }
             }
             None => {
@@ -764,7 +815,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_axis_spectrum_valid) {
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        print_no_axis_data_skip(plot_type_name);
         return Ok(());
     }
 
@@ -791,20 +842,10 @@ where
             });
 
             if let Some(plot_config) = plot_config_option {
-                let has_data = !plot_config.series.is_empty()
-                    && plot_config.series.iter().any(|s| !s.data.is_empty());
-                let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
-                    && plot_config.y_range.end > plot_config.y_range.start;
-
-                if has_data && valid_ranges {
-                    draw_single_axis_chart_with_config(area, plot_config)?;
-                } else {
-                    let reason = if !has_data {
-                        "No data points"
-                    } else {
-                        "Invalid ranges"
-                    };
+                if let Some(reason) = plot_config_validity(plot_config).unavailable_reason() {
                     draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
+                } else {
+                    draw_single_axis_chart_with_config(area, plot_config)?;
                 }
             } else {
                 draw_unavailable_message(area, axis_index, plot_type_name, "Data Not Available")?;
@@ -911,7 +952,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_axis_heatmap_spectrum_valid) {
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        print_no_axis_data_skip(plot_type_name);
         return Ok(());
     }
 
@@ -961,11 +1002,10 @@ where
             });
 
             if let Some(plot_config) = plot_config_option {
-                let has_data = has_plottable_heatmap_cell(&plot_config.heatmap_data);
-                let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
-                    && plot_config.y_range.end > plot_config.y_range.start;
-
-                if has_data && valid_ranges {
+                if let Some(reason) = heatmap_plot_config_validity(plot_config).unavailable_reason()
+                {
+                    draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
+                } else {
                     draw_single_heatmap_chart(
                         area,
                         &plot_config.title,
@@ -976,13 +1016,6 @@ where
                         &plot_config.heatmap_data,
                         axis_max_db,
                     )?;
-                } else {
-                    let reason = if !has_data {
-                        "No data points"
-                    } else {
-                        "Invalid ranges"
-                    };
-                    draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
                 }
             } else {
                 draw_unavailable_message(area, axis_index, plot_type_name, "Data Not Available")?;
@@ -996,3 +1029,82 @@ where
 }
 
 // src/plot_framework.rs
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Fixture-only values, not domain constants — kept local per the precedent in
+    // plot_functions/plot_rc_command_activity.rs's own test module (TEST_SAMPLE_RATE).
+    const TEST_STROKE_WIDTH: u32 = 1;
+    const TEST_VALID_RANGE_MIN: f64 = 0.0;
+    const TEST_VALID_RANGE_MAX: f64 = 10.0;
+
+    fn series_with_data(points: &[(f64, f64)]) -> PlotSeries {
+        PlotSeries {
+            data: points.to_vec(),
+            label: "test".to_string(),
+            color: BLACK,
+            stroke_width: TEST_STROKE_WIDTH,
+        }
+    }
+
+    fn valid_plot_config(series: Vec<PlotSeries>) -> PlotConfig {
+        PlotConfig {
+            title: "test".to_string(),
+            x_range: TEST_VALID_RANGE_MIN..TEST_VALID_RANGE_MAX,
+            y_range: TEST_VALID_RANGE_MIN..TEST_VALID_RANGE_MAX,
+            series,
+            x_label: "x".to_string(),
+            y_label: "y".to_string(),
+            peaks: vec![],
+            peak_label_threshold: None,
+            peak_label_format_string: None,
+            frequency_ranges: None,
+        }
+    }
+
+    #[test]
+    fn plot_config_validity_valid_when_data_and_ranges_ok() {
+        let config = valid_plot_config(vec![series_with_data(&[(1.0, 1.0)])]);
+        assert_eq!(plot_config_validity(&config), PlotDataValidity::Valid);
+    }
+
+    #[test]
+    fn plot_config_validity_no_data_points_when_series_empty() {
+        let config = valid_plot_config(vec![]);
+        assert_eq!(
+            plot_config_validity(&config),
+            PlotDataValidity::NoDataPoints
+        );
+    }
+
+    #[test]
+    fn plot_config_validity_no_data_points_when_all_series_have_no_points() {
+        let config = valid_plot_config(vec![series_with_data(&[]), series_with_data(&[])]);
+        assert_eq!(
+            plot_config_validity(&config),
+            PlotDataValidity::NoDataPoints
+        );
+    }
+
+    #[test]
+    fn plot_config_validity_invalid_ranges_when_data_present_but_range_inverted() {
+        let mut config = valid_plot_config(vec![series_with_data(&[(1.0, 1.0)])]);
+        config.x_range = TEST_VALID_RANGE_MAX..TEST_VALID_RANGE_MIN; // end <= start
+        assert_eq!(
+            plot_config_validity(&config),
+            PlotDataValidity::InvalidRanges
+        );
+    }
+
+    #[test]
+    fn plot_config_validity_precedence_no_data_wins_over_invalid_ranges() {
+        let mut config = valid_plot_config(vec![]);
+        config.x_range = TEST_VALID_RANGE_MAX..TEST_VALID_RANGE_MIN; // also invalid, but has_data fails first
+        assert_eq!(
+            plot_config_validity(&config),
+            PlotDataValidity::NoDataPoints
+        );
+    }
+}
