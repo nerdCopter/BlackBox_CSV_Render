@@ -6,7 +6,8 @@ use std::error::Error;
 use crate::constants::{
     LINE_WIDTH_PLOT, MIN_FFT_SAMPLES, MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD,
     MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ,
-    MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER, TUKEY_ALPHA,
+    MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER, MOTOR_SPECTRUM_AXIS_ORIGIN,
+    MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD, NYQUIST_DIVISOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
@@ -190,7 +191,7 @@ pub fn plot_motor_spectrums(
 
     // Use full frequency range starting from 0 Hz with static Y-cap.
     // This shows throttle-dominated low frequencies (0-10 Hz) and motor diagnostics (10+Hz).
-    let nyquist_freq = sr_value / 2.0;
+    let nyquist_freq = sr_value / NYQUIST_DIVISOR;
 
     // Pre-filter each motor's spectrum to the plotted frequency range before deciding whether
     // there's anything to plot at all — "skip" means the file is never written, not written
@@ -245,14 +246,14 @@ pub fn plot_motor_spectrums(
         if let Some(filtered_data) = filtered_data {
             // Use static Y-axis range for standardized comparison across copters.
             // MOTOR_SPECTRUM_Y_AXIS_MAX provides consistent visual scaling and future-proofs against outliers.
-            let y_range = 0.0..crate::constants::MOTOR_SPECTRUM_Y_AXIS_MAX;
+            let y_range = MOTOR_SPECTRUM_AXIS_ORIGIN..crate::constants::MOTOR_SPECTRUM_Y_AXIS_MAX;
 
             // X-axis: show full range from 0 Hz (includes throttle and motor data)
             let x_max = filtered_data
                 .last()
                 .map(|(f, _)| *f)
                 .unwrap_or(nyquist_freq);
-            let x_range = 0.0..x_max;
+            let x_range = MOTOR_SPECTRUM_AXIS_ORIGIN..x_max;
 
             // Create chart
             let motor_color = MOTOR_COLORS[motor_idx % MOTOR_COLORS.len()];
@@ -274,7 +275,9 @@ pub fn plot_motor_spectrums(
                 .x_label_formatter(&|x| format!("{:.0}", x))
                 .y_label_formatter(&|y| {
                     // Show tenths for Y-axis if max is < 5, otherwise show integers
-                    if crate::constants::MOTOR_SPECTRUM_Y_AXIS_MAX < 5.0 {
+                    if crate::constants::MOTOR_SPECTRUM_Y_AXIS_MAX
+                        < MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD
+                    {
                         format!("{:.1}", y)
                     } else {
                         format!("{:.0}", y)

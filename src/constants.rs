@@ -64,6 +64,12 @@ pub const MOTOR_OSCILLATION_FREQ_MAX_HZ: f64 = 200.0; // Upper bound for motor o
 pub const MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER: f64 = 3.0; // Peak must be > N× average to flag oscillation (unitless multiplier)
 pub const MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD: f64 = 10.0; // Absolute amplitude threshold (normalized linear amplitude units)
 pub const MOTOR_SPECTRUM_Y_AXIS_MAX: f64 = 5.0; // Static Y-axis maximum for motor spectrum plots (normalized linear amplitude units)
+pub const MOTOR_SPECTRUM_AXIS_ORIGIN: f64 = 0.0; // Shared X/Y axis origin for motor spectrum plot ranges
+pub const MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD: f64 = 5.0; // Below this Y-axis max, labels show one decimal place instead of integers
+
+// Frequency-axis math constants shared by Bode and motor-spectrum plots
+pub const NYQUIST_DIVISOR: f64 = 2.0; // Converts sample rate to Nyquist frequency (sample_rate / divisor)
+pub const MIN_PLOT_FREQUENCY_HZ: f64 = 1.0; // Floor for the Bode plot's frequency-axis minimum
 
 // Minimum samples required for a meaningful FFT on motor outputs
 pub const MIN_FFT_SAMPLES: usize = 128; // Minimum samples for reliable oscillation detection (provides ~2-3 frequency bins in 50-200 Hz range at 8kHz)
@@ -94,6 +100,7 @@ pub const PSD_PEAK_LABEL_MIN_VALUE_DB: f64 = -60.0; // Minimum PSD value in dB f
 // Constants for Spectrogram/Heatmap plots
 pub const STFT_WINDOW_DURATION_S: f64 = 0.1; // Duration of each STFT window in seconds
 pub const STFT_OVERLAP_FACTOR: f64 = 0.75; // Overlap between windows (e.g., 0.75 for 75% overlap)
+pub const STFT_OVERLAP_COMPLEMENT_BASE: f64 = 1.0; // Whole-window base for the hop-size calc (1.0 - STFT_OVERLAP_FACTOR)
 pub const HEATMAP_MIN_PSD_DB: f64 = -80.0; // Minimum PSD value in dB for heatmap color scaling
 
 // Constants for Throttle-Frequency Heatmap
