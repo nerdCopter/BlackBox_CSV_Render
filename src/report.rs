@@ -20,6 +20,7 @@ use crate::plot_functions::plot_bode::BodeAxisResult;
 use crate::plot_functions::plot_d_term_spectrums::DTermAxisResult;
 use crate::plot_functions::plot_gyro_spectrums::GyroAnalysisResult;
 use crate::plot_functions::plot_motor_spectrums::MotorOscillationResult;
+use crate::plot_functions::plot_rc_command_activity::RcCommandStepResult;
 
 /// D-term recommendation for one tier (conservative, moderate, or aggressive)
 pub struct DTermRec {
@@ -56,7 +57,10 @@ pub struct FlightReport {
     pub bode_results: Vec<BodeAxisResult>,
     pub motor_results: Vec<MotorOscillationResult>,
     pub eso_results: [Option<EsoResult>; AXIS_COUNT],
+    pub rc_command_steps: Vec<RcCommandStepResult>,
     pub png_links: Vec<String>,
+    /// Human-readable labels of plot types that were enabled but produced no plottable data.
+    pub skipped_plots: Vec<String>,
     pub filter_config: Option<AllFilterConfigs>,
     pub dynamic_notch: Option<DynamicNotchConfig>,
     pub rpm_filter: Option<RpmFilterConfig>,
@@ -149,13 +153,15 @@ pub fn generate_markdown_report(
                 )?;
             }
             if let Some(ref rpm) = report.rpm_filter {
+                let weights_str = rpm.weights_percent_display();
                 writeln!(
                     md,
-                    "- **RPM Filter:** {} harmonic{}, Q={:.0}, min {:.0} Hz",
+                    "- **RPM Filter:** {} harmonic{}, Q={:.0}, min {:.0} Hz, weights: [{}]",
                     rpm.harmonics,
                     if rpm.harmonics == 1 { "" } else { "s" },
                     rpm.q_factor,
-                    rpm.min_hz
+                    rpm.min_hz,
+                    weights_str
                 )?;
             }
             if report.dynamic_notch.is_some() || report.rpm_filter.is_some() {
@@ -525,12 +531,68 @@ pub fn generate_markdown_report(
         writeln!(md)?;
     }
 
+    // --- Stick Input Smoothness (RC Command step detection) ---
+    let has_rc_command_data = report
+        .rc_command_steps
+        .iter()
+        .any(|r| r.median_plateau_ms.is_some());
+    if has_rc_command_data {
+        writeln!(md, "## Stick Input Smoothness")?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "| Axis | Step Count | Median Plateau (ms) | Assessment |"
+        )?;
+        writeln!(
+            md,
+            "|------|-----------|---------------------|------------|"
+        )?;
+        let mut any_blocky = false;
+        for r in &report.rc_command_steps {
+            let plateau = r
+                .median_plateau_ms
+                .map_or("N/A".into(), |v| format!("{:.1}", v));
+            let assessment = if r.median_plateau_ms.is_none() {
+                "N/A"
+            } else if r.is_blocky {
+                any_blocky = true;
+                "⚠ Blocky"
+            } else {
+                "Smooth"
+            };
+            writeln!(
+                md,
+                "| {} | {} | {} | {} |",
+                r.axis_name, r.step_count, plateau, assessment
+            )?;
+        }
+        writeln!(md)?;
+        if any_blocky {
+            writeln!(
+                md,
+                "**⚠ Recommendation:** Discrete steps detected in RC Command on one or more axes. Raw, unsmoothed stick input can appear as jitter in the Setpoint response. Review the aircraft's `rc_smoothing_*` settings, or confirm the RX link update rate."
+            )?;
+            writeln!(md)?;
+        }
+    }
+
     // --- Generated Plots ---
     if !report.png_links.is_empty() {
         writeln!(md, "## Generated Plots")?;
         writeln!(md)?;
         for name in &report.png_links {
             writeln!(md, "- [{}]({})", name, name)?;
+        }
+        writeln!(md)?;
+    }
+
+    // --- Skipped Plots ---
+    if !report.skipped_plots.is_empty() {
+        writeln!(md, "## Skipped Plots")?;
+        writeln!(md)?;
+        writeln!(md, "No plottable data:")?;
+        for name in &report.skipped_plots {
+            writeln!(md, "- {name}")?;
         }
         writeln!(md)?;
     }

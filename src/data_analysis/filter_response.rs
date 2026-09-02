@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::axis_names::AXIS_NAMES;
+use crate::constants::RATIO_TO_PERCENT;
 
 /// Filter types supported by flight controllers
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -723,10 +724,10 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                 };
 
                 // Apply to all axes - prioritize dynamic over static when both are present
-                for axis_idx in 0..AXIS_NAMES.len() {
+                for axis_cfg in config.dterm.iter_mut().take(AXIS_NAMES.len()) {
                     if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
                         // Dynamic mode takes precedence
-                        config.dterm[axis_idx].dynamic_lpf1 = Some(DynamicFilterConfig {
+                        axis_cfg.dynamic_lpf1 = Some(DynamicFilterConfig {
                             filter_type,
                             min_cutoff_hz: dynamic_cutoffs.0,
                             max_cutoff_hz: dynamic_cutoffs.1,
@@ -735,7 +736,7 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                         });
                     } else if static_cutoff > 0.0 {
                         // Static mode fallback
-                        config.dterm[axis_idx].lpf1 = Some(FilterConfig {
+                        axis_cfg.lpf1 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
                             q_factor,
@@ -766,8 +767,8 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                 };
 
                 if static_cutoff > 0.0 {
-                    for axis_idx in 0..AXIS_NAMES.len() {
-                        config.dterm[axis_idx].lpf2 = Some(FilterConfig {
+                    for axis_cfg in config.dterm.iter_mut().take(AXIS_NAMES.len()) {
+                        axis_cfg.lpf2 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
                             q_factor,
@@ -807,10 +808,10 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                     None
                 };
 
-                for axis_idx in 0..AXIS_NAMES.len() {
+                for axis_cfg in config.gyro.iter_mut().take(AXIS_NAMES.len()) {
                     if dynamic_cutoffs.0 > 0.0 && dynamic_cutoffs.1 > 0.0 {
                         // Dynamic mode takes precedence
-                        config.gyro[axis_idx].dynamic_lpf1 = Some(DynamicFilterConfig {
+                        axis_cfg.dynamic_lpf1 = Some(DynamicFilterConfig {
                             filter_type,
                             min_cutoff_hz: dynamic_cutoffs.0,
                             max_cutoff_hz: dynamic_cutoffs.1,
@@ -819,7 +820,7 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                         });
                     } else if static_cutoff > 0.0 {
                         // Static mode fallback
-                        config.gyro[axis_idx].lpf1 = Some(FilterConfig {
+                        axis_cfg.lpf1 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
                             q_factor,
@@ -850,8 +851,8 @@ pub fn parse_betaflight_filters(headers: &[(String, String)]) -> AllFilterConfig
                 };
 
                 if static_cutoff > 0.0 {
-                    for axis_idx in 0..AXIS_NAMES.len() {
-                        config.gyro[axis_idx].lpf2 = Some(FilterConfig {
+                    for axis_cfg in config.gyro.iter_mut().take(AXIS_NAMES.len()) {
+                        axis_cfg.lpf2 = Some(FilterConfig {
                             filter_type,
                             cutoff_hz: static_cutoff,
                             q_factor,
@@ -1007,13 +1008,13 @@ pub fn parse_filter_config(headers: &[(String, String)]) -> AllFilterConfigs {
         || header_map.contains_key("dterm_lpf1_dyn_hz");
 
     let mut config = if has_emuflight_pattern {
-        println!("Detected EmuFlight filter configuration (per-axis)");
+        println!("\n--- Detected EmuFlight filter configuration (per-axis) ---");
         parse_emuflight_filters(headers)
     } else if has_betaflight_pattern {
-        println!("Detected Betaflight filter configuration (unified)");
+        println!("\n--- Detected Betaflight filter configuration (unified) ---");
         parse_betaflight_filters(headers)
     } else {
-        println!("No recognized filter configuration found in headers");
+        println!("\n--- No recognized filter configuration found in headers ---");
         AllFilterConfigs::default()
     };
 
@@ -1352,10 +1353,20 @@ pub struct RpmFilterConfig {
     pub lpf_hz: f64, // RPM signal LPF
 }
 
+impl RpmFilterConfig {
+    /// Per-harmonic weights as percentages, e.g. "100%, 100%, 100%"
+    pub fn weights_percent_display(&self) -> String {
+        self.weights
+            .iter()
+            .map(|w| format!("{:.0}%", w * RATIO_TO_PERCENT))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 /// Extract RPM filter configuration for Betaflight
 /// Returns RpmFilterConfig if RPM filter is enabled
 /// Only Betaflight has RPM filter feature
-#[allow(dead_code)] // Used in Phase 5 (visualization)
 pub fn extract_rpm_filter_config(
     header_metadata: Option<&[(String, String)]>,
 ) -> Option<RpmFilterConfig> {
@@ -1439,7 +1450,6 @@ pub fn extract_rpm_filter_config(
 
 /// Estimate motor base frequency from gyro spectrum peaks
 /// Looks for primary peak in spectrum and estimates fundamental motor frequency
-#[allow(dead_code)] // Used in Phase 5 (visualization)
 pub fn estimate_motor_base_frequency(
     gyro_spectrum_data: &[(f64, f64)], // (frequency, amplitude) pairs
     min_hz: f64,
@@ -1476,7 +1486,6 @@ pub fn estimate_motor_base_frequency(
 /// Calculate RPM notch filter frequency response (S-curve)
 /// Transfer function: H(f) = 1 - depth * (1 / (1 + ((f - f0) / (f0 / Q))^2))
 /// Returns amplitude multiplication factor (0.0 = full attenuation, 1.0 = no filtering)
-#[allow(dead_code)] // Used in Phase 5 (visualization)
 pub fn rpm_notch_response(
     frequency_hz: f64,
     notch_center_hz: f64,
@@ -1507,7 +1516,6 @@ pub fn rpm_notch_response(
 
 /// Generate RPM filter notch curves for all harmonics
 /// Returns vector of (harmonic_num, label, curve_points, center_hz) for each harmonic
-#[allow(dead_code)] // Used in Phase 5 (visualization)
 pub fn generate_rpm_filter_curves(
     config: &RpmFilterConfig,
     motor_base_hz: f64,

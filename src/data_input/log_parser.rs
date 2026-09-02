@@ -50,6 +50,63 @@ fn read_headers_csv(headers_file_path: &Path) -> Result<Vec<(String, String)>, B
     Ok(header_metadata)
 }
 
+/// Decides whether debug[0-2] should be used as a gyroUnfilt fallback, and the console
+/// message (if any) explaining the decision. Pulled out of `parse_log_file` so the
+/// header-coverage/debug_mode branching can be unit tested without file I/O.
+///
+/// `have_gyro_unfilt` only requires Roll+Pitch (`ROLL_PITCH_AXIS_COUNT`): some firmware
+/// configs legitimately omit Yaw from gyroUnfilt logging, so Yaw's absence alone must not
+/// disable the fallback — the per-axis merge in `parse_log_file` still picks gyroUnfilt over
+/// debug per axis when both exist, so Yaw independently falls back to debug when needed.
+/// debug[0-2] fallback is only valid when debug_mode=GYRO_SCALED (6); other debug modes do
+/// not populate debug[0-2] with raw gyro data.
+fn resolve_gyro_unfilt_fallback(
+    gyro_unfilt_header_found: &[bool; 3],
+    debug_header_found: &[bool; 4],
+    debug_mode_val: Option<u32>,
+) -> (bool, Option<String>) {
+    let have_gyro_unfilt = gyro_unfilt_header_found
+        .iter()
+        .take(crate::axis_names::ROLL_PITCH_AXIS_COUNT)
+        .all(|&found| found);
+    let have_debug_axes = debug_header_found.iter().take(3).any(|&found| found);
+
+    if have_gyro_unfilt {
+        (false, None)
+    } else if have_debug_axes {
+        match debug_mode_val {
+            Some(DEBUG_MODE_GYRO_SCALED) => (
+                true,
+                Some(
+                    "  ⚠️  Using debug[0-2] as gyroUnfilt fallback (debug_mode=GYRO_SCALED)"
+                        .to_string(),
+                ),
+            ),
+            Some(mode) => (
+                false,
+                Some(format!(
+                    "  ⚠️  Skipping debug[0-2] gyroUnfilt fallback: debug_mode={mode} is not GYRO_SCALED ({DEBUG_MODE_GYRO_SCALED}) — unfiltered gyro analysis unavailable"
+                )),
+            ),
+            None => (
+                true,
+                Some(
+                    "  ⚠️  Using debug[0-2] as gyroUnfilt fallback (debug_mode unknown, assuming GYRO_SCALED)"
+                        .to_string(),
+                ),
+            ),
+        }
+    } else {
+        (
+            false,
+            Some(
+                "  ⚠️  No gyroUnfilt (Roll/Pitch) or debug[0-2] fallback available — unfiltered gyro analysis unavailable, affected plots will be skipped"
+                    .to_string(),
+            ),
+        )
+    }
+}
+
 /// Parses the CSV log file, extracts data, determines header presence, and calculates sample rate.
 ///
 /// Returns a tuple containing:
@@ -60,7 +117,8 @@ fn read_headers_csv(headers_file_path: &Path) -> Result<Vec<(String, String)>, B
 /// 5. `[bool; 3]`: Flags indicating if gyroADC[0-2] headers were found.
 /// 6. `[bool; 3]`: Flags indicating if gyroUnfilt[0-2] headers were found.
 /// 7. `[bool; 4]`: Flags indicating if debug[0-3] headers were found.
-/// 8. `Vec<(String, String)>`: Header metadata key-value pairs found before CSV headers.
+/// 8. `bool`: Whether debug[0-2] is being used as a gyroUnfilt fallback (debug_mode-validated).
+/// 9. `Vec<(String, String)>`: Header metadata key-value pairs found before CSV headers.
 pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResult {
     // --- Header Definition and Index Mapping ---
     let target_headers = [
@@ -91,6 +149,10 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         "debug[1]",
         "debug[2]",
         "debug[3]", // 23, 24, 25, 26
+        "rcCommand[0]",
+        "rcCommand[1]",
+        "rcCommand[2]",
+        "rcCommand[3]", // 27, 28, 29, 30 (rcCommand[3] is throttle)
     ];
 
     // --- Header Metadata Extraction and CSV Position Tracking ---
@@ -204,6 +266,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
     let mut gyro_unfilt_header_found = [false; 3];
     let mut debug_header_found = [false; 4];
     let mut f_term_header_found = [false; 3];
+    let mut rc_command_header_found = [false; 4];
 
     let header_indices: Vec<Option<usize>>;
     let mut motor_indices: Vec<usize> = Vec::new();
@@ -432,6 +495,29 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             }
         }
 
+        // Check rcCommand headers (Indices 27-30).
+        for axis in 0..4 {
+            // Check rcCommand[0] to rcCommand[3]
+            rc_command_header_found[axis] = header_indices[27 + axis].is_some();
+            if debug_mode {
+                let purpose = if axis < 3 {
+                    format!("Optional for RC Command Activity plot Axis {axis}")
+                } else {
+                    "Throttle (rcCommand[3])".to_string()
+                };
+                println!(
+                    "  '{}': {} ({})",
+                    target_headers[27 + axis],
+                    if rc_command_header_found[axis] {
+                        "Found"
+                    } else {
+                        "Not Found"
+                    },
+                    purpose
+                );
+            }
+        }
+
         if !essential_pid_headers_found {
             let missing_essentials: Vec<String> = (0..=8)
                 .filter(|&i| header_indices[i].is_none())
@@ -444,39 +530,19 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             .into());
         }
 
-        // Apply debug[0-2] fallback for gyroUnfilt only when debug_mode=GYRO_SCALED (6).
-        // Other debug modes do not populate debug[0-2] with raw gyro data.
-        let have_gyro_unfilt = gyro_unfilt_header_found.iter().any(|&found| found);
-        let have_debug_axes = debug_header_found.iter().take(3).any(|&found| found);
-        using_debug_fallback = if !have_gyro_unfilt && have_debug_axes {
-            let debug_mode_val = header_metadata
-                .iter()
-                .find(|(k, _)| k == "debug_mode")
-                .and_then(|(_, v)| v.parse::<u32>().ok());
-            match debug_mode_val {
-                Some(DEBUG_MODE_GYRO_SCALED) => {
-                    // GYRO_SCALED: debug[0-2] contains raw unfiltered gyro
-                    println!(
-                        "  ⚠️  Using debug[0-2] as gyroUnfilt fallback (debug_mode=GYRO_SCALED)"
-                    );
-                    true
-                }
-                Some(mode) => {
-                    println!(
-                        "  ⚠️  Skipping debug[0-2] gyroUnfilt fallback: debug_mode={} is not GYRO_SCALED ({}) — unfiltered gyro analysis unavailable",
-                        mode, DEBUG_MODE_GYRO_SCALED
-                    );
-                    false
-                }
-                None => {
-                    // debug_mode absent from headers — allow but warn
-                    println!("  ⚠️  Using debug[0-2] as gyroUnfilt fallback (debug_mode unknown, assuming GYRO_SCALED)");
-                    true
-                }
-            }
-        } else {
-            false
-        };
+        let debug_mode_val = header_metadata
+            .iter()
+            .find(|(k, _)| k == "debug_mode")
+            .and_then(|(_, v)| v.parse::<u32>().ok());
+        let (fallback, warning) = resolve_gyro_unfilt_fallback(
+            &gyro_unfilt_header_found,
+            &debug_header_found,
+            debug_mode_val,
+        );
+        using_debug_fallback = fallback;
+        if let Some(msg) = warning {
+            println!("{msg}");
+        }
     }
 
     // --- Data Reading and Storage ---
@@ -542,9 +608,18 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                     }
 
                     // Parse Setpoint (for axes 0-3)
-                    for axis in 0..4 {
-                        current_row_data.setpoint[axis] = parse_f64_by_target_idx(13 + axis);
+                    for (axis, setpoint) in current_row_data.setpoint.iter_mut().enumerate() {
+                        *setpoint = parse_f64_by_target_idx(13 + axis);
                         // Indices 13,14,15,16
+                    }
+
+                    // Parse rcCommand (for axes 0-3)
+                    #[allow(clippy::needless_range_loop)]
+                    for axis in 0..4 {
+                        if rc_command_header_found[axis] {
+                            current_row_data.rc_command[axis] = parse_f64_by_target_idx(27 + axis);
+                            // Indices 27,28,29,30
+                        }
                     }
 
                     // Parse gyroUnfilt and debug
@@ -637,8 +712,76 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         gyro_header_found,
         gyro_unfilt_header_found,
         debug_header_found,
+        using_debug_fallback,
         header_metadata,
     ))
+}
+
+#[cfg(test)]
+mod resolve_gyro_unfilt_fallback_tests {
+    use super::*;
+
+    #[test]
+    fn full_gyro_unfilt_disables_fallback_no_warning() {
+        let (fallback, msg) = resolve_gyro_unfilt_fallback(&[true, true, true], &[false; 4], None);
+        assert!(!fallback);
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn roll_pitch_only_gyro_unfilt_disables_fallback_no_warning() {
+        // Yaw missing gyroUnfilt is acceptable (some firmware omits it) — must not warn.
+        let (fallback, msg) = resolve_gyro_unfilt_fallback(&[true, true, false], &[false; 4], None);
+        assert!(!fallback);
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn debug_mode_gyro_scaled_enables_fallback() {
+        let (fallback, msg) = resolve_gyro_unfilt_fallback(
+            &[false, false, false],
+            &[true, true, true, false],
+            Some(DEBUG_MODE_GYRO_SCALED),
+        );
+        assert!(fallback);
+        assert!(msg.unwrap().contains("GYRO_SCALED"));
+    }
+
+    #[test]
+    fn debug_mode_unknown_assumes_gyro_scaled_enables_fallback() {
+        let (fallback, msg) =
+            resolve_gyro_unfilt_fallback(&[false, false, false], &[true, true, true, false], None);
+        assert!(fallback);
+        assert!(msg.unwrap().contains("debug_mode unknown"));
+    }
+
+    #[test]
+    fn debug_mode_not_gyro_scaled_disables_fallback_with_warning() {
+        let (fallback, msg) = resolve_gyro_unfilt_fallback(
+            &[false, false, false],
+            &[true, true, true, false],
+            Some(3),
+        );
+        assert!(!fallback);
+        assert!(msg.unwrap().contains("debug_mode=3"));
+    }
+
+    #[test]
+    fn neither_source_disables_fallback_with_warning() {
+        let (fallback, msg) =
+            resolve_gyro_unfilt_fallback(&[false, false, false], &[false; 4], None);
+        assert!(!fallback);
+        assert!(msg.unwrap().contains("No gyroUnfilt"));
+    }
+
+    #[test]
+    fn partial_roll_only_treated_as_neither_when_no_debug() {
+        // Roll present but Pitch missing still requires the fallback path (ROLL_PITCH_AXIS_COUNT).
+        let (fallback, msg) =
+            resolve_gyro_unfilt_fallback(&[true, false, false], &[false; 4], None);
+        assert!(!fallback);
+        assert!(msg.is_some());
+    }
 }
 
 // src/data_input/log_parser.rs

@@ -54,6 +54,7 @@ struct PlotConfig {
     pub run_eso: bool,
     pub eso_b0: f64,
     pub eso_b0_user_override: bool,
+    pub rc_command_activity: bool,
 }
 
 impl Default for PlotConfig {
@@ -78,6 +79,7 @@ impl Default for PlotConfig {
             run_eso: false,
             eso_b0: crate::constants::ESO_DEFAULT_B0,
             eso_b0_user_override: false,
+            rc_command_activity: true,
         }
     }
 }
@@ -103,6 +105,7 @@ impl PlotConfig {
             run_eso: false,
             eso_b0: crate::constants::ESO_DEFAULT_B0,
             eso_b0_user_override: false,
+            rc_command_activity: false,
         }
     }
 
@@ -126,6 +129,7 @@ impl PlotConfig {
             run_eso: false,
             eso_b0: crate::constants::ESO_DEFAULT_B0,
             eso_b0_user_override: false,
+            rc_command_activity: true,
         }
     }
 }
@@ -156,6 +160,7 @@ use crate::plot_functions::plot_pid_activity::plot_pid_activity;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
 use crate::plot_functions::plot_psd::plot_psd;
 use crate::plot_functions::plot_psd_db_heatmap::plot_psd_db_heatmap;
+use crate::plot_functions::plot_rc_command_activity::plot_rc_command_activity;
 use crate::plot_functions::plot_setpoint_derivative::plot_setpoint_derivative;
 use crate::plot_functions::plot_setpoint_vs_gyro::plot_setpoint_vs_gyro;
 use crate::plot_functions::plot_step_response::plot_step_response;
@@ -403,7 +408,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("=== PLOT TYPE SELECTION ===");
     eprintln!();
     eprintln!("  --core           [default] Step Response, Gyro Spectrums, D-term Spectrums,");
-    eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums.");
+    eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums,");
+    eprintln!("                   RC Command Activity.");
     eprintln!("  --extended       All plots except Bode — adds PIDsum/Error, PID Activity,");
     eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.");
     eprintln!("  --step           Step response only.");
@@ -580,9 +586,7 @@ fn process_file(
         .file_stem()
         .unwrap_or_else(|| std::ffi::OsStr::new("unknown_filestem"))
         .to_string_lossy();
-    let root_name_string: String;
-
-    if use_dir_prefix {
+    let root_name_string: String = if use_dir_prefix {
         let mut dir_prefix_to_add = String::new();
         if let Some(parent_dir) = input_path.parent() {
             if let Some(dir_os_str) = parent_dir.file_name() {
@@ -603,10 +607,10 @@ fn process_file(
                 }
             }
         }
-        root_name_string = format!("{dir_prefix_to_add}{file_stem_cow}");
+        format!("{dir_prefix_to_add}{file_stem_cow}")
     } else {
-        root_name_string = file_stem_cow.into_owned();
-    }
+        file_stem_cow.into_owned()
+    };
 
     // --- Data Reading and Header Status ---
     let (
@@ -615,8 +619,9 @@ fn process_file(
         f_term_header_found,
         setpoint_header_found,
         gyro_header_found,
-        gyro_unfilt_header_found,
-        debug_header_found,
+        _gyro_unfilt_header_found,
+        _debug_header_found,
+        using_debug_fallback,
         header_metadata,
     ) = match parse_log_file(input_path, analysis_opts.debug_mode) {
         Ok(data) => data,
@@ -663,7 +668,6 @@ fn process_file(
         println!("Yaw P:D Ratio: N/A (yaw often uses minimal or no D-term)");
     }
     println!("Note: Optimal P:D ratio varies per aircraft. Check step response for overshoot/undershoot.");
-    println!();
 
     let pd_ratios_for_report: [Option<f64>; AXIS_COUNT] = [
         pid_metadata.roll.calculate_pd_ratio(),
@@ -843,7 +847,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         }
         println!("      Always test in a safe environment. Conservative = safer first step.");
         println!("      Moderate = for experienced pilots (test carefully to avoid hot motors).");
-        println!();
         for axis_index in 0..crate::axis_names::ROLL_PITCH_AXIS_COUNT {
             // Only Roll (0) and Pitch (1)
             let axis_name = crate::axis_names::AXIS_NAMES[axis_index];
@@ -1490,10 +1493,6 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         plot_setpoint_derivative(&all_log_data, &root_name_string, sample_rate)?;
     }
 
-    // Determine if debug fallback is being used for gyroUnfilt
-    let using_debug_fallback = !gyro_unfilt_header_found.iter().any(|&found| found)
-        && debug_header_found.iter().take(3).any(|&found| found);
-
     // Get debug mode name if available
     let debug_mode_label = if using_debug_fallback {
         header_metadata
@@ -1623,16 +1622,36 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         plot_pid_activity(&all_log_data, &root_name_string, Some(&header_metadata))?;
     }
 
+    let rc_command_steps = if plot_config.rc_command_activity {
+        plot_rc_command_activity(&all_log_data, &root_name_string, sample_rate)?
+    } else {
+        vec![]
+    };
+
     // --- Filter configuration (from header metadata, independent of CSV data) ---
     let filter_config = Some(filter_response::parse_filter_config(&header_metadata));
     let dynamic_notch = filter_response::extract_dynamic_notch_range(Some(&header_metadata));
     let rpm_filter = filter_response::extract_rpm_filter_config(Some(&header_metadata));
 
     // --- Collect generated PNG filenames ---
+    // Only link files that actually exist: a plot type being enabled doesn't mean its PNG
+    // was written — plot_framework.rs skips writing when every axis is data-unavailable.
+    // skipped_plots records the human-readable label for each enabled plot type whose file
+    // wasn't produced, so the report can note it (see push_if_exists below).
     let mut png_links: Vec<String> = Vec::new();
+    let mut skipped_plots: Vec<String> = Vec::new();
+    let push_if_exists =
+        |links: &mut Vec<String>, skipped: &mut Vec<String>, label: &str, filename: String| {
+            if std::path::Path::new(&filename).exists() {
+                links.push(filename);
+            } else {
+                skipped.push(label.to_string());
+            }
+        };
 
     if plot_config.step_response {
         // Step response filename includes duration and optional dps suffix — scan for it.
+        // A directory scan only finds files that exist, so this is already exists-checked.
         let prefix = format!("{root_name_string}_Step_Response_stacked_plot_");
         if let Ok(entries) = std::fs::read_dir(".") {
             let mut matches: Vec<String> = entries
@@ -1641,58 +1660,134 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                 .filter(|n| n.starts_with(&prefix) && n.ends_with(".png"))
                 .collect();
             matches.sort();
-            png_links.extend(matches);
+            if matches.is_empty() {
+                skipped_plots.push("Step Response".to_string());
+            } else {
+                png_links.extend(matches);
+            }
         }
+        // If the directory scan itself fails (unrelated I/O error), leave Step Response out
+        // of both lists rather than guessing whether the plot was generated or skipped.
     }
     if plot_config.pidsum_error_setpoint {
-        png_links.push(format!(
-            "{root_name_string}_PIDsum_PIDerror_Setpoint_stacked.png"
-        ));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "PIDsum/PIDerror/Setpoint",
+            format!("{root_name_string}_PIDsum_PIDerror_Setpoint_stacked.png"),
+        );
     }
     if plot_config.setpoint_vs_gyro {
-        png_links.push(format!("{root_name_string}_SetpointVsGyro_stacked.png"));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Setpoint/Gyro",
+            format!("{root_name_string}_SetpointVsGyro_stacked.png"),
+        );
     }
     if plot_config.setpoint_derivative {
-        png_links.push(format!("{root_name_string}_SetpointDerivative_stacked.png"));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Setpoint Derivative",
+            format!("{root_name_string}_SetpointDerivative_stacked.png"),
+        );
     }
     if plot_config.gyro_vs_unfilt {
-        png_links.push(format!("{root_name_string}_GyroVsUnfilt_stacked.png"));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Gyro/UnfiltGyro",
+            format!("{root_name_string}_GyroVsUnfilt_stacked.png"),
+        );
     }
     if plot_config.gyro_spectrums {
-        png_links.push(format!("{root_name_string}_Gyro_Spectrums_comparative.png"));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Gyro Spectrums",
+            format!("{root_name_string}_Gyro_Spectrums_comparative.png"),
+        );
     }
     if plot_config.d_term_psd {
-        png_links.push(format!("{root_name_string}_D_Term_PSD_comparative.png"));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "D-term PSD",
+            format!("{root_name_string}_D_Term_PSD_comparative.png"),
+        );
     }
     if plot_config.d_term_spectrums {
-        png_links.push(format!(
-            "{root_name_string}_D_Term_Spectrums_comparative.png"
-        ));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "D-term Spectrums",
+            format!("{root_name_string}_D_Term_Spectrums_comparative.png"),
+        );
     }
     if plot_config.motor_spectrums {
-        png_links.push(format!("{root_name_string}_Motor_Spectrums_stacked.png"));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Motor Spectrums",
+            format!("{root_name_string}_Motor_Spectrums_stacked.png"),
+        );
     }
     if plot_config.psd {
-        png_links.push(format!("{root_name_string}_Gyro_PSD_comparative.png"));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Gyro PSD",
+            format!("{root_name_string}_Gyro_PSD_comparative.png"),
+        );
     }
     if plot_config.psd_db_heatmap {
-        png_links.push(format!(
-            "{root_name_string}_Gyro_PSD_Spectrogram_comparative.png"
-        ));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Gyro PSD Spectrogram",
+            format!("{root_name_string}_Gyro_PSD_Spectrogram_comparative.png"),
+        );
     }
     if plot_config.throttle_freq_heatmap {
-        png_links.push(format!(
-            "{root_name_string}_Throttle_Freq_Heatmap_comparative.png"
-        ));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Throttle-Frequency Heatmap",
+            format!("{root_name_string}_Throttle_Freq_Heatmap_comparative.png"),
+        );
     }
     if plot_config.d_term_heatmap {
-        png_links.push(format!("{root_name_string}_D_Term_Heatmap_comparative.png"));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "D-Term Throttle-Frequency Heatmap",
+            format!("{root_name_string}_D_Term_Heatmap_comparative.png"),
+        );
     }
     if plot_config.bode {
-        png_links.push(format!("{root_name_string}_Bode_Analysis.png"));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Bode Analysis",
+            format!("{root_name_string}_Bode_Analysis.png"),
+        );
     }
     if plot_config.pid_activity {
-        png_links.push(format!("{root_name_string}_PID_Activity_stacked.png"));
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "P, I, D Activity",
+            format!("{root_name_string}_PID_Activity_stacked.png"),
+        );
+    }
+    if plot_config.rc_command_activity {
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "RC Command Activity",
+            format!("{root_name_string}_RC_Command_Activity_stacked.png"),
+        );
     }
 
     // --- ESO Gain Optimization ---
@@ -1762,7 +1857,9 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         bode_results,
         motor_results,
         eso_results,
+        rc_command_steps,
         png_links,
+        skipped_plots,
         filter_config,
         dynamic_notch,
         rpm_filter,
@@ -1772,6 +1869,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     report::generate_markdown_report(&flight_report, report_path)
         .map_err(|e| format!("Report generation failed: {e}"))?;
     println!("  [OK] Report written.");
+    println!();
 
     println!("--- Finished processing file: {input_file_str} ---");
     Ok(())

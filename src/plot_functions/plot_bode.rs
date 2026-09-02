@@ -43,6 +43,8 @@ pub fn plot_bode_analysis(
     sample_rate: Option<f64>,
     debug_mode: bool,
 ) -> Result<Vec<BodeAxisResult>, Box<dyn Error>> {
+    let output_file = format!("{}_Bode_Analysis.png", root_name);
+
     let sr_value = if let Some(sr) = sample_rate {
         sr
     } else {
@@ -163,12 +165,10 @@ pub fn plot_bode_analysis(
         return Ok(vec![]);
     }
 
-    // Generate single combined plot filename
-    let output_file = format!("{}_Bode_Analysis.png", root_name);
-
     // Create the 3×3 grid plot
     match create_bode_grid_plot(&output_file, root_name, &tf_results, &margins_results) {
-        Ok(_) => println!("  Generated Bode analysis plot: {}", output_file),
+        Ok(true) => println!("  Generated Bode analysis plot: {}", output_file),
+        Ok(false) => {} // Skipped internally (insufficient coherence); already logged there.
         Err(e) => {
             println!("  Error creating Bode plot: {}", e);
             return Err(e);
@@ -196,13 +196,15 @@ pub fn plot_bode_analysis(
         .collect())
 }
 
-/// Create a grid Bode plot (1 to 3 axes × 3 plot types)
+/// Create a grid Bode plot (1 to 3 axes × 3 plot types).
+/// Returns `Ok(true)` when the PNG was actually rendered, `Ok(false)` when skipped (no axis
+/// had enough coherence to plot) — the caller must not report "generated" on `Ok(false)`.
 fn create_bode_grid_plot(
     output_file: &str,
     root_name: &str,
     tf_results: &[TransferFunctionResult],
     margins_results: &[StabilityMargins],
-) -> Result<(), Box<dyn Error>> {
+) -> Result<bool, Box<dyn Error>> {
     if tf_results.is_empty() || tf_results.len() > 3 {
         return Err(format!(
             "Expected 1-3 axes for Bode grid plot, got {}",
@@ -220,6 +222,31 @@ fn create_bode_grid_plot(
             return Err("Invalid or empty transfer function data".into());
         }
     }
+
+    // Determine global frequency range for consistency, and whether there's anything to plot
+    // at all, before creating the output file — "skip" means the file is never written, not
+    // written then abandoned mid-draw (plotters-bitmap's BitMapBackend writes a best-effort
+    // fallback on Drop if .present() is never called; bailing out after creating the backend
+    // but before drawing/presenting would silently write an incomplete placeholder PNG).
+    let mut global_freq_min = f64::INFINITY;
+    let mut global_freq_max = f64::NEG_INFINITY;
+
+    for tf in tf_results {
+        let (filtered_freq, _, _, _) = filter_by_coherence(tf, MIN_COHERENCE_FOR_PLOT);
+        if !filtered_freq.is_empty() {
+            global_freq_min = global_freq_min.min(*filtered_freq.first().unwrap());
+            global_freq_max = global_freq_max.max(*filtered_freq.last().unwrap());
+        }
+    }
+
+    // Guard against all axes having empty filtered data
+    if global_freq_min.is_infinite() || global_freq_max.is_infinite() {
+        println!("\nINFO: Skipping Bode Plot: All axes have insufficient coherence for plotting.");
+        return Ok(false);
+    }
+
+    let freq_min = global_freq_min.max(1.0);
+    let freq_max = global_freq_max.min(tf_results[0].sample_rate_hz / 2.0);
 
     // Create main drawing area with standard plot dimensions
     let root = BitMapBackend::new(output_file, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
@@ -239,27 +266,6 @@ fn create_bode_grid_plot(
 
     // Draw legend for confidence colors
     draw_confidence_legend(&root, PLOT_WIDTH, PLOT_HEIGHT)?;
-
-    // Determine global frequency range for consistency
-    let mut global_freq_min = f64::INFINITY;
-    let mut global_freq_max = f64::NEG_INFINITY;
-
-    for tf in tf_results {
-        let (filtered_freq, _, _, _) = filter_by_coherence(tf, MIN_COHERENCE_FOR_PLOT);
-        if !filtered_freq.is_empty() {
-            global_freq_min = global_freq_min.min(*filtered_freq.first().unwrap());
-            global_freq_max = global_freq_max.max(*filtered_freq.last().unwrap());
-        }
-    }
-
-    // Guard against all axes having empty filtered data
-    if global_freq_min.is_infinite() || global_freq_max.is_infinite() {
-        println!("\nINFO: Skipping Bode Plot: All axes have insufficient coherence for plotting.");
-        return Ok(());
-    }
-
-    let freq_min = global_freq_min.max(1.0);
-    let freq_max = global_freq_max.min(tf_results[0].sample_rate_hz / 2.0);
 
     // Plot grid: rows are axes, columns are plot types (Mag, Phase, Coh)
     for axis_index in 0..tf_results.len() {
@@ -312,7 +318,7 @@ fn create_bode_grid_plot(
     }
 
     root.present()?;
-    Ok(())
+    Ok(true)
 }
 
 /// Filter transfer function data by coherence threshold

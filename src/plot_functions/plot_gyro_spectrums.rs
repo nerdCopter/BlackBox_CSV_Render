@@ -81,9 +81,10 @@ pub fn plot_gyro_spectrums(
 
     // Debug output for RPM filter detection
     if let Some(ref config) = rpm_filter_config {
+        let weights_str = config.weights_percent_display();
         println!(
-            "RPM Filter detected: {} harmonics, Q: {:.0}, min: {:.0}Hz",
-            config.harmonics, config.q_factor, config.min_hz
+            "RPM Filter detected: {} harmonics, Q: {:.0}, min: {:.0}Hz, weights: [{}]",
+            config.harmonics, config.q_factor, config.min_hz, weights_str
         );
     }
 
