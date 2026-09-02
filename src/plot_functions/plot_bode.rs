@@ -14,7 +14,8 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, FREQUENCY_EPSILON, LINE_WIDTH_PLOT,
-    MAGNITUDE_PLOT_MARGIN_DB, PHASE_PLOT_MARGIN_DEG, PLOT_HEIGHT, PLOT_WIDTH,
+    MAGNITUDE_PLOT_MARGIN_DB, MIN_PLOT_FREQUENCY_HZ, NYQUIST_DIVISOR, PHASE_PLOT_MARGIN_DEG,
+    PLOT_HEIGHT, PLOT_WIDTH,
 };
 use crate::data_analysis::transfer_function_estimation::{
     calculate_stability_margins, estimate_transfer_function_h1, Confidence, StabilityMargins,
@@ -245,8 +246,8 @@ fn create_bode_grid_plot(
         return Ok(false);
     }
 
-    let freq_min = global_freq_min.max(1.0);
-    let freq_max = global_freq_max.min(tf_results[0].sample_rate_hz / 2.0);
+    let freq_min = global_freq_min.max(MIN_PLOT_FREQUENCY_HZ);
+    let freq_max = global_freq_max.min(tf_results[0].sample_rate_hz / NYQUIST_DIVISOR);
 
     // Create main drawing area with standard plot dimensions
     let root = BitMapBackend::new(output_file, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
