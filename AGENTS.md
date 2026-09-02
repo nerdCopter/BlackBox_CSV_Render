@@ -4,6 +4,7 @@
 - Ask before removing any debug console output
 - **All constants go in `src/constants.rs`** — no hardcoded magic numbers in function code
   - **Exception:** Axis indices (0=Roll, 1=Pitch, 2=Yaw) are managed via `src/axis_names.rs` module with `AXIS_COUNT`, `AXIS_NAMES`, and `axis_name()` function. Use these instead of creating redundant axis index constants.
+  - **Exception:** Test-only fixture values with no production meaning may be a local `const` inside the `#[cfg(test)] mod tests` block instead (e.g. `TEST_SAMPLE_RATE` in `plot_functions/plot_rc_command_activity.rs`). Constants reused by production code, or with domain meaning, still go in `src/constants.rs`.
   - See `src/axis_names.rs` for centralized axis naming (commit 73f8c04)
 - Run checks in this order:
   1) `cargo clippy --all-targets --all-features -- -D warnings` — fix all warnings.
