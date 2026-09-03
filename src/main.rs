@@ -1596,7 +1596,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
     }
 
     let rc_command_steps = if plot_config.rc_command_activity {
-        plot_rc_command_activity(&all_log_data, &root_name_string, sample_rate)?
+        plot_rc_command_activity(&all_log_data, &root_name_string)?
     } else {
         vec![]
     };

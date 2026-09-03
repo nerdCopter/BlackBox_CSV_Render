@@ -26,7 +26,11 @@ pub struct RcCommandStepResult {
 /// A smoothly-interpolated signal changes almost every sample, producing short plateaus.
 /// Raw, unsmoothed RX-link input holds flat for the RX update interval, producing long
 /// plateaus — visible as a staircase in RC Command, and as jitter in the Setpoint response.
-fn detect_rc_command_steps(data: &AxisPlotData2, sample_rate: Option<f64>) -> RcCommandStepResult {
+///
+/// Plateau duration is measured from each row's own timestamp, not from the log-wide
+/// average sample rate — irregular RX intervals or dropped frames would otherwise skew
+/// the duration of individual plateaus.
+fn detect_rc_command_steps(data: &AxisPlotData2) -> RcCommandStepResult {
     let rc_points: Vec<(f64, f64)> = data
         .iter()
         .filter_map(|(t, _, rc)| rc.map(|r| (*t, r)))
@@ -41,8 +45,8 @@ fn detect_rc_command_steps(data: &AxisPlotData2, sample_rate: Option<f64>) -> Rc
         };
     }
 
-    let mut plateau_samples: Vec<usize> = Vec::new();
-    let mut plateau_len = 1usize;
+    let mut plateau_durations_ms: Vec<f64> = Vec::new();
+    let mut run_start_time = rc_points[0].0;
     // Whether the transition that started the *current* run was itself a qualifying jump.
     let mut current_run_follows_qualifying_jump = false;
 
@@ -50,38 +54,36 @@ fn detect_rc_command_steps(data: &AxisPlotData2, sample_rate: Option<f64>) -> Rc
         let prev = rc_points[i - 1].1;
         let curr = rc_points[i].1;
         if (curr - prev).abs() < f64::EPSILON {
-            plateau_len += 1;
-        } else {
-            let qualifies = (curr - prev).abs() >= RC_STEP_MIN_JUMP_SIZE;
-            if qualifies {
-                plateau_samples.push(plateau_len);
-            }
-            plateau_len = 1;
-            current_run_follows_qualifying_jump = qualifies;
+            continue;
         }
+        let qualifies = (curr - prev).abs() >= RC_STEP_MIN_JUMP_SIZE;
+        if qualifies {
+            plateau_durations_ms.push((rc_points[i].0 - run_start_time) * 1000.0);
+        }
+        run_start_time = rc_points[i].0;
+        current_run_follows_qualifying_jump = qualifies;
     }
     // Include the trailing run, but only if the transition that started it was itself a
     // qualifying jump — a plateau following sub-threshold float noise isn't a real "held"
     // measurement, and a fully static series (no rc_command movement at all) must stay
     // unclassified (None), not "maximally blocky" from one giant plateau spanning the whole log.
     if current_run_follows_qualifying_jump {
-        plateau_samples.push(plateau_len);
+        plateau_durations_ms.push((rc_points[rc_points.len() - 1].0 - run_start_time) * 1000.0);
     }
 
-    let step_count = plateau_samples.len();
+    let step_count = plateau_durations_ms.len();
     let median_plateau_ms = if step_count < RC_STEP_MIN_COUNT_FOR_ASSESSMENT {
         None
     } else {
-        plateau_samples.sort_unstable();
-        let mid = plateau_samples.len() / 2;
-        let median_samples = if plateau_samples.len() % 2 == 0 {
-            (plateau_samples[mid - 1] + plateau_samples[mid]) as f64 / 2.0
+        plateau_durations_ms
+            .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = plateau_durations_ms.len() / 2;
+        let median = if plateau_durations_ms.len() % 2 == 0 {
+            (plateau_durations_ms[mid - 1] + plateau_durations_ms[mid]) / 2.0
         } else {
-            plateau_samples[mid] as f64
+            plateau_durations_ms[mid]
         };
-        sample_rate
-            .filter(|sr| *sr > 0.0)
-            .map(|sr| (median_samples / sr) * 1000.0)
+        Some(median)
     };
 
     let is_blocky = median_plateau_ms
@@ -104,7 +106,6 @@ fn detect_rc_command_steps(data: &AxisPlotData2, sample_rate: Option<f64>) -> Rc
 pub fn plot_rc_command_activity(
     log_data: &[LogRowData],
     root_name: &str,
-    sample_rate: Option<f64>,
 ) -> Result<Vec<RcCommandStepResult>, Box<dyn Error>> {
     let output_file_rc_command_activity = format!("{root_name}_RC_Command_Activity_stacked.png");
     let plot_type_name = "RC Command Activity";
@@ -140,7 +141,7 @@ pub fn plot_rc_command_activity(
     // Step-detection summary per axis, computed before draw_stacked_plot consumes axis_plot_data.
     let step_results: Vec<RcCommandStepResult> = (0..axis_plot_data.len())
         .map(|axis_index| {
-            let mut result = detect_rc_command_steps(&axis_plot_data[axis_index], sample_rate);
+            let mut result = detect_rc_command_steps(&axis_plot_data[axis_index]);
             result.axis_name = if axis_index < AXIS_NAMES.len() {
                 AXIS_NAMES[axis_index].to_string()
             } else {
@@ -286,7 +287,7 @@ mod tests {
         // Value changes by 1 unit every sample (continuous interpolation) — no held plateaus.
         let values: Vec<f64> = (0..200).map(|i| i as f64).collect();
         let data = axis_data_from(&values);
-        let result = detect_rc_command_steps(&data, Some(TEST_SAMPLE_RATE));
+        let result = detect_rc_command_steps(&data);
 
         assert!(result.step_count >= RC_STEP_MIN_COUNT_FOR_ASSESSMENT);
         let median_ms = result.median_plateau_ms.expect("expected a classification");
@@ -304,7 +305,7 @@ mod tests {
             }
         }
         let data = axis_data_from(&values);
-        let result = detect_rc_command_steps(&data, Some(TEST_SAMPLE_RATE));
+        let result = detect_rc_command_steps(&data);
 
         assert!(result.step_count >= RC_STEP_MIN_COUNT_FOR_ASSESSMENT);
         let median_ms = result.median_plateau_ms.expect("expected a classification");
@@ -317,7 +318,7 @@ mod tests {
         // rcCommand never changes at all — must not read as "maximally blocky".
         let values = vec![0.0; 500];
         let data = axis_data_from(&values);
-        let result = detect_rc_command_steps(&data, Some(TEST_SAMPLE_RATE));
+        let result = detect_rc_command_steps(&data);
 
         assert_eq!(result.step_count, 0);
         assert_eq!(result.median_plateau_ms, None);
@@ -335,7 +336,7 @@ mod tests {
             }
         }
         let data = axis_data_from(&values);
-        let result = detect_rc_command_steps(&data, Some(TEST_SAMPLE_RATE));
+        let result = detect_rc_command_steps(&data);
 
         assert!(result.step_count < RC_STEP_MIN_COUNT_FOR_ASSESSMENT);
         assert_eq!(result.median_plateau_ms, None);
@@ -361,11 +362,48 @@ mod tests {
         }
 
         let data = axis_data_from(&values);
-        let result = detect_rc_command_steps(&data, Some(TEST_SAMPLE_RATE));
+        let result = detect_rc_command_steps(&data);
 
         // If the trailing 5000-sample run were included, the median would jump to ~2500ms.
         let median_ms = result.median_plateau_ms.expect("expected a classification");
         assert!(median_ms < RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS * 5.0);
+    }
+
+    #[test]
+    fn irregular_intervals_use_actual_timestamps_not_sample_count() {
+        // Simulates dropped RX frames: sparse plateaus carry only 2 logged samples but span
+        // a large real-time gap. A duration computed from sample count and an average rate
+        // would read these as short; timestamp-based duration must reflect the true elapsed
+        // time and still classify the series as blocky.
+        let mut data: AxisPlotData2 = Vec::new();
+        let mut t = 0.0;
+        let mut value = 0.0;
+
+        // 8 densely-sampled plateaus: 5 samples each, 1ms apart -> ~5ms held duration.
+        for _ in 0..8 {
+            for _ in 0..5 {
+                data.push((t, Some(0.0), Some(value)));
+                t += 0.001;
+            }
+            value += 10.0;
+        }
+
+        // 14 sparse plateaus: only 2 logged samples each, separated by a 25ms real-time gap
+        // (dropped RX frames) -> held duration must read ~25ms, not a sample-count estimate.
+        for _ in 0..14 {
+            data.push((t, Some(0.0), Some(value)));
+            t += 0.025;
+            data.push((t, Some(0.0), Some(value)));
+            value += 10.0;
+            t += 0.001;
+        }
+
+        let result = detect_rc_command_steps(&data);
+
+        assert!(result.step_count >= RC_STEP_MIN_COUNT_FOR_ASSESSMENT);
+        let median_ms = result.median_plateau_ms.expect("expected a classification");
+        assert!(median_ms >= RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS);
+        assert!(result.is_blocky);
     }
 }
 
