@@ -9,6 +9,7 @@ use crate::types::{AllAxisPlotData2, AxisPlotData2};
 use crate::constants::{
     COLOR_RC_COMMAND, COLOR_SETPOINT_MAIN, LINE_WIDTH_PLOT, RC_COMMAND_ACTIVITY_Y_AXIS_MIN,
     RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS, RC_STEP_MIN_COUNT_FOR_ASSESSMENT, RC_STEP_MIN_JUMP_SIZE,
+    RC_STEP_SECONDS_TO_MS,
 };
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
@@ -58,7 +59,7 @@ fn detect_rc_command_steps(data: &AxisPlotData2) -> RcCommandStepResult {
         }
         let qualifies = (curr - prev).abs() >= RC_STEP_MIN_JUMP_SIZE;
         if qualifies {
-            plateau_durations_ms.push((rc_points[i].0 - run_start_time) * 1000.0);
+            plateau_durations_ms.push((rc_points[i].0 - run_start_time) * RC_STEP_SECONDS_TO_MS);
         }
         run_start_time = rc_points[i].0;
         current_run_follows_qualifying_jump = qualifies;
@@ -68,7 +69,8 @@ fn detect_rc_command_steps(data: &AxisPlotData2) -> RcCommandStepResult {
     // measurement, and a fully static series (no rc_command movement at all) must stay
     // unclassified (None), not "maximally blocky" from one giant plateau spanning the whole log.
     if current_run_follows_qualifying_jump {
-        plateau_durations_ms.push((rc_points[rc_points.len() - 1].0 - run_start_time) * 1000.0);
+        plateau_durations_ms
+            .push((rc_points[rc_points.len() - 1].0 - run_start_time) * RC_STEP_SECONDS_TO_MS);
     }
 
     let step_count = plateau_durations_ms.len();
@@ -368,6 +370,16 @@ mod tests {
         assert!(median_ms < RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS * 5.0);
     }
 
+    // Fixture values for `irregular_intervals_use_actual_timestamps_not_sample_count` — no
+    // production meaning, just the dropped-frame scenario being simulated.
+    const DENSE_PLATEAU_COUNT: usize = 8;
+    const DENSE_SAMPLES_PER_PLATEAU: usize = 5;
+    const DENSE_SAMPLE_INTERVAL_S: f64 = 0.001;
+    const SPARSE_PLATEAU_COUNT: usize = 14;
+    const DROPPED_FRAME_GAP_S: f64 = 0.025;
+    const INTER_PLATEAU_GAP_S: f64 = 0.001;
+    const STEP_VALUE_JUMP: f64 = 10.0;
+
     #[test]
     fn irregular_intervals_use_actual_timestamps_not_sample_count() {
         // Simulates dropped RX frames: sparse plateaus carry only 2 logged samples but span
@@ -378,23 +390,23 @@ mod tests {
         let mut t = 0.0;
         let mut value = 0.0;
 
-        // 8 densely-sampled plateaus: 5 samples each, 1ms apart -> ~5ms held duration.
-        for _ in 0..8 {
-            for _ in 0..5 {
+        // Densely-sampled plateaus: several samples each, closely spaced -> short held duration.
+        for _ in 0..DENSE_PLATEAU_COUNT {
+            for _ in 0..DENSE_SAMPLES_PER_PLATEAU {
                 data.push((t, Some(0.0), Some(value)));
-                t += 0.001;
+                t += DENSE_SAMPLE_INTERVAL_S;
             }
-            value += 10.0;
+            value += STEP_VALUE_JUMP;
         }
 
-        // 14 sparse plateaus: only 2 logged samples each, separated by a 25ms real-time gap
+        // Sparse plateaus: only 2 logged samples each, separated by a large real-time gap
         // (dropped RX frames) -> held duration must read ~25ms, not a sample-count estimate.
-        for _ in 0..14 {
+        for _ in 0..SPARSE_PLATEAU_COUNT {
             data.push((t, Some(0.0), Some(value)));
-            t += 0.025;
+            t += DROPPED_FRAME_GAP_S;
             data.push((t, Some(0.0), Some(value)));
-            value += 10.0;
-            t += 0.001;
+            value += STEP_VALUE_JUMP;
+            t += INTER_PLATEAU_GAP_S;
         }
 
         let result = detect_rc_command_steps(&data);
