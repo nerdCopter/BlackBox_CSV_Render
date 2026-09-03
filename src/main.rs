@@ -171,7 +171,7 @@ impl Drop for CwdGuard {
     fn drop(&mut self) {
         if let Err(e) = env::set_current_dir(&self.original_dir) {
             eprintln!(
-                "Warning: Failed to restore original directory to {}: {}",
+                "⚠️  Failed to restore original directory to {}: {}",
                 self.original_dir.display(),
                 e
             );
@@ -215,18 +215,15 @@ fn expand_input_paths(
                     if lowercase_path.ends_with(".header.csv")
                         || lowercase_path.ends_with(".headers.csv")
                     {
-                        eprintln!("Warning: Skipping header file: {}", input_path_str);
+                        eprintln!("⚠️  Skipping header file: {}", input_path_str);
                     } else {
                         csv_files.push(input_path_str.clone());
                     }
                 } else {
-                    eprintln!("Warning: Skipping non-CSV file: {}", input_path_str);
+                    eprintln!("⚠️  Skipping non-CSV file: {}", input_path_str);
                 }
             } else {
-                eprintln!(
-                    "Warning: Skipping file without extension: {}",
-                    input_path_str
-                );
+                eprintln!("⚠️  Skipping file without extension: {}", input_path_str);
             }
         } else if input_path.is_dir() {
             // It's a directory, find CSV files (recursive only if flag is set)
@@ -235,17 +232,11 @@ fn expand_input_paths(
                     csv_files.append(&mut dir_csv_files);
                     total_skipped += skipped_count;
                 }
-                Err(err) => eprintln!(
-                    "Warning: Error processing directory {}: {}",
-                    input_path_str, err
-                ),
+                Err(err) => eprintln!("⚠️  Error processing directory {}: {}", input_path_str, err),
             }
         } else {
             // Path doesn't exist or isn't accessible
-            eprintln!(
-                "Warning: Path not found or not accessible: {}",
-                input_path_str
-            );
+            eprintln!("⚠️  Path not found or not accessible: {}", input_path_str);
         }
     }
 
@@ -283,7 +274,7 @@ fn find_csv_files_in_dir_impl(
         Ok(path) => path,
         Err(_) => {
             eprintln!(
-                "Warning: Cannot canonicalize directory path: {}",
+                "⚠️  Cannot canonicalize directory path: {}",
                 dir_path.display()
             );
             return Ok((csv_files, skipped_count));
@@ -293,7 +284,7 @@ fn find_csv_files_in_dir_impl(
     // Check if we've already visited this directory (symlink loop detection)
     if visited.contains(&canonical_path) {
         eprintln!(
-            "Warning: Skipping directory due to symlink loop: {}",
+            "⚠️  Skipping directory due to symlink loop: {}",
             dir_path.display()
         );
         return Ok((csv_files, skipped_count));
@@ -304,7 +295,7 @@ fn find_csv_files_in_dir_impl(
         Ok(entries) => entries,
         Err(err) => {
             eprintln!(
-                "Warning: Cannot read directory '{}': {}",
+                "⚠️  Cannot read directory '{}': {}",
                 dir_path.display(),
                 err
             );
@@ -317,7 +308,7 @@ fn find_csv_files_in_dir_impl(
             Ok(entry) => entry,
             Err(err) => {
                 eprintln!(
-                    "Warning: Error reading directory entry in '{}': {}",
+                    "⚠️  Error reading directory entry in '{}': {}",
                     dir_path.display(),
                     err
                 );
@@ -335,7 +326,7 @@ fn find_csv_files_in_dir_impl(
                         skipped_count += sub_skipped;
                     }
                     Err(err) => eprintln!(
-                        "Warning: Error processing subdirectory '{}': {}",
+                        "⚠️  Error processing subdirectory '{}': {}",
                         path.display(),
                         err
                     ),
@@ -360,15 +351,12 @@ fn find_csv_files_in_dir_impl(
                         let lowercase = path_str.to_ascii_lowercase();
                         if lowercase.ends_with(".header.csv") || lowercase.ends_with(".headers.csv")
                         {
-                            eprintln!("Warning: Skipping header file: {}", path_str);
+                            eprintln!("⚠️  Skipping header file: {}", path_str);
                         } else {
                             csv_files.push(path_str.to_string());
                         }
                     } else {
-                        eprintln!(
-                            "Warning: Skipping file with non-UTF-8 path: {}",
-                            path.display()
-                        );
+                        eprintln!("⚠️  Skipping file with non-UTF-8 path: {}", path.display());
                     }
                 }
             }
@@ -384,7 +372,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("\nUsage: {program_name} <input1> [<input2> ...] [OPTIONS]");
     eprintln!();
-    eprintln!("=== INPUT/OUTPUT OPTIONS ===");
+    eprintln!("--- INPUT/OUTPUT OPTIONS ---");
     eprintln!();
     eprintln!(
         "  <inputX>: CSV files, directories, or wildcards (*.csv). Header files auto-excluded."
@@ -392,7 +380,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
     eprintln!("  -R, --recursive: Recursively find CSV files in subdirectories.");
     eprintln!();
-    eprintln!("=== PLOT TYPE SELECTION ===");
+    eprintln!("--- PLOT TYPE SELECTION ---");
     eprintln!();
     eprintln!("  --core           [default] Step Response, Gyro Spectrums, D-term Spectrums,");
     eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums,");
@@ -402,7 +390,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  --step           Step response only.");
     eprintln!("  --bode           Bode only (requires chirp/sweep system-id test flight).");
     eprintln!();
-    eprintln!("=== ANALYSIS OPTIONS ===");
+    eprintln!("--- ANALYSIS OPTIONS ---");
     eprintln!();
     eprintln!("  --butterworth    Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
     eprintln!(
@@ -411,7 +399,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch");
     eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
     eprintln!();
-    eprintln!("=== GENERAL ===");
+    eprintln!("--- GENERAL ---");
     eprintln!();
     eprintln!("  --debug          Show detailed metadata during processing.");
     eprintln!("  -h, --help       Show this help message and exit.");
@@ -611,7 +599,7 @@ fn process_file(
     ) = match parse_log_file(input_path, analysis_opts.debug_mode) {
         Ok(data) => data,
         Err(e) => {
-            eprintln!("Error parsing log file {input_file_str}: {e}");
+            eprintln!("Error: Parsing log file {input_file_str}: {e}");
             return Ok(()); // Continue to next file
         }
     };
@@ -730,7 +718,7 @@ fn process_file(
         } else {
             println!(
                 "
-INFO ({input_file_str}): Skipping Step Response data collection: Setpoint or Gyro headers missing."
+INFO: Skipping Step Response data collection for {input_file_str}: Setpoint or Gyro headers missing."
             );
         }
     } else {
@@ -741,7 +729,7 @@ INFO ({input_file_str}): Skipping Step Response data collection: Setpoint or Gyr
         };
         println!(
             "
-INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
+INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}."
         );
     }
 
@@ -823,7 +811,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     // Analyze step response and provide P:D ratio recommendations based on overshoot/undershoot
     if sample_rate.is_some() {
         println!("\n--- Step Response Analysis & P:D Ratio Recommendations ---");
-        println!("NOTE: These are STARTING POINTS based on step response analysis.");
+        println!("Note: These are STARTING POINTS based on step response analysis.");
         println!("      These recommendations focus on D-term tuning (P:D ratio).");
         if analysis_opts.estimate_optimal_p {
             println!(
@@ -1011,7 +999,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         // Check for extreme overshoot (may indicate deeper issues)
                                         if peak_value > crate::constants::SEVERE_OVERSHOOT_THRESHOLD
                                         {
-                                            println!("  ⚠️  WARNING: Severe overshoot (Peak={peak_value:.2}) may indicate:");
+                                            println!("  ⚠️  Severe overshoot (Peak={peak_value:.2}) may indicate:");
                                             println!(
                                                 "      - P value too high, or mechanical issues"
                                             );
@@ -1027,7 +1015,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         let rec_ratio =
                                             recommended_pd_conservative[axis_index].unwrap();
                                         if rec_ratio < crate::constants::MIN_REASONABLE_PD_RATIO {
-                                            println!("  ⚠️  WARNING: Recommended P:D ratio ({rec_ratio:.2}) is very low");
+                                            println!("  ⚠️  Recommended P:D ratio ({rec_ratio:.2}) is very low");
                                             println!(
                                                 "      Consider increasing P instead of only adding D"
                                             );
@@ -1037,7 +1025,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         } else if rec_ratio
                                             > crate::constants::MAX_REASONABLE_PD_RATIO
                                         {
-                                            println!("  ⚠️  WARNING: Recommended P:D ratio ({rec_ratio:.2}) is very high");
+                                            println!("  ⚠️  Recommended P:D ratio ({rec_ratio:.2}) is very high");
                                             println!("      Consider decreasing P or checking for overdamped response");
                                             step_warnings[axis_index].push(format!(
                                                 "Recommended P:D ratio ({rec_ratio:.2}) is very high — consider decreasing P or checking for overdamped response"
@@ -1380,7 +1368,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 }
                                 Err(e) => {
                                     // Log the error for user visibility
-                                    eprintln!("Warning: {}", e);
+                                    eprintln!("⚠️  {}", e);
                                     optimal_p_skip_reasons[axis_index] = Some(e.to_string());
                                 }
                             }
@@ -1564,7 +1552,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
     let bode_results = if plot_config.bode {
         eprintln!();
-        eprintln!("⚠️  WARNING: Bode plots are designed for controlled test flights with system-identification inputs.");
+        eprintln!("⚠️  Bode plots are designed for controlled test flights with system-identification inputs.");
         eprintln!(
             "    For normal flight log analysis, use spectrum plots (default behavior) instead."
         );
@@ -2038,7 +2026,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 analysis_opts,
                 &aircraft_profile,
             ) {
-                eprintln!("An error occurred while processing {input_file_str}: {e}");
+                eprintln!("Error: Processing {input_file_str}: {e}");
                 overall_success = false;
             }
         }

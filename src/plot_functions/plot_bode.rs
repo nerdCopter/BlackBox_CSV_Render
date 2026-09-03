@@ -72,7 +72,7 @@ pub fn plot_bode_analysis(
             Ok(m) => m,
             Err(e) => {
                 println!(
-                    "  Warning: Could not calculate stability margins for {}: {}",
+                    "  ⚠️  Could not calculate stability margins for {}: {}",
                     axis_name, e
                 );
                 StabilityMargins::default()
@@ -171,7 +171,7 @@ pub fn plot_bode_analysis(
         Ok(true) => println!("  Generated Bode analysis plot: {}", output_file),
         Ok(false) => {} // Skipped internally (insufficient coherence); already logged there.
         Err(e) => {
-            println!("  Error creating Bode plot: {}", e);
+            println!("  Error: Creating Bode plot: {}", e);
             return Err(e);
         }
     }

@@ -15,7 +15,7 @@ pub fn fft_forward(data: &Array1<f32>) -> Array1<Complex32> {
     let planner = RealFftPlanner::<f32>::new().plan_fft_forward(n);
     let mut output = planner.make_output_vec();
     if planner.process(&mut input, &mut output).is_err() {
-        eprintln!("Warning: FFT forward processing failed.");
+        eprintln!("⚠️  FFT forward processing failed.");
         let expected_complex_len = if n % 2 == 0 { n / 2 + 1 } else { n.div_ceil(2) };
         return Array1::zeros(expected_complex_len);
     }
@@ -41,7 +41,7 @@ pub fn fft_inverse(data: &Array1<Complex32>, original_length_n: usize) -> Array1
 
     if input.len() != expected_complex_len {
         eprintln!(
-            "Warning: FFT inverse length mismatch. Expected complex length {}, got {}. Returning zeros.",
+            "⚠️  FFT inverse length mismatch. Expected complex length {}, got {}. Returning zeros.",
             expected_complex_len,
             input.len()
         );
@@ -54,7 +54,7 @@ pub fn fft_inverse(data: &Array1<Complex32>, original_length_n: usize) -> Array1
         output_arr.mapv_inplace(|x| x * scale);
         output_arr
     } else {
-        eprintln!("Warning: FFT inverse processing failed. Returning zeros.");
+        eprintln!("⚠️  FFT inverse processing failed. Returning zeros.");
         Array1::zeros(original_length_n)
     }
 }

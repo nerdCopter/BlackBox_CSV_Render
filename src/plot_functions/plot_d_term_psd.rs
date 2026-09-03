@@ -528,7 +528,7 @@ pub fn plot_d_term_psd(
         }
     })?;
 
-    println!("  D-term PSD plot saved as '{}'", output_file);
+    println!("  D-term PSD plot saved as '{}'.", output_file);
     Ok(())
 }
 

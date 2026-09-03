@@ -158,7 +158,7 @@ pub fn plot_step_response(
                 .max(current_ss_start_idx + 1);
 
             if current_ss_start_idx >= current_ss_end_idx {
-                eprintln!("Warning: Axis {axis_index} Step Response: Steady-state window is invalid (start_idx {current_ss_start_idx} >= end_idx {current_ss_end_idx} for response length {response_length_samples}). Skipping final normalization and plot for this axis.");
+                eprintln!("⚠️  Axis {axis_index} Step Response: Steady-state window is invalid (start_idx {current_ss_start_idx} >= end_idx {current_ss_end_idx} for response length {response_length_samples}). Skipping final normalization and plot for this axis.");
                 continue;
             }
 
@@ -825,7 +825,7 @@ pub fn plot_step_response(
             (mid - half_range, mid + half_range)
         } else {
             // Default range if no valid data
-            eprintln!("Warning: No finite step response data found. Using default range.");
+            eprintln!("⚠️  No finite step response data found. Using default range.");
             (-0.2, 1.8) // A reasonable default for normalized step responses
         };
 
