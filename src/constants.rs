@@ -208,6 +208,7 @@ pub const RC_COMMAND_ACTIVITY_Y_AXIS_MIN: f64 = 200.0;
 // rcCommand data can step by exactly 1 unit during deliberate movement, and a higher
 // threshold would blind the detector to those transitions.
 pub const RC_STEP_MIN_JUMP_SIZE: f64 = 0.5; // Minimum jump magnitude (rcCommand units) to count as a real value change
+pub const RC_STEP_SECONDS_TO_MS: f64 = 1000.0; // Convert plateau duration from seconds to milliseconds
 pub const RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS: f64 = 12.0; // Median plateau duration above which stick input is flagged as blocky
                                                         // A median from only a handful of transitions is unreliable. One isolated noise blip in an
                                                         // otherwise-idle log can produce a median spanning most of the log. Require enough
