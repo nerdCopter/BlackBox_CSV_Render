@@ -75,8 +75,7 @@ fn detect_rc_command_steps(data: &AxisPlotData2) -> RcCommandStepResult {
     let median_plateau_ms = if step_count < RC_STEP_MIN_COUNT_FOR_ASSESSMENT {
         None
     } else {
-        plateau_durations_ms
-            .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        plateau_durations_ms.sort_by(|a, b| a.total_cmp(b));
         let mid = plateau_durations_ms.len() / 2;
         let median = if plateau_durations_ms.len() % 2 == 0 {
             (plateau_durations_ms[mid - 1] + plateau_durations_ms[mid]) / 2.0
