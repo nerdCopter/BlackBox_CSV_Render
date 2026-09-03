@@ -369,7 +369,12 @@ mod tests {
         let data = axis_data_from(&values);
         let result = detect_rc_command_steps(&data);
 
-        // If the trailing 5000-sample run were included, the median would jump to ~2500ms.
+        // A single 5000-sample outlier among 29 legitimate ~20ms plateaus never reaches the
+        // median position, so median alone can't prove the trailing run was excluded — it
+        // reads ~20ms either way. step_count is the signal that actually distinguishes
+        // correct exclusion (29: the 30 groups, minus the left-censored first group with no
+        // observed start) from the bug (30, if the blip-tail were wrongly counted).
+        assert_eq!(result.step_count, 29);
         let median_ms = result.median_plateau_ms.expect("expected a classification");
         assert!(median_ms < RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS * 5.0);
     }
