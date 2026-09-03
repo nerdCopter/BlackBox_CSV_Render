@@ -30,7 +30,8 @@ pub struct RcCommandStepResult {
 ///
 /// Plateau duration is measured from each row's own timestamp, not from the log-wide
 /// average sample rate — irregular RX intervals or dropped frames would otherwise skew
-/// the duration of individual plateaus.
+/// the duration of individual plateaus. A plateau is only credited if it began with a real
+/// jump; see the loop below for why that check applies uniformly, not just to the trailing run.
 fn detect_rc_command_steps(data: &AxisPlotData2) -> RcCommandStepResult {
     let rc_points: Vec<(f64, f64)> = data
         .iter()
@@ -48,7 +49,12 @@ fn detect_rc_command_steps(data: &AxisPlotData2) -> RcCommandStepResult {
 
     let mut plateau_durations_ms: Vec<f64> = Vec::new();
     let mut run_start_time = rc_points[0].0;
-    // Whether the transition that started the *current* run was itself a qualifying jump.
+    // Whether the run ending *now* began with a real jump. A plateau is only credited if its
+    // own start was a genuine step — one following sub-threshold float noise isn't a real
+    // "held" measurement, and the log's very first plateau (no observed start) never is either.
+    // This is checked uniformly for every ending run, mid-series or trailing: the first sample
+    // starts with this false, so a fully static series (no rc_command movement at all) stays
+    // unclassified (None), not "maximally blocky" from one giant uncredited plateau.
     let mut current_run_follows_qualifying_jump = false;
 
     for i in 1..rc_points.len() {
@@ -58,16 +64,14 @@ fn detect_rc_command_steps(data: &AxisPlotData2) -> RcCommandStepResult {
             continue;
         }
         let qualifies = (curr - prev).abs() >= RC_STEP_MIN_JUMP_SIZE;
-        if qualifies {
+        if current_run_follows_qualifying_jump {
             plateau_durations_ms.push((rc_points[i].0 - run_start_time) * RC_STEP_SECONDS_TO_MS);
         }
         run_start_time = rc_points[i].0;
         current_run_follows_qualifying_jump = qualifies;
     }
-    // Include the trailing run, but only if the transition that started it was itself a
-    // qualifying jump — a plateau following sub-threshold float noise isn't a real "held"
-    // measurement, and a fully static series (no rc_command movement at all) must stay
-    // unclassified (None), not "maximally blocky" from one giant plateau spanning the whole log.
+    // Trailing run: same credit rule as every run above, just with no further transition to
+    // trigger the push, so it's applied once more here against the log's last sample.
     if current_run_follows_qualifying_jump {
         plateau_durations_ms
             .push((rc_points[rc_points.len() - 1].0 - run_start_time) * RC_STEP_SECONDS_TO_MS);
@@ -368,6 +372,38 @@ mod tests {
         // If the trailing 5000-sample run were included, the median would jump to ~2500ms.
         let median_ms = result.median_plateau_ms.expect("expected a classification");
         assert!(median_ms < RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS * 5.0);
+    }
+
+    #[test]
+    fn plateau_ending_in_sub_threshold_blip_is_still_credited() {
+        // Each repetition: a real jump starts a held run long enough to be "blocky", a
+        // sub-threshold blip ends that run (not a real step), then a short blip-held tail
+        // before the next real jump. The held run's own duration must still be credited when
+        // it ends via noise rather than another real step — only the uncertain tail *after*
+        // the blip is excluded, not the bounded, already-observed time before it.
+        let mut values: Vec<f64> = Vec::new();
+        let mut value = 0.0;
+
+        for _ in 0..25 {
+            value += 10.0; // real jump starts the held run
+            for _ in 0..20 {
+                values.push(value); // held 20 samples = 20ms at 1kHz, above the blocky threshold
+            }
+            values.push(value + 0.1); // sub-threshold blip ends the run, does not qualify
+            for _ in 0..3 {
+                values.push(value + 0.1); // short blip-held tail, must stay uncredited
+            }
+        }
+
+        let data = axis_data_from(&values);
+        let result = detect_rc_command_steps(&data);
+
+        // If blip-terminated runs were silently dropped, step_count would collapse toward 0
+        // and the series would read as unclassified instead of blocky.
+        assert!(result.step_count >= RC_STEP_MIN_COUNT_FOR_ASSESSMENT);
+        let median_ms = result.median_plateau_ms.expect("expected a classification");
+        assert!(median_ms >= RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS);
+        assert!(result.is_blocky);
     }
 
     // Fixture values for `irregular_intervals_use_actual_timestamps_not_sample_count` — no
