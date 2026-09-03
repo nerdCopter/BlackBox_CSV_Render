@@ -122,7 +122,7 @@ pub fn plot_d_term_heatmap(
         // Ensure axis index is within valid bounds for data arrays
         if axis_idx >= 3 {
             println!(
-                "  Warning: Axis index {} exceeds maximum supported axes (3). Skipping.",
+                "  ⚠️  Axis index {} exceeds maximum supported axes (3). Skipping.",
                 axis_idx
             );
             continue;
@@ -433,7 +433,7 @@ pub fn plot_d_term_heatmap(
         .iter()
         .any(is_axis_heatmap_spectrum_data_valid);
     if !has_data {
-        println!("INFO: No valid D-term heatmap data found for any axis. Skipping D-term heatmap plot generation.");
+        println!("\nINFO: No valid D-term heatmap data found for any axis. Skipping D-term heatmap plot generation.");
         return Ok(());
     }
 
@@ -446,6 +446,6 @@ pub fn plot_d_term_heatmap(
         }
     })?;
 
-    println!("  D-term heatmap plot saved as '{}'", output_file);
+    println!("  D-term heatmap plot saved as '{}'.", output_file);
     Ok(())
 }

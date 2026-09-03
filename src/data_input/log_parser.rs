@@ -41,7 +41,7 @@ fn read_headers_csv(headers_file_path: &Path) -> Result<Vec<(String, String)>, B
                 }
             }
             Err(e) => {
-                println!("Warning: Error parsing headers CSV line: {e}");
+                println!("⚠️  Error parsing headers CSV line: {e}");
                 // Continue processing other lines
             }
         }
@@ -182,7 +182,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                 header_metadata.append(&mut headers_metadata);
             }
             Err(e) => {
-                println!("Warning: Failed to read headers file: {e}");
+                println!("⚠️  Failed to read headers file: {e}");
             }
         }
     }
@@ -328,7 +328,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                     .collect::<Vec<_>>()
                     .join(", ");
                 println!(
-                    "Warning: Gap(s) detected in motor indices. Missing: motor[{}]",
+                    "⚠️  Gap(s) detected in motor indices. Missing: motor[{}]",
                     missing_str
                 );
             }
@@ -575,7 +575,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                         current_row_data.time_sec = Some(t_us / 1_000_000.0);
                     } else {
                         eprintln!(
-                            "Warning: Skipping row {} due to missing or invalid 'time (us)'",
+                            "⚠️  Skipping row {} due to missing or invalid 'time (us)'",
                             row_index + 1
                         );
                         continue;
@@ -663,7 +663,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                 }
                 Err(e) => {
                     eprintln!(
-                        "Warning: Skipping row {} due to CSV read error: {}",
+                        "⚠️  Skipping row {} due to CSV read error: {}",
                         row_index + 1,
                         e
                     );
@@ -701,7 +701,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
         }
     }
     if sample_rate.is_none() {
-        println!("Warning: Could not determine sample rate (need >= 2 data points with distinct timestamps). Step response calculation might be affected.");
+        println!("⚠️  Could not determine sample rate (need >= 2 data points with distinct timestamps). Step response calculation might be affected.");
     }
 
     Ok((
