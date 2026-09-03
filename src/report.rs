@@ -15,6 +15,7 @@ use crate::data_analysis::filter_response::{
 };
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
 use crate::data_analysis::transfer_function_estimation::Confidence;
+use crate::eso::EsoResult;
 use crate::plot_functions::plot_bode::BodeAxisResult;
 use crate::plot_functions::plot_d_term_spectrums::DTermAxisResult;
 use crate::plot_functions::plot_gyro_spectrums::GyroAnalysisResult;
@@ -55,6 +56,7 @@ pub struct FlightReport {
     pub dterm_results: Vec<DTermAxisResult>,
     pub bode_results: Vec<BodeAxisResult>,
     pub motor_results: Vec<MotorOscillationResult>,
+    pub eso_results: [Option<EsoResult>; AXIS_COUNT],
     pub rc_command_steps: Vec<RcCommandStepResult>,
     pub png_links: Vec<String>,
     /// Human-readable labels of plot types that were enabled but produced no plottable data.
@@ -491,6 +493,40 @@ pub fn generate_markdown_report(
                 "| {} | {} | {} | {} | {} |",
                 r.motor_idx, max_amp, osc, peak, avg
             )?;
+        }
+        writeln!(md)?;
+    }
+
+    // --- ESO Gain Optimization ---
+    let any_eso = report.eso_results.iter().any(|r| r.is_some());
+    if any_eso {
+        writeln!(md, "## ESO Gain Optimization")?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "| Axis | omega_0 (rad/s) | beta1 | beta2 | b0 | b0 source | MSE | Note |"
+        )?;
+        writeln!(
+            md,
+            "|------|----------------|-------|-------|----|-----------|-----|------|"
+        )?;
+        for (i, slot) in report.eso_results.iter().enumerate() {
+            let axis = AXIS_NAMES.get(i).copied().unwrap_or("?");
+            if let Some(r) = slot {
+                let b0_src = if r.b0_auto {
+                    "auto-estimated"
+                } else {
+                    "user-supplied"
+                };
+                let note = if r.at_ceiling { "[at ceiling]" } else { "" };
+                writeln!(
+                    md,
+                    "| {} | {:.1} | {:.2} | {:.2} | {:.4} | {} | {:.6} | {} |",
+                    axis, r.omega0_opt, r.beta1, r.beta2, r.b0, b0_src, r.mse, note
+                )?;
+            } else {
+                writeln!(md, "| {} | N/A | — | — | — | — | — | skipped |", axis)?;
+            }
         }
         writeln!(md)?;
     }
