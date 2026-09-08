@@ -1,5 +1,6 @@
 // src/plot_functions/mod.rs
 
+pub mod motor_desync;
 pub mod peak_detection;
 pub mod plot_bode;
 pub mod plot_d_term_heatmap;

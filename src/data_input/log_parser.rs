@@ -50,6 +50,61 @@ fn read_headers_csv(headers_file_path: &Path) -> Result<Vec<(String, String)>, B
     Ok(header_metadata)
 }
 
+/// Detects dynamically-indexed CSV columns matching `<prefix><N>]` (e.g. `eRPM[0]`),
+/// returning their CSV column indices sorted by N. Mirrors the inline motor[N] detection
+/// above; only pulled into a helper here since eRPM is the second channel needing this.
+fn find_indexed_channel_indices(
+    header_record: &csv::StringRecord,
+    prefix: &str,
+    debug_mode: bool,
+    label: &str,
+) -> Vec<usize> {
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    for (csv_idx, header) in header_record.iter().enumerate() {
+        if let Some(num_str) = header
+            .trim()
+            .strip_prefix(prefix)
+            .and_then(|s| s.strip_suffix(']'))
+        {
+            if let Ok(num) = num_str.parse::<usize>() {
+                pairs.push((num, csv_idx));
+            }
+        }
+    }
+    pairs.sort_by_key(|&(num, _)| num);
+
+    if !pairs.is_empty() {
+        let mut missing: Vec<usize> = Vec::new();
+        let mut expected = 0usize;
+        for &(num, _) in &pairs {
+            while expected < num {
+                missing.push(expected);
+                expected += 1;
+            }
+            expected = num + 1;
+        }
+        if debug_mode {
+            if !missing.is_empty() {
+                let missing_str = missing
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                println!("⚠️  Gap(s) detected in {label} indices. Missing: {label}[{missing_str}]");
+            }
+            println!(
+                "Detected {} {} channels: {label}[{}] through {label}[{}]",
+                pairs.len(),
+                label,
+                pairs.first().map(|&(n, _)| n).unwrap_or(0),
+                pairs.last().map(|&(n, _)| n).unwrap_or(0)
+            );
+        }
+    }
+
+    pairs.into_iter().map(|(_, csv_idx)| csv_idx).collect()
+}
+
 /// Decides whether debug[0-2] should be used as a gyroUnfilt fallback, and the console
 /// message (if any) explaining the decision. Pulled out of `parse_log_file` so the
 /// header-coverage/debug_mode branching can be unit tested without file I/O.
@@ -270,6 +325,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
 
     let header_indices: Vec<Option<usize>>;
     let mut motor_indices: Vec<usize> = Vec::new();
+    let erpm_indices: Vec<usize>;
     let using_debug_fallback: bool;
 
     // Read CSV header and map target headers to indices.
@@ -347,6 +403,10 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                 );
             }
         }
+
+        // Detect eRPM telemetry channels dynamically (eRPM[0] through eRPM[N-1]), indexed
+        // to match motor[N]. Missing entirely on logs without bidirectional DShot telemetry.
+        erpm_indices = find_indexed_channel_indices(&header_record, "eRPM[", debug_mode, "eRPM");
 
         header_indices = target_headers
             .iter()
@@ -657,6 +717,15 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                             .get(motor_csv_idx)
                             .and_then(|val_str| val_str.parse::<f64>().ok());
                         current_row_data.motors.push(motor_val);
+                    }
+
+                    // Parse eRPM telemetry (indexed to match motors)
+                    current_row_data.erpms = Vec::with_capacity(erpm_indices.len());
+                    for &erpm_csv_idx in &erpm_indices {
+                        let erpm_val = record
+                            .get(erpm_csv_idx)
+                            .and_then(|val_str| val_str.parse::<f64>().ok());
+                        current_row_data.erpms.push(erpm_val);
                     }
 
                     all_log_data.push(current_row_data);

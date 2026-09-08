@@ -136,6 +136,7 @@ use crate::constants::{
 };
 
 // Specific plot function imports
+use crate::plot_functions::motor_desync::detect_motor_desync;
 use crate::plot_functions::plot_bode::plot_bode_analysis;
 use crate::plot_functions::plot_d_term_heatmap::plot_d_term_heatmap;
 use crate::plot_functions::plot_d_term_psd::plot_d_term_psd;
@@ -1540,6 +1541,12 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         vec![]
     };
 
+    let motor_desync_results = if plot_config.motor_spectrums {
+        detect_motor_desync(&all_log_data)
+    } else {
+        vec![]
+    };
+
     if plot_config.psd {
         plot_psd(
             &all_log_data,
@@ -1779,6 +1786,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         dterm_results,
         bode_results,
         motor_results,
+        motor_desync_results,
         rc_command_steps,
         png_links,
         skipped_plots,

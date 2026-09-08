@@ -15,6 +15,7 @@ use crate::data_analysis::filter_response::{
 };
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
 use crate::data_analysis::transfer_function_estimation::Confidence;
+use crate::plot_functions::motor_desync::MotorDesyncResult;
 use crate::plot_functions::plot_bode::BodeAxisResult;
 use crate::plot_functions::plot_d_term_spectrums::DTermAxisResult;
 use crate::plot_functions::plot_gyro_spectrums::GyroAnalysisResult;
@@ -55,6 +56,7 @@ pub struct FlightReport {
     pub dterm_results: Vec<DTermAxisResult>,
     pub bode_results: Vec<BodeAxisResult>,
     pub motor_results: Vec<MotorOscillationResult>,
+    pub motor_desync_results: Vec<MotorDesyncResult>,
     pub rc_command_steps: Vec<RcCommandStepResult>,
     pub png_links: Vec<String>,
     /// Human-readable labels of plot types that were enabled but produced no plottable data.
@@ -493,6 +495,74 @@ pub fn generate_markdown_report(
             )?;
         }
         writeln!(md)?;
+    }
+
+    // --- Motor Desync Detection ---
+    if !report.motor_desync_results.is_empty() {
+        writeln!(md, "## Motor Desync Detection")?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "Flags samples where eRPM diverges sharply from a steady motor command. This is a divergence heuristic, not a confirmed diagnosis — cross-check any flagged time against gyro/accelerometer disturbance on the same axis."
+        )?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "| Motor | eRPM Telemetry | Events | Worst Δ eRPM (%) | Event Times (s) |"
+        )?;
+        writeln!(
+            md,
+            "|-------|-----------------|--------|-------------------|------------------|"
+        )?;
+        let mut any_events = false;
+        for r in &report.motor_desync_results {
+            if !r.erpm_signal_available {
+                writeln!(
+                    md,
+                    "| {} | Insufficient signal | N/A | N/A | N/A |",
+                    r.motor_idx
+                )?;
+                continue;
+            }
+            if r.events.is_empty() {
+                writeln!(md, "| {} | Available | 0 | N/A | N/A |", r.motor_idx)?;
+                continue;
+            }
+            any_events = true;
+            let worst = r
+                .events
+                .iter()
+                .map(|e| e.erpm_delta_percent)
+                .fold(0.0, f64::max);
+            let times = r
+                .events
+                .iter()
+                .take(5)
+                .map(|e| format!("{:.2}", e.time_s))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let times = if r.events.len() > 5 {
+                format!("{times}, …")
+            } else {
+                times
+            };
+            writeln!(
+                md,
+                "| {} | Available | {} | {:.1} | {} |",
+                r.motor_idx,
+                r.events.len(),
+                worst,
+                times
+            )?;
+        }
+        writeln!(md)?;
+        if any_events {
+            writeln!(
+                md,
+                "**⚠ Recommendation:** Review the flagged timestamps against gyro traces and audio/video for the same moments. Inspect the affected motor, ESC, and prop for damage or a loose connection."
+            )?;
+            writeln!(md)?;
+        }
     }
 
     // --- Stick Input Smoothness (RC Command step detection) ---
