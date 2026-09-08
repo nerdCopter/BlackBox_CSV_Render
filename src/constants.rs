@@ -69,6 +69,7 @@ pub const MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD: f64 = 5.0; // Below this Y
 
 // Motor/eRPM desync-divergence detection constants
 pub const MOTOR_DESYNC_MIN_ERPM_RANGE: f64 = 200.0; // Absolute eRPM range floor (raw units); below this the motor never spun enough to analyze
+pub const MOTOR_DESYNC_MIN_MOTOR_RANGE: f64 = 200.0; // Absolute motor-command range floor (raw units); below this armed_pct can't distinguish idle from armed (e.g. a log that never leaves ground idle)
 pub const MOTOR_DESYNC_MIN_ARMED_PERCENT: f64 = 20.0; // Motor command must sit at least this far into its own observed range (% of range)
 pub const MOTOR_DESYNC_ERPM_JUMP_THRESHOLD_PERCENT: f64 = 25.0; // eRPM change between samples, as % of that motor's own eRPM range, to flag a candidate
 pub const MOTOR_DESYNC_MOTOR_STABLE_THRESHOLD_PERCENT: f64 = 5.0; // Motor command change between the same samples must stay below this (% of range)

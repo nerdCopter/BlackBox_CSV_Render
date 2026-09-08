@@ -2,7 +2,7 @@
 
 use crate::constants::{
     MOTOR_DESYNC_ERPM_JUMP_THRESHOLD_PERCENT, MOTOR_DESYNC_EVENT_REFRACTORY_S,
-    MOTOR_DESYNC_MIN_ARMED_PERCENT, MOTOR_DESYNC_MIN_ERPM_RANGE,
+    MOTOR_DESYNC_MIN_ARMED_PERCENT, MOTOR_DESYNC_MIN_ERPM_RANGE, MOTOR_DESYNC_MIN_MOTOR_RANGE,
     MOTOR_DESYNC_MOTOR_STABLE_THRESHOLD_PERCENT,
 };
 use crate::data_input::log_data::LogRowData;
@@ -40,12 +40,13 @@ pub struct MotorDesyncResult {
 /// timestamp, not as a standalone diagnosis.
 ///
 /// Two known blind spots, both a consequence of normalizing against this log's own min/max
-/// range rather than a fixed scale: a motor held at constant throttle for the entire log
-/// (motor_range == 0) is skipped entirely — armed_pct's denominator would be a division by
-/// zero — so a desync that never coincides with any throttle movement can't be flagged. And
-/// erpm_range is computed once across the whole log, so an early aggressive maneuver that
-/// sets a wide range can suppress detection of a smaller-magnitude divergence later in a
-/// calmer part of the same flight.
+/// range rather than a fixed scale: a motor whose command never varies by more than
+/// MOTOR_DESYNC_MIN_MOTOR_RANGE for the entire log (near-constant throttle, or a log that
+/// never leaves ground idle) is skipped entirely — below that floor, armed_pct can't reliably
+/// distinguish "armed" from "idle", and a desync that never coincides with a throttle change
+/// can't be flagged either way. And erpm_range is computed once across the whole log, so an
+/// early aggressive maneuver that sets a wide range can suppress detection of a
+/// smaller-magnitude divergence later in a calmer part of the same flight.
 pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
     let motor_count = log_data
         .iter()
@@ -94,7 +95,7 @@ pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
         let motor_range = motor_max - motor_min;
         let erpm_range = erpm_max - erpm_min;
 
-        if motor_range <= 0.0 || erpm_range < MOTOR_DESYNC_MIN_ERPM_RANGE {
+        if motor_range < MOTOR_DESYNC_MIN_MOTOR_RANGE || erpm_range < MOTOR_DESYNC_MIN_ERPM_RANGE {
             results.push(MotorDesyncResult {
                 motor_idx,
                 erpm_signal_available: false,
@@ -181,13 +182,14 @@ mod tests {
 
     #[test]
     fn erpm_drop_under_steady_command_is_flagged() {
-        // Motor command holds essentially flat (a tiny drift keeps motor_range > 0, required
-        // for the low-signal guard) at a well-armed level while eRPM plummets for one sample
-        // then recovers — the textbook desync signature this detector targets.
+        // Motor command holds essentially flat (a small drift keeps motor_range above
+        // MOTOR_DESYNC_MIN_MOTOR_RANGE, required for the low-signal guard) at a well-armed
+        // level while eRPM plummets for one sample then recovers — the textbook desync
+        // signature this detector targets.
         let mut data = Vec::new();
         for i in 0..100u32 {
             let t = i as f64 / 1000.0;
-            let motor = 1500.0 + i as f64 * 0.01;
+            let motor = 1500.0 + i as f64 * 3.0;
             let erpm = if i == 50 { 200.0 } else { 1000.0 };
             data.push(row(t, 1, 0, motor, erpm));
         }
@@ -241,13 +243,13 @@ mod tests {
     fn repeated_glitch_samples_debounce_into_one_event() {
         // Entry into the glitch (sharp drop) and exit from it (sharp recovery) both satisfy
         // the candidate condition, 5ms apart — well under the 50ms refractory — so they must
-        // collapse into one reported event, not two. Motor carries a tiny drift throughout
-        // (motor_range > 0 is required by the low-signal guard) while staying under the 5%
-        // stable-command threshold at every transition.
+        // collapse into one reported event, not two. Motor carries a small drift throughout
+        // (motor_range above MOTOR_DESYNC_MIN_MOTOR_RANGE is required by the low-signal guard)
+        // while staying under the 5% stable-command threshold at every transition.
         let mut data = Vec::new();
         for i in 0..80u32 {
             let t = i as f64 / 1000.0;
-            let motor = 1500.0 + i as f64 * 0.01;
+            let motor = 1500.0 + i as f64 * 3.0;
             let erpm = if (20..25).contains(&i) {
                 100.0 + i as f64
             } else {
@@ -258,6 +260,25 @@ mod tests {
 
         let results = detect_motor_desync(&data);
         assert_eq!(results[0].events.len(), 1);
+    }
+
+    #[test]
+    fn narrow_range_idle_only_log_is_not_analyzed() {
+        // A log that never leaves ground idle (e.g. armed and sitting on the bench) has a
+        // motor command range too narrow for armed_pct to mean anything: 100% of a 50-unit
+        // range is still idle in absolute terms. Without MOTOR_DESYNC_MIN_MOTOR_RANGE, a
+        // sharp eRPM swing here would misread as a well-armed desync candidate.
+        let mut data = Vec::new();
+        for i in 0..200u32 {
+            let t = i as f64 / 1000.0;
+            let motor = 1000.0 + (i as f64 % 50.0); // range = 50, well under the floor
+            let erpm = if i == 100 { 100.0 } else { 1000.0 };
+            data.push(row(t, 1, 0, motor, erpm));
+        }
+
+        let results = detect_motor_desync(&data);
+        assert!(!results[0].erpm_signal_available);
+        assert!(results[0].events.is_empty());
     }
 }
 
