@@ -38,6 +38,14 @@ pub struct MotorDesyncResult {
 /// produce zero candidates across several apparently-clean flight logs. Treat a flagged
 /// event as something to cross-check against gyro/accelerometer disturbance at the same
 /// timestamp, not as a standalone diagnosis.
+///
+/// Two known blind spots, both a consequence of normalizing against this log's own min/max
+/// range rather than a fixed scale: a motor held at constant throttle for the entire log
+/// (motor_range == 0) is skipped entirely — armed_pct's denominator would be a division by
+/// zero — so a desync that never coincides with any throttle movement can't be flagged. And
+/// erpm_range is computed once across the whole log, so an early aggressive maneuver that
+/// sets a wide range can suppress detection of a smaller-magnitude divergence later in a
+/// calmer part of the same flight.
 pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
     let motor_count = log_data
         .iter()
