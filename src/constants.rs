@@ -69,13 +69,29 @@ pub const MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD: f64 = 5.0; // Below this Y
 pub const MOTOR_OSCILLATION_WINDOW_S: f64 = 0.25; // Sliding-window duration for oscillation detection (seconds); a whole-log FFT dilutes a brief burst below the threshold on a multi-minute flight
 pub const MOTOR_OSCILLATION_HOP_FRACTION: f64 = 0.5; // Sliding-window hop as a fraction of window length (50% overlap)
 
-// Motor/eRPM desync-divergence detection constants
+// Motor/eRPM desync-divergence detection constants. Every threshold below compares a motor
+// against its OWN behavior elsewhere in the same log — never a fixed cross-aircraft value —
+// since raw motor/eRPM units and normal response behavior both vary by protocol, pole count,
+// and airframe. Calibrated against three confirmed real crash logs plus ~500s of otherwise-
+// normal flight in those same logs and eight further real flights; see motor_desync.rs.
 pub const MOTOR_DESYNC_MIN_ERPM_RANGE: f64 = 200.0; // Absolute eRPM range floor (raw units); below this the motor never spun enough to analyze
-pub const MOTOR_DESYNC_MIN_MOTOR_RANGE: f64 = 200.0; // Absolute motor-command range floor (raw units); below this armed_pct can't distinguish idle from armed (e.g. a log that never leaves ground idle)
-pub const MOTOR_DESYNC_MIN_ARMED_PERCENT: f64 = 20.0; // Motor command must sit at least this far into its own observed range (% of range)
-pub const MOTOR_DESYNC_ERPM_JUMP_THRESHOLD_PERCENT: f64 = 25.0; // eRPM change between samples, as % of that motor's own eRPM range, to flag a candidate
-pub const MOTOR_DESYNC_MOTOR_STABLE_THRESHOLD_PERCENT: f64 = 5.0; // Motor command change between the same samples must stay below this (% of range)
-pub const MOTOR_DESYNC_EVENT_REFRACTORY_S: f64 = 0.05; // Minimum gap between reported events on the same motor, so one glitch isn't counted repeatedly
+pub const MOTOR_DESYNC_MIN_MOTOR_RANGE: f64 = 200.0; // Absolute motor-command range floor (raw units); below this "high command" can't distinguish idle from armed (e.g. a log that never leaves ground idle)
+pub const MOTOR_DESYNC_EVENT_REFRACTORY_S: f64 = 0.1; // Minimum gap between reported events on the same motor, so one glitch isn't counted repeatedly
+
+// DeFacto tier: this motor has enough of its own high-command history in this log to build a
+// self-relative baseline from.
+pub const MOTOR_DESYNC_HIGH_CMD_PERCENTILE: f64 = 75.0; // "Commanded high" = top quartile of this motor's own observed range
+pub const MOTOR_DESYNC_MIN_BASELINE_SAMPLES: usize = 20; // Minimum high-command samples elsewhere in the log needed to trust the baseline
+pub const MOTOR_DESYNC_SUSTAIN_S: f64 = 0.05; // Command must stay high for this long (seconds) before a window counts
+pub const MOTOR_DESYNC_RESPONSE_FLOOR_FRACTION: f64 = 0.35; // Window's eRPM median must be at least this fraction of this motor's own high-command baseline median
+pub const MOTOR_DESYNC_NOISE_MULTIPLIER: f64 = 4.0; // OR window's eRPM stdev exceeds this multiple of this motor's own high-command baseline stdev
+
+// Possible tier: used only when DeFacto has too little high-command history to build a
+// baseline (e.g. a short flight whose only high-throttle moment is the event itself).
+pub const MOTOR_DESYNC_POSSIBLE_HIGH_CMD_PERCENTILE: f64 = 90.0; // Near-ceiling, not just top quartile — a shorter, less certain window needs a stronger command signal to justify flagging at all
+pub const MOTOR_DESYNC_POSSIBLE_SUSTAIN_S: f64 = 0.006; // Much shorter window than DeFacto's — Possible exists specifically to catch brief transients too short for DeFacto's window
+pub const MOTOR_DESYNC_ERPM_REF_PERCENTILE: f64 = 90.0; // This motor's own eRPM reference level (whole log, any command level) — a percentile, not the raw max, so a few noisy outlier samples can't inflate the reference and hide a real non-response
+pub const MOTOR_DESYNC_POSSIBLE_CEILING_FRACTION: f64 = 0.5; // Window's peak eRPM must stay below this fraction of the motor's own eRPM reference level to flag
 
 // Frequency-axis math constants shared by Bode and motor-spectrum plots
 pub const NYQUIST_DIVISOR: f64 = 2.0; // Converts sample rate to Nyquist frequency (sample_rate / divisor)

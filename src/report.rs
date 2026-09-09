@@ -15,7 +15,7 @@ use crate::data_analysis::filter_response::{
 };
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
 use crate::data_analysis::transfer_function_estimation::Confidence;
-use crate::plot_functions::motor_desync::MotorDesyncResult;
+use crate::plot_functions::motor_desync::{DesyncConfidence, MotorDesyncResult};
 use crate::plot_functions::plot_bode::BodeAxisResult;
 use crate::plot_functions::plot_d_term_spectrums::DTermAxisResult;
 use crate::plot_functions::plot_gyro_spectrums::GyroAnalysisResult;
@@ -508,60 +508,70 @@ pub fn generate_markdown_report(
         writeln!(md)?;
         writeln!(
             md,
-            "Flags samples where eRPM diverges sharply from a steady motor command. This is a divergence heuristic, not a confirmed diagnosis — cross-check any flagged time against gyro/accelerometer disturbance on the same axis."
+            "Flags a motor commanded high whose eRPM fails to respond, compared against that same motor's own behavior elsewhere in this flight — never a fixed threshold across aircraft. **De Facto** compares against a rich same-motor baseline; **Possible** is a looser fallback used only when this flight has too little high-command history to build one. Still a heuristic, not a confirmed diagnosis — cross-check any flagged time against gyro/accelerometer disturbance at the same timestamp."
         )?;
         writeln!(md)?;
         writeln!(
             md,
-            "| Motor | eRPM Telemetry | Events | Worst Δ eRPM (%) | Event Times (s) |"
+            "| Motor | eRPM Telemetry | De Facto | Possible | De Facto Times (s) | Possible Times (s) |"
         )?;
         writeln!(
             md,
-            "|-------|-----------------|--------|-------------------|------------------|"
+            "|-------|-----------------|----------|----------|----------------------|-----------------------|"
         )?;
-        let mut any_events = false;
+        let mut any_de_facto = false;
+        let mut any_possible = false;
         for r in &report.motor_desync_results {
             if !r.erpm_signal_available {
                 writeln!(
                     md,
-                    "| {} | Insufficient signal | N/A | N/A | N/A |",
+                    "| {} | Insufficient signal | N/A | N/A | N/A | N/A |",
                     r.motor_idx
                 )?;
                 continue;
             }
-            if r.events.is_empty() {
-                writeln!(md, "| {} | Available | 0 | N/A | N/A |", r.motor_idx)?;
-                continue;
-            }
-            any_events = true;
-            let worst = r
-                .events
-                .iter()
-                .map(|e| e.erpm_delta_percent)
-                .fold(0.0, f64::max);
-            let times = r
-                .events
-                .iter()
-                .take(5)
-                .map(|e| format!("{:.2}", e.time_s))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let times = if r.events.len() > 5 {
-                format!("{times}, …")
-            } else {
-                times
+            let fmt_times = |confidence: DesyncConfidence| -> String {
+                let times: Vec<String> = r
+                    .events
+                    .iter()
+                    .filter(|e| e.confidence == confidence)
+                    .take(5)
+                    .map(|e| format!("{:.2}", e.time_s))
+                    .collect();
+                if times.is_empty() {
+                    "N/A".to_string()
+                } else {
+                    times.join(", ")
+                }
             };
+            let de_facto_count = r
+                .events
+                .iter()
+                .filter(|e| e.confidence == DesyncConfidence::DeFacto)
+                .count();
+            let possible_count = r
+                .events
+                .iter()
+                .filter(|e| e.confidence == DesyncConfidence::Possible)
+                .count();
+            if de_facto_count > 0 {
+                any_de_facto = true;
+            }
+            if possible_count > 0 {
+                any_possible = true;
+            }
             writeln!(
                 md,
-                "| {} | Available | {} | {:.1} | {} |",
+                "| {} | Available | {} | {} | {} | {} |",
                 r.motor_idx,
-                r.events.len(),
-                worst,
-                times
+                de_facto_count,
+                possible_count,
+                fmt_times(DesyncConfidence::DeFacto),
+                fmt_times(DesyncConfidence::Possible)
             )?;
         }
         writeln!(md)?;
-        if any_events {
+        if any_de_facto || any_possible {
             writeln!(
                 md,
                 "**⚠ Recommendation:** Review the flagged timestamps against gyro traces and audio/video for the same moments. Inspect the affected motor, ESC, and prop for damage or a loose connection."
