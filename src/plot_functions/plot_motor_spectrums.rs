@@ -5,8 +5,8 @@ use std::error::Error;
 
 use crate::constants::{
     LINE_WIDTH_PLOT, MIN_FFT_SAMPLES, MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD,
-    MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ,
-    MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER, MOTOR_SPECTRUM_AXIS_ORIGIN,
+    MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_HOP_FRACTION,
+    MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER, MOTOR_OSCILLATION_WINDOW_S, MOTOR_SPECTRUM_AXIS_ORIGIN,
     MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD, NYQUIST_DIVISOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
@@ -31,13 +31,81 @@ const MOTOR_COLORS: [RGBColor; 8] = [
 /// Type alias for motor spectrum data: (frequencies, amplitudes, max_amplitude)
 type MotorSpectrumData = (Vec<f64>, Vec<f64>, f64);
 
-/// Per-motor result from oscillation analysis in the MOTOR_OSCILLATION_FREQ range
+/// Per-motor result from oscillation analysis in the MOTOR_OSCILLATION_FREQ range.
+/// `peak_in_range`/`avg_in_range`/`event_time_s` describe the single worst sliding window
+/// found (see `detect_windowed_oscillation`), not a whole-log average — a brief oscillation
+/// burst is the failure mode this looks for, and averaging over the whole flight is exactly
+/// what hides one.
 pub struct MotorOscillationResult {
     pub motor_idx: usize,
     pub max_amplitude: Option<f64>,
     pub oscillation_detected: bool,
     pub peak_in_range: Option<f64>,
     pub avg_in_range: Option<f64>,
+    pub event_time_s: Option<f64>,
+}
+
+/// Scans `samples` in overlapping time-based windows and returns the worst (highest-peak)
+/// window whose in-band peak clears the oscillation criteria (peak > N× the window's own
+/// band average, and above an absolute floor) — the same criteria the whole-log spectrum
+/// used before, just applied per-window instead of once over the entire flight. Returns
+/// `(event_time_s, peak, avg)` for the worst window found, or `None` if no window ever
+/// crosses the bar.
+fn detect_windowed_oscillation(
+    samples: &[f32],
+    times: &[f64],
+    sr_value: f64,
+) -> Option<(f64, f64, f64)> {
+    let win_samples =
+        ((MOTOR_OSCILLATION_WINDOW_S * sr_value).round() as usize).max(MIN_FFT_SAMPLES);
+    if samples.len() < win_samples {
+        return None;
+    }
+    let hop = ((win_samples as f64 * MOTOR_OSCILLATION_HOP_FRACTION).round() as usize).max(1);
+    let window = calc_step_response::tukeywin(win_samples, TUKEY_ALPHA);
+    let freq_spacing = sr_value / win_samples as f64;
+
+    let mut worst: Option<(f64, f64, f64)> = None;
+    let mut start = 0usize;
+    while start + win_samples <= samples.len() {
+        let seg: Array1<f32> =
+            Array1::from_vec(samples[start..start + win_samples].to_vec()) * &window;
+        let fft_output = fft_utils::fft_forward(&seg);
+
+        let mut band_sum = 0.0f64;
+        let mut band_peak = 0.0f64;
+        let mut band_count = 0usize;
+        for (i, c) in fft_output.iter().enumerate() {
+            let freq = i as f64 * freq_spacing;
+            if freq < MOTOR_OSCILLATION_FREQ_MIN_HZ {
+                continue;
+            }
+            if freq > MOTOR_OSCILLATION_FREQ_MAX_HZ {
+                break;
+            }
+            let magnitude = (c.re.powi(2) + c.im.powi(2)).sqrt();
+            let amp = (2.0 * magnitude / win_samples as f32) as f64;
+            band_sum += amp;
+            band_count += 1;
+            if amp > band_peak {
+                band_peak = amp;
+            }
+        }
+
+        if band_count > 0 {
+            let avg = band_sum / band_count as f64;
+            let is_oscillating = band_peak > MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER * avg
+                && band_peak > MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD;
+            if is_oscillating && worst.map_or(true, |(_, wp, _)| band_peak > wp) {
+                let t = times.get(start).copied().unwrap_or(0.0);
+                worst = Some((t, band_peak, avg));
+            }
+        }
+
+        start += hop;
+    }
+
+    worst
 }
 
 /// Generates stacked motor spectrum plots showing frequency content of each motor output.
@@ -70,8 +138,12 @@ pub fn plot_motor_spectrums(
         if motor_count == 1 { "" } else { "s" }
     );
 
-    // Extract motor data for each motor
+    // Extract motor data for each motor, alongside each sample's own row timestamp — the
+    // windowed oscillation scan below needs real time to report when an episode occurred,
+    // not just a sample index (motor_samples can have gaps relative to row count if any
+    // row is missing a motor value).
     let mut motor_samples: Vec<Vec<f32>> = vec![Vec::new(); motor_count];
+    let mut motor_times: Vec<Vec<f64>> = vec![Vec::new(); motor_count];
 
     for row in log_data {
         for (motor_idx, motor_val) in row.motors.iter().enumerate() {
@@ -82,6 +154,7 @@ pub fn plot_motor_spectrums(
             }
             if let Some(val) = motor_val {
                 motor_samples[motor_idx].push(*val as f32);
+                motor_times[motor_idx].push(row.time_sec.unwrap_or(0.0));
             }
         }
     }
@@ -143,42 +216,31 @@ pub fn plot_motor_spectrums(
         println!("  Motor {}: Max amplitude = {:.2}", motor_idx, motor_max);
     }
 
-    // Check for oscillation issues (peaks > 3× average in 50-200 Hz range)
+    // Check for oscillation issues via a sliding window, not the single whole-log spectrum
+    // computed above (that spectrum still drives the plot below, unchanged). A whole-log FFT
+    // spreads a brief oscillation burst's energy across the entire flight's duration, diluting
+    // it under the 3x-avg/absolute-amplitude bar long before a multi-minute flight is done;
+    // confirmed against two real-world desync logs during development — one showed 45
+    // sliding-window episodes this catches that the whole-log FFT reported as "None".
     let mut motor_osc_results: Vec<MotorOscillationResult> = Vec::new();
-    for (motor_idx, spectrum_data) in motor_spectrums.iter().enumerate() {
-        let max_amplitude = spectrum_data.as_ref().map(|(_, _, max)| *max);
-        let mut oscillation_detected = false;
-        let mut peak_in_range: Option<f64> = None;
-        let mut avg_in_range: Option<f64> = None;
+    for (motor_idx, samples) in motor_samples.iter().enumerate() {
+        let max_amplitude = motor_spectrums
+            .get(motor_idx)
+            .and_then(|s| s.as_ref())
+            .map(|(_, _, max)| *max);
 
-        if let Some((frequencies, amplitudes, _)) = spectrum_data {
-            let freq_range: Vec<(f64, f64)> = frequencies
-                .iter()
-                .zip(amplitudes.iter())
-                .filter(|(f, _)| {
-                    **f >= MOTOR_OSCILLATION_FREQ_MIN_HZ && **f <= MOTOR_OSCILLATION_FREQ_MAX_HZ
-                })
-                .map(|(f, a)| (*f, *a))
-                .collect();
-
-            if !freq_range.is_empty() {
-                let avg: f64 =
-                    freq_range.iter().map(|(_, a)| a).sum::<f64>() / freq_range.len() as f64;
-                let max = freq_range.iter().map(|(_, a)| *a).fold(0.0f64, f64::max);
-                peak_in_range = Some(max);
-                avg_in_range = Some(avg);
-
-                if max > MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER * avg
-                    && max > MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD
-                {
-                    oscillation_detected = true;
-                    println!(
-                        "  ⚠ Motor {}: Potential oscillation detected in {:.0}-{:.0} Hz range (peak {:.1} >> avg {:.1})",
-                        motor_idx, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ, max, avg
-                    );
-                }
+        let worst = detect_windowed_oscillation(samples, &motor_times[motor_idx], sr_value);
+        let oscillation_detected = worst.is_some();
+        let (event_time_s, peak_in_range, avg_in_range) = match worst {
+            Some((t, peak, avg)) => {
+                println!(
+                    "  ⚠ Motor {}: Potential oscillation detected in {:.0}-{:.0} Hz range at t={:.2}s (peak {:.1} >> avg {:.1})",
+                    motor_idx, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ, t, peak, avg
+                );
+                (Some(t), Some(peak), Some(avg))
             }
-        }
+            None => (None, None, None),
+        };
 
         motor_osc_results.push(MotorOscillationResult {
             motor_idx,
@@ -186,6 +248,7 @@ pub fn plot_motor_spectrums(
             oscillation_detected,
             peak_in_range,
             avg_in_range,
+            event_time_s,
         });
     }
 
@@ -312,4 +375,77 @@ pub fn plot_motor_spectrums(
     println!("  Stacked plot saved as '{}'.", output_file);
 
     Ok(motor_osc_results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SAMPLE_RATE: f64 = 2000.0;
+    const TEST_BURST_HZ: f64 = 100.0; // mid-band, well inside 50-200 Hz
+    const TEST_BURST_AMPLITUDE: f32 = 100.0; // raw motor-command units
+
+    fn constant_series(n: usize) -> Vec<f32> {
+        vec![1500.0; n]
+    }
+
+    fn times_for(n: usize) -> Vec<f64> {
+        (0..n).map(|i| i as f64 / TEST_SAMPLE_RATE).collect()
+    }
+
+    #[test]
+    fn quiet_series_reports_no_oscillation() {
+        // 10 seconds of a perfectly flat motor command — no window should ever cross the bar.
+        let n = (10.0 * TEST_SAMPLE_RATE) as usize;
+        let samples = constant_series(n);
+        let times = times_for(n);
+
+        let result = detect_windowed_oscillation(&samples, &times, TEST_SAMPLE_RATE);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn brief_burst_amid_long_quiet_flight_is_detected() {
+        // A ~0.3s, 100 Hz burst embedded in 30 seconds of otherwise flat command — under 1% of
+        // total flight duration. A single whole-log FFT dilutes this well below the detection
+        // bar (confirmed against two real-world desync logs during development); the sliding
+        // window must still catch it.
+        let total_s = 30.0;
+        let n = (total_s * TEST_SAMPLE_RATE) as usize;
+        let mut samples = constant_series(n);
+        let times = times_for(n);
+
+        let burst_start = n / 2;
+        let burst_len = (0.3 * TEST_SAMPLE_RATE) as usize;
+        for (i, sample) in samples
+            .iter_mut()
+            .enumerate()
+            .skip(burst_start)
+            .take(burst_len)
+        {
+            let t = i as f64 / TEST_SAMPLE_RATE;
+            *sample += TEST_BURST_AMPLITUDE
+                * (2.0 * std::f64::consts::PI * TEST_BURST_HZ * t).sin() as f32;
+        }
+
+        let result = detect_windowed_oscillation(&samples, &times, TEST_SAMPLE_RATE);
+        let (event_time, peak, avg) = result.expect("burst must be detected");
+        assert!(peak > MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD);
+        assert!(peak > MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER * avg);
+        // Event time must land inside the burst window, not anywhere in the 30s flight.
+        let burst_start_s = burst_start as f64 / TEST_SAMPLE_RATE;
+        let burst_end_s = (burst_start + burst_len) as f64 / TEST_SAMPLE_RATE;
+        assert!(event_time >= burst_start_s - MOTOR_OSCILLATION_WINDOW_S);
+        assert!(event_time <= burst_end_s);
+    }
+
+    #[test]
+    fn series_shorter_than_one_window_reports_none() {
+        let n = 10; // far below MIN_FFT_SAMPLES and one window's worth of samples
+        let samples = constant_series(n);
+        let times = times_for(n);
+
+        let result = detect_windowed_oscillation(&samples, &times, TEST_SAMPLE_RATE);
+        assert!(result.is_none());
+    }
 }

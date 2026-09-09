@@ -66,6 +66,8 @@ pub const MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD: f64 = 10.0; // Absolute amplitud
 pub const MOTOR_SPECTRUM_Y_AXIS_MAX: f64 = 5.0; // Static Y-axis maximum for motor spectrum plots (normalized linear amplitude units)
 pub const MOTOR_SPECTRUM_AXIS_ORIGIN: f64 = 0.0; // Shared X/Y axis origin for motor spectrum plot ranges
 pub const MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD: f64 = 5.0; // Below this Y-axis max, labels show one decimal place instead of integers
+pub const MOTOR_OSCILLATION_WINDOW_S: f64 = 0.25; // Sliding-window duration for oscillation detection (seconds); a whole-log FFT dilutes a brief burst below the threshold on a multi-minute flight
+pub const MOTOR_OSCILLATION_HOP_FRACTION: f64 = 0.5; // Sliding-window hop as a fraction of window length (50% overlap)
 
 // Frequency-axis math constants shared by Bode and motor-spectrum plots
 pub const NYQUIST_DIVISOR: f64 = 2.0; // Converts sample rate to Nyquist frequency (sample_rate / divisor)
