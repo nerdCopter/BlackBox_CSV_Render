@@ -75,24 +75,17 @@ fn find_indexed_channel_pairs(
     pairs.sort_by_key(|&(num, _)| num);
 
     if !pairs.is_empty() {
-        let mut missing: Vec<usize> = Vec::new();
         let mut expected = 0usize;
         for &(num, _) in &pairs {
-            while expected < num {
-                missing.push(expected);
-                expected += 1;
+            if debug_mode && expected < num {
+                println!(
+                    "⚠️  Gap detected in {label} indices: {label}[{expected}] through {label}[{}]",
+                    num - 1
+                );
             }
-            expected = num + 1;
+            expected = num.saturating_add(1);
         }
         if debug_mode {
-            if !missing.is_empty() {
-                let missing_str = missing
-                    .iter()
-                    .map(|i| i.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                println!("⚠️  Gap(s) detected in {label} indices. Missing: {label}[{missing_str}]");
-            }
             println!(
                 "Detected {} {} channels: {label}[{}] through {label}[{}]",
                 pairs.len(),
