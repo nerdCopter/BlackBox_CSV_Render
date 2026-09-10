@@ -95,6 +95,15 @@ pub const MOTOR_DESYNC_POSSIBLE_SUSTAIN_S: f64 = 0.006; // Much shorter window t
 pub const MOTOR_DESYNC_ERPM_REF_PERCENTILE: f64 = 90.0; // This motor's own eRPM reference level (whole log, any command level) — a percentile, not the raw max, so a few noisy outlier samples can't inflate the reference and hide a real non-response
 pub const MOTOR_DESYNC_POSSIBLE_CEILING_FRACTION: f64 = 0.5; // Window's peak eRPM must stay below this fraction of the motor's own eRPM reference level to flag
 
+// Fallback tier: used only when this log has no eRPM telemetry at all (e.g. EmuFlight, or
+// Betaflight without bidirectional DShot). Compares commanded output and rotation-tracking
+// error (gyro vs. setpoint) against this same flight's own distributions — no RPM signal to
+// verify against, so this is the least confident tier and can both miss real desyncs and flag
+// legitimate hard maneuvers.
+pub const MOTOR_DESYNC_FALLBACK_HIGH_CMD_PERCENTILE: f64 = 90.0; // Near-ceiling command, self-relative to this motor's own range
+pub const MOTOR_DESYNC_FALLBACK_ERROR_PERCENTILE: f64 = 97.0; // Tracking-error (|gyro - setpoint|) must be a rare outlier for this specific flight, not just any punchy-flying overshoot
+pub const MOTOR_DESYNC_FALLBACK_SUSTAIN_S: f64 = 0.15; // Window duration — the error must average high across a sustained span, not one overshooting sample
+
 // Frequency-axis math constants shared by Bode and motor-spectrum plots
 pub const NYQUIST_DIVISOR: f64 = 2.0; // Converts sample rate to Nyquist frequency (sample_rate / divisor)
 pub const MIN_PLOT_FREQUENCY_HZ: f64 = 1.0; // Floor for the Bode plot's frequency-axis minimum

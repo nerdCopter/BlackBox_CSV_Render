@@ -2,10 +2,12 @@
 
 use crate::constants::{
     MOTOR_DESYNC_ERPM_REF_PERCENTILE, MOTOR_DESYNC_EVENT_REFRACTORY_S,
-    MOTOR_DESYNC_HIGH_CMD_PERCENTILE, MOTOR_DESYNC_MIN_BASELINE_SAMPLES,
-    MOTOR_DESYNC_MIN_ERPM_RANGE, MOTOR_DESYNC_MIN_MOTOR_RANGE, MOTOR_DESYNC_NOISE_MULTIPLIER,
-    MOTOR_DESYNC_POSSIBLE_CEILING_FRACTION, MOTOR_DESYNC_POSSIBLE_HIGH_CMD_PERCENTILE,
-    MOTOR_DESYNC_POSSIBLE_SUSTAIN_S, MOTOR_DESYNC_RESPONSE_FLOOR_FRACTION, MOTOR_DESYNC_SUSTAIN_S,
+    MOTOR_DESYNC_FALLBACK_ERROR_PERCENTILE, MOTOR_DESYNC_FALLBACK_HIGH_CMD_PERCENTILE,
+    MOTOR_DESYNC_FALLBACK_SUSTAIN_S, MOTOR_DESYNC_HIGH_CMD_PERCENTILE,
+    MOTOR_DESYNC_MIN_BASELINE_SAMPLES, MOTOR_DESYNC_MIN_ERPM_RANGE, MOTOR_DESYNC_MIN_MOTOR_RANGE,
+    MOTOR_DESYNC_NOISE_MULTIPLIER, MOTOR_DESYNC_POSSIBLE_CEILING_FRACTION,
+    MOTOR_DESYNC_POSSIBLE_HIGH_CMD_PERCENTILE, MOTOR_DESYNC_POSSIBLE_SUSTAIN_S,
+    MOTOR_DESYNC_RESPONSE_FLOOR_FRACTION, MOTOR_DESYNC_SUSTAIN_S,
 };
 use crate::data_input::log_data::LogRowData;
 
@@ -21,6 +23,15 @@ pub enum DesyncConfidence {
     /// event itself) — flagged instead against a looser, still self-relative check (this
     /// motor's own overall eRPM level), so it carries less confidence.
     Possible,
+    /// No eRPM telemetry exists in this log at all (e.g. EmuFlight, or Betaflight without
+    /// bidirectional DShot enabled) — this motor's own RPM response can't be checked directly.
+    /// Flags a motor commanded near its own ceiling while the aircraft's rotation diverges
+    /// sharply from what was actually commanded (gyro vs. setpoint), the same shape a human
+    /// reviewing the traces would call "obviously fighting something" — but with no way to
+    /// confirm the cause is a motor/ESC failure rather than a hard intentional maneuver or a
+    /// different failure mode entirely (radio glitch, prop strike, mechanical damage). The
+    /// least confident tier; see `detect_motor_desync` for calibration notes.
+    Fallback,
 }
 
 /// One flagged motor/eRPM anomaly.
@@ -33,8 +44,12 @@ pub struct MotorDesyncEvent {
 pub struct MotorDesyncResult {
     pub motor_idx: usize,
     /// False when this motor's command or eRPM signal never varied enough to analyze —
-    /// missing telemetry, near-constant command, or the motor never spun meaningfully.
+    /// missing telemetry, near-constant command, or the motor never spun meaningfully. Also
+    /// false when `fallback_used` is true, since no real eRPM analysis ran for any motor.
     pub erpm_signal_available: bool,
+    /// True when this log has no eRPM telemetry at all and the motor+gyro/setpoint `Fallback`
+    /// heuristic ran instead of the eRPM-based `DeFacto`/`Possible` checks.
+    pub fallback_used: bool,
     pub events: Vec<MotorDesyncEvent>,
 }
 
@@ -181,27 +196,154 @@ fn detect_possible(samples: &MotorSamples, motor_min: f64, motor_range: f64) -> 
     events
 }
 
+/// `Fallback` check: used only when this log has no eRPM telemetry anywhere at all. Compares
+/// each row's tracking error — how far actual rotation (gyro) diverges from commanded rotation
+/// (setpoint), on whichever of roll/pitch/yaw diverges most — against this same flight's own
+/// error distribution, self-relative like every other tier here. A window is flagged only when
+/// that error is a rare, sustained outlier for this specific flight (not just a single-sample
+/// overshoot, which ordinary punchy flying produces routinely) AND at least one motor is
+/// commanded near its own ceiling in that same window — the flight controller visibly fighting
+/// something. Returns `(motor_idx, time_s)` pairs, one per motor that was high during a flagged
+/// window (a window can implicate more than one motor).
+///
+/// Calibrated against the same three confirmed crash logs used for `DeFacto`/`Possible` (using
+/// only their motor/gyro/setpoint columns, as if eRPM didn't exist) plus twelve further real
+/// flights, including one containing a violent uncommanded rotation the pilot reported as a
+/// confirmed desync. Caught all of these. Also produced a handful of residual false positives
+/// this session couldn't fully eliminate — notably on a log already established as chronic
+/// tune/mechanical oscillation, not desync (see `plot_motor_spectrums.rs`'s windowed check) —
+/// which is why this is its own least-confident tier, not folded into `Possible`.
+fn detect_control_loss_fallback(log_data: &[LogRowData]) -> Vec<(usize, f64)> {
+    let motor_count = log_data
+        .iter()
+        .map(|row| row.motors.len())
+        .max()
+        .unwrap_or(0);
+
+    let mut times = Vec::new();
+    let mut motor_rows: Vec<Vec<f64>> = Vec::new();
+    let mut err_mag = Vec::new();
+
+    for row in log_data {
+        let Some(t) = row.time_sec else { continue };
+        let Some(motors): Option<Vec<f64>> = row.motors.iter().copied().collect() else {
+            continue;
+        };
+        let mut err: f64 = 0.0;
+        let mut have_axis = false;
+        for axis in 0..3 {
+            if let (Some(g), Some(s)) = (row.gyro[axis], row.setpoint[axis]) {
+                err = err.max((g - s).abs());
+                have_axis = true;
+            }
+        }
+        if !have_axis {
+            continue;
+        }
+        times.push(t);
+        motor_rows.push(motors);
+        err_mag.push(err);
+    }
+
+    if times.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut err_sorted = err_mag.clone();
+    err_sorted.sort_by(|a, b| a.total_cmp(b));
+    let err_thresh = percentile(&err_sorted, MOTOR_DESYNC_FALLBACK_ERROR_PERCENTILE);
+
+    let mut high_thresh = vec![f64::INFINITY; motor_count];
+    for k in 0..motor_count {
+        let vals: Vec<f64> = motor_rows.iter().map(|m| m[k]).collect();
+        let mmin = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let mmax = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if mmax - mmin >= MOTOR_DESYNC_MIN_MOTOR_RANGE {
+            high_thresh[k] =
+                mmin + (mmax - mmin) * MOTOR_DESYNC_FALLBACK_HIGH_CMD_PERCENTILE / 100.0;
+        }
+    }
+
+    let win = window_len(&times, MOTOR_DESYNC_FALLBACK_SUSTAIN_S);
+    let mut last_event_time: Vec<Option<f64>> = vec![None; motor_count];
+    let mut events = Vec::new();
+    let mut i = 0;
+    while i + win <= times.len() {
+        let eseg = &err_mag[i..i + win];
+        let err_avg = mean(eseg);
+        if err_avg >= err_thresh {
+            for k in 0..motor_count {
+                if high_thresh[k].is_infinite() {
+                    continue;
+                }
+                let motor_high = (i..i + win).any(|j| motor_rows[j][k] >= high_thresh[k]);
+                if motor_high {
+                    let t = times[i];
+                    if last_event_time[k]
+                        .map_or(true, |last| t - last >= MOTOR_DESYNC_EVENT_REFRACTORY_S)
+                    {
+                        events.push((k, t));
+                        last_event_time[k] = Some(t);
+                    }
+                }
+            }
+        }
+        i += (win / 2).max(1);
+    }
+    events
+}
+
 /// Flags candidate motor-desync events by comparing each motor's commanded output
 /// (`motor[N]`) against its eRPM telemetry (`eRPM[N]`), self-relative to that same motor's
 /// own behavior elsewhere in this same flight — never a fixed cross-aircraft threshold, since
 /// raw motor/eRPM units and normal spin-up/response behavior both vary by protocol, pole
 /// count, and airframe.
 ///
-/// Two confidence tiers, see `DesyncConfidence`. Calibrated and validated against three
-/// confirmed real crash logs (each ending mid-tumble, log terminating at the crash) and
-/// checked for false positives across roughly 500 seconds of otherwise-normal flight in
-/// those same logs plus eight further real flights: `DeFacto` caught two of the three crashes
-/// cleanly with zero false positives; the third crash's motor had too little other
-/// high-command history in that short flight for `DeFacto`'s baseline, but was caught by
-/// `Possible`, which also produced zero false positives across the same data. Still a
-/// heuristic, not a certainty — cross-check any flagged time against gyro/accelerometer
-/// disturbance at the same timestamp.
+/// Two eRPM-based confidence tiers plus a motor+gyro/setpoint `Fallback` used only when this
+/// log has no eRPM telemetry at all — see `DesyncConfidence`. The eRPM tiers are calibrated
+/// and validated against three confirmed real crash logs (each ending mid-tumble, log
+/// terminating at the crash) and checked for false positives across roughly 500 seconds of
+/// otherwise-normal flight in those same logs plus eight further real flights: `DeFacto`
+/// caught two of the three crashes cleanly with zero false positives; the third crash's motor
+/// had too little other high-command history in that short flight for `DeFacto`'s baseline,
+/// but was caught by `Possible`, which also produced zero false positives across the same
+/// data. Still a heuristic, not a certainty — cross-check any flagged time against
+/// gyro/accelerometer disturbance at the same timestamp.
 pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
     let motor_count = log_data
         .iter()
         .map(|row| row.motors.len())
         .max()
         .unwrap_or(0);
+
+    let has_any_erpm = log_data
+        .iter()
+        .any(|row| row.erpms.iter().any(|e| e.is_some()));
+
+    if !has_any_erpm && motor_count > 0 {
+        println!(
+            "  ⚠️  No eRPM telemetry in this log — using motor+gyro/setpoint fallback for desync detection (lower confidence, cannot confirm RPM response)"
+        );
+        let fallback_events = detect_control_loss_fallback(log_data);
+        let mut per_motor: Vec<Vec<MotorDesyncEvent>> =
+            (0..motor_count).map(|_| Vec::new()).collect();
+        for (motor_idx, t) in fallback_events {
+            per_motor[motor_idx].push(MotorDesyncEvent {
+                time_s: t,
+                confidence: DesyncConfidence::Fallback,
+            });
+        }
+        return per_motor
+            .into_iter()
+            .enumerate()
+            .map(|(motor_idx, events)| MotorDesyncResult {
+                motor_idx,
+                erpm_signal_available: false,
+                fallback_used: true,
+                events,
+            })
+            .collect();
+    }
 
     let mut results = Vec::with_capacity(motor_count);
 
@@ -212,6 +354,7 @@ pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
             results.push(MotorDesyncResult {
                 motor_idx,
                 erpm_signal_available: false,
+                fallback_used: false,
                 events: Vec::new(),
             });
             continue;
@@ -236,6 +379,7 @@ pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
             results.push(MotorDesyncResult {
                 motor_idx,
                 erpm_signal_available: false,
+                fallback_used: false,
                 events: Vec::new(),
             });
             continue;
@@ -266,6 +410,7 @@ pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
         results.push(MotorDesyncResult {
             motor_idx,
             erpm_signal_available: true,
+            fallback_used: false,
             events,
         });
     }
@@ -423,6 +568,87 @@ mod tests {
         }
 
         let results = detect_motor_desync(&data);
+        assert!(results[0].events.is_empty());
+    }
+
+    fn fallback_row(time_s: f64, motor: f64, gyro: [f64; 3], setpoint: [f64; 3]) -> LogRowData {
+        let mut r = LogRowData {
+            time_sec: Some(time_s),
+            ..Default::default()
+        };
+        r.motors = vec![Some(motor)]; // single motor is enough to exercise the fallback path
+        r.erpms = Vec::new(); // no eRPM columns at all -- this is what selects Fallback
+        for axis in 0..3 {
+            r.gyro[axis] = Some(gyro[axis]);
+            r.setpoint[axis] = Some(setpoint[axis]);
+        }
+        r
+    }
+
+    #[test]
+    fn uncommanded_rotation_with_maxed_motor_is_fallback() {
+        // Long, calm baseline (motor cycling normally, gyro tightly tracking setpoint)
+        // establishes a tight self-relative tracking-error distribution. A later sustained
+        // window holds the motor near its own ceiling while gyro diverges sharply from an
+        // unchanged (near-zero) setpoint — rotation the pilot never commanded, the actual
+        // no-eRPM crash signature this tier targets.
+        let mut data = Vec::new();
+        let mut i = 0u32;
+        for _ in 0..20_000 {
+            let t = i as f64 * SAMPLE_INTERVAL_S;
+            let motor = 500.0 + (i as f64 % 1000.0);
+            let sp = (i as f64 % 20.0) - 10.0; // small, bounded commanded rate
+            data.push(fallback_row(t, motor, [sp + 2.0, sp, sp], [sp, sp, sp]));
+            i += 1;
+        }
+        for _ in 0..320 {
+            // > FALLBACK window length (0.15s / 0.0005s = 300 samples)
+            let t = i as f64 * SAMPLE_INTERVAL_S;
+            data.push(fallback_row(
+                t,
+                2000.0,
+                [500.0, 500.0, 500.0],
+                [0.0, 0.0, 0.0],
+            ));
+            i += 1;
+        }
+
+        let results = detect_motor_desync(&data);
+        assert!(results[0].fallback_used);
+        assert!(!results[0].erpm_signal_available);
+        assert_eq!(results[0].events.len(), 1);
+        assert_eq!(results[0].events[0].confidence, DesyncConfidence::Fallback);
+    }
+
+    #[test]
+    fn commanded_flip_with_maxed_motor_is_not_flagged() {
+        // Same maxed-motor event as above, but the aircraft's actual rotation matches what was
+        // commanded (setpoint tracks gyro closely) — a real, intentional hard flip, not a
+        // divergence. Tracking error never becomes a self-relative outlier, so this must not
+        // be flagged: Fallback distinguishes "fighting something uncommanded" from "doing
+        // exactly what was asked, aggressively."
+        let mut data = Vec::new();
+        let mut i = 0u32;
+        for _ in 0..20_000 {
+            let t = i as f64 * SAMPLE_INTERVAL_S;
+            let motor = 500.0 + (i as f64 % 1000.0);
+            let sp = (i as f64 % 20.0) - 10.0;
+            data.push(fallback_row(t, motor, [sp + 2.0, sp, sp], [sp, sp, sp]));
+            i += 1;
+        }
+        for _ in 0..320 {
+            let t = i as f64 * SAMPLE_INTERVAL_S;
+            data.push(fallback_row(
+                t,
+                2000.0,
+                [500.0, 500.0, 500.0],
+                [500.0, 500.0, 500.0],
+            ));
+            i += 1;
+        }
+
+        let results = detect_motor_desync(&data);
+        assert!(results[0].fallback_used);
         assert!(results[0].events.is_empty());
     }
 }

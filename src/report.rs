@@ -510,26 +510,35 @@ pub fn generate_markdown_report(
     if !report.motor_desync_results.is_empty() {
         writeln!(md, "## Motor Desync Detection")?;
         writeln!(md)?;
-        writeln!(
-            md,
-            "Flags a motor commanded high whose eRPM fails to respond, compared against that same motor's own behavior elsewhere in this flight — never a fixed threshold across aircraft. **De Facto** compares against a rich same-motor baseline; **Possible** is a looser fallback used only when this flight has too little high-command history to build one. Still a heuristic, not a confirmed diagnosis — cross-check any flagged time against gyro/accelerometer disturbance at the same timestamp."
-        )?;
+        let fallback_active = report.motor_desync_results.iter().any(|r| r.fallback_used);
+        if fallback_active {
+            writeln!(
+                md,
+                "No eRPM telemetry in this log — flags a motor commanded near its own ceiling while the aircraft's rotation diverges sharply from what was commanded (gyro vs. setpoint), compared against this same flight's own distributions. **Fallback** cannot confirm actual motor RPM response, so it is the least confident tier here: it can both miss real desyncs and flag legitimate hard maneuvers. Cross-check every flagged time against gyro/setpoint traces and video."
+            )?;
+        } else {
+            writeln!(
+                md,
+                "Flags a motor commanded high whose eRPM fails to respond, compared against that same motor's own behavior elsewhere in this flight — never a fixed threshold across aircraft. **De Facto** compares against a rich same-motor baseline; **Possible** is a looser check used only when this flight has too little high-command history to build one. Still a heuristic, not a confirmed diagnosis — cross-check any flagged time against gyro/accelerometer disturbance at the same timestamp."
+            )?;
+        }
         writeln!(md)?;
         writeln!(
             md,
-            "| Motor | eRPM Telemetry | De Facto | Possible | De Facto Times (s) | Possible Times (s) |"
+            "| Motor | eRPM Telemetry | De Facto | Possible | Fallback | De Facto Times (s) | Possible Times (s) | Fallback Times (s) |"
         )?;
         writeln!(
             md,
-            "|-------|-----------------|----------|----------|----------------------|-----------------------|"
+            "|-------|-----------------|----------|----------|----------|----------------------|-----------------------|----------------------|"
         )?;
         let mut any_de_facto = false;
         let mut any_possible = false;
+        let mut any_fallback = false;
         for r in &report.motor_desync_results {
-            if !r.erpm_signal_available {
+            if !r.erpm_signal_available && !r.fallback_used {
                 writeln!(
                     md,
-                    "| {} | Insufficient signal | N/A | N/A | N/A | N/A |",
+                    "| {} | Insufficient signal | N/A | N/A | N/A | N/A | N/A | N/A |",
                     r.motor_idx
                 )?;
                 continue;
@@ -548,34 +557,38 @@ pub fn generate_markdown_report(
                     times.join(", ")
                 }
             };
-            let de_facto_count = r
-                .events
-                .iter()
-                .filter(|e| e.confidence == DesyncConfidence::DeFacto)
-                .count();
-            let possible_count = r
-                .events
-                .iter()
-                .filter(|e| e.confidence == DesyncConfidence::Possible)
-                .count();
-            if de_facto_count > 0 {
-                any_de_facto = true;
-            }
-            if possible_count > 0 {
-                any_possible = true;
-            }
+            let count = |confidence: DesyncConfidence| -> usize {
+                r.events
+                    .iter()
+                    .filter(|e| e.confidence == confidence)
+                    .count()
+            };
+            let de_facto_count = count(DesyncConfidence::DeFacto);
+            let possible_count = count(DesyncConfidence::Possible);
+            let fallback_count = count(DesyncConfidence::Fallback);
+            any_de_facto |= de_facto_count > 0;
+            any_possible |= possible_count > 0;
+            any_fallback |= fallback_count > 0;
+            let telemetry = if r.fallback_used {
+                "Fallback (no eRPM)"
+            } else {
+                "Available"
+            };
             writeln!(
                 md,
-                "| {} | Available | {} | {} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} | {} | {} |",
                 r.motor_idx,
+                telemetry,
                 de_facto_count,
                 possible_count,
+                fallback_count,
                 fmt_times(DesyncConfidence::DeFacto),
-                fmt_times(DesyncConfidence::Possible)
+                fmt_times(DesyncConfidence::Possible),
+                fmt_times(DesyncConfidence::Fallback)
             )?;
         }
         writeln!(md)?;
-        if any_de_facto || any_possible {
+        if any_de_facto || any_possible || any_fallback {
             writeln!(
                 md,
                 "**⚠ Recommendation:** Review the flagged timestamps against gyro traces and audio/video for the same moments. Inspect the affected motor, ESC, and prop for damage or a loose connection."
