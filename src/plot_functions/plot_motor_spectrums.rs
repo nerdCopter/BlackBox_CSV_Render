@@ -6,7 +6,8 @@ use std::error::Error;
 use crate::constants::{
     LINE_WIDTH_PLOT, MIN_FFT_SAMPLES, MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD,
     MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_HOP_FRACTION,
-    MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER, MOTOR_OSCILLATION_WINDOW_S, MOTOR_SPECTRUM_AXIS_ORIGIN,
+    MOTOR_OSCILLATION_MAX_GAP_TOLERANCE, MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER,
+    MOTOR_OSCILLATION_WINDOW_S, MOTOR_SPECTRUM_AXIS_ORIGIN,
     MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD, NYQUIST_DIVISOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
@@ -65,10 +66,22 @@ fn detect_windowed_oscillation(
     let window = calc_step_response::tukeywin(win_samples, TUKEY_ALPHA);
     let freq_spacing = sr_value / win_samples as f64;
 
+    // Expected span of a full window if samples are truly contiguous at sr_value — used
+    // below to reject a window whose actual timestamp span is far wider, which means it
+    // silently joined samples across a dropped-frame gap rather than a real oscillation.
+    let expected_span_s = (win_samples - 1) as f64 / sr_value;
+
     // Checks one window starting at `start`, returning its (time, peak, avg) if it clears the
     // oscillation bar. `start` is always a valid window start (caller guarantees
     // start + win_samples <= samples.len()), so `times[start]` never panics.
     let check_window = |start: usize| -> Option<(f64, f64, f64)> {
+        let actual_span_s = times[start + win_samples - 1] - times[start];
+        if actual_span_s > expected_span_s * MOTOR_OSCILLATION_MAX_GAP_TOLERANCE {
+            // A dropped-frame gap sits inside this window — its samples aren't uniformly
+            // spaced at sr_value, so the FFT below would misread the gap as content.
+            return None;
+        }
+
         let seg: Array1<f32> =
             Array1::from_vec(samples[start..start + win_samples].to_vec()) * &window;
         let fft_output = fft_utils::fft_forward(&seg);
@@ -172,9 +185,12 @@ pub fn plot_motor_spectrums(
             if motor_idx >= motor_samples.len() {
                 continue; // Skip if motor count varies unexpectedly
             }
-            if let Some(val) = motor_val {
+            // Only keep a sample when both its motor value and its row timestamp exist —
+            // a fabricated 0.0 timestamp would misreport an event time and corrupt the
+            // windowed scan's gap-detection below (see detect_windowed_oscillation).
+            if let (Some(val), Some(t)) = (motor_val, row.time_sec) {
                 motor_samples[motor_idx].push(*val as f32);
-                motor_times[motor_idx].push(row.time_sec.unwrap_or(0.0));
+                motor_times[motor_idx].push(t);
             }
         }
     }

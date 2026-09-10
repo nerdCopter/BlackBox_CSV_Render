@@ -9,7 +9,10 @@ use std::fs;
 use std::path::Path;
 
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
-use crate::constants::{MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ};
+use crate::constants::{
+    MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_SECONDS_TO_MS,
+    MOTOR_OSCILLATION_WINDOW_S,
+};
 use crate::data_analysis::filter_response::{
     AllFilterConfigs, DynamicNotchConfig, RpmFilterConfig,
 };
@@ -466,7 +469,8 @@ pub fn generate_markdown_report(
         )?;
         writeln!(
             md,
-            "Peak/Avg/Event Time reflect the single worst 250ms window found across the whole flight, not a whole-log average — a brief oscillation burst is diluted away by averaging over a multi-minute flight."
+            "Peak/Avg/Event Time reflect the single worst {:.0}ms window found across the whole flight, not a whole-log average — a brief oscillation burst is diluted away by averaging over a multi-minute flight.",
+            MOTOR_OSCILLATION_WINDOW_S * MOTOR_OSCILLATION_SECONDS_TO_MS
         )?;
         writeln!(md)?;
         writeln!(
