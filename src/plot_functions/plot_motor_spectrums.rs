@@ -6,7 +6,8 @@ use std::error::Error;
 use crate::constants::{
     LINE_WIDTH_PLOT, MIN_FFT_SAMPLES, MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD,
     MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_HOP_FRACTION,
-    MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER, MOTOR_OSCILLATION_WINDOW_S, MOTOR_SPECTRUM_AXIS_ORIGIN,
+    MOTOR_OSCILLATION_MAX_GAP_TOLERANCE, MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER,
+    MOTOR_OSCILLATION_WINDOW_S, MOTOR_SPECTRUM_AXIS_ORIGIN,
     MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD, NYQUIST_DIVISOR, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response; // For tukeywin
@@ -65,9 +66,22 @@ fn detect_windowed_oscillation(
     let window = calc_step_response::tukeywin(win_samples, TUKEY_ALPHA);
     let freq_spacing = sr_value / win_samples as f64;
 
-    let mut worst: Option<(f64, f64, f64)> = None;
-    let mut start = 0usize;
-    while start + win_samples <= samples.len() {
+    // Expected span of a full window if samples are truly contiguous at sr_value — used
+    // below to reject a window whose actual timestamp span is far wider, which means it
+    // silently joined samples across a dropped-frame gap rather than a real oscillation.
+    let expected_span_s = (win_samples - 1) as f64 / sr_value;
+
+    // Checks one window starting at `start`, returning its (time, peak, avg) if it clears the
+    // oscillation bar. `start` is always a valid window start (caller guarantees
+    // start + win_samples <= samples.len()), so `times[start]` never panics.
+    let check_window = |start: usize| -> Option<(f64, f64, f64)> {
+        let actual_span_s = times[start + win_samples - 1] - times[start];
+        if actual_span_s > expected_span_s * MOTOR_OSCILLATION_MAX_GAP_TOLERANCE {
+            // A dropped-frame gap sits inside this window — its samples aren't uniformly
+            // spaced at sr_value, so the FFT below would misread the gap as content.
+            return None;
+        }
+
         let seg: Array1<f32> =
             Array1::from_vec(samples[start..start + win_samples].to_vec()) * &window;
         let fft_output = fft_utils::fft_forward(&seg);
@@ -92,17 +106,36 @@ fn detect_windowed_oscillation(
             }
         }
 
-        if band_count > 0 {
-            let avg = band_sum / band_count as f64;
-            let is_oscillating = band_peak > MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER * avg
-                && band_peak > MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD;
-            if is_oscillating && worst.map_or(true, |(_, wp, _)| band_peak > wp) {
-                let t = times.get(start).copied().unwrap_or(0.0);
-                worst = Some((t, band_peak, avg));
+        if band_count == 0 {
+            return None;
+        }
+        let avg = band_sum / band_count as f64;
+        let is_oscillating = band_peak > MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER * avg
+            && band_peak > MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD;
+        is_oscillating.then_some((times[start], band_peak, avg))
+    };
+
+    let mut worst: Option<(f64, f64, f64)> = None;
+    let consider = |start: usize, worst: &mut Option<(f64, f64, f64)>| {
+        if let Some((t, peak, avg)) = check_window(start) {
+            if worst.map_or(true, |(_, wp, _)| peak > wp) {
+                *worst = Some((t, peak, avg));
             }
         }
+    };
 
+    let mut start = 0usize;
+    while start + win_samples <= samples.len() {
+        consider(start, &mut worst);
         start += hop;
+    }
+
+    // The stride above can land short of the log's final window (e.g. hop doesn't evenly
+    // divide the tail), leaving a burst confined to the very end of the flight unchecked.
+    // Always test the last possible window explicitly, regardless of stride alignment.
+    let last_start = samples.len() - win_samples;
+    if last_start % hop != 0 {
+        consider(last_start, &mut worst);
     }
 
     worst
@@ -152,9 +185,12 @@ pub fn plot_motor_spectrums(
             if motor_idx >= motor_samples.len() {
                 continue; // Skip if motor count varies unexpectedly
             }
-            if let Some(val) = motor_val {
+            // Only keep a sample when both its motor value and its row timestamp exist —
+            // a fabricated 0.0 timestamp would misreport an event time and corrupt the
+            // windowed scan's gap-detection below (see detect_windowed_oscillation).
+            if let (Some(val), Some(t)) = (motor_val, row.time_sec) {
                 motor_samples[motor_idx].push(*val as f32);
-                motor_times[motor_idx].push(row.time_sec.unwrap_or(0.0));
+                motor_times[motor_idx].push(t);
             }
         }
     }
@@ -437,6 +473,46 @@ mod tests {
         let burst_end_s = (burst_start + burst_len) as f64 / TEST_SAMPLE_RATE;
         assert!(event_time >= burst_start_s - MOTOR_OSCILLATION_WINDOW_S);
         assert!(event_time <= burst_end_s);
+    }
+
+    #[test]
+    fn burst_confined_to_stride_misaligned_tail_is_still_detected() {
+        // Regression case: the sliding window's stride (half the window length) doesn't
+        // necessarily land exactly on the series' true final window when the series length
+        // isn't an exact multiple of the stride — that final window must still be checked
+        // explicitly. `last_start` is deliberately chosen not a multiple of `hop`, so this
+        // only passes if the tail-window fix's explicit final check actually runs.
+        let win_samples =
+            ((MOTOR_OSCILLATION_WINDOW_S * TEST_SAMPLE_RATE).round() as usize).max(MIN_FFT_SAMPLES);
+        let hop = ((win_samples as f64 * MOTOR_OSCILLATION_HOP_FRACTION).round() as usize).max(1);
+        // Any last_start not a multiple of hop works; +125 keeps it stride-misaligned (125 %
+        // 250 != 0) while adding only a small, arbitrary remainder past a whole-second mark.
+        let last_start = (10.0 * TEST_SAMPLE_RATE) as usize + 125;
+        assert_ne!(
+            last_start % hop,
+            0,
+            "test setup must be stride-misaligned to be meaningful"
+        );
+        let n = last_start + win_samples;
+
+        let mut samples = constant_series(n);
+        let times = times_for(n);
+
+        // Burst fills the entire final window (matching the full-window-coverage pattern the
+        // FFT needs for a clean peak/avg ratio — a burst narrower than the window it's
+        // analyzed in leaks energy across bins and can fail the ratio check regardless of
+        // amplitude, which is a signal-processing property, not a bug in the tail-window fix).
+        for (i, sample) in samples.iter_mut().enumerate().skip(last_start) {
+            let t = i as f64 / TEST_SAMPLE_RATE;
+            *sample += TEST_BURST_AMPLITUDE
+                * (2.0 * std::f64::consts::PI * TEST_BURST_HZ * t).sin() as f32;
+        }
+
+        let result = detect_windowed_oscillation(&samples, &times, TEST_SAMPLE_RATE);
+        let (event_time, peak, avg) = result.expect("tail burst must still be detected");
+        assert!(peak > MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD);
+        assert!(peak > MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER * avg);
+        assert!((event_time - last_start as f64 / TEST_SAMPLE_RATE).abs() < f64::EPSILON);
     }
 
     #[test]

@@ -68,6 +68,8 @@ pub const MOTOR_SPECTRUM_AXIS_ORIGIN: f64 = 0.0; // Shared X/Y axis origin for m
 pub const MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD: f64 = 5.0; // Below this Y-axis max, labels show one decimal place instead of integers
 pub const MOTOR_OSCILLATION_WINDOW_S: f64 = 0.25; // Sliding-window duration for oscillation detection (seconds); a whole-log FFT dilutes a brief burst below the threshold on a multi-minute flight
 pub const MOTOR_OSCILLATION_HOP_FRACTION: f64 = 0.5; // Sliding-window hop as a fraction of window length (50% overlap)
+pub const MOTOR_OSCILLATION_MAX_GAP_TOLERANCE: f64 = 1.5; // A window's actual timestamp span must stay within this multiple of its expected (gap-free) span, or it's rejected as spanning a dropped-frame gap
+pub const MOTOR_OSCILLATION_SECONDS_TO_MS: f64 = 1000.0; // Convert MOTOR_OSCILLATION_WINDOW_S to milliseconds for report display
 
 // Motor/eRPM desync-divergence detection constants. Every threshold below compares a motor
 // against its OWN behavior elsewhere in the same log — never a fixed cross-aircraft value —
