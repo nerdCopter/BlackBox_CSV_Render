@@ -9,7 +9,10 @@ use std::fs;
 use std::path::Path;
 
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
-use crate::constants::{MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ};
+use crate::constants::{
+    MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_SECONDS_TO_MS,
+    MOTOR_OSCILLATION_WINDOW_S,
+};
 use crate::data_analysis::filter_response::{
     AllFilterConfigs, DynamicNotchConfig, RpmFilterConfig,
 };
@@ -464,14 +467,19 @@ pub fn generate_markdown_report(
             "Analysis range: {:.0}–{:.0} Hz",
             MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ
         )?;
+        writeln!(
+            md,
+            "Peak/Avg/Event Time reflect the single worst {:.0}ms window found across the whole flight, not a whole-log average — a brief oscillation burst is diluted away by averaging over a multi-minute flight.",
+            MOTOR_OSCILLATION_WINDOW_S * MOTOR_OSCILLATION_SECONDS_TO_MS
+        )?;
         writeln!(md)?;
         writeln!(
             md,
-            "| Motor | Max Amplitude | Oscillation | Peak in Range | Avg in Range |"
+            "| Motor | Max Amplitude | Oscillation | Peak in Window | Avg in Window | Event Time (s) |"
         )?;
         writeln!(
             md,
-            "|-------|--------------|-------------|---------------|-------------|"
+            "|-------|--------------|-------------|-----------------|----------------|-----------------|"
         )?;
         for r in &report.motor_results {
             let max_amp = r
@@ -486,10 +494,11 @@ pub fn generate_markdown_report(
                 .peak_in_range
                 .map_or("N/A".into(), |v| format!("{:.2}", v));
             let avg = r.avg_in_range.map_or("N/A".into(), |v| format!("{:.2}", v));
+            let event_time = r.event_time_s.map_or("N/A".into(), |v| format!("{:.2}", v));
             writeln!(
                 md,
-                "| {} | {} | {} | {} | {} |",
-                r.motor_idx, max_amp, osc, peak, avg
+                "| {} | {} | {} | {} | {} | {} |",
+                r.motor_idx, max_amp, osc, peak, avg, event_time
             )?;
         }
         writeln!(md)?;
