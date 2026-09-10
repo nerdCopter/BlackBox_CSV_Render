@@ -3,13 +3,14 @@
 use crate::constants::{
     MOTOR_DESYNC_ERPM_REF_PERCENTILE, MOTOR_DESYNC_EVENT_REFRACTORY_S,
     MOTOR_DESYNC_FALLBACK_ERROR_PERCENTILE, MOTOR_DESYNC_FALLBACK_HIGH_CMD_PERCENTILE,
-    MOTOR_DESYNC_FALLBACK_SUSTAIN_S, MOTOR_DESYNC_HIGH_CMD_PERCENTILE,
-    MOTOR_DESYNC_MIN_BASELINE_SAMPLES, MOTOR_DESYNC_MIN_ERPM_RANGE, MOTOR_DESYNC_MIN_MOTOR_RANGE,
-    MOTOR_DESYNC_NOISE_MULTIPLIER, MOTOR_DESYNC_POSSIBLE_CEILING_FRACTION,
-    MOTOR_DESYNC_POSSIBLE_HIGH_CMD_PERCENTILE, MOTOR_DESYNC_POSSIBLE_SUSTAIN_S,
-    MOTOR_DESYNC_RESPONSE_FLOOR_FRACTION, MOTOR_DESYNC_SUSTAIN_S,
+    MOTOR_DESYNC_FALLBACK_OSCILLATION_OVERLAP_S, MOTOR_DESYNC_FALLBACK_SUSTAIN_S,
+    MOTOR_DESYNC_HIGH_CMD_PERCENTILE, MOTOR_DESYNC_MIN_BASELINE_SAMPLES,
+    MOTOR_DESYNC_MIN_ERPM_RANGE, MOTOR_DESYNC_MIN_MOTOR_RANGE, MOTOR_DESYNC_NOISE_MULTIPLIER,
+    MOTOR_DESYNC_POSSIBLE_CEILING_FRACTION, MOTOR_DESYNC_POSSIBLE_HIGH_CMD_PERCENTILE,
+    MOTOR_DESYNC_POSSIBLE_SUSTAIN_S, MOTOR_DESYNC_RESPONSE_FLOOR_FRACTION, MOTOR_DESYNC_SUSTAIN_S,
 };
 use crate::data_input::log_data::LogRowData;
+use crate::plot_functions::plot_motor_spectrums::MotorOscillationResult;
 
 /// Confidence tier of a flagged event — see `detect_motor_desync` for how each is derived.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,6 +419,42 @@ pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
     results
 }
 
+/// Finds `Fallback`-tier events that land within `MOTOR_DESYNC_FALLBACK_OSCILLATION_OVERLAP_S`
+/// of a same-motor Motor Oscillation detection (`plot_motor_spectrums.rs`) — a known, confirmed
+/// cause of `Fallback` false positives (chronic tune/mechanical resonance can also produce a
+/// large gyro/setpoint tracking error, with no way for `Fallback` to tell that apart from a
+/// real desync). Returns `(motor_idx, time_s)` pairs to caveat in the console and report,
+/// without suppressing or altering the underlying event — `Fallback` stays as-is by design;
+/// this only flags when its known blind spot may apply.
+pub fn fallback_oscillation_overlaps(
+    desync_results: &[MotorDesyncResult],
+    motor_results: &[MotorOscillationResult],
+) -> Vec<(usize, f64)> {
+    let mut overlaps = Vec::new();
+    for desync in desync_results {
+        let Some(osc) = motor_results
+            .iter()
+            .find(|o| o.motor_idx == desync.motor_idx)
+        else {
+            continue;
+        };
+        if !osc.oscillation_detected {
+            continue;
+        }
+        let Some(osc_time) = osc.event_time_s else {
+            continue;
+        };
+        for event in &desync.events {
+            if event.confidence == DesyncConfidence::Fallback
+                && (event.time_s - osc_time).abs() <= MOTOR_DESYNC_FALLBACK_OSCILLATION_OVERLAP_S
+            {
+                overlaps.push((desync.motor_idx, event.time_s));
+            }
+        }
+    }
+    overlaps
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -650,6 +687,73 @@ mod tests {
         let results = detect_motor_desync(&data);
         assert!(results[0].fallback_used);
         assert!(results[0].events.is_empty());
+    }
+
+    fn osc_result(
+        motor_idx: usize,
+        detected: bool,
+        event_time_s: Option<f64>,
+    ) -> MotorOscillationResult {
+        MotorOscillationResult {
+            motor_idx,
+            max_amplitude: None,
+            oscillation_detected: detected,
+            peak_in_range: None,
+            avg_in_range: None,
+            event_time_s,
+        }
+    }
+
+    fn desync_result(motor_idx: usize, events: Vec<MotorDesyncEvent>) -> MotorDesyncResult {
+        MotorDesyncResult {
+            motor_idx,
+            erpm_signal_available: false,
+            fallback_used: true,
+            events,
+        }
+    }
+
+    #[test]
+    fn fallback_near_oscillation_is_flagged_as_overlap() {
+        let desync = vec![desync_result(
+            0,
+            vec![MotorDesyncEvent {
+                time_s: 44.94,
+                confidence: DesyncConfidence::Fallback,
+            }],
+        )];
+        let osc = vec![osc_result(0, true, Some(45.5))]; // within the 2.0s overlap tolerance
+
+        let overlaps = fallback_oscillation_overlaps(&desync, &osc);
+        assert_eq!(overlaps, vec![(0, 44.94)]);
+    }
+
+    #[test]
+    fn fallback_far_from_oscillation_is_not_flagged() {
+        let desync = vec![desync_result(
+            0,
+            vec![MotorDesyncEvent {
+                time_s: 44.94,
+                confidence: DesyncConfidence::Fallback,
+            }],
+        )];
+        let osc = vec![osc_result(0, true, Some(120.0))]; // far outside tolerance
+
+        assert!(fallback_oscillation_overlaps(&desync, &osc).is_empty());
+    }
+
+    #[test]
+    fn fallback_with_no_oscillation_detected_is_not_flagged() {
+        let desync = vec![desync_result(
+            0,
+            vec![MotorDesyncEvent {
+                time_s: 44.94,
+                confidence: DesyncConfidence::Fallback,
+            }],
+        )];
+        let osc = vec![osc_result(0, false, None)]; // this motor's own spectrum never crossed the bar
+
+        assert!(fallback_oscillation_overlaps(&desync, &osc).is_empty());
     }
 }
 

@@ -18,7 +18,9 @@ use crate::data_analysis::filter_response::{
 };
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
 use crate::data_analysis::transfer_function_estimation::Confidence;
-use crate::plot_functions::motor_desync::{DesyncConfidence, MotorDesyncResult};
+use crate::plot_functions::motor_desync::{
+    fallback_oscillation_overlaps, DesyncConfidence, MotorDesyncResult,
+};
 use crate::plot_functions::plot_bode::BodeAxisResult;
 use crate::plot_functions::plot_d_term_spectrums::DTermAxisResult;
 use crate::plot_functions::plot_gyro_spectrums::GyroAnalysisResult;
@@ -593,6 +595,17 @@ pub fn generate_markdown_report(
                 md,
                 "**⚠ Recommendation:** Review the flagged timestamps against gyro traces and audio/video for the same moments. Inspect the affected motor, ESC, and prop for damage or a loose connection."
             )?;
+            writeln!(md)?;
+        }
+        let overlaps =
+            fallback_oscillation_overlaps(&report.motor_desync_results, &report.motor_results);
+        if !overlaps.is_empty() {
+            for (motor_idx, t) in &overlaps {
+                writeln!(
+                    md,
+                    "**⚠ Note:** Motor {motor_idx}'s Fallback event at {t:.2}s coincides with a Motor Oscillation detection on the same motor — may be chronic tune/mechanical resonance rather than a desync."
+                )?;
+            }
             writeln!(md)?;
         }
     }

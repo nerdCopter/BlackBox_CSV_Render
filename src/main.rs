@@ -136,7 +136,7 @@ use crate::constants::{
 };
 
 // Specific plot function imports
-use crate::plot_functions::motor_desync::detect_motor_desync;
+use crate::plot_functions::motor_desync::{detect_motor_desync, fallback_oscillation_overlaps};
 use crate::plot_functions::plot_bode::plot_bode_analysis;
 use crate::plot_functions::plot_d_term_heatmap::plot_d_term_heatmap;
 use crate::plot_functions::plot_d_term_psd::plot_d_term_psd;
@@ -1546,6 +1546,12 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
     } else {
         vec![]
     };
+
+    for (motor_idx, t) in fallback_oscillation_overlaps(&motor_desync_results, &motor_results) {
+        println!(
+            "  ⚠️  Motor {motor_idx} Fallback desync event at {t:.2}s coincides with a Motor Oscillation detection on the same motor — may be chronic tune/mechanical resonance rather than a desync"
+        );
+    }
 
     if plot_config.psd {
         plot_psd(

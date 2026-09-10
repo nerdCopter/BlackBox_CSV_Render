@@ -103,6 +103,7 @@ pub const MOTOR_DESYNC_POSSIBLE_CEILING_FRACTION: f64 = 0.5; // Window's peak eR
 pub const MOTOR_DESYNC_FALLBACK_HIGH_CMD_PERCENTILE: f64 = 90.0; // Near-ceiling command, self-relative to this motor's own range
 pub const MOTOR_DESYNC_FALLBACK_ERROR_PERCENTILE: f64 = 97.0; // Tracking-error (|gyro - setpoint|) must be a rare outlier for this specific flight, not just any punchy-flying overshoot
 pub const MOTOR_DESYNC_FALLBACK_SUSTAIN_S: f64 = 0.15; // Window duration — the error must average high across a sustained span, not one overshooting sample
+pub const MOTOR_DESYNC_FALLBACK_OSCILLATION_OVERLAP_S: f64 = 2.0; // A Fallback event within this many seconds of a same-motor Motor Oscillation detection gets an explicit caveat — chronic tune/mechanical resonance is a known, confirmed cause of Fallback false positives (see motor_desync.rs)
 
 // Frequency-axis math constants shared by Bode and motor-spectrum plots
 pub const NYQUIST_DIVISOR: f64 = 2.0; // Converts sample rate to Nyquist frequency (sample_rate / divisor)
