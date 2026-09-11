@@ -10,8 +10,8 @@ use std::path::Path;
 
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
 use crate::constants::{
-    MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_SECONDS_TO_MS,
-    MOTOR_OSCILLATION_WINDOW_S,
+    MOTOR_DESYNC_REPORT_MAX_TIMES, MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ,
+    MOTOR_OSCILLATION_SECONDS_TO_MS, MOTOR_OSCILLATION_WINDOW_S,
 };
 use crate::data_analysis::filter_response::{
     AllFilterConfigs, DynamicNotchConfig, RpmFilterConfig,
@@ -555,9 +555,12 @@ pub fn generate_markdown_report(
                 if matching.is_empty() {
                     return "N/A".to_string();
                 }
-                let times: Vec<String> =
-                    matching.iter().take(5).map(|t| format!("{t:.2}")).collect();
-                if matching.len() > 5 {
+                let times: Vec<String> = matching
+                    .iter()
+                    .take(MOTOR_DESYNC_REPORT_MAX_TIMES)
+                    .map(|t| format!("{t:.2}"))
+                    .collect();
+                if matching.len() > MOTOR_DESYNC_REPORT_MAX_TIMES {
                     format!("{}, ...", times.join(", "))
                 } else {
                     times.join(", ")

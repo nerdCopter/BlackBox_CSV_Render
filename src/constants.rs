@@ -104,6 +104,7 @@ pub const MOTOR_DESYNC_FALLBACK_HIGH_CMD_PERCENTILE: f64 = 90.0; // Near-ceiling
 pub const MOTOR_DESYNC_FALLBACK_ERROR_PERCENTILE: f64 = 97.0; // Tracking-error (|gyro - setpoint|) must be a rare outlier for this specific flight, not just any punchy-flying overshoot
 pub const MOTOR_DESYNC_FALLBACK_SUSTAIN_S: f64 = 0.15; // Window duration — the error must average high across a sustained span, not one overshooting sample
 pub const MOTOR_DESYNC_FALLBACK_OSCILLATION_OVERLAP_S: f64 = 2.0; // A Fallback event within this many seconds of a same-motor Motor Oscillation detection gets an explicit caveat — chronic tune/mechanical resonance is a known, confirmed cause of Fallback false positives (see motor_desync.rs)
+pub const MOTOR_DESYNC_REPORT_MAX_TIMES: usize = 5; // Max timestamps listed per confidence tier in the report table before truncating with "..." (see report.rs's fmt_times)
 
 // Motor vs eRPM plot constants (--extended or --desync; see plot_motor_erpm.rs)
 pub const MOTOR_ERPM_PLOT_Y_AXIS_MIN: f64 = 0.0; // Normalized axis floor (% of each series' own range)
