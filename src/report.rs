@@ -546,15 +546,19 @@ pub fn generate_markdown_report(
                 continue;
             }
             let fmt_times = |confidence: DesyncConfidence| -> String {
-                let times: Vec<String> = r
+                let matching: Vec<f64> = r
                     .events
                     .iter()
                     .filter(|e| e.confidence == confidence)
-                    .take(5)
-                    .map(|e| format!("{:.2}", e.time_s))
+                    .map(|e| e.time_s)
                     .collect();
-                if times.is_empty() {
-                    "N/A".to_string()
+                if matching.is_empty() {
+                    return "N/A".to_string();
+                }
+                let times: Vec<String> =
+                    matching.iter().take(5).map(|t| format!("{t:.2}")).collect();
+                if matching.len() > 5 {
+                    format!("{}, ...", times.join(", "))
                 } else {
                     times.join(", ")
                 }

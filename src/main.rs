@@ -148,7 +148,9 @@ use crate::plot_functions::plot_d_term_spectrums::plot_d_term_spectrums;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
 use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
 use crate::plot_functions::plot_motor_erpm::plot_motor_erpm;
-use crate::plot_functions::plot_motor_spectrums::plot_motor_spectrums;
+use crate::plot_functions::plot_motor_spectrums::{
+    detect_motor_oscillations, plot_motor_spectrums,
+};
 use crate::plot_functions::plot_pid_activity::plot_pid_activity;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
 use crate::plot_functions::plot_psd::plot_psd;
@@ -396,7 +398,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("                   Motor vs eRPM (requires bidirectional DShot telemetry).");
     eprintln!("  --step           Step response only.");
     eprintln!("  --bode           Bode only (requires chirp/sweep system-id test flight).");
-    eprintln!("  --desync         Motor vs eRPM only (requires bidirectional DShot telemetry).");
+    eprintln!("  --desync         Motor vs eRPM plot only (needs eRPM telemetry). Desync");
+    eprintln!("                   detection itself (Fallback tier) still runs without it.");
     eprintln!();
     eprintln!("--- ANALYSIS OPTIONS ---");
     eprintln!();
@@ -1544,6 +1547,11 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
 
     let motor_results = if plot_config.motor_spectrums {
         plot_motor_spectrums(&all_log_data, &root_name_string, sample_rate)?
+    } else if plot_config.motor_erpm {
+        // Oscillation detection alone (no plot) — keeps the Fallback-tier overlap caveat and
+        // the Motor Oscillation report section available under --desync without also writing
+        // the Motor Spectrums PNG, which --desync's "only the eRPM plot" contract excludes.
+        detect_motor_oscillations(&all_log_data, sample_rate)
     } else {
         vec![]
     };

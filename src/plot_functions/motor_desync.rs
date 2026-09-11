@@ -78,6 +78,9 @@ fn collect_motor_samples(log_data: &[LogRowData], motor_idx: usize) -> MotorSamp
     MotorSamples { times, motor, erpm }
 }
 
+/// Floor-based (not linear-interpolation) percentile — `p=100.0` returns the max, `p=0.0` the
+/// min. Every caller in this file uses it the same way, so the non-standard rounding is
+/// internally consistent, but don't assume it matches a statistics library's `percentile`.
 fn percentile(sorted_vals: &[f64], p: f64) -> f64 {
     if sorted_vals.is_empty() {
         return 0.0;
@@ -254,14 +257,14 @@ fn detect_control_loss_fallback(log_data: &[LogRowData]) -> Vec<(usize, f64)> {
         .unwrap_or(0);
 
     let mut times = Vec::new();
-    let mut motor_rows: Vec<Vec<f64>> = Vec::new();
+    // Per-motor Option, not a collapsed Vec<f64> — a single motor's momentary telemetry gap
+    // must not discard this row's tracking-error sample (and every OTHER motor's data in it)
+    // wholesale; each motor's own high-command check below only looks at its own valid samples.
+    let mut motor_rows: Vec<Vec<Option<f64>>> = Vec::new();
     let mut err_mag = Vec::new();
 
     for row in log_data {
         let Some(t) = row.time_sec else { continue };
-        let Some(motors): Option<Vec<f64>> = row.motors.iter().copied().collect() else {
-            continue;
-        };
         let mut err: f64 = 0.0;
         let mut have_axis = false;
         for axis in 0..3 {
@@ -274,7 +277,7 @@ fn detect_control_loss_fallback(log_data: &[LogRowData]) -> Vec<(usize, f64)> {
             continue;
         }
         times.push(t);
-        motor_rows.push(motors);
+        motor_rows.push(row.motors.clone());
         err_mag.push(err);
     }
 
@@ -284,16 +287,31 @@ fn detect_control_loss_fallback(log_data: &[LogRowData]) -> Vec<(usize, f64)> {
 
     let mut err_sorted = err_mag.clone();
     err_sorted.sort_by(|a, b| a.total_cmp(b));
+    // A constant (or all-zero) tracking error has no outlier to find — percentile() would
+    // return that same constant as err_thresh, and `err_avg >= err_thresh` would then hold for
+    // every window, false-flagging perfectly normal flying (or a ground test with no motion).
+    if err_sorted
+        .first()
+        .zip(err_sorted.last())
+        .is_some_and(|(min, max)| (max - min).abs() <= f64::EPSILON)
+    {
+        return Vec::new();
+    }
     let err_thresh = percentile(&err_sorted, MOTOR_DESYNC_FALLBACK_ERROR_PERCENTILE);
 
     let mut high_thresh = vec![f64::INFINITY; motor_count];
-    for k in 0..motor_count {
-        let vals: Vec<f64> = motor_rows.iter().map(|m| m[k]).collect();
+    for (k, thresh) in high_thresh.iter_mut().enumerate().take(motor_count) {
+        let vals: Vec<f64> = motor_rows
+            .iter()
+            .filter_map(|m| m.get(k).copied().flatten())
+            .collect();
+        if vals.is_empty() {
+            continue;
+        }
         let mmin = vals.iter().cloned().fold(f64::INFINITY, f64::min);
         let mmax = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         if mmax - mmin >= MOTOR_DESYNC_MIN_MOTOR_RANGE {
-            high_thresh[k] =
-                mmin + (mmax - mmin) * MOTOR_DESYNC_FALLBACK_HIGH_CMD_PERCENTILE / 100.0;
+            *thresh = mmin + (mmax - mmin) * MOTOR_DESYNC_FALLBACK_HIGH_CMD_PERCENTILE / 100.0;
         }
     }
 
@@ -309,7 +327,13 @@ fn detect_control_loss_fallback(log_data: &[LogRowData]) -> Vec<(usize, f64)> {
                 if high_thresh[k].is_infinite() {
                     continue;
                 }
-                let motor_high = (i..i + win).any(|j| motor_rows[j][k] >= high_thresh[k]);
+                let motor_high = (i..i + win).any(|j| {
+                    motor_rows[j]
+                        .get(k)
+                        .copied()
+                        .flatten()
+                        .is_some_and(|v| v >= high_thresh[k])
+                });
                 if motor_high {
                     let t = times[i];
                     if last_event_time[k]
@@ -714,6 +738,26 @@ mod tests {
                 [500.0, 500.0, 500.0],
             ));
             i += 1;
+        }
+
+        let results = detect_motor_desync(&data);
+        assert!(results[0].fallback_used);
+        assert!(results[0].events.is_empty());
+    }
+
+    #[test]
+    fn constant_tracking_error_is_never_flagged_as_fallback() {
+        // Gyro exactly equals setpoint on every single sample (tracking error is a constant
+        // zero throughout), including while the motor is repeatedly commanded to its own
+        // ceiling. A zero-range error distribution has no outlier to find: percentile() would
+        // return that same constant, and err_avg >= err_thresh would then hold for every
+        // window, false-flagging perfectly normal (or perfectly idle) flying.
+        let mut data = Vec::new();
+        for i in 0u32..20_320 {
+            let t = i as f64 * SAMPLE_INTERVAL_S;
+            let motor = 500.0 + (i as f64 % 1600.0); // cycles up to its own ceiling repeatedly
+            let sp = (i as f64 % 20.0) - 10.0;
+            data.push(fallback_row(t, motor, [sp, sp, sp], [sp, sp, sp]));
         }
 
         let results = detect_motor_desync(&data);

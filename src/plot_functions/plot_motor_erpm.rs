@@ -61,6 +61,39 @@ pub fn plot_motor_erpm(
         return Ok(());
     }
 
+    // A motor row is only plottable when both its command and eRPM vary enough to normalize to
+    // 0-100% (see the per-row range gate below) — check up front so a log where every motor
+    // fails that gate (e.g. eRPM present but every motor near-constant, a ground test) skips
+    // entirely instead of writing a blank canvas with no data.
+    let plottable = |samples: &Vec<(f64, f64, f64)>| -> bool {
+        if samples.len() < 2 {
+            return false;
+        }
+        let motor_min = samples
+            .iter()
+            .map(|(_, m, _)| *m)
+            .fold(f64::INFINITY, f64::min);
+        let motor_max = samples
+            .iter()
+            .map(|(_, m, _)| *m)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let erpm_min = samples
+            .iter()
+            .map(|(_, _, e)| *e)
+            .fold(f64::INFINITY, f64::min);
+        let erpm_max = samples
+            .iter()
+            .map(|(_, _, e)| *e)
+            .fold(f64::NEG_INFINITY, f64::max);
+        motor_max - motor_min >= MOTOR_ERPM_MIN_RANGE && erpm_max - erpm_min >= MOTOR_ERPM_MIN_RANGE
+    };
+    if !per_motor_samples.iter().any(plottable) {
+        println!(
+            "\nINFO: Skipping Motor vs eRPM Plot: No motor has enough command/eRPM variation to plot."
+        );
+        return Ok(());
+    }
+
     println!(
         "\n--- Generating Motor vs eRPM Plot ({} motor{}) ---",
         motor_count,

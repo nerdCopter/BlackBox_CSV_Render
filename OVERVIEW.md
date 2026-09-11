@@ -109,7 +109,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * `plot_d_term_heatmap`: D-term throttle-frequency heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze D-term energy distribution across different throttle levels.
                     * `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap.
                     * `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
-                    * `plot_motor_erpm`: One row per motor, commanded output and eRPM telemetry overlaid, each normalized to its own 0-100% range within the log (raw motor/eRPM units aren't a comparable scale). Vertical markers at every `Motor Desync Detection` event timestamp for that motor, any confidence tier. Skipped when the log has no eRPM telemetry at all.
+                    * `plot_motor_erpm`: One row per motor, commanded output and eRPM telemetry overlaid, each normalized to its own 0-100% range within the log (raw motor/eRPM units aren't a comparable scale). Vertical markers at every `Motor Desync Detection` event timestamp for that motor — De Facto or Possible only, since `Fallback` events occur only in logs with no eRPM telemetry at all, where this plot is skipped entirely.
 
 ### RC Command Step Detection
 
@@ -178,7 +178,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 #### Generated PNG Plots
 
-When none of `--step`, `--bode`, or `--desync` is used, all plots below are generated:
+With `--extended`, all plots below are generated. The default (`--core`) generates only the core subset (see [README.md](README.md#output) for the exact split); `--step`, `--bode`, and `--desync` each restrict output to their own single plot:
 
 - **`*_Step_Response_stacked_plot_*.png`** — Step response visualization with P:D recommendations overlay
 - **`*_PIDsum_PIDerror_Setpoint_stacked.png`** — Time-domain traces of PIDsum, PID error, and setpoint
@@ -197,7 +197,7 @@ When none of `--step`, `--bode`, or `--desync` is used, all plots below are gene
 
 #### Generated Reports
 
-- **`*_report.md`** — Structured markdown flight report written alongside PNGs on every run. Content is assembled from typed result structs returned by each analysis pass — no CSV re-reading. Sections: Metadata (firmware revision, craft name, PIDs, sample rate, gyroUnfilt source warning), Filter Configuration (per-axis LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning P:D ratios, Step Response Analysis (Roll/Pitch: peak value, assessment, setpoint authority, P:D recommendations), Gyro Analysis (per-axis filtering delay with confidence, spectrum peaks), D-Term Analysis (per-axis filtering delay with N/A disambiguation, spectrum peaks), Motor Oscillation table (per-motor sliding-window spectrum check, catches a brief burst a whole-log average would dilute away), Motor Desync Detection (per-motor motor[N] vs eRPM[N] divergence table, self-relative to that same motor's own behavior elsewhere in the flight; De Facto/Possible confidence tiers; requires bidirectional DShot telemetry), Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), and relative links to all generated PNGs. Optimal P Estimation and Bode Analysis sections are included when those features produce results.
+- **`*_report.md`** — Structured markdown flight report written alongside PNGs on every run. Content is assembled from typed result structs returned by each analysis pass — no CSV re-reading. Sections: Metadata (firmware revision, craft name, PIDs, sample rate, gyroUnfilt source warning), Filter Configuration (per-axis LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning P:D ratios, Step Response Analysis (Roll/Pitch: peak value, assessment, setpoint authority, P:D recommendations), Gyro Analysis (per-axis filtering delay with confidence, spectrum peaks), D-Term Analysis (per-axis filtering delay with N/A disambiguation, spectrum peaks), Motor Oscillation table (per-motor sliding-window spectrum check, catches a brief burst a whole-log average would dilute away), Motor Desync Detection (per-motor motor[N] vs eRPM[N] divergence table, self-relative to that same motor's own behavior elsewhere in the flight; De Facto/Possible confidence tiers require bidirectional DShot telemetry; a lower-confidence Fallback tier runs instead when it's absent), Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), and relative links to all generated PNGs. Optimal P Estimation and Bode Analysis sections are included when those features produce results.
   A Skipped Plots section lists any enabled plot type with no plottable data; omitted when nothing was skipped.
 
 
