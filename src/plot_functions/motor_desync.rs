@@ -1,5 +1,6 @@
 // src/plot_functions/motor_desync.rs
 
+use crate::axis_names::AXIS_COUNT;
 use crate::constants::{
     MOTOR_DESYNC_ERPM_REF_PERCENTILE, MOTOR_DESYNC_EVENT_REFRACTORY_S,
     MOTOR_DESYNC_FALLBACK_ERROR_PERCENTILE, MOTOR_DESYNC_FALLBACK_HIGH_CMD_PERCENTILE,
@@ -267,7 +268,7 @@ fn detect_control_loss_fallback(log_data: &[LogRowData]) -> Vec<(usize, f64)> {
         let Some(t) = row.time_sec else { continue };
         let mut err: f64 = 0.0;
         let mut have_axis = false;
-        for axis in 0..3 {
+        for axis in 0..AXIS_COUNT {
             if let (Some(g), Some(s)) = (row.gyro[axis], row.setpoint[axis]) {
                 err = err.max((g - s).abs());
                 have_axis = true;
