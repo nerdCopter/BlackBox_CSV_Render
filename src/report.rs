@@ -516,12 +516,12 @@ pub fn generate_markdown_report(
         if fallback_active {
             writeln!(
                 md,
-                "No eRPM telemetry in this log — flags a motor commanded near its own ceiling while the aircraft's rotation diverges sharply from what was commanded (gyro vs. setpoint), compared against this same flight's own distributions. **Fallback** cannot confirm actual motor RPM response, so it is the least confident tier here: it can both miss real desyncs and flag legitimate hard maneuvers. Cross-check every flagged time against gyro/setpoint traces and video."
+                "No eRPM telemetry in this log. Flags a motor near its own command ceiling when the aircraft's rotation diverges sharply from setpoint, self-relative to this flight's own distributions. **Fallback** cannot confirm actual motor RPM response — it is the least confident tier, and can miss real desyncs or flag legitimate hard maneuvers. Cross-check every flagged time against gyro/setpoint traces and video."
             )?;
         } else {
             writeln!(
                 md,
-                "Flags a motor commanded high whose eRPM fails to respond, compared against that same motor's own behavior elsewhere in this flight — never a fixed threshold across aircraft. **De Facto** compares against a rich same-motor baseline; **Possible** is a looser check used only when this flight has too little high-command history to build one. Still a heuristic, not a confirmed diagnosis — cross-check any flagged time against gyro/accelerometer disturbance at the same timestamp."
+                "Flags a motor commanded high whose eRPM fails to respond, self-relative to that motor's own behavior this flight. **De Facto** uses a rich same-motor baseline. **Possible** is a looser check for flights with too little high-command history. This is a heuristic, not a confirmed diagnosis. Cross-check flagged times against gyro/accelerometer disturbance."
             )?;
         }
         writeln!(md)?;
