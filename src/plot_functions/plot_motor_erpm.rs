@@ -177,8 +177,8 @@ pub fn plot_motor_erpm(
             .iter()
             .find(|r| r.motor_idx == motor_idx)
         {
-            for event in &result.events {
-                chart.draw_series(std::iter::once(PathElement::new(
+            for (event_idx, event) in result.events.iter().enumerate() {
+                let series = chart.draw_series(std::iter::once(PathElement::new(
                     vec![
                         (event.time_s, MOTOR_ERPM_PLOT_Y_AXIS_MIN),
                         (event.time_s, MOTOR_ERPM_PLOT_Y_AXIS_MAX),
@@ -186,13 +186,25 @@ pub fn plot_motor_erpm(
                     ShapeStyle::from(EVENT_MARKER_COLOR)
                         .stroke_width(MOTOR_ERPM_EVENT_MARKER_WIDTH),
                 )))?;
+                // Only the first marker gets a legend entry — one line per row, not one per event.
+                if event_idx == 0 {
+                    series.label("Desync event").legend(move |(x, y)| {
+                        PathElement::new(
+                            vec![(x, y), (x + 20, y)],
+                            ShapeStyle::from(EVENT_MARKER_COLOR)
+                                .stroke_width(MOTOR_ERPM_EVENT_MARKER_WIDTH),
+                        )
+                    });
+                }
             }
         }
 
         chart
             .configure_series_labels()
+            .position(SeriesLabelPosition::UpperRight)
             .background_style(WHITE.mix(0.8))
             .border_style(BLACK)
+            .label_font(crate::font_config::FONT_TUPLE_LEGEND)
             .draw()?;
     }
 

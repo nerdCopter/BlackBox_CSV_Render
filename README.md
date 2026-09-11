@@ -47,6 +47,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
                    Motor vs eRPM (requires bidirectional DShot telemetry).
   --step           Step response only.
   --bode           Bode only (requires chirp/sweep system-id test flight).
+  --desync         Motor vs eRPM only (requires bidirectional DShot telemetry).
 
 === ANALYSIS OPTIONS ===
 

@@ -116,32 +116,64 @@ fn window_len(times: &[f64], duration_s: f64) -> usize {
     ((duration_s / dt).round() as usize).max(2)
 }
 
-/// `DeFacto` check: this motor has enough of its own high-command history elsewhere in the
-/// flight to know what its eRPM normally does there. Slide a window and flag any stretch
-/// where the command stays in that motor's own top quartile for the whole window while the
-/// window's eRPM median falls far below, or its spread far exceeds, that established norm.
-fn detect_de_facto(samples: &MotorSamples, motor_min: f64, motor_range: f64) -> Vec<f64> {
+/// `DeFacto` check: this motor has enough of its own high-command history *elsewhere* in the
+/// flight to know what its eRPM normally does there. "Elsewhere" is load-bearing: a contiguous
+/// stretch of high command is grouped into one run, and a run is never allowed to contribute to
+/// its own comparison baseline — only other runs can. Without this, a motor that never reaches
+/// its own top quartile except during the anomaly itself builds a baseline entirely out of the
+/// anomaly's own already-collapsed eRPM, which delays detection until the window looks even more
+/// extreme than that self-contaminated reference (observed directly on a confirmed real crash:
+/// the baseline's median dropped to near zero, pushed there by the crash itself, and detection
+/// didn't fire until ~0.9s after the visual divergence). Returns the flagged times plus whether
+/// any run had an independent (other-runs-only) baseline at all — the caller uses that to decide
+/// whether `Possible` should run instead, replacing a raw sample-count check that couldn't tell
+/// "genuine baseline elsewhere" apart from "this motor's only high-command run is the anomaly."
+fn detect_de_facto(samples: &MotorSamples, motor_min: f64, motor_range: f64) -> (Vec<f64>, bool) {
     let high_thresh = motor_min + motor_range * MOTOR_DESYNC_HIGH_CMD_PERCENTILE / 100.0;
-    let baseline: Vec<f64> = samples
-        .motor
-        .iter()
-        .zip(samples.erpm.iter())
-        .filter(|(m, _)| **m >= high_thresh)
-        .map(|(_, e)| *e)
-        .collect();
-    if baseline.len() < MOTOR_DESYNC_MIN_BASELINE_SAMPLES {
-        return Vec::new();
+    let n = samples.motor.len();
+
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < n {
+        if samples.motor[i] >= high_thresh {
+            let start = i;
+            while i < n && samples.motor[i] >= high_thresh {
+                i += 1;
+            }
+            runs.push((start, i));
+        } else {
+            i += 1;
+        }
     }
-    let base_median = median(&baseline);
-    let base_stdev = population_stdev(&baseline);
 
     let win = window_len(&samples.times, MOTOR_DESYNC_SUSTAIN_S);
     let mut events = Vec::new();
+    let mut baseline_available = false;
     let mut last_event_time: Option<f64> = None;
-    let mut i = 0;
-    while i + win <= samples.motor.len() {
-        let mseg = &samples.motor[i..i + win];
-        if mseg.iter().cloned().fold(f64::INFINITY, f64::min) >= high_thresh {
+
+    for &(start, end) in &runs {
+        // A run shorter than one evaluation window can never be tested itself — counting its
+        // baseline availability would be meaningless and could wrongly mask a real gap in
+        // coverage for the run that actually matters (e.g. a couple of sample-level flickers
+        // right before a sustained crash, each too short to evaluate, otherwise "borrowing" the
+        // crash's own run as their baseline and reporting a baseline as available overall).
+        if end - start < win {
+            continue;
+        }
+        let baseline: Vec<f64> = runs
+            .iter()
+            .filter(|&&(s, _)| s != start)
+            .flat_map(|&(s, e)| samples.erpm[s..e].iter().copied())
+            .collect();
+        if baseline.len() < MOTOR_DESYNC_MIN_BASELINE_SAMPLES {
+            continue;
+        }
+        baseline_available = true;
+        let base_median = median(&baseline);
+        let base_stdev = population_stdev(&baseline);
+
+        let mut i = start;
+        while i + win <= end {
             let eseg = &samples.erpm[i..i + win];
             let window_median = median(eseg);
             let window_stdev = population_stdev(eseg);
@@ -156,10 +188,10 @@ fn detect_de_facto(samples: &MotorSamples, motor_min: f64, motor_range: f64) -> 
                     last_event_time = Some(t);
                 }
             }
+            i += (win / 2).max(1);
         }
-        i += (win / 2).max(1);
     }
-    events
+    (events, baseline_available)
 }
 
 /// `Possible` check: used only where `detect_de_facto` couldn't build a baseline (too little
@@ -386,7 +418,8 @@ pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
             continue;
         }
 
-        let de_facto = detect_de_facto(&samples, motor_min, motor_range);
+        let (de_facto, de_facto_baseline_available) =
+            detect_de_facto(&samples, motor_min, motor_range);
         let mut events: Vec<MotorDesyncEvent> = de_facto
             .into_iter()
             .map(|t| MotorDesyncEvent {
@@ -395,11 +428,10 @@ pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
             })
             .collect();
 
-        // Possible only runs where DeFacto had no baseline to work with at all — otherwise
-        // its looser check would just duplicate DeFacto's own findings at lower confidence.
-        let high_thresh = motor_min + motor_range * MOTOR_DESYNC_HIGH_CMD_PERCENTILE / 100.0;
-        let baseline_n = samples.motor.iter().filter(|m| **m >= high_thresh).count();
-        if events.is_empty() && baseline_n < MOTOR_DESYNC_MIN_BASELINE_SAMPLES {
+        // Possible only runs where DeFacto had no independent baseline to work with at all —
+        // otherwise its looser check would just duplicate DeFacto's own findings at lower
+        // confidence.
+        if events.is_empty() && !de_facto_baseline_available {
             let possible = detect_possible(&samples, motor_min, motor_range);
             events.extend(possible.into_iter().map(|t| MotorDesyncEvent {
                 time_s: t,

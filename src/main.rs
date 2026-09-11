@@ -392,9 +392,11 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums,");
     eprintln!("                   RC Command Activity.");
     eprintln!("  --extended       All plots except Bode — adds PIDsum/Error, PID Activity,");
-    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.");
+    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, heatmaps, and");
+    eprintln!("                   Motor vs eRPM (requires bidirectional DShot telemetry).");
     eprintln!("  --step           Step response only.");
     eprintln!("  --bode           Bode only (requires chirp/sweep system-id test flight).");
+    eprintln!("  --desync         Motor vs eRPM only (requires bidirectional DShot telemetry).");
     eprintln!();
     eprintln!("--- ANALYSIS OPTIONS ---");
     eprintln!();
@@ -1853,6 +1855,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut extended_requested = false;
     let mut step_requested = false;
     let mut bode_requested = false;
+    let mut desync_requested = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
 
@@ -1915,6 +1918,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             step_requested = true;
         } else if arg == "--bode" {
             bode_requested = true;
+        } else if arg == "--desync" {
+            desync_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg.starts_with("--") {
@@ -1938,13 +1943,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             cfg.bode = true;
         }
         cfg
-    } else if step_requested || bode_requested {
+    } else if step_requested || bode_requested || desync_requested {
         let mut cfg = PlotConfig::none();
         if step_requested {
             cfg.step_response = true;
         }
         if bode_requested {
             cfg.bode = true;
+        }
+        if desync_requested {
+            cfg.motor_erpm = true;
         }
         cfg
     } else {
@@ -1954,8 +1962,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Show debug information when the runtime --debug flag is present
     if debug_mode {
         println!(
-            "DEBUG: extended={}, step={}, bode={}, plot_config={:?}",
-            extended_requested, step_requested, bode_requested, plot_config
+            "DEBUG: extended={}, step={}, bode={}, desync={}, plot_config={:?}",
+            extended_requested, step_requested, bode_requested, desync_requested, plot_config
         );
     }
 
