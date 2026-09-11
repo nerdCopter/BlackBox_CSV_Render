@@ -109,6 +109,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
                     * `plot_d_term_heatmap`: D-term throttle-frequency heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze D-term energy distribution across different throttle levels.
                     * `plot_psd_db_heatmap`: Spectrograms showing PSD vs. time as heatmaps using Short-Time Fourier Transform (STFT) with configurable window duration and overlap.
                     * `plot_throttle_freq_heatmap`: Heatmaps showing PSD vs. throttle (Y-axis) and frequency (X-axis) to analyze noise characteristics across different throttle levels.
+                    * `plot_motor_erpm`: One row per motor, commanded output and eRPM telemetry overlaid, each normalized to its own 0-100% range within the log (raw motor/eRPM units aren't a comparable scale). Vertical markers at every `Motor Desync Detection` event timestamp for that motor, any confidence tier. Skipped when the log has no eRPM telemetry at all.
 
 ### RC Command Step Detection
 
@@ -190,6 +191,7 @@ When neither `--step` nor `--bode` is used, all plots below are generated:
 - **`*_D_Term_Heatmap_comparative.png`** — D-term energy distribution across throttle levels and frequencies
 - **`*_Gyro_PSD_Spectrogram_comparative.png`** — Gyro spectrogram (PSD vs. time) using Short-Time Fourier Transform
 - **`*_Throttle_Freq_Heatmap_comparative.png`** — System noise characteristics across throttle levels and frequencies
+- **`*_Motor_vs_eRPM_stacked.png`** — Commanded output vs. eRPM per motor, normalized, with Motor Desync Detection event markers
 - **`*_PID_Activity_stacked.png`** — P, I, D term activity over time for each axis (Roll, Pitch, Yaw). Displays all three PID components on the same time-domain plot with unified Y-axis scaling for visual comparison. Each term shows min/avg/max statistics in the legend. Useful for visualizing PID contribution balance during flight and identifying control issues (persistent P-term offset, I-term wind direction, D-term phase lag).
 - **`*_RC_Command_Activity_stacked.png`** — Setpoint vs. RC Command overlay for each axis (Roll, Pitch, Yaw). Visualizes blocky/unfiltered stick input against the flight controller's response; see [RC Command Step Detection](#rc-command-step-detection).
 

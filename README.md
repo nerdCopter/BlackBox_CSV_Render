@@ -43,7 +43,8 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
                    Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums,
                    RC Command Activity.
   --extended       All plots except Bode — adds PIDsum/Error, PID Activity,
-                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.
+                   Setpoint Derivative, Gyro PSD, D-term PSD, heatmaps, and
+                   Motor vs eRPM (requires bidirectional DShot telemetry).
   --step           Step response only.
   --bode           Bode only (requires chirp/sweep system-id test flight).
 
@@ -105,6 +106,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 - `*_D_Term_Heatmap_comparative.png` — D-term throttle/frequency heatmap
 - `*_Gyro_PSD_Spectrogram_comparative.png` — Gyro spectrogram (PSD vs. time)
 - `*_Throttle_Freq_Heatmap_comparative.png` — Throttle/frequency heatmap analysis
+- `*_Motor_vs_eRPM_stacked.png` — One row per motor, commanded output and eRPM telemetry overlaid, each normalized to its own 0-100% range; vertical markers at every Motor Desync Detection event timestamp. Skipped when the log has no eRPM telemetry.
 
 #### Markdown Report (always generated)
 

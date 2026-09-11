@@ -51,6 +51,7 @@ struct PlotConfig {
     pub bode: bool,
     pub pid_activity: bool,
     pub rc_command_activity: bool,
+    pub motor_erpm: bool,
 }
 
 impl Default for PlotConfig {
@@ -73,6 +74,7 @@ impl Default for PlotConfig {
             bode: false,
             pid_activity: false,
             rc_command_activity: true,
+            motor_erpm: false,
         }
     }
 }
@@ -96,6 +98,7 @@ impl PlotConfig {
             bode: false,
             pid_activity: false,
             rc_command_activity: false,
+            motor_erpm: false,
         }
     }
 
@@ -117,6 +120,7 @@ impl PlotConfig {
             bode: false, // Bode requires specialized logs
             pid_activity: true,
             rc_command_activity: true,
+            motor_erpm: true,
         }
     }
 }
@@ -143,6 +147,7 @@ use crate::plot_functions::plot_d_term_psd::plot_d_term_psd;
 use crate::plot_functions::plot_d_term_spectrums::plot_d_term_spectrums;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
 use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
+use crate::plot_functions::plot_motor_erpm::plot_motor_erpm;
 use crate::plot_functions::plot_motor_spectrums::plot_motor_spectrums;
 use crate::plot_functions::plot_pid_activity::plot_pid_activity;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
@@ -1553,6 +1558,10 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
 
+    if plot_config.motor_erpm {
+        plot_motor_erpm(&all_log_data, &root_name_string, &motor_desync_results)?;
+    }
+
     if plot_config.psd {
         plot_psd(
             &all_log_data,
@@ -1717,6 +1726,14 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
             &mut skipped_plots,
             "Motor Spectrums",
             format!("{root_name_string}_Motor_Spectrums_stacked.png"),
+        );
+    }
+    if plot_config.motor_erpm {
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Motor vs eRPM",
+            format!("{root_name_string}_Motor_vs_eRPM_stacked.png"),
         );
     }
     if plot_config.psd {

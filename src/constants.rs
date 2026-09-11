@@ -105,6 +105,12 @@ pub const MOTOR_DESYNC_FALLBACK_ERROR_PERCENTILE: f64 = 97.0; // Tracking-error 
 pub const MOTOR_DESYNC_FALLBACK_SUSTAIN_S: f64 = 0.15; // Window duration — the error must average high across a sustained span, not one overshooting sample
 pub const MOTOR_DESYNC_FALLBACK_OSCILLATION_OVERLAP_S: f64 = 2.0; // A Fallback event within this many seconds of a same-motor Motor Oscillation detection gets an explicit caveat — chronic tune/mechanical resonance is a known, confirmed cause of Fallback false positives (see motor_desync.rs)
 
+// Motor vs eRPM plot constants (--extended only; see plot_motor_erpm.rs)
+pub const MOTOR_ERPM_PLOT_Y_AXIS_MIN: f64 = 0.0; // Normalized axis floor (% of each series' own range)
+pub const MOTOR_ERPM_PLOT_Y_AXIS_MAX: f64 = 100.0; // Normalized axis ceiling (% of each series' own range)
+pub const MOTOR_ERPM_MIN_RANGE: f64 = 200.0; // Absolute floor (raw units) below which a motor's command or eRPM range can't be meaningfully normalized to 0-100% — same floor as MOTOR_DESYNC_MIN_MOTOR_RANGE/MOTOR_DESYNC_MIN_ERPM_RANGE, kept separate since this gates a plot, not a detector
+pub const MOTOR_ERPM_EVENT_MARKER_WIDTH: u32 = 2; // Stroke width for the vertical line marking a flagged Motor Desync Detection event
+
 // Frequency-axis math constants shared by Bode and motor-spectrum plots
 pub const NYQUIST_DIVISOR: f64 = 2.0; // Converts sample rate to Nyquist frequency (sample_rate / divisor)
 pub const MIN_PLOT_FREQUENCY_HZ: f64 = 1.0; // Floor for the Bode plot's frequency-axis minimum
