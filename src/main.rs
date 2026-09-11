@@ -1548,7 +1548,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         vec![]
     };
 
-    let motor_desync_results = if plot_config.motor_spectrums {
+    let motor_desync_results = if plot_config.motor_spectrums || plot_config.motor_erpm {
         detect_motor_desync(&all_log_data)
     } else {
         vec![]

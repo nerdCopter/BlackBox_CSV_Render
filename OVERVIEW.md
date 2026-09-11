@@ -24,7 +24,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 ### Core Functionality
 
 1.  **Argument Parsing (`src/main.rs`):**
-    * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and plot-selection flags (`--core` [default], `--extended`, `--step`, `--bode`).
+    * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and plot-selection flags (`--core` [default], `--extended`, `--step`, `--bode`, `--desync`).
     * Additional options include `--help` and `--version` for user assistance.
     * The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     * Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
@@ -115,7 +115,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 * **Purpose:** Diagnoses raw, unsmoothed RX-link input reaching the PID loop — visible as a staircase in RC Command, and as jitter in the Setpoint response (`src/plot_functions/plot_rc_command_activity.rs`).
 * **Metric:** For each axis (Roll, Pitch, Yaw), walks the RC Command time series and measures the **median "plateau" duration** — how long the value is held flat before jumping to a new value (any change at or above `RC_STEP_MIN_JUMP_SIZE` counts, including a single rcCommand unit; only sub-unit float-precision noise is excluded). A smoothly-interpolated signal changes almost every sample (short plateaus); a raw, unsmoothed RX-link signal is held flat for the RX update interval (long plateaus).
-* **Classification:** An axis is flagged **Blocky** when its median plateau duration is at or above `RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS` (12.0 ms); otherwise **Smooth**. Below `RC_STEP_MIN_COUNT_FOR_ASSESSMENT` (20) qualifying transitions, the axis is left unclassified (N/A) rather than guessed — a median computed from only a handful of transitions is unreliable. `Median Plateau (ms)` and `Step Count` are shown in the `## Stick Input Smoothness` section of the markdown report; the section is omitted entirely when the log has no rcCommand headers, no RC movement, or when `--step`/`--bode` mode disabled the plot (detection runs only alongside `plot_rc_command_activity`).
+* **Classification:** An axis is flagged **Blocky** when its median plateau duration is at or above `RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS` (12.0 ms); otherwise **Smooth**. Below `RC_STEP_MIN_COUNT_FOR_ASSESSMENT` (20) qualifying transitions, the axis is left unclassified (N/A) rather than guessed — a median computed from only a handful of transitions is unreliable. `Median Plateau (ms)` and `Step Count` are shown in the `## Stick Input Smoothness` section of the markdown report; the section is omitted entirely when the log has no rcCommand headers, no RC movement, or when `--step`/`--bode`/`--desync` mode disabled the plot (detection runs only alongside `plot_rc_command_activity`).
 * **Calibration:** Thresholds were set by measuring median plateau duration on 5 real flight logs (Betaflight and EmuFlight): smooth logs measured ~4 ms, logs with a visible RC Command staircase measured 20–140 ms. Re-validated against 56 additional real logs spanning multiple firmware branches and sample rates (1–16 kHz): 149 classified axes clustered at 0.6–7 ms for smooth input, with exactly one log crossing into Blocky territory at 19.8–20.8 ms — a clean ~5x gap with zero samples in an 8–16 ms gray zone. That one flagged log was independently confirmed (Betaflight Blackbox Explorer, plus the pilot's own knowledge of the craft) to have visibly blocky RC Command input. This is a heuristic, not a certified diagnostic, but is now backed by both a wide statistical separation and a confirmed true positive.
 * **Recommendation:** When any axis is flagged Blocky, the report adds a note to review the aircraft's `rc_smoothing_*` settings or confirm the RX link update rate.
 
@@ -178,7 +178,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 
 #### Generated PNG Plots
 
-When neither `--step` nor `--bode` is used, all plots below are generated:
+When none of `--step`, `--bode`, or `--desync` is used, all plots below are generated:
 
 - **`*_Step_Response_stacked_plot_*.png`** — Step response visualization with P:D recommendations overlay
 - **`*_PIDsum_PIDerror_Setpoint_stacked.png`** — Time-domain traces of PIDsum, PID error, and setpoint
