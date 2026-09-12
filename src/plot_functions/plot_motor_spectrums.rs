@@ -13,6 +13,7 @@ use crate::constants::{
 use crate::data_analysis::calc_step_response; // For tukeywin
 use crate::data_analysis::fft_utils; // For fft_forward
 use crate::data_input::log_data::LogRowData;
+use crate::plot_framework::record_written_this_run;
 use plotters::prelude::*;
 use plotters::style::colors::full_palette::{AMBER, BLUE, GREEN, ORANGE, PURPLE, RED};
 use plotters::style::RGBColor;
@@ -439,6 +440,7 @@ pub fn plot_motor_spectrums(
     }
 
     root_area.present()?;
+    record_written_this_run(&output_file);
     println!("  Stacked plot saved as '{}'.", output_file);
 
     Ok(motor_osc_results)

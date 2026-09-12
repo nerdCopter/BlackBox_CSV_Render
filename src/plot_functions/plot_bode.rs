@@ -25,6 +25,7 @@ use crate::data_input::log_data::LogRowData;
 use crate::font_config::{
     FONT_FAMILY_BUNDLED, FONT_TUPLE_AXIS_LABEL, FONT_TUPLE_CHART_TITLE, FONT_TUPLE_MAIN_TITLE,
 };
+use crate::plot_framework::record_written_this_run;
 
 /// Minimum coherence threshold for filtering Bode plot data
 const MIN_COHERENCE_FOR_PLOT: f64 = 0.1;
@@ -319,6 +320,7 @@ fn create_bode_grid_plot(
     }
 
     root.present()?;
+    record_written_this_run(output_file);
     Ok(true)
 }
 

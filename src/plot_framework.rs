@@ -13,6 +13,7 @@ use plotters::style::{Color, IntoFont, RGBColor};
 
 use std::error::Error;
 use std::ops::Range;
+use std::sync::{Mutex, OnceLock};
 
 use crate::constants::{
     AVG_CHAR_WIDTH_RATIO, FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_MESSAGE, FONT_SIZE_PEAK_LABEL,
@@ -24,6 +25,53 @@ use crate::font_config::{
     BUNDLED_FONT_BYTES, FONT_TUPLE_AXIS_LABEL, FONT_TUPLE_CHART_TITLE, FONT_TUPLE_LEGEND,
     FONT_TUPLE_MAIN_TITLE, FONT_TUPLE_MESSAGE, FONT_TUPLE_PEAK_LABEL,
 };
+
+/// PNG filenames actually written during the current run. `Path::exists()` can't tell a PNG
+/// this run just wrote from one an earlier run left behind under a colliding root name, so
+/// the report-linking code in main.rs consults this instead of the filesystem.
+fn written_this_run() -> &'static Mutex<Vec<String>> {
+    static REGISTRY: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Clears the write record. Call once before generating plots for a new input log.
+#[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
+pub(crate) fn reset_written_this_run() {
+    written_this_run().lock().unwrap().clear();
+}
+
+/// Records that `filename` was actually written during the current run.
+pub(crate) fn record_written_this_run(filename: &str) {
+    written_this_run()
+        .lock()
+        .unwrap()
+        .push(filename.to_string());
+}
+
+/// Whether `filename` was written during the current run.
+#[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
+pub(crate) fn was_written_this_run(filename: &str) -> bool {
+    written_this_run()
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|f| f == filename)
+}
+
+/// Filenames written this run starting with `prefix`, sorted — for callers that don't know
+/// the exact generated filename (e.g. one with a dynamic duration suffix).
+#[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
+pub(crate) fn written_this_run_with_prefix(prefix: &str) -> Vec<String> {
+    let mut matches: Vec<String> = written_this_run()
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|f| f.starts_with(prefix))
+        .cloned()
+        .collect();
+    matches.sort();
+    matches
+}
 
 /// Special prefix for cutoff line series to avoid showing them in legends
 pub const CUTOFF_LINE_PREFIX: &str = "__CUTOFF_LINE__";
@@ -793,6 +841,7 @@ where
     }
 
     root_area.present()?;
+    record_written_this_run(output_filename);
     println!("  Stacked plot saved as '{output_filename}'.");
     Ok(())
 }
@@ -854,6 +903,7 @@ where
     }
 
     root_area.present()?;
+    record_written_this_run(output_filename);
     println!("  Stacked plot saved as '{output_filename}'.");
     Ok(())
 }
@@ -1024,6 +1074,7 @@ where
     }
 
     root_area.present()?;
+    record_written_this_run(output_filename);
     println!("  Stacked heatmap plot saved as '{output_filename}'.");
     Ok(())
 }
@@ -1105,6 +1156,54 @@ mod tests {
         assert_eq!(
             plot_config_validity(&config),
             PlotDataValidity::NoDataPoints
+        );
+    }
+
+    // The write registry is process-global state; serialize these tests so they can't
+    // interleave with each other (unrelated tests are unaffected).
+    static REGISTRY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn reset_written_this_run_clears_prior_entries() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        record_written_this_run("previous_run.png");
+        reset_written_this_run();
+        assert!(!was_written_this_run("previous_run.png"));
+    }
+
+    #[test]
+    fn was_written_this_run_true_only_after_record() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        assert!(!was_written_this_run("fresh_this_run.png"));
+        record_written_this_run("fresh_this_run.png");
+        assert!(was_written_this_run("fresh_this_run.png"));
+    }
+
+    #[test]
+    fn was_written_this_run_false_for_file_on_disk_but_not_recorded() {
+        // Regression: a PNG left on disk by an earlier run under a colliding root name must
+        // not count as "written" for this run just because Path::exists() is true.
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        let stale_path = std::env::temp_dir().join("it178_stale_plot_test.png");
+        std::fs::write(&stale_path, b"stale").unwrap();
+        let stale_path_str = stale_path.to_string_lossy().to_string();
+        assert!(std::path::Path::new(&stale_path_str).exists());
+        assert!(!was_written_this_run(&stale_path_str));
+        std::fs::remove_file(&stale_path).ok();
+    }
+
+    #[test]
+    fn written_this_run_with_prefix_matches_dynamic_suffix_only() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        record_written_this_run("LOG1_Step_Response_stacked_plot_2.5s_500dps.png");
+        record_written_this_run("LOG1_SetpointVsGyro_stacked.png");
+        let matches = written_this_run_with_prefix("LOG1_Step_Response_stacked_plot_");
+        assert_eq!(
+            matches,
+            vec!["LOG1_Step_Response_stacked_plot_2.5s_500dps.png".to_string()]
         );
     }
 }
