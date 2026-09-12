@@ -50,6 +50,70 @@ fn read_headers_csv(headers_file_path: &Path) -> Result<Vec<(String, String)>, B
     Ok(header_metadata)
 }
 
+/// Detects dynamically-indexed CSV columns matching `<prefix><N>]` (e.g. `eRPM[0]`), returning
+/// (channel_num, csv_idx) pairs sorted by channel number. Channel numbers are preserved (not
+/// compacted to discovery order) so callers can align against another independently-gapped
+/// channel set — see erpm_indices construction above, which aligns to motor channel numbers.
+fn find_indexed_channel_pairs(
+    header_record: &csv::StringRecord,
+    prefix: &str,
+    debug_mode: bool,
+    label: &str,
+) -> Vec<(usize, usize)> {
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    for (csv_idx, header) in header_record.iter().enumerate() {
+        if let Some(num_str) = header
+            .trim()
+            .strip_prefix(prefix)
+            .and_then(|s| s.strip_suffix(']'))
+        {
+            if let Ok(num) = num_str.parse::<usize>() {
+                pairs.push((num, csv_idx));
+            }
+        }
+    }
+    pairs.sort_by_key(|&(num, _)| num);
+
+    if !pairs.is_empty() {
+        let mut expected = 0usize;
+        for &(num, _) in &pairs {
+            if debug_mode && expected < num {
+                println!(
+                    "⚠️  Gap detected in {label} indices: {label}[{expected}] through {label}[{}]",
+                    num - 1
+                );
+            }
+            expected = num.saturating_add(1);
+        }
+        if debug_mode {
+            println!(
+                "Detected {} {} channels: {label}[{}] through {label}[{}]",
+                pairs.len(),
+                label,
+                pairs.first().map(|&(n, _)| n).unwrap_or(0),
+                pairs.last().map(|&(n, _)| n).unwrap_or(0)
+            );
+        }
+    }
+
+    pairs
+}
+
+/// Aligns a set of (channel_num, csv_idx) pairs to a reference channel-number sequence,
+/// returning one slot per reference entry: `Some(csv_idx)` if that exact channel number has
+/// data, `None` otherwise. Used to keep `erpms[i]` pointing at the same physical motor channel
+/// as `motors[i]` even when motor[] and eRPM[] have different gaps — see erpm_indices above.
+fn align_channel_indices(
+    reference_channel_numbers: &[usize],
+    available: Vec<(usize, usize)>,
+) -> Vec<Option<usize>> {
+    let by_channel: std::collections::HashMap<usize, usize> = available.into_iter().collect();
+    reference_channel_numbers
+        .iter()
+        .map(|ch| by_channel.get(ch).copied())
+        .collect()
+}
+
 /// Decides whether debug[0-2] should be used as a gyroUnfilt fallback, and the console
 /// message (if any) explaining the decision. Pulled out of `parse_log_file` so the
 /// header-coverage/debug_mode branching can be unit tested without file I/O.
@@ -270,6 +334,12 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
 
     let header_indices: Vec<Option<usize>>;
     let mut motor_indices: Vec<usize> = Vec::new();
+    let mut motor_channel_numbers: Vec<usize> = Vec::new();
+    // Indexed to match motor_indices/motors (not raw channel number): erpm_indices[i] is the
+    // CSV column for the same channel number as motor_indices[i], or None if that channel has
+    // no eRPM column. Required because motor[] and eRPM[] can each independently have gaps —
+    // compacting both by discovery order alone would misalign them when the gaps differ.
+    let erpm_indices: Vec<Option<usize>>;
     let using_debug_fallback: bool;
 
     // Read CSV header and map target headers to indices.
@@ -334,8 +404,9 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             }
 
             // Populate motor_indices from sorted pairs
-            for (_, csv_idx) in &motor_pairs {
-                motor_indices.push(*csv_idx);
+            for &(motor_num, csv_idx) in &motor_pairs {
+                motor_indices.push(csv_idx);
+                motor_channel_numbers.push(motor_num);
             }
 
             if debug_mode {
@@ -347,6 +418,13 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                 );
             }
         }
+
+        // Detect eRPM telemetry channels dynamically (eRPM[0] through eRPM[N-1]). Missing
+        // entirely on logs without bidirectional DShot telemetry. Aligned to
+        // motor_channel_numbers by channel number, not by discovery order, since motor[] and
+        // eRPM[] can each independently have gaps.
+        let erpm_pairs = find_indexed_channel_pairs(&header_record, "eRPM[", debug_mode, "eRPM");
+        erpm_indices = align_channel_indices(&motor_channel_numbers, erpm_pairs);
 
         header_indices = target_headers
             .iter()
@@ -659,6 +737,15 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
                         current_row_data.motors.push(motor_val);
                     }
 
+                    // Parse eRPM telemetry (channel-aligned to motors; see erpm_indices doc comment)
+                    current_row_data.erpms = Vec::with_capacity(erpm_indices.len());
+                    for erpm_csv_idx in &erpm_indices {
+                        let erpm_val = erpm_csv_idx
+                            .and_then(|idx| record.get(idx))
+                            .and_then(|val_str| val_str.parse::<f64>().ok());
+                        current_row_data.erpms.push(erpm_val);
+                    }
+
                     all_log_data.push(current_row_data);
                 }
                 Err(e) => {
@@ -718,7 +805,7 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
 }
 
 #[cfg(test)]
-mod resolve_gyro_unfilt_fallback_tests {
+mod tests {
     use super::*;
 
     #[test]
@@ -781,6 +868,36 @@ mod resolve_gyro_unfilt_fallback_tests {
             resolve_gyro_unfilt_fallback(&[true, false, false], &[false; 4], None);
         assert!(!fallback);
         assert!(msg.is_some());
+    }
+
+    #[test]
+    fn find_indexed_channel_pairs_sorts_and_ignores_unrelated_columns() {
+        let header =
+            csv::StringRecord::from(vec!["time", "eRPM[2]", "junk", "eRPM[0]", "motor[0]"]);
+        let pairs = find_indexed_channel_pairs(&header, "eRPM[", false, "eRPM");
+        assert_eq!(pairs, vec![(0, 3), (2, 1)]);
+    }
+
+    #[test]
+    fn align_channel_indices_preserves_gaps_instead_of_compacting() {
+        // Regression test: motor[] has channels 0-3 with no gap, but eRPM[] is missing
+        // channel 1 (e.g. that ESC has no bidirectional-DShot telemetry wired). Compacting
+        // eRPM by discovery order would put channel 2's csv_idx in slot 1, silently pairing
+        // motor 1's command with motor 2's eRPM. The aligned result must instead carry None
+        // for the missing channel, leaving every other slot correctly matched.
+        let motor_channel_numbers = vec![0, 1, 2, 3];
+        let erpm_pairs = vec![(0, 10), (2, 12), (3, 13)]; // channel 1 absent
+        let aligned = align_channel_indices(&motor_channel_numbers, erpm_pairs);
+        assert_eq!(aligned, vec![Some(10), None, Some(12), Some(13)]);
+    }
+
+    #[test]
+    fn align_channel_indices_handles_reference_gaps_too() {
+        // motor[] itself skips channel 1; alignment must still match by channel number.
+        let motor_channel_numbers = vec![0, 2, 3];
+        let erpm_pairs = vec![(0, 10), (1, 11), (2, 12), (3, 13)];
+        let aligned = align_channel_indices(&motor_channel_numbers, erpm_pairs);
+        assert_eq!(aligned, vec![Some(10), Some(12), Some(13)]);
     }
 }
 

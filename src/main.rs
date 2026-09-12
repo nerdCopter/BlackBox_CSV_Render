@@ -51,6 +51,7 @@ struct PlotConfig {
     pub bode: bool,
     pub pid_activity: bool,
     pub rc_command_activity: bool,
+    pub motor_erpm: bool,
 }
 
 impl Default for PlotConfig {
@@ -73,6 +74,7 @@ impl Default for PlotConfig {
             bode: false,
             pid_activity: false,
             rc_command_activity: true,
+            motor_erpm: false,
         }
     }
 }
@@ -96,6 +98,7 @@ impl PlotConfig {
             bode: false,
             pid_activity: false,
             rc_command_activity: false,
+            motor_erpm: false,
         }
     }
 
@@ -117,6 +120,7 @@ impl PlotConfig {
             bode: false, // Bode requires specialized logs
             pid_activity: true,
             rc_command_activity: true,
+            motor_erpm: true,
         }
     }
 }
@@ -136,13 +140,17 @@ use crate::constants::{
 };
 
 // Specific plot function imports
+use crate::plot_functions::motor_desync::{detect_motor_desync, fallback_oscillation_overlaps};
 use crate::plot_functions::plot_bode::plot_bode_analysis;
 use crate::plot_functions::plot_d_term_heatmap::plot_d_term_heatmap;
 use crate::plot_functions::plot_d_term_psd::plot_d_term_psd;
 use crate::plot_functions::plot_d_term_spectrums::plot_d_term_spectrums;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
 use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
-use crate::plot_functions::plot_motor_spectrums::plot_motor_spectrums;
+use crate::plot_functions::plot_motor_erpm::plot_motor_erpm;
+use crate::plot_functions::plot_motor_spectrums::{
+    detect_motor_oscillations, plot_motor_spectrums,
+};
 use crate::plot_functions::plot_pid_activity::plot_pid_activity;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
 use crate::plot_functions::plot_psd::plot_psd;
@@ -386,9 +394,12 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums,");
     eprintln!("                   RC Command Activity.");
     eprintln!("  --extended       All plots except Bode — adds PIDsum/Error, PID Activity,");
-    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.");
+    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, heatmaps, and");
+    eprintln!("                   Motor vs eRPM (requires bidirectional DShot telemetry).");
     eprintln!("  --step           Step response only.");
     eprintln!("  --bode           Bode only (requires chirp/sweep system-id test flight).");
+    eprintln!("  --desync         Motor vs eRPM plot only (needs eRPM telemetry). Desync");
+    eprintln!("                   detection itself (Fallback tier) still runs without it.");
     eprintln!();
     eprintln!("--- ANALYSIS OPTIONS ---");
     eprintln!();
@@ -1536,9 +1547,30 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
 
     let motor_results = if plot_config.motor_spectrums {
         plot_motor_spectrums(&all_log_data, &root_name_string, sample_rate)?
+    } else if plot_config.motor_erpm {
+        // Oscillation detection alone (no plot) — keeps the Fallback-tier overlap caveat and
+        // the Motor Oscillation report section available under --desync without also writing
+        // the Motor Spectrums PNG, which --desync's "only the eRPM plot" contract excludes.
+        detect_motor_oscillations(&all_log_data, sample_rate)
     } else {
         vec![]
     };
+
+    let motor_desync_results = if plot_config.motor_spectrums || plot_config.motor_erpm {
+        detect_motor_desync(&all_log_data)
+    } else {
+        vec![]
+    };
+
+    for (motor_idx, t) in fallback_oscillation_overlaps(&motor_desync_results, &motor_results) {
+        println!(
+            "  ⚠️  Motor {motor_idx} Fallback desync event at {t:.2}s coincides with a Motor Oscillation detection on the same motor — may be chronic tune/mechanical resonance rather than a desync"
+        );
+    }
+
+    if plot_config.motor_erpm {
+        plot_motor_erpm(&all_log_data, &root_name_string, &motor_desync_results)?;
+    }
 
     if plot_config.psd {
         plot_psd(
@@ -1706,6 +1738,14 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
             format!("{root_name_string}_Motor_Spectrums_stacked.png"),
         );
     }
+    if plot_config.motor_erpm {
+        push_if_exists(
+            &mut png_links,
+            &mut skipped_plots,
+            "Motor vs eRPM",
+            format!("{root_name_string}_Motor_vs_eRPM_stacked.png"),
+        );
+    }
     if plot_config.psd {
         push_if_exists(
             &mut png_links,
@@ -1779,6 +1819,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         dterm_results,
         bode_results,
         motor_results,
+        motor_desync_results,
         rc_command_steps,
         png_links,
         skipped_plots,
@@ -1822,6 +1863,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut extended_requested = false;
     let mut step_requested = false;
     let mut bode_requested = false;
+    let mut desync_requested = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
 
@@ -1884,6 +1926,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             step_requested = true;
         } else if arg == "--bode" {
             bode_requested = true;
+        } else if arg == "--desync" {
+            desync_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg.starts_with("--") {
@@ -1907,13 +1951,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             cfg.bode = true;
         }
         cfg
-    } else if step_requested || bode_requested {
+    } else if step_requested || bode_requested || desync_requested {
         let mut cfg = PlotConfig::none();
         if step_requested {
             cfg.step_response = true;
         }
         if bode_requested {
             cfg.bode = true;
+        }
+        if desync_requested {
+            cfg.motor_erpm = true;
         }
         cfg
     } else {
@@ -1923,8 +1970,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Show debug information when the runtime --debug flag is present
     if debug_mode {
         println!(
-            "DEBUG: extended={}, step={}, bode={}, plot_config={:?}",
-            extended_requested, step_requested, bode_requested, plot_config
+            "DEBUG: extended={}, step={}, bode={}, desync={}, plot_config={:?}",
+            extended_requested, step_requested, bode_requested, desync_requested, plot_config
         );
     }
 
