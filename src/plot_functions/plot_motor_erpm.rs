@@ -178,34 +178,10 @@ pub fn plot_motor_erpm(
             .label_style(crate::font_config::FONT_TUPLE_AXIS_LABEL)
             .draw()?;
 
-        chart
-            .draw_series(LineSeries::new(
-                motor_series,
-                ShapeStyle::from(MOTOR_LINE_COLOR).stroke_width(LINE_WIDTH_PLOT),
-            ))?
-            .label("Motor command")
-            .legend(move |(x, y)| {
-                PathElement::new(
-                    vec![(x, y), (x + 20, y)],
-                    ShapeStyle::from(MOTOR_LINE_COLOR).stroke_width(LINE_WIDTH_PLOT),
-                )
-            });
-
-        chart
-            .draw_series(LineSeries::new(
-                erpm_series,
-                ShapeStyle::from(ERPM_LINE_COLOR).stroke_width(LINE_WIDTH_PLOT),
-            ))?
-            .label("eRPM")
-            .legend(move |(x, y)| {
-                PathElement::new(
-                    vec![(x, y), (x + 20, y)],
-                    ShapeStyle::from(ERPM_LINE_COLOR).stroke_width(LINE_WIDTH_PLOT),
-                )
-            });
-
         // Mark every flagged event for this motor, any confidence tier — a single vertical
-        // line so a reader can go straight to the moment the detector flagged.
+        // line so a reader can go straight to the moment the detector flagged. Drawn before
+        // the motor/eRPM traces so the traces render on top of the marker, not the other way
+        // around.
         if let Some(result) = motor_desync_results
             .iter()
             .find(|r| r.motor_idx == motor_idx)
@@ -231,6 +207,32 @@ pub fn plot_motor_erpm(
                 }
             }
         }
+
+        chart
+            .draw_series(LineSeries::new(
+                motor_series,
+                ShapeStyle::from(MOTOR_LINE_COLOR).stroke_width(LINE_WIDTH_PLOT),
+            ))?
+            .label("Motor command")
+            .legend(move |(x, y)| {
+                PathElement::new(
+                    vec![(x, y), (x + 20, y)],
+                    ShapeStyle::from(MOTOR_LINE_COLOR).stroke_width(LINE_WIDTH_PLOT),
+                )
+            });
+
+        chart
+            .draw_series(LineSeries::new(
+                erpm_series,
+                ShapeStyle::from(ERPM_LINE_COLOR).stroke_width(LINE_WIDTH_PLOT),
+            ))?
+            .label("eRPM")
+            .legend(move |(x, y)| {
+                PathElement::new(
+                    vec![(x, y), (x + 20, y)],
+                    ShapeStyle::from(ERPM_LINE_COLOR).stroke_width(LINE_WIDTH_PLOT),
+                )
+            });
 
         chart
             .configure_series_labels()
