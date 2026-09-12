@@ -28,43 +28,49 @@ use crate::font_config::{
 
 /// PNG filenames actually written during the current run. `Path::exists()` can't tell a PNG
 /// this run just wrote from one an earlier run left behind under a colliding root name, so
-/// the report-linking code in main.rs consults this instead of the filesystem.
+/// the report-linking code in main.rs consults this instead of the filesystem. Assumes plots
+/// for one input log are generated fully before the next log's reset — true today since
+/// main.rs processes logs sequentially; the reset-then-record sequence isn't atomic.
 fn written_this_run() -> &'static Mutex<Vec<String>> {
     static REGISTRY: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+/// Locks the registry, recovering the data if a prior panic poisoned the mutex — a `Vec`
+/// push/clear/read can't leave semantically-broken data, so the poison flag alone shouldn't
+/// crash unrelated callers.
+fn lock_registry() -> std::sync::MutexGuard<'static, Vec<String>> {
+    written_this_run()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Clears the write record. Call once before generating plots for a new input log.
 #[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
 pub(crate) fn reset_written_this_run() {
-    written_this_run().lock().unwrap().clear();
+    lock_registry().clear();
 }
 
-/// Records that `filename` was actually written during the current run.
+/// Records that `filename` was actually written during the current run. A no-op if already
+/// recorded, so a filename can never appear twice in `written_this_run_with_prefix`'s output.
 pub(crate) fn record_written_this_run(filename: &str) {
-    written_this_run()
-        .lock()
-        .unwrap()
-        .push(filename.to_string());
+    let mut registry = lock_registry();
+    if !registry.iter().any(|f| f == filename) {
+        registry.push(filename.to_string());
+    }
 }
 
 /// Whether `filename` was written during the current run.
 #[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
 pub(crate) fn was_written_this_run(filename: &str) -> bool {
-    written_this_run()
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|f| f == filename)
+    lock_registry().iter().any(|f| f == filename)
 }
 
 /// Filenames written this run starting with `prefix`, sorted — for callers that don't know
 /// the exact generated filename (e.g. one with a dynamic duration suffix).
 #[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
 pub(crate) fn written_this_run_with_prefix(prefix: &str) -> Vec<String> {
-    let mut matches: Vec<String> = written_this_run()
-        .lock()
-        .unwrap()
+    let mut matches: Vec<String> = lock_registry()
         .iter()
         .filter(|f| f.starts_with(prefix))
         .cloned()
@@ -1205,5 +1211,15 @@ mod tests {
             matches,
             vec!["LOG1_Step_Response_stacked_plot_2.5s_500dps.png".to_string()]
         );
+    }
+
+    #[test]
+    fn record_written_this_run_is_idempotent() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        record_written_this_run("LOG2_SetpointVsGyro_stacked.png");
+        record_written_this_run("LOG2_SetpointVsGyro_stacked.png");
+        let matches = written_this_run_with_prefix("LOG2_SetpointVsGyro_stacked");
+        assert_eq!(matches, vec!["LOG2_SetpointVsGyro_stacked.png".to_string()]);
     }
 }
