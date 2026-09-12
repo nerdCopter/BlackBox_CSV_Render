@@ -10,14 +10,17 @@ use std::path::Path;
 
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
 use crate::constants::{
-    MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_SECONDS_TO_MS,
-    MOTOR_OSCILLATION_WINDOW_S,
+    MOTOR_DESYNC_REPORT_MAX_TIMES, MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ,
+    MOTOR_OSCILLATION_SECONDS_TO_MS, MOTOR_OSCILLATION_WINDOW_S,
 };
 use crate::data_analysis::filter_response::{
     AllFilterConfigs, DynamicNotchConfig, RpmFilterConfig,
 };
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
 use crate::data_analysis::transfer_function_estimation::Confidence;
+use crate::plot_functions::motor_desync::{
+    fallback_oscillation_overlaps, DesyncConfidence, MotorDesyncResult,
+};
 use crate::plot_functions::plot_bode::BodeAxisResult;
 use crate::plot_functions::plot_d_term_spectrums::DTermAxisResult;
 use crate::plot_functions::plot_gyro_spectrums::GyroAnalysisResult;
@@ -58,6 +61,7 @@ pub struct FlightReport {
     pub dterm_results: Vec<DTermAxisResult>,
     pub bode_results: Vec<BodeAxisResult>,
     pub motor_results: Vec<MotorOscillationResult>,
+    pub motor_desync_results: Vec<MotorDesyncResult>,
     pub rc_command_steps: Vec<RcCommandStepResult>,
     pub png_links: Vec<String>,
     /// Human-readable labels of plot types that were enabled but produced no plottable data.
@@ -502,6 +506,115 @@ pub fn generate_markdown_report(
             )?;
         }
         writeln!(md)?;
+    }
+
+    // --- Motor Desync Detection ---
+    if !report.motor_desync_results.is_empty() {
+        writeln!(md, "## Motor Desync Detection")?;
+        writeln!(md)?;
+        let fallback_active = report.motor_desync_results.iter().any(|r| r.fallback_used);
+        if fallback_active {
+            writeln!(
+                md,
+                "No eRPM telemetry in this log. Flags a motor near its own command ceiling when the aircraft's rotation diverges sharply from setpoint, self-relative to this flight's own distributions. **Fallback** cannot confirm actual motor RPM response — it is the least confident tier, and can miss real desyncs or flag legitimate hard maneuvers. Cross-check every flagged time against gyro/setpoint traces and video."
+            )?;
+        } else {
+            writeln!(
+                md,
+                "Flags a motor commanded high whose eRPM fails to respond, self-relative to that motor's own behavior this flight. **De Facto** uses a rich same-motor baseline. **Possible** is a looser check for flights with too little high-command history. This is a heuristic, not a confirmed diagnosis. Cross-check flagged times against gyro/accelerometer disturbance."
+            )?;
+        }
+        writeln!(md)?;
+        writeln!(
+            md,
+            "| Motor | eRPM Telemetry | De Facto | Possible | Fallback | De Facto Times (s) | Possible Times (s) | Fallback Times (s) |"
+        )?;
+        writeln!(
+            md,
+            "|-------|-----------------|----------|----------|----------|----------------------|-----------------------|----------------------|"
+        )?;
+        let mut any_de_facto = false;
+        let mut any_possible = false;
+        let mut any_fallback = false;
+        for r in &report.motor_desync_results {
+            if !r.erpm_signal_available && !r.fallback_used {
+                writeln!(
+                    md,
+                    "| {} | Insufficient signal | N/A | N/A | N/A | N/A | N/A | N/A |",
+                    r.motor_idx
+                )?;
+                continue;
+            }
+            let fmt_times = |confidence: DesyncConfidence| -> String {
+                let matching: Vec<f64> = r
+                    .events
+                    .iter()
+                    .filter(|e| e.confidence == confidence)
+                    .map(|e| e.time_s)
+                    .collect();
+                if matching.is_empty() {
+                    return "N/A".to_string();
+                }
+                let times: Vec<String> = matching
+                    .iter()
+                    .take(MOTOR_DESYNC_REPORT_MAX_TIMES)
+                    .map(|t| format!("{t:.2}"))
+                    .collect();
+                if matching.len() > MOTOR_DESYNC_REPORT_MAX_TIMES {
+                    format!("{}, ...", times.join(", "))
+                } else {
+                    times.join(", ")
+                }
+            };
+            let count = |confidence: DesyncConfidence| -> usize {
+                r.events
+                    .iter()
+                    .filter(|e| e.confidence == confidence)
+                    .count()
+            };
+            let de_facto_count = count(DesyncConfidence::DeFacto);
+            let possible_count = count(DesyncConfidence::Possible);
+            let fallback_count = count(DesyncConfidence::Fallback);
+            any_de_facto |= de_facto_count > 0;
+            any_possible |= possible_count > 0;
+            any_fallback |= fallback_count > 0;
+            let telemetry = if r.fallback_used {
+                "Fallback (no eRPM)"
+            } else {
+                "Available"
+            };
+            writeln!(
+                md,
+                "| {} | {} | {} | {} | {} | {} | {} | {} |",
+                r.motor_idx,
+                telemetry,
+                de_facto_count,
+                possible_count,
+                fallback_count,
+                fmt_times(DesyncConfidence::DeFacto),
+                fmt_times(DesyncConfidence::Possible),
+                fmt_times(DesyncConfidence::Fallback)
+            )?;
+        }
+        writeln!(md)?;
+        if any_de_facto || any_possible || any_fallback {
+            writeln!(
+                md,
+                "**⚠ Recommendation:** Review the flagged timestamps against gyro traces and audio/video for the same moments. Inspect the affected motor, ESC, and prop for damage or a loose connection."
+            )?;
+            writeln!(md)?;
+        }
+        let overlaps =
+            fallback_oscillation_overlaps(&report.motor_desync_results, &report.motor_results);
+        if !overlaps.is_empty() {
+            for (motor_idx, t) in &overlaps {
+                writeln!(
+                    md,
+                    "**⚠ Note:** Motor {motor_idx}'s Fallback event at {t:.2}s coincides with a Motor Oscillation detection on the same motor — may be chronic tune/mechanical resonance rather than a desync."
+                )?;
+            }
+            writeln!(md)?;
+        }
     }
 
     // --- Stick Input Smoothness (RC Command step detection) ---

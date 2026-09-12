@@ -141,6 +141,81 @@ fn detect_windowed_oscillation(
     worst
 }
 
+/// Extracts per-motor `(motor value, row timestamp)` series, keeping a sample only when both
+/// exist for that row — a fabricated timestamp would misreport an event time and corrupt the
+/// windowed scan's gap-detection in `detect_windowed_oscillation`.
+fn collect_motor_time_series(
+    log_data: &[LogRowData],
+    motor_count: usize,
+) -> (Vec<Vec<f32>>, Vec<Vec<f64>>) {
+    let mut motor_samples: Vec<Vec<f32>> = vec![Vec::new(); motor_count];
+    let mut motor_times: Vec<Vec<f64>> = vec![Vec::new(); motor_count];
+
+    for row in log_data {
+        for (motor_idx, motor_val) in row.motors.iter().enumerate() {
+            // Defensive: skip any motor entries that exceed the expected motor count
+            // (shouldn't happen if headers are consistent, but protects against malformed logs)
+            if motor_idx >= motor_samples.len() {
+                continue; // Skip if motor count varies unexpectedly
+            }
+            if let (Some(val), Some(t)) = (motor_val, row.time_sec) {
+                motor_samples[motor_idx].push(*val as f32);
+                motor_times[motor_idx].push(t);
+            }
+        }
+    }
+
+    (motor_samples, motor_times)
+}
+
+/// Runs the windowed oscillation scan independent of the Motor Spectrums plot — callable
+/// wherever oscillation results are needed (e.g. the Fallback-tier overlap caveat, `--desync`
+/// mode) without requiring the PNG itself to be generated. `max_amplitude` is always `None`
+/// here, since that field comes from the whole-log FFT `plot_motor_spectrums` computes for its
+/// own plot; report rendering already treats a `None` max_amplitude as "N/A".
+pub fn detect_motor_oscillations(
+    log_data: &[LogRowData],
+    sample_rate: Option<f64>,
+) -> Vec<MotorOscillationResult> {
+    let Some(sr_value) = sample_rate else {
+        return Vec::new();
+    };
+
+    let motor_count = log_data.first().map(|row| row.motors.len()).unwrap_or(0);
+    if motor_count == 0 {
+        return Vec::new();
+    }
+
+    let (motor_samples, motor_times) = collect_motor_time_series(log_data, motor_count);
+
+    motor_samples
+        .iter()
+        .enumerate()
+        .map(|(motor_idx, samples)| {
+            let worst = detect_windowed_oscillation(samples, &motor_times[motor_idx], sr_value);
+            let oscillation_detected = worst.is_some();
+            let (event_time_s, peak_in_range, avg_in_range) = match worst {
+                Some((t, peak, avg)) => {
+                    println!(
+                        "  ⚠ Motor {}: Potential oscillation detected in {:.0}-{:.0} Hz range at t={:.2}s (peak {:.1} >> avg {:.1})",
+                        motor_idx, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ, t, peak, avg
+                    );
+                    (Some(t), Some(peak), Some(avg))
+                }
+                None => (None, None, None),
+            };
+            MotorOscillationResult {
+                motor_idx,
+                max_amplitude: None,
+                oscillation_detected,
+                peak_in_range,
+                avg_in_range,
+                event_time_s,
+            }
+        })
+        .collect()
+}
+
 /// Generates stacked motor spectrum plots showing frequency content of each motor output.
 /// Useful for identifying motor oscillations, ESC noise, and saturation issues.
 pub fn plot_motor_spectrums(
@@ -171,29 +246,7 @@ pub fn plot_motor_spectrums(
         if motor_count == 1 { "" } else { "s" }
     );
 
-    // Extract motor data for each motor, alongside each sample's own row timestamp — the
-    // windowed oscillation scan below needs real time to report when an episode occurred,
-    // not just a sample index (motor_samples can have gaps relative to row count if any
-    // row is missing a motor value).
-    let mut motor_samples: Vec<Vec<f32>> = vec![Vec::new(); motor_count];
-    let mut motor_times: Vec<Vec<f64>> = vec![Vec::new(); motor_count];
-
-    for row in log_data {
-        for (motor_idx, motor_val) in row.motors.iter().enumerate() {
-            // Defensive: skip any motor entries that exceed the expected motor count
-            // (shouldn't happen if headers are consistent, but protects against malformed logs)
-            if motor_idx >= motor_samples.len() {
-                continue; // Skip if motor count varies unexpectedly
-            }
-            // Only keep a sample when both its motor value and its row timestamp exist —
-            // a fabricated 0.0 timestamp would misreport an event time and corrupt the
-            // windowed scan's gap-detection below (see detect_windowed_oscillation).
-            if let (Some(val), Some(t)) = (motor_val, row.time_sec) {
-                motor_samples[motor_idx].push(*val as f32);
-                motor_times[motor_idx].push(t);
-            }
-        }
-    }
+    let (motor_samples, _) = collect_motor_time_series(log_data, motor_count);
 
     // Process FFT for each motor
     let mut motor_spectrums: Vec<Option<MotorSpectrumData>> = Vec::new();
@@ -258,34 +311,12 @@ pub fn plot_motor_spectrums(
     // it under the 3x-avg/absolute-amplitude bar long before a multi-minute flight is done;
     // confirmed against two real-world desync logs during development — one showed 45
     // sliding-window episodes this catches that the whole-log FFT reported as "None".
-    let mut motor_osc_results: Vec<MotorOscillationResult> = Vec::new();
-    for (motor_idx, samples) in motor_samples.iter().enumerate() {
-        let max_amplitude = motor_spectrums
-            .get(motor_idx)
+    let mut motor_osc_results = detect_motor_oscillations(log_data, Some(sr_value));
+    for result in &mut motor_osc_results {
+        result.max_amplitude = motor_spectrums
+            .get(result.motor_idx)
             .and_then(|s| s.as_ref())
             .map(|(_, _, max)| *max);
-
-        let worst = detect_windowed_oscillation(samples, &motor_times[motor_idx], sr_value);
-        let oscillation_detected = worst.is_some();
-        let (event_time_s, peak_in_range, avg_in_range) = match worst {
-            Some((t, peak, avg)) => {
-                println!(
-                    "  ⚠ Motor {}: Potential oscillation detected in {:.0}-{:.0} Hz range at t={:.2}s (peak {:.1} >> avg {:.1})",
-                    motor_idx, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ, t, peak, avg
-                );
-                (Some(t), Some(peak), Some(avg))
-            }
-            None => (None, None, None),
-        };
-
-        motor_osc_results.push(MotorOscillationResult {
-            motor_idx,
-            max_amplitude,
-            oscillation_detected,
-            peak_in_range,
-            avg_in_range,
-            event_time_s,
-        });
     }
 
     // Use full frequency range starting from 0 Hz with static Y-cap.
