@@ -1186,14 +1186,36 @@ mod tests {
         assert!(was_written_this_run("fresh_this_run.png"));
     }
 
+    /// Creates a fixture file at an unpredictable path, refusing to follow a pre-existing
+    /// symlink at that path (`create_new` is `O_EXCL` on Unix) — the shared system temp dir
+    /// is world-writable, so a fixed guessable filename would be a symlink-race hazard.
+    fn create_unique_test_file(contents: &[u8]) -> std::path::PathBuf {
+        use std::io::Write;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "it178_stale_plot_test_{}_{nanos}.png",
+            std::process::id()
+        ));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap()
+            .write_all(contents)
+            .unwrap();
+        path
+    }
+
     #[test]
     fn was_written_this_run_false_for_file_on_disk_but_not_recorded() {
         // Regression: a PNG left on disk by an earlier run under a colliding root name must
         // not count as "written" for this run just because Path::exists() is true.
         let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
         reset_written_this_run();
-        let stale_path = std::env::temp_dir().join("it178_stale_plot_test.png");
-        std::fs::write(&stale_path, b"stale").unwrap();
+        let stale_path = create_unique_test_file(b"stale");
         let stale_path_str = stale_path.to_string_lossy().to_string();
         assert!(std::path::Path::new(&stale_path_str).exists());
         assert!(!was_written_this_run(&stale_path_str));
