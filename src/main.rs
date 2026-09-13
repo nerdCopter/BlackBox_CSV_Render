@@ -55,6 +55,7 @@ struct PlotConfig {
     pub eso_b0: f64,
     pub eso_b0_user_override: bool,
     pub rc_command_activity: bool,
+    pub motor_erpm: bool,
 }
 
 impl Default for PlotConfig {
@@ -80,6 +81,7 @@ impl Default for PlotConfig {
             eso_b0: crate::constants::ESO_DEFAULT_B0,
             eso_b0_user_override: false,
             rc_command_activity: true,
+            motor_erpm: false,
         }
     }
 }
@@ -106,6 +108,7 @@ impl PlotConfig {
             eso_b0: crate::constants::ESO_DEFAULT_B0,
             eso_b0_user_override: false,
             rc_command_activity: false,
+            motor_erpm: false,
         }
     }
 
@@ -130,6 +133,7 @@ impl PlotConfig {
             eso_b0: crate::constants::ESO_DEFAULT_B0,
             eso_b0_user_override: false,
             rc_command_activity: true,
+            motor_erpm: true,
         }
     }
 }
@@ -149,13 +153,17 @@ use crate::constants::{
 };
 
 // Specific plot function imports
+use crate::plot_functions::motor_desync::{detect_motor_desync, fallback_oscillation_overlaps};
 use crate::plot_functions::plot_bode::plot_bode_analysis;
 use crate::plot_functions::plot_d_term_heatmap::plot_d_term_heatmap;
 use crate::plot_functions::plot_d_term_psd::plot_d_term_psd;
 use crate::plot_functions::plot_d_term_spectrums::plot_d_term_spectrums;
 use crate::plot_functions::plot_gyro_spectrums::plot_gyro_spectrums;
 use crate::plot_functions::plot_gyro_vs_unfilt::plot_gyro_vs_unfilt;
-use crate::plot_functions::plot_motor_spectrums::plot_motor_spectrums;
+use crate::plot_functions::plot_motor_erpm::plot_motor_erpm;
+use crate::plot_functions::plot_motor_spectrums::{
+    detect_motor_oscillations, plot_motor_spectrums,
+};
 use crate::plot_functions::plot_pid_activity::plot_pid_activity;
 use crate::plot_functions::plot_pidsum_error_setpoint::plot_pidsum_error_setpoint;
 use crate::plot_functions::plot_psd::plot_psd;
@@ -184,7 +192,7 @@ impl Drop for CwdGuard {
     fn drop(&mut self) {
         if let Err(e) = env::set_current_dir(&self.original_dir) {
             eprintln!(
-                "Warning: Failed to restore original directory to {}: {}",
+                "⚠️  Failed to restore original directory to {}: {}",
                 self.original_dir.display(),
                 e
             );
@@ -228,18 +236,15 @@ fn expand_input_paths(
                     if lowercase_path.ends_with(".header.csv")
                         || lowercase_path.ends_with(".headers.csv")
                     {
-                        eprintln!("Warning: Skipping header file: {}", input_path_str);
+                        eprintln!("⚠️  Skipping header file: {}", input_path_str);
                     } else {
                         csv_files.push(input_path_str.clone());
                     }
                 } else {
-                    eprintln!("Warning: Skipping non-CSV file: {}", input_path_str);
+                    eprintln!("⚠️  Skipping non-CSV file: {}", input_path_str);
                 }
             } else {
-                eprintln!(
-                    "Warning: Skipping file without extension: {}",
-                    input_path_str
-                );
+                eprintln!("⚠️  Skipping file without extension: {}", input_path_str);
             }
         } else if input_path.is_dir() {
             // It's a directory, find CSV files (recursive only if flag is set)
@@ -248,17 +253,11 @@ fn expand_input_paths(
                     csv_files.append(&mut dir_csv_files);
                     total_skipped += skipped_count;
                 }
-                Err(err) => eprintln!(
-                    "Warning: Error processing directory {}: {}",
-                    input_path_str, err
-                ),
+                Err(err) => eprintln!("⚠️  Error processing directory {}: {}", input_path_str, err),
             }
         } else {
             // Path doesn't exist or isn't accessible
-            eprintln!(
-                "Warning: Path not found or not accessible: {}",
-                input_path_str
-            );
+            eprintln!("⚠️  Path not found or not accessible: {}", input_path_str);
         }
     }
 
@@ -296,7 +295,7 @@ fn find_csv_files_in_dir_impl(
         Ok(path) => path,
         Err(_) => {
             eprintln!(
-                "Warning: Cannot canonicalize directory path: {}",
+                "⚠️  Cannot canonicalize directory path: {}",
                 dir_path.display()
             );
             return Ok((csv_files, skipped_count));
@@ -306,7 +305,7 @@ fn find_csv_files_in_dir_impl(
     // Check if we've already visited this directory (symlink loop detection)
     if visited.contains(&canonical_path) {
         eprintln!(
-            "Warning: Skipping directory due to symlink loop: {}",
+            "⚠️  Skipping directory due to symlink loop: {}",
             dir_path.display()
         );
         return Ok((csv_files, skipped_count));
@@ -317,7 +316,7 @@ fn find_csv_files_in_dir_impl(
         Ok(entries) => entries,
         Err(err) => {
             eprintln!(
-                "Warning: Cannot read directory '{}': {}",
+                "⚠️  Cannot read directory '{}': {}",
                 dir_path.display(),
                 err
             );
@@ -330,7 +329,7 @@ fn find_csv_files_in_dir_impl(
             Ok(entry) => entry,
             Err(err) => {
                 eprintln!(
-                    "Warning: Error reading directory entry in '{}': {}",
+                    "⚠️  Error reading directory entry in '{}': {}",
                     dir_path.display(),
                     err
                 );
@@ -348,7 +347,7 @@ fn find_csv_files_in_dir_impl(
                         skipped_count += sub_skipped;
                     }
                     Err(err) => eprintln!(
-                        "Warning: Error processing subdirectory '{}': {}",
+                        "⚠️  Error processing subdirectory '{}': {}",
                         path.display(),
                         err
                     ),
@@ -373,15 +372,12 @@ fn find_csv_files_in_dir_impl(
                         let lowercase = path_str.to_ascii_lowercase();
                         if lowercase.ends_with(".header.csv") || lowercase.ends_with(".headers.csv")
                         {
-                            eprintln!("Warning: Skipping header file: {}", path_str);
+                            eprintln!("⚠️  Skipping header file: {}", path_str);
                         } else {
                             csv_files.push(path_str.to_string());
                         }
                     } else {
-                        eprintln!(
-                            "Warning: Skipping file with non-UTF-8 path: {}",
-                            path.display()
-                        );
+                        eprintln!("⚠️  Skipping file with non-UTF-8 path: {}", path.display());
                     }
                 }
             }
@@ -397,7 +393,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("Graphically render statistical data from Blackbox CSV.");
     eprintln!("\nUsage: {program_name} <input1> [<input2> ...] [OPTIONS]");
     eprintln!();
-    eprintln!("=== INPUT/OUTPUT OPTIONS ===");
+    eprintln!("--- INPUT/OUTPUT OPTIONS ---");
     eprintln!();
     eprintln!(
         "  <inputX>: CSV files, directories, or wildcards (*.csv). Header files auto-excluded."
@@ -405,17 +401,20 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
     eprintln!("  -R, --recursive: Recursively find CSV files in subdirectories.");
     eprintln!();
-    eprintln!("=== PLOT TYPE SELECTION ===");
+    eprintln!("--- PLOT TYPE SELECTION ---");
     eprintln!();
     eprintln!("  --core           [default] Step Response, Gyro Spectrums, D-term Spectrums,");
     eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums,");
     eprintln!("                   RC Command Activity.");
     eprintln!("  --extended       All plots except Bode — adds PIDsum/Error, PID Activity,");
-    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, and heatmaps.");
+    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, heatmaps, and");
+    eprintln!("                   Motor vs eRPM (requires bidirectional DShot telemetry).");
     eprintln!("  --step           Step response only.");
     eprintln!("  --bode           Bode only (requires chirp/sweep system-id test flight).");
+    eprintln!("  --desync         Motor vs eRPM plot only (needs eRPM telemetry). Desync");
+    eprintln!("                   detection itself (Fallback tier) still runs without it.");
     eprintln!();
-    eprintln!("=== ANALYSIS OPTIONS ===");
+    eprintln!("--- ANALYSIS OPTIONS ---");
     eprintln!();
     eprintln!("  --butterworth    Show Butterworth PT1 cutoffs on gyro/D-term spectrum plots.");
     eprintln!(
@@ -426,7 +425,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch");
     eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
     eprintln!();
-    eprintln!("=== GENERAL ===");
+    eprintln!("--- GENERAL ---");
     eprintln!();
     eprintln!("  --debug          Show detailed metadata during processing.");
     eprintln!("  -h, --help       Show this help message and exit.");
@@ -626,7 +625,7 @@ fn process_file(
     ) = match parse_log_file(input_path, analysis_opts.debug_mode) {
         Ok(data) => data,
         Err(e) => {
-            eprintln!("Error parsing log file {input_file_str}: {e}");
+            eprintln!("Error: Parsing log file {input_file_str}: {e}");
             return Ok(()); // Continue to next file
         }
     };
@@ -745,7 +744,7 @@ fn process_file(
         } else {
             println!(
                 "
-INFO ({input_file_str}): Skipping Step Response data collection: Setpoint or Gyro headers missing."
+INFO: Skipping Step Response data collection for {input_file_str}: Setpoint or Gyro headers missing."
             );
         }
     } else {
@@ -756,7 +755,7 @@ INFO ({input_file_str}): Skipping Step Response data collection: Setpoint or Gyr
         };
         println!(
             "
-INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
+INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}."
         );
     }
 
@@ -838,7 +837,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     // Analyze step response and provide P:D ratio recommendations based on overshoot/undershoot
     if sample_rate.is_some() {
         println!("\n--- Step Response Analysis & P:D Ratio Recommendations ---");
-        println!("NOTE: These are STARTING POINTS based on step response analysis.");
+        println!("Note: These are STARTING POINTS based on step response analysis.");
         println!("      These recommendations focus on D-term tuning (P:D ratio).");
         if analysis_opts.estimate_optimal_p {
             println!(
@@ -1026,7 +1025,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         // Check for extreme overshoot (may indicate deeper issues)
                                         if peak_value > crate::constants::SEVERE_OVERSHOOT_THRESHOLD
                                         {
-                                            println!("  ⚠️  WARNING: Severe overshoot (Peak={peak_value:.2}) may indicate:");
+                                            println!("  ⚠️  Severe overshoot (Peak={peak_value:.2}) may indicate:");
                                             println!(
                                                 "      - P value too high, or mechanical issues"
                                             );
@@ -1042,7 +1041,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         let rec_ratio =
                                             recommended_pd_conservative[axis_index].unwrap();
                                         if rec_ratio < crate::constants::MIN_REASONABLE_PD_RATIO {
-                                            println!("  ⚠️  WARNING: Recommended P:D ratio ({rec_ratio:.2}) is very low");
+                                            println!("  ⚠️  Recommended P:D ratio ({rec_ratio:.2}) is very low");
                                             println!(
                                                 "      Consider increasing P instead of only adding D"
                                             );
@@ -1052,7 +1051,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                         } else if rec_ratio
                                             > crate::constants::MAX_REASONABLE_PD_RATIO
                                         {
-                                            println!("  ⚠️  WARNING: Recommended P:D ratio ({rec_ratio:.2}) is very high");
+                                            println!("  ⚠️  Recommended P:D ratio ({rec_ratio:.2}) is very high");
                                             println!("      Consider decreasing P or checking for overdamped response");
                                             step_warnings[axis_index].push(format!(
                                                 "Recommended P:D ratio ({rec_ratio:.2}) is very high — consider decreasing P or checking for overdamped response"
@@ -1395,7 +1394,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
                                 }
                                 Err(e) => {
                                     // Log the error for user visibility
-                                    eprintln!("Warning: {}", e);
+                                    eprintln!("⚠️  {}", e);
                                     optimal_p_skip_reasons[axis_index] = Some(e.to_string());
                                 }
                             }
@@ -1426,6 +1425,10 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         None
     };
     // CWD will be automatically restored when _cwd_guard goes out of scope
+
+    // A colliding root name across two input logs in the same --output-dir must not let this
+    // log's report link a PNG a previous log's run left on disk (see push_if_written below).
+    plot_framework::reset_written_this_run();
 
     // Create PID context for centralized PID metadata and related parameters
     let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
@@ -1563,9 +1566,30 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
     let motor_results = if plot_config.motor_spectrums {
         plot_motor_spectrums(&all_log_data, &root_name_string, sample_rate)?
+    } else if plot_config.motor_erpm {
+        // Oscillation detection alone (no plot) — keeps the Fallback-tier overlap caveat and
+        // the Motor Oscillation report section available under --desync without also writing
+        // the Motor Spectrums PNG, which --desync's "only the eRPM plot" contract excludes.
+        detect_motor_oscillations(&all_log_data, sample_rate)
     } else {
         vec![]
     };
+
+    let motor_desync_results = if plot_config.motor_spectrums || plot_config.motor_erpm {
+        detect_motor_desync(&all_log_data)
+    } else {
+        vec![]
+    };
+
+    for (motor_idx, t) in fallback_oscillation_overlaps(&motor_desync_results, &motor_results) {
+        println!(
+            "  ⚠️  Motor {motor_idx} Fallback desync event at {t:.2}s coincides with a Motor Oscillation detection on the same motor — may be chronic tune/mechanical resonance rather than a desync"
+        );
+    }
+
+    if plot_config.motor_erpm {
+        plot_motor_erpm(&all_log_data, &root_name_string, &motor_desync_results)?;
+    }
 
     if plot_config.psd {
         plot_psd(
@@ -1579,7 +1603,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
 
     let bode_results = if plot_config.bode {
         eprintln!();
-        eprintln!("⚠️  WARNING: Bode plots are designed for controlled test flights with system-identification inputs.");
+        eprintln!("⚠️  Bode plots are designed for controlled test flights with system-identification inputs.");
         eprintln!(
             "    For normal flight log analysis, use spectrum plots (default behavior) instead."
         );
@@ -1623,7 +1647,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     }
 
     let rc_command_steps = if plot_config.rc_command_activity {
-        plot_rc_command_activity(&all_log_data, &root_name_string, sample_rate)?
+        plot_rc_command_activity(&all_log_data, &root_name_string)?
     } else {
         vec![]
     };
@@ -1634,15 +1658,16 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
     let rpm_filter = filter_response::extract_rpm_filter_config(Some(&header_metadata));
 
     // --- Collect generated PNG filenames ---
-    // Only link files that actually exist: a plot type being enabled doesn't mean its PNG
-    // was written — plot_framework.rs skips writing when every axis is data-unavailable.
-    // skipped_plots records the human-readable label for each enabled plot type whose file
-    // wasn't produced, so the report can note it (see push_if_exists below).
+    // Only link files this run actually wrote: a plot type being enabled doesn't mean its PNG
+    // was written — plot_framework.rs skips writing when every axis is data-unavailable — and
+    // Path::exists() can't tell such a skip from a stale PNG an earlier run with a colliding
+    // root name left on disk. skipped_plots records the human-readable label for each enabled
+    // plot type whose file wasn't produced, so the report can note it (see push_if_written below).
     let mut png_links: Vec<String> = Vec::new();
     let mut skipped_plots: Vec<String> = Vec::new();
-    let push_if_exists =
+    let push_if_written =
         |links: &mut Vec<String>, skipped: &mut Vec<String>, label: &str, filename: String| {
-            if std::path::Path::new(&filename).exists() {
+            if plot_framework::was_written_this_run(&filename) {
                 links.push(filename);
             } else {
                 skipped.push(label.to_string());
@@ -1650,27 +1675,18 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         };
 
     if plot_config.step_response {
-        // Step response filename includes duration and optional dps suffix — scan for it.
-        // A directory scan only finds files that exist, so this is already exists-checked.
+        // Step response filename includes duration and optional dps suffix, so look it up by
+        // prefix among this run's writes rather than a fixed name.
         let prefix = format!("{root_name_string}_Step_Response_stacked_plot_");
-        if let Ok(entries) = std::fs::read_dir(".") {
-            let mut matches: Vec<String> = entries
-                .flatten()
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .filter(|n| n.starts_with(&prefix) && n.ends_with(".png"))
-                .collect();
-            matches.sort();
-            if matches.is_empty() {
-                skipped_plots.push("Step Response".to_string());
-            } else {
-                png_links.extend(matches);
-            }
+        let matches = plot_framework::written_this_run_with_prefix(&prefix);
+        if matches.is_empty() {
+            skipped_plots.push("Step Response".to_string());
+        } else {
+            png_links.extend(matches);
         }
-        // If the directory scan itself fails (unrelated I/O error), leave Step Response out
-        // of both lists rather than guessing whether the plot was generated or skipped.
     }
     if plot_config.pidsum_error_setpoint {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "PIDsum/PIDerror/Setpoint",
@@ -1678,7 +1694,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.setpoint_vs_gyro {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Setpoint/Gyro",
@@ -1686,7 +1702,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.setpoint_derivative {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Setpoint Derivative",
@@ -1694,7 +1710,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.gyro_vs_unfilt {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Gyro/UnfiltGyro",
@@ -1702,7 +1718,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.gyro_spectrums {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Gyro Spectrums",
@@ -1710,7 +1726,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.d_term_psd {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "D-term PSD",
@@ -1718,7 +1734,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.d_term_spectrums {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "D-term Spectrums",
@@ -1726,15 +1742,23 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.motor_spectrums {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Motor Spectrums",
             format!("{root_name_string}_Motor_Spectrums_stacked.png"),
         );
     }
+    if plot_config.motor_erpm {
+        push_if_written(
+            &mut png_links,
+            &mut skipped_plots,
+            "Motor vs eRPM",
+            format!("{root_name_string}_Motor_vs_eRPM_stacked.png"),
+        );
+    }
     if plot_config.psd {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Gyro PSD",
@@ -1742,7 +1766,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.psd_db_heatmap {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Gyro PSD Spectrogram",
@@ -1750,7 +1774,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.throttle_freq_heatmap {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Throttle-Frequency Heatmap",
@@ -1758,7 +1782,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.d_term_heatmap {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "D-Term Throttle-Frequency Heatmap",
@@ -1766,7 +1790,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.bode {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Bode Analysis",
@@ -1774,7 +1798,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.pid_activity {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "P, I, D Activity",
@@ -1782,7 +1806,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         );
     }
     if plot_config.rc_command_activity {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "RC Command Activity",
@@ -1857,6 +1881,7 @@ INFO ({input_file_str}): Skipping Step Response input data filtering: {reason}."
         bode_results,
         motor_results,
         eso_results,
+        motor_desync_results,
         rc_command_steps,
         png_links,
         skipped_plots,
@@ -1902,6 +1927,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut eso_requested = false;
     let mut eso_b0_value: f64 = crate::constants::ESO_DEFAULT_B0;
     let mut eso_b0_user_override = false;
+    let mut desync_requested = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
 
@@ -1991,6 +2017,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     print_usage_and_exit(program_name);
                 }
             }
+        } else if arg == "--desync" {
+            desync_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg.starts_with("--") {
@@ -2014,13 +2042,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             cfg.bode = true;
         }
         cfg
-    } else if step_requested || bode_requested {
+    } else if step_requested || bode_requested || desync_requested {
         let mut cfg = PlotConfig::none();
         if step_requested {
             cfg.step_response = true;
         }
         if bode_requested {
             cfg.bode = true;
+        }
+        if desync_requested {
+            cfg.motor_erpm = true;
         }
         cfg
     } else if eso_requested && !core_requested {
@@ -2036,8 +2067,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Show debug information when the runtime --debug flag is present
     if debug_mode {
         println!(
-            "DEBUG: extended={}, step={}, bode={}, eso={}, plot_config={:?}",
-            extended_requested, step_requested, bode_requested, eso_requested, plot_config
+            "DEBUG: extended={}, step={}, bode={}, eso={}, desync={}, plot_config={:?}",
+            extended_requested,
+            step_requested,
+            bode_requested,
+            eso_requested,
+            desync_requested,
+            plot_config
         );
     }
 
@@ -2139,7 +2175,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 analysis_opts,
                 &aircraft_profile,
             ) {
-                eprintln!("An error occurred while processing {input_file_str}: {e}");
+                eprintln!("Error: Processing {input_file_str}: {e}");
                 overall_success = false;
             }
         }

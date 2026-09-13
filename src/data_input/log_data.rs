@@ -15,6 +15,7 @@ pub struct LogRowData {
     pub gyro_unfilt: [Option<f64>; 3], // Unfiltered Gyroscope readings [Roll, Pitch, Yaw]. Fallback: debug[0..2].
     pub debug: [Option<f64>; 4],       // Debug values [0..3].
     pub motors: Vec<Option<f64>>,      // Motor outputs (dynamic count, typically 3-8 motors).
+    pub erpms: Vec<Option<f64>>, // Motor eRPM telemetry, indexed to match `motors` (dynamic count).
 }
 
 // src/log_data.rs

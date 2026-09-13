@@ -108,7 +108,7 @@ pub fn plot_setpoint_derivative(
 
         if outlier_count > 0 {
             println!(
-                "Warning: Setpoint derivative plot (axis {}) filtered {} outliers (dt<{:.0e} or |deriv|>{:.0})",
+                "⚠️  Setpoint derivative plot (axis {}) filtered {} outliers (dt<{:.0e} or |deriv|>{:.0})",
                 AXIS_NAMES[axis_index],
                 outlier_count,
                 crate::constants::SETPOINT_DERIVATIVE_MIN_DT,

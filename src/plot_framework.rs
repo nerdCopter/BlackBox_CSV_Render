@@ -13,6 +13,7 @@ use plotters::style::{Color, IntoFont, RGBColor};
 
 use std::error::Error;
 use std::ops::Range;
+use std::sync::{Mutex, OnceLock};
 
 use crate::constants::{
     AVG_CHAR_WIDTH_RATIO, FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_MESSAGE, FONT_SIZE_PEAK_LABEL,
@@ -24,6 +25,59 @@ use crate::font_config::{
     BUNDLED_FONT_BYTES, FONT_TUPLE_AXIS_LABEL, FONT_TUPLE_CHART_TITLE, FONT_TUPLE_LEGEND,
     FONT_TUPLE_MAIN_TITLE, FONT_TUPLE_MESSAGE, FONT_TUPLE_PEAK_LABEL,
 };
+
+/// PNG filenames actually written during the current run. `Path::exists()` can't tell a PNG
+/// this run just wrote from one an earlier run left behind under a colliding root name, so
+/// the report-linking code in main.rs consults this instead of the filesystem. Assumes plots
+/// for one input log are generated fully before the next log's reset — true today since
+/// main.rs processes logs sequentially; the reset-then-record sequence isn't atomic.
+fn written_this_run() -> &'static Mutex<Vec<String>> {
+    static REGISTRY: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Locks the registry, recovering the data if a prior panic poisoned the mutex — a `Vec`
+/// push/clear/read can't leave semantically-broken data, so the poison flag alone shouldn't
+/// crash unrelated callers.
+fn lock_registry() -> std::sync::MutexGuard<'static, Vec<String>> {
+    written_this_run()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Clears the write record. Call once before generating plots for a new input log.
+#[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
+pub(crate) fn reset_written_this_run() {
+    lock_registry().clear();
+}
+
+/// Records that `filename` was actually written during the current run. A no-op if already
+/// recorded, so a filename can never appear twice in `written_this_run_with_prefix`'s output.
+pub(crate) fn record_written_this_run(filename: &str) {
+    let mut registry = lock_registry();
+    if !registry.iter().any(|f| f == filename) {
+        registry.push(filename.to_string());
+    }
+}
+
+/// Whether `filename` was written during the current run.
+#[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
+pub(crate) fn was_written_this_run(filename: &str) -> bool {
+    lock_registry().iter().any(|f| f == filename)
+}
+
+/// Filenames written this run starting with `prefix`, sorted — for callers that don't know
+/// the exact generated filename (e.g. one with a dynamic duration suffix).
+#[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
+pub(crate) fn written_this_run_with_prefix(prefix: &str) -> Vec<String> {
+    let mut matches: Vec<String> = lock_registry()
+        .iter()
+        .filter(|f| f.starts_with(prefix))
+        .cloned()
+        .collect();
+    matches.sort();
+    matches
+}
 
 /// Special prefix for cutoff line series to avoid showing them in legends
 pub const CUTOFF_LINE_PREFIX: &str = "__CUTOFF_LINE__";
@@ -84,6 +138,11 @@ pub fn draw_unavailable_message(
     let text_style = FONT_TUPLE_MESSAGE.into_font().color(&RED);
     area.draw(&Text::new(message, (center_x, center_y), text_style))?;
     Ok(())
+}
+
+/// Prints the standard "no axis has data" skip notice shared by all 3 `draw_*_plot` functions.
+fn print_no_axis_data_skip(plot_type_name: &str) {
+    println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
 }
 
 #[derive(Clone)]
@@ -595,26 +654,68 @@ type StackedAxisData = Option<(
     String,
 )>;
 
+/// Why a plot data source is or isn't plottable — the pre-render skip check and the draw
+/// loop both consume this so they can never disagree on the reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlotDataValidity {
+    Valid,
+    NoDataPoints,
+    InvalidRanges,
+}
+
+impl PlotDataValidity {
+    fn is_valid(self) -> bool {
+        matches!(self, Self::Valid)
+    }
+
+    /// `None` when plottable, else the message `draw_unavailable_message` should show.
+    fn unavailable_reason(self) -> Option<&'static str> {
+        match self {
+            Self::Valid => None,
+            Self::NoDataPoints => Some("No data points"),
+            Self::InvalidRanges => Some("Invalid ranges"),
+        }
+    }
+
+    fn from_checks(has_data: bool, valid_ranges: bool) -> Self {
+        if !has_data {
+            Self::NoDataPoints
+        } else if !valid_ranges {
+            Self::InvalidRanges
+        } else {
+            Self::Valid
+        }
+    }
+}
+
 /// Whether this axis has real, plottable data — same rule the draw loop uses, kept in one
 /// place so the pre-render skip check and the draw loop can never disagree.
-fn is_stacked_axis_data_valid(data: &StackedAxisData) -> bool {
+fn stacked_axis_data_validity(data: &StackedAxisData) -> PlotDataValidity {
     match data {
         Some((_, x_range, y_range, series_data, _, _)) => {
             let has_data = series_data.iter().any(|s| !s.data.is_empty());
             let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
-            has_data && valid_ranges
+            PlotDataValidity::from_checks(has_data, valid_ranges)
         }
-        None => false,
+        None => PlotDataValidity::NoDataPoints,
     }
 }
 
+fn is_stacked_axis_data_valid(data: &StackedAxisData) -> bool {
+    stacked_axis_data_validity(data).is_valid()
+}
+
 /// Whether this `PlotConfig` has real, plottable data.
-fn is_plot_config_valid(plot_config: &PlotConfig) -> bool {
+fn plot_config_validity(plot_config: &PlotConfig) -> PlotDataValidity {
     let has_data =
         !plot_config.series.is_empty() && plot_config.series.iter().any(|s| !s.data.is_empty());
     let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
         && plot_config.y_range.end > plot_config.y_range.start;
-    has_data && valid_ranges
+    PlotDataValidity::from_checks(has_data, valid_ranges)
+}
+
+fn is_plot_config_valid(plot_config: &PlotConfig) -> bool {
+    plot_config_validity(plot_config).is_valid()
 }
 
 /// Whether either column (unfiltered or filtered) of this axis has real, plottable data.
@@ -642,23 +743,33 @@ fn has_plottable_heatmap_cell(heatmap_data: &HeatmapData) -> bool {
 }
 
 /// Whether this `HeatmapPlotConfig` has real, plottable data.
-fn is_heatmap_plot_config_valid(plot_config: &HeatmapPlotConfig) -> bool {
+fn heatmap_plot_config_validity(plot_config: &HeatmapPlotConfig) -> PlotDataValidity {
     let has_data = has_plottable_heatmap_cell(&plot_config.heatmap_data);
     let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
         && plot_config.y_range.end > plot_config.y_range.start;
-    has_data && valid_ranges
+    PlotDataValidity::from_checks(has_data, valid_ranges)
+}
+
+fn is_heatmap_plot_config_valid(plot_config: &HeatmapPlotConfig) -> bool {
+    heatmap_plot_config_validity(plot_config).is_valid()
 }
 
 /// Whether either column (unfiltered or filtered) of this axis has real, plottable data.
-fn is_axis_heatmap_spectrum_valid(axis_spectrum: &Option<AxisHeatmapSpectrum>) -> bool {
-    axis_spectrum.as_ref().is_some_and(|s| {
-        s.unfiltered
+pub(crate) fn is_axis_heatmap_spectrum_data_valid(axis_spectrum: &AxisHeatmapSpectrum) -> bool {
+    axis_spectrum
+        .unfiltered
+        .as_ref()
+        .is_some_and(is_heatmap_plot_config_valid)
+        || axis_spectrum
+            .filtered
             .as_ref()
             .is_some_and(is_heatmap_plot_config_valid)
-            || s.filtered
-                .as_ref()
-                .is_some_and(is_heatmap_plot_config_valid)
-    })
+}
+
+fn is_axis_heatmap_spectrum_valid(axis_spectrum: &Option<AxisHeatmapSpectrum>) -> bool {
+    axis_spectrum
+        .as_ref()
+        .is_some_and(is_axis_heatmap_spectrum_data_valid)
 }
 
 /// Creates a stacked plot image with three subplots for Roll, Pitch, and Yaw.
@@ -690,7 +801,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_stacked_axis_data_valid) {
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        print_no_axis_data_skip(plot_type_name);
         return Ok(());
     }
 
@@ -707,11 +818,12 @@ where
 
     for (axis_index, data) in axis_data.into_iter().enumerate() {
         let area = &sub_plot_areas[axis_index];
+        let validity = stacked_axis_data_validity(&data);
         match data {
             Some((chart_title, x_range, y_range, series_data, x_label, y_label)) => {
-                let has_data = series_data.iter().any(|s| !s.data.is_empty());
-                let valid_ranges = x_range.end > x_range.start && y_range.end > y_range.start;
-                if has_data && valid_ranges {
+                if let Some(reason) = validity.unavailable_reason() {
+                    draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
+                } else {
                     let temp_plot_config = PlotConfig {
                         title: chart_title,
                         x_range,
@@ -725,13 +837,6 @@ where
                         frequency_ranges: None,
                     };
                     draw_single_axis_chart_with_config(area, &temp_plot_config)?;
-                } else {
-                    let reason = if !has_data {
-                        "No data points"
-                    } else {
-                        "Invalid ranges"
-                    };
-                    draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
                 }
             }
             None => {
@@ -742,6 +847,7 @@ where
     }
 
     root_area.present()?;
+    record_written_this_run(output_filename);
     println!("  Stacked plot saved as '{output_filename}'.");
     Ok(())
 }
@@ -764,7 +870,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_axis_spectrum_valid) {
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        print_no_axis_data_skip(plot_type_name);
         return Ok(());
     }
 
@@ -791,20 +897,10 @@ where
             });
 
             if let Some(plot_config) = plot_config_option {
-                let has_data = !plot_config.series.is_empty()
-                    && plot_config.series.iter().any(|s| !s.data.is_empty());
-                let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
-                    && plot_config.y_range.end > plot_config.y_range.start;
-
-                if has_data && valid_ranges {
-                    draw_single_axis_chart_with_config(area, plot_config)?;
-                } else {
-                    let reason = if !has_data {
-                        "No data points"
-                    } else {
-                        "Invalid ranges"
-                    };
+                if let Some(reason) = plot_config_validity(plot_config).unavailable_reason() {
                     draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
+                } else {
+                    draw_single_axis_chart_with_config(area, plot_config)?;
                 }
             } else {
                 draw_unavailable_message(area, axis_index, plot_type_name, "Data Not Available")?;
@@ -813,6 +909,7 @@ where
     }
 
     root_area.present()?;
+    record_written_this_run(output_filename);
     println!("  Stacked plot saved as '{output_filename}'.");
     Ok(())
 }
@@ -911,7 +1008,7 @@ where
         .collect();
 
     if !axis_data.iter().any(is_axis_heatmap_spectrum_valid) {
-        println!("  ⚠️  Skipping {plot_type_name}: no axis has data to plot.");
+        print_no_axis_data_skip(plot_type_name);
         return Ok(());
     }
 
@@ -961,11 +1058,10 @@ where
             });
 
             if let Some(plot_config) = plot_config_option {
-                let has_data = has_plottable_heatmap_cell(&plot_config.heatmap_data);
-                let valid_ranges = plot_config.x_range.end > plot_config.x_range.start
-                    && plot_config.y_range.end > plot_config.y_range.start;
-
-                if has_data && valid_ranges {
+                if let Some(reason) = heatmap_plot_config_validity(plot_config).unavailable_reason()
+                {
+                    draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
+                } else {
                     draw_single_heatmap_chart(
                         area,
                         &plot_config.title,
@@ -976,13 +1072,6 @@ where
                         &plot_config.heatmap_data,
                         axis_max_db,
                     )?;
-                } else {
-                    let reason = if !has_data {
-                        "No data points"
-                    } else {
-                        "Invalid ranges"
-                    };
-                    draw_unavailable_message(area, axis_index, plot_type_name, reason)?;
                 }
             } else {
                 draw_unavailable_message(area, axis_index, plot_type_name, "Data Not Available")?;
@@ -991,8 +1080,168 @@ where
     }
 
     root_area.present()?;
+    record_written_this_run(output_filename);
     println!("  Stacked heatmap plot saved as '{output_filename}'.");
     Ok(())
 }
 
 // src/plot_framework.rs
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Fixture-only values, not domain constants — kept local per the precedent in
+    // plot_functions/plot_rc_command_activity.rs's own test module (TEST_SAMPLE_RATE).
+    const TEST_STROKE_WIDTH: u32 = 1;
+    const TEST_VALID_RANGE_MIN: f64 = 0.0;
+    const TEST_VALID_RANGE_MAX: f64 = 10.0;
+
+    fn series_with_data(points: &[(f64, f64)]) -> PlotSeries {
+        PlotSeries {
+            data: points.to_vec(),
+            label: "test".to_string(),
+            color: BLACK,
+            stroke_width: TEST_STROKE_WIDTH,
+        }
+    }
+
+    fn valid_plot_config(series: Vec<PlotSeries>) -> PlotConfig {
+        PlotConfig {
+            title: "test".to_string(),
+            x_range: TEST_VALID_RANGE_MIN..TEST_VALID_RANGE_MAX,
+            y_range: TEST_VALID_RANGE_MIN..TEST_VALID_RANGE_MAX,
+            series,
+            x_label: "x".to_string(),
+            y_label: "y".to_string(),
+            peaks: vec![],
+            peak_label_threshold: None,
+            peak_label_format_string: None,
+            frequency_ranges: None,
+        }
+    }
+
+    #[test]
+    fn plot_config_validity_valid_when_data_and_ranges_ok() {
+        let config = valid_plot_config(vec![series_with_data(&[(1.0, 1.0)])]);
+        assert_eq!(plot_config_validity(&config), PlotDataValidity::Valid);
+    }
+
+    #[test]
+    fn plot_config_validity_no_data_points_when_series_empty() {
+        let config = valid_plot_config(vec![]);
+        assert_eq!(
+            plot_config_validity(&config),
+            PlotDataValidity::NoDataPoints
+        );
+    }
+
+    #[test]
+    fn plot_config_validity_no_data_points_when_all_series_have_no_points() {
+        let config = valid_plot_config(vec![series_with_data(&[]), series_with_data(&[])]);
+        assert_eq!(
+            plot_config_validity(&config),
+            PlotDataValidity::NoDataPoints
+        );
+    }
+
+    #[test]
+    fn plot_config_validity_invalid_ranges_when_data_present_but_range_inverted() {
+        let mut config = valid_plot_config(vec![series_with_data(&[(1.0, 1.0)])]);
+        config.x_range = TEST_VALID_RANGE_MAX..TEST_VALID_RANGE_MIN; // end <= start
+        assert_eq!(
+            plot_config_validity(&config),
+            PlotDataValidity::InvalidRanges
+        );
+    }
+
+    #[test]
+    fn plot_config_validity_precedence_no_data_wins_over_invalid_ranges() {
+        let mut config = valid_plot_config(vec![]);
+        config.x_range = TEST_VALID_RANGE_MAX..TEST_VALID_RANGE_MIN; // also invalid, but has_data fails first
+        assert_eq!(
+            plot_config_validity(&config),
+            PlotDataValidity::NoDataPoints
+        );
+    }
+
+    // The write registry is process-global state; serialize these tests so they can't
+    // interleave with each other (unrelated tests are unaffected).
+    static REGISTRY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn reset_written_this_run_clears_prior_entries() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        record_written_this_run("previous_run.png");
+        reset_written_this_run();
+        assert!(!was_written_this_run("previous_run.png"));
+    }
+
+    #[test]
+    fn was_written_this_run_true_only_after_record() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        assert!(!was_written_this_run("fresh_this_run.png"));
+        record_written_this_run("fresh_this_run.png");
+        assert!(was_written_this_run("fresh_this_run.png"));
+    }
+
+    /// Creates a fixture file at an unpredictable path, refusing to follow a pre-existing
+    /// symlink at that path (`create_new` is `O_EXCL` on Unix) — the shared system temp dir
+    /// is world-writable, so a fixed guessable filename would be a symlink-race hazard.
+    fn create_unique_test_file(contents: &[u8]) -> std::path::PathBuf {
+        use std::io::Write;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "it178_stale_plot_test_{}_{nanos}.png",
+            std::process::id()
+        ));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap()
+            .write_all(contents)
+            .unwrap();
+        path
+    }
+
+    #[test]
+    fn was_written_this_run_false_for_file_on_disk_but_not_recorded() {
+        // Regression: a PNG left on disk by an earlier run under a colliding root name must
+        // not count as "written" for this run just because Path::exists() is true.
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        let stale_path = create_unique_test_file(b"stale");
+        let stale_path_str = stale_path.to_string_lossy().to_string();
+        assert!(std::path::Path::new(&stale_path_str).exists());
+        assert!(!was_written_this_run(&stale_path_str));
+        std::fs::remove_file(&stale_path).ok();
+    }
+
+    #[test]
+    fn written_this_run_with_prefix_matches_dynamic_suffix_only() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        record_written_this_run("LOG1_Step_Response_stacked_plot_2.5s_500dps.png");
+        record_written_this_run("LOG1_SetpointVsGyro_stacked.png");
+        let matches = written_this_run_with_prefix("LOG1_Step_Response_stacked_plot_");
+        assert_eq!(
+            matches,
+            vec!["LOG1_Step_Response_stacked_plot_2.5s_500dps.png".to_string()]
+        );
+    }
+
+    #[test]
+    fn record_written_this_run_is_idempotent() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        record_written_this_run("LOG2_SetpointVsGyro_stacked.png");
+        record_written_this_run("LOG2_SetpointVsGyro_stacked.png");
+        let matches = written_this_run_with_prefix("LOG2_SetpointVsGyro_stacked");
+        assert_eq!(matches, vec!["LOG2_SetpointVsGyro_stacked.png".to_string()]);
+    }
+}

@@ -253,13 +253,13 @@ pub fn calculate_average_filtering_delay_comparison(
             );
 
             println!(
-                "Gyro Filtering delay analysis for {} axis:",
+                "  Gyro Filtering delay analysis for {} axis:",
                 AXIS_NAMES[axis]
             );
             for result in &axis_results {
                 if let Some(freq) = result.frequency_hz {
                     println!(
-                        "  {}: {:.2} ms (confidence: {:.0}%, freq: {:.1} Hz)",
+                        "    {}: {:.2} ms (confidence: {:.0}%, freq: {:.1} Hz)",
                         result.method,
                         result.delay_ms,
                         result.confidence * 100.0,
@@ -267,7 +267,7 @@ pub fn calculate_average_filtering_delay_comparison(
                     );
                 } else {
                     println!(
-                        "  {}: {:.2} ms (confidence: {:.0}%)",
+                        "    {}: {:.2} ms (confidence: {:.0}%)",
                         result.method,
                         result.delay_ms,
                         result.confidence * 100.0

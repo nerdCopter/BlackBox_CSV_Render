@@ -14,7 +14,8 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     FONT_SIZE_CHART_TITLE, FONT_SIZE_LEGEND, FREQUENCY_EPSILON, LINE_WIDTH_PLOT,
-    MAGNITUDE_PLOT_MARGIN_DB, PHASE_PLOT_MARGIN_DEG, PLOT_HEIGHT, PLOT_WIDTH,
+    MAGNITUDE_PLOT_MARGIN_DB, MIN_PLOT_FREQUENCY_HZ, NYQUIST_DIVISOR, PHASE_PLOT_MARGIN_DEG,
+    PLOT_HEIGHT, PLOT_WIDTH,
 };
 use crate::data_analysis::transfer_function_estimation::{
     calculate_stability_margins, estimate_transfer_function_h1, Confidence, StabilityMargins,
@@ -24,6 +25,7 @@ use crate::data_input::log_data::LogRowData;
 use crate::font_config::{
     FONT_FAMILY_BUNDLED, FONT_TUPLE_AXIS_LABEL, FONT_TUPLE_CHART_TITLE, FONT_TUPLE_MAIN_TITLE,
 };
+use crate::plot_framework::record_written_this_run;
 
 /// Minimum coherence threshold for filtering Bode plot data
 const MIN_COHERENCE_FOR_PLOT: f64 = 0.1;
@@ -71,7 +73,7 @@ pub fn plot_bode_analysis(
             Ok(m) => m,
             Err(e) => {
                 println!(
-                    "  Warning: Could not calculate stability margins for {}: {}",
+                    "  ⚠️  Could not calculate stability margins for {}: {}",
                     axis_name, e
                 );
                 StabilityMargins::default()
@@ -170,7 +172,7 @@ pub fn plot_bode_analysis(
         Ok(true) => println!("  Generated Bode analysis plot: {}", output_file),
         Ok(false) => {} // Skipped internally (insufficient coherence); already logged there.
         Err(e) => {
-            println!("  Error creating Bode plot: {}", e);
+            println!("  Error: Creating Bode plot: {}", e);
             return Err(e);
         }
     }
@@ -245,8 +247,8 @@ fn create_bode_grid_plot(
         return Ok(false);
     }
 
-    let freq_min = global_freq_min.max(1.0);
-    let freq_max = global_freq_max.min(tf_results[0].sample_rate_hz / 2.0);
+    let freq_min = global_freq_min.max(MIN_PLOT_FREQUENCY_HZ);
+    let freq_max = global_freq_max.min(tf_results[0].sample_rate_hz / NYQUIST_DIVISOR);
 
     // Create main drawing area with standard plot dimensions
     let root = BitMapBackend::new(output_file, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
@@ -318,6 +320,7 @@ fn create_bode_grid_plot(
     }
 
     root.present()?;
+    record_written_this_run(output_file);
     Ok(true)
 }
 

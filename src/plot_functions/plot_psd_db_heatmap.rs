@@ -5,8 +5,8 @@ use std::error::Error;
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    GYRO_PSD_HEATMAP_MAX_DB, HEATMAP_MIN_PSD_DB, STFT_OVERLAP_FACTOR, STFT_WINDOW_DURATION_S,
-    TUKEY_ALPHA,
+    GYRO_PSD_HEATMAP_MAX_DB, HEATMAP_MIN_PSD_DB, STFT_OVERLAP_COMPLEMENT_BASE, STFT_OVERLAP_FACTOR,
+    STFT_WINDOW_DURATION_S, TUKEY_ALPHA,
 };
 use crate::data_analysis::calc_step_response;
 use crate::data_analysis::fft_utils;
@@ -58,7 +58,8 @@ pub fn plot_psd_db_heatmap(
         return Ok(());
     }
     let window_size_samples = (STFT_WINDOW_DURATION_S * sr_value) as usize;
-    let hop_size_samples = (window_size_samples as f64 * (1.0 - STFT_OVERLAP_FACTOR)) as usize;
+    let hop_size_samples = (window_size_samples as f64
+        * (STFT_OVERLAP_COMPLEMENT_BASE - STFT_OVERLAP_FACTOR)) as usize;
     if hop_size_samples == 0 {
         eprintln!("Error: Hop size is zero, cannot perform STFT. Adjust STFT_OVERLAP_FACTOR or STFT_WINDOW_DURATION_S.");
         return Ok(());

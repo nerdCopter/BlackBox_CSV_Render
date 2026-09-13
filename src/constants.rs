@@ -64,6 +64,57 @@ pub const MOTOR_OSCILLATION_FREQ_MAX_HZ: f64 = 200.0; // Upper bound for motor o
 pub const MOTOR_OSCILLATION_THRESHOLD_MULTIPLIER: f64 = 3.0; // Peak must be > N× average to flag oscillation (unitless multiplier)
 pub const MOTOR_OSCILLATION_ABSOLUTE_THRESHOLD: f64 = 10.0; // Absolute amplitude threshold (normalized linear amplitude units)
 pub const MOTOR_SPECTRUM_Y_AXIS_MAX: f64 = 5.0; // Static Y-axis maximum for motor spectrum plots (normalized linear amplitude units)
+pub const MOTOR_SPECTRUM_AXIS_ORIGIN: f64 = 0.0; // Shared X/Y axis origin for motor spectrum plot ranges
+pub const MOTOR_SPECTRUM_Y_LABEL_PRECISION_THRESHOLD: f64 = 5.0; // Below this Y-axis max, labels show one decimal place instead of integers
+pub const MOTOR_OSCILLATION_WINDOW_S: f64 = 0.25; // Sliding-window duration for oscillation detection (seconds); a whole-log FFT dilutes a brief burst below the threshold on a multi-minute flight
+pub const MOTOR_OSCILLATION_HOP_FRACTION: f64 = 0.5; // Sliding-window hop as a fraction of window length (50% overlap)
+pub const MOTOR_OSCILLATION_MAX_GAP_TOLERANCE: f64 = 1.5; // A window's actual timestamp span must stay within this multiple of its expected (gap-free) span, or it's rejected as spanning a dropped-frame gap
+pub const MOTOR_OSCILLATION_SECONDS_TO_MS: f64 = 1000.0; // Convert MOTOR_OSCILLATION_WINDOW_S to milliseconds for report display
+
+// Motor/eRPM desync-divergence detection constants. Every threshold below compares a motor
+// against its OWN behavior elsewhere in the same log — never a fixed cross-aircraft value —
+// since raw motor/eRPM units and normal response behavior both vary by protocol, pole count,
+// and airframe. Calibrated against three confirmed real crash logs plus ~500s of otherwise-
+// normal flight in those same logs and eight further real flights; see motor_desync.rs.
+pub const MOTOR_DESYNC_MIN_ERPM_RANGE: f64 = 200.0; // Absolute eRPM range floor (raw units); below this the motor never spun enough to analyze
+pub const MOTOR_DESYNC_MIN_MOTOR_RANGE: f64 = 200.0; // Absolute motor-command range floor (raw units); below this "high command" can't distinguish idle from armed (e.g. a log that never leaves ground idle)
+pub const MOTOR_DESYNC_EVENT_REFRACTORY_S: f64 = 0.1; // Minimum gap between reported events on the same motor, so one glitch isn't counted repeatedly
+
+// DeFacto tier: this motor has enough of its own high-command history in this log to build a
+// self-relative baseline from.
+pub const MOTOR_DESYNC_HIGH_CMD_PERCENTILE: f64 = 75.0; // "Commanded high" = top quartile of this motor's own observed range
+pub const MOTOR_DESYNC_MIN_BASELINE_SAMPLES: usize = 20; // Minimum high-command samples elsewhere in the log needed to trust the baseline
+pub const MOTOR_DESYNC_SUSTAIN_S: f64 = 0.05; // Command must stay high for this long (seconds) before a window counts
+pub const MOTOR_DESYNC_RESPONSE_FLOOR_FRACTION: f64 = 0.35; // Window's eRPM median must be at least this fraction of this motor's own high-command baseline median
+pub const MOTOR_DESYNC_NOISE_MULTIPLIER: f64 = 4.0; // OR window's eRPM stdev exceeds this multiple of this motor's own high-command baseline stdev
+
+// Possible tier: used only when DeFacto has too little high-command history to build a
+// baseline (e.g. a short flight whose only high-throttle moment is the event itself).
+pub const MOTOR_DESYNC_POSSIBLE_HIGH_CMD_PERCENTILE: f64 = 90.0; // Near-ceiling, not just top quartile — a shorter, less certain window needs a stronger command signal to justify flagging at all
+pub const MOTOR_DESYNC_POSSIBLE_SUSTAIN_S: f64 = 0.006; // Much shorter window than DeFacto's — Possible exists specifically to catch brief transients too short for DeFacto's window
+pub const MOTOR_DESYNC_ERPM_REF_PERCENTILE: f64 = 90.0; // This motor's own eRPM reference level (whole log, any command level) — a percentile, not the raw max, so a few noisy outlier samples can't inflate the reference and hide a real non-response
+pub const MOTOR_DESYNC_POSSIBLE_CEILING_FRACTION: f64 = 0.5; // Window's peak eRPM must stay below this fraction of the motor's own eRPM reference level to flag
+
+// Fallback tier: used only when this log has no eRPM telemetry at all (e.g. EmuFlight, or
+// Betaflight without bidirectional DShot). Compares commanded output and rotation-tracking
+// error (gyro vs. setpoint) against this same flight's own distributions — no RPM signal to
+// verify against, so this is the least confident tier and can both miss real desyncs and flag
+// legitimate hard maneuvers.
+pub const MOTOR_DESYNC_FALLBACK_HIGH_CMD_PERCENTILE: f64 = 90.0; // Near-ceiling command, self-relative to this motor's own range
+pub const MOTOR_DESYNC_FALLBACK_ERROR_PERCENTILE: f64 = 97.0; // Tracking-error (|gyro - setpoint|) must be a rare outlier for this specific flight, not just any punchy-flying overshoot
+pub const MOTOR_DESYNC_FALLBACK_SUSTAIN_S: f64 = 0.15; // Window duration — the error must average high across a sustained span, not one overshooting sample
+pub const MOTOR_DESYNC_FALLBACK_OSCILLATION_OVERLAP_S: f64 = 2.0; // A Fallback event within this many seconds of a same-motor Motor Oscillation detection gets an explicit caveat — chronic tune/mechanical resonance is a known, confirmed cause of Fallback false positives (see motor_desync.rs)
+pub const MOTOR_DESYNC_REPORT_MAX_TIMES: usize = 5; // Max timestamps listed per confidence tier in the report table before truncating with "..." (see report.rs's fmt_times)
+
+// Motor vs eRPM plot constants (--extended or --desync; see plot_motor_erpm.rs)
+pub const MOTOR_ERPM_PLOT_Y_AXIS_MIN: f64 = 0.0; // Normalized axis floor (% of each series' own range)
+pub const MOTOR_ERPM_PLOT_Y_AXIS_MAX: f64 = 100.0; // Normalized axis ceiling (% of each series' own range)
+pub const MOTOR_ERPM_MIN_RANGE: f64 = 200.0; // Absolute floor (raw units) below which a motor's command or eRPM range can't be meaningfully normalized to 0-100% — same floor as MOTOR_DESYNC_MIN_MOTOR_RANGE/MOTOR_DESYNC_MIN_ERPM_RANGE, kept separate since this gates a plot, not a detector
+pub const MOTOR_ERPM_EVENT_MARKER_WIDTH: u32 = 2; // Stroke width for the vertical line marking a flagged Motor Desync Detection event
+
+// Frequency-axis math constants shared by Bode and motor-spectrum plots
+pub const NYQUIST_DIVISOR: f64 = 2.0; // Converts sample rate to Nyquist frequency (sample_rate / divisor)
+pub const MIN_PLOT_FREQUENCY_HZ: f64 = 1.0; // Floor for the Bode plot's frequency-axis minimum
 
 // Minimum samples required for a meaningful FFT on motor outputs
 pub const MIN_FFT_SAMPLES: usize = 128; // Minimum samples for reliable oscillation detection (provides ~2-3 frequency bins in 50-200 Hz range at 8kHz)
@@ -94,6 +145,7 @@ pub const PSD_PEAK_LABEL_MIN_VALUE_DB: f64 = -60.0; // Minimum PSD value in dB f
 // Constants for Spectrogram/Heatmap plots
 pub const STFT_WINDOW_DURATION_S: f64 = 0.1; // Duration of each STFT window in seconds
 pub const STFT_OVERLAP_FACTOR: f64 = 0.75; // Overlap between windows (e.g., 0.75 for 75% overlap)
+pub const STFT_OVERLAP_COMPLEMENT_BASE: f64 = 1.0; // Whole-window base for the hop-size calc (1.0 - STFT_OVERLAP_FACTOR)
 pub const HEATMAP_MIN_PSD_DB: f64 = -80.0; // Minimum PSD value in dB for heatmap color scaling
 
 // Constants for Throttle-Frequency Heatmap
@@ -201,6 +253,7 @@ pub const RC_COMMAND_ACTIVITY_Y_AXIS_MIN: f64 = 200.0;
 // rcCommand data can step by exactly 1 unit during deliberate movement, and a higher
 // threshold would blind the detector to those transitions.
 pub const RC_STEP_MIN_JUMP_SIZE: f64 = 0.5; // Minimum jump magnitude (rcCommand units) to count as a real value change
+pub const RC_STEP_SECONDS_TO_MS: f64 = 1000.0; // Convert plateau duration from seconds to milliseconds
 pub const RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS: f64 = 12.0; // Median plateau duration above which stick input is flagged as blocky
                                                         // A median from only a handful of transitions is unreliable. One isolated noise blip in an
                                                         // otherwise-idle log can produce a median spanning most of the log. Require enough

@@ -103,7 +103,7 @@ fn winstacker_contiguous(
     }
     let shift = frame_length_samples / superposition_factor;
     if shift == 0 {
-        eprintln!("Warning: Window shift is zero.");
+        eprintln!("⚠️  Window shift is zero.");
         return (Array2::zeros((0, 0)), Array2::zeros((0, 0)));
     }
     let num_windows = if total_len >= frame_length_samples {
@@ -153,7 +153,7 @@ fn wiener_deconvolution_window(
     let h_spec = fft_utils::fft_forward(&input_padded);
     let g_spec = fft_utils::fft_forward(&output_padded);
     if h_spec.is_empty() || g_spec.is_empty() || h_spec.len() != g_spec.len() {
-        eprintln!("Warning: FFT output empty/mismatch in Wiener deconvolution.");
+        eprintln!("⚠️  FFT output empty/mismatch in Wiener deconvolution.");
         return Array1::zeros(n);
     }
     // Apply regularization to prevent division by near-zero values
@@ -187,7 +187,7 @@ fn cumulative_sum(data: &Array1<f32>) -> Array1<f32> {
         if val.is_finite() {
             current_sum += val;
         } else {
-            eprintln!("Warning: Non-finite impulse value ({val}) at index {i}.");
+            eprintln!("⚠️  Non-finite impulse value ({val}) at index {i}.");
         }
         cumulative[i] = current_sum;
     }
