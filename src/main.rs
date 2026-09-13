@@ -1411,6 +1411,10 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
     };
     // CWD will be automatically restored when _cwd_guard goes out of scope
 
+    // A colliding root name across two input logs in the same --output-dir must not let this
+    // log's report link a PNG a previous log's run left on disk (see push_if_written below).
+    plot_framework::reset_written_this_run();
+
     // Create PID context for centralized PID metadata and related parameters
     let pid_context = PidContext::new(sample_rate, pid_metadata, root_name_string.clone());
 
@@ -1639,15 +1643,16 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
     let rpm_filter = filter_response::extract_rpm_filter_config(Some(&header_metadata));
 
     // --- Collect generated PNG filenames ---
-    // Only link files that actually exist: a plot type being enabled doesn't mean its PNG
-    // was written — plot_framework.rs skips writing when every axis is data-unavailable.
-    // skipped_plots records the human-readable label for each enabled plot type whose file
-    // wasn't produced, so the report can note it (see push_if_exists below).
+    // Only link files this run actually wrote: a plot type being enabled doesn't mean its PNG
+    // was written — plot_framework.rs skips writing when every axis is data-unavailable — and
+    // Path::exists() can't tell such a skip from a stale PNG an earlier run with a colliding
+    // root name left on disk. skipped_plots records the human-readable label for each enabled
+    // plot type whose file wasn't produced, so the report can note it (see push_if_written below).
     let mut png_links: Vec<String> = Vec::new();
     let mut skipped_plots: Vec<String> = Vec::new();
-    let push_if_exists =
+    let push_if_written =
         |links: &mut Vec<String>, skipped: &mut Vec<String>, label: &str, filename: String| {
-            if std::path::Path::new(&filename).exists() {
+            if plot_framework::was_written_this_run(&filename) {
                 links.push(filename);
             } else {
                 skipped.push(label.to_string());
@@ -1655,27 +1660,18 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         };
 
     if plot_config.step_response {
-        // Step response filename includes duration and optional dps suffix — scan for it.
-        // A directory scan only finds files that exist, so this is already exists-checked.
+        // Step response filename includes duration and optional dps suffix, so look it up by
+        // prefix among this run's writes rather than a fixed name.
         let prefix = format!("{root_name_string}_Step_Response_stacked_plot_");
-        if let Ok(entries) = std::fs::read_dir(".") {
-            let mut matches: Vec<String> = entries
-                .flatten()
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .filter(|n| n.starts_with(&prefix) && n.ends_with(".png"))
-                .collect();
-            matches.sort();
-            if matches.is_empty() {
-                skipped_plots.push("Step Response".to_string());
-            } else {
-                png_links.extend(matches);
-            }
+        let matches = plot_framework::written_this_run_with_prefix(&prefix);
+        if matches.is_empty() {
+            skipped_plots.push("Step Response".to_string());
+        } else {
+            png_links.extend(matches);
         }
-        // If the directory scan itself fails (unrelated I/O error), leave Step Response out
-        // of both lists rather than guessing whether the plot was generated or skipped.
     }
     if plot_config.pidsum_error_setpoint {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "PIDsum/PIDerror/Setpoint",
@@ -1683,7 +1679,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.setpoint_vs_gyro {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Setpoint/Gyro",
@@ -1691,7 +1687,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.setpoint_derivative {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Setpoint Derivative",
@@ -1699,7 +1695,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.gyro_vs_unfilt {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Gyro/UnfiltGyro",
@@ -1707,7 +1703,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.gyro_spectrums {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Gyro Spectrums",
@@ -1715,7 +1711,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.d_term_psd {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "D-term PSD",
@@ -1723,7 +1719,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.d_term_spectrums {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "D-term Spectrums",
@@ -1731,7 +1727,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.motor_spectrums {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Motor Spectrums",
@@ -1739,7 +1735,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.motor_erpm {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Motor vs eRPM",
@@ -1747,7 +1743,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.psd {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Gyro PSD",
@@ -1755,7 +1751,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.psd_db_heatmap {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Gyro PSD Spectrogram",
@@ -1763,7 +1759,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.throttle_freq_heatmap {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Throttle-Frequency Heatmap",
@@ -1771,7 +1767,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.d_term_heatmap {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "D-Term Throttle-Frequency Heatmap",
@@ -1779,7 +1775,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.bode {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "Bode Analysis",
@@ -1787,7 +1783,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.pid_activity {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "P, I, D Activity",
@@ -1795,7 +1791,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         );
     }
     if plot_config.rc_command_activity {
-        push_if_exists(
+        push_if_written(
             &mut png_links,
             &mut skipped_plots,
             "RC Command Activity",

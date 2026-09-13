@@ -13,6 +13,7 @@ use plotters::style::{Color, IntoFont, RGBColor};
 
 use std::error::Error;
 use std::ops::Range;
+use std::sync::{Mutex, OnceLock};
 
 use crate::constants::{
     AVG_CHAR_WIDTH_RATIO, FILTERED_D_TERM_MIN_THRESHOLD, FONT_SIZE_MESSAGE, FONT_SIZE_PEAK_LABEL,
@@ -24,6 +25,59 @@ use crate::font_config::{
     BUNDLED_FONT_BYTES, FONT_TUPLE_AXIS_LABEL, FONT_TUPLE_CHART_TITLE, FONT_TUPLE_LEGEND,
     FONT_TUPLE_MAIN_TITLE, FONT_TUPLE_MESSAGE, FONT_TUPLE_PEAK_LABEL,
 };
+
+/// PNG filenames actually written during the current run. `Path::exists()` can't tell a PNG
+/// this run just wrote from one an earlier run left behind under a colliding root name, so
+/// the report-linking code in main.rs consults this instead of the filesystem. Assumes plots
+/// for one input log are generated fully before the next log's reset — true today since
+/// main.rs processes logs sequentially; the reset-then-record sequence isn't atomic.
+fn written_this_run() -> &'static Mutex<Vec<String>> {
+    static REGISTRY: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Locks the registry, recovering the data if a prior panic poisoned the mutex — a `Vec`
+/// push/clear/read can't leave semantically-broken data, so the poison flag alone shouldn't
+/// crash unrelated callers.
+fn lock_registry() -> std::sync::MutexGuard<'static, Vec<String>> {
+    written_this_run()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Clears the write record. Call once before generating plots for a new input log.
+#[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
+pub(crate) fn reset_written_this_run() {
+    lock_registry().clear();
+}
+
+/// Records that `filename` was actually written during the current run. A no-op if already
+/// recorded, so a filename can never appear twice in `written_this_run_with_prefix`'s output.
+pub(crate) fn record_written_this_run(filename: &str) {
+    let mut registry = lock_registry();
+    if !registry.iter().any(|f| f == filename) {
+        registry.push(filename.to_string());
+    }
+}
+
+/// Whether `filename` was written during the current run.
+#[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
+pub(crate) fn was_written_this_run(filename: &str) -> bool {
+    lock_registry().iter().any(|f| f == filename)
+}
+
+/// Filenames written this run starting with `prefix`, sorted — for callers that don't know
+/// the exact generated filename (e.g. one with a dynamic duration suffix).
+#[allow(dead_code)] // Only the main.rs binary calls this, not the lib target.
+pub(crate) fn written_this_run_with_prefix(prefix: &str) -> Vec<String> {
+    let mut matches: Vec<String> = lock_registry()
+        .iter()
+        .filter(|f| f.starts_with(prefix))
+        .cloned()
+        .collect();
+    matches.sort();
+    matches
+}
 
 /// Special prefix for cutoff line series to avoid showing them in legends
 pub const CUTOFF_LINE_PREFIX: &str = "__CUTOFF_LINE__";
@@ -793,6 +847,7 @@ where
     }
 
     root_area.present()?;
+    record_written_this_run(output_filename);
     println!("  Stacked plot saved as '{output_filename}'.");
     Ok(())
 }
@@ -854,6 +909,7 @@ where
     }
 
     root_area.present()?;
+    record_written_this_run(output_filename);
     println!("  Stacked plot saved as '{output_filename}'.");
     Ok(())
 }
@@ -1024,6 +1080,7 @@ where
     }
 
     root_area.present()?;
+    record_written_this_run(output_filename);
     println!("  Stacked heatmap plot saved as '{output_filename}'.");
     Ok(())
 }
@@ -1106,5 +1163,85 @@ mod tests {
             plot_config_validity(&config),
             PlotDataValidity::NoDataPoints
         );
+    }
+
+    // The write registry is process-global state; serialize these tests so they can't
+    // interleave with each other (unrelated tests are unaffected).
+    static REGISTRY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn reset_written_this_run_clears_prior_entries() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        record_written_this_run("previous_run.png");
+        reset_written_this_run();
+        assert!(!was_written_this_run("previous_run.png"));
+    }
+
+    #[test]
+    fn was_written_this_run_true_only_after_record() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        assert!(!was_written_this_run("fresh_this_run.png"));
+        record_written_this_run("fresh_this_run.png");
+        assert!(was_written_this_run("fresh_this_run.png"));
+    }
+
+    /// Creates a fixture file at an unpredictable path, refusing to follow a pre-existing
+    /// symlink at that path (`create_new` is `O_EXCL` on Unix) — the shared system temp dir
+    /// is world-writable, so a fixed guessable filename would be a symlink-race hazard.
+    fn create_unique_test_file(contents: &[u8]) -> std::path::PathBuf {
+        use std::io::Write;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "it178_stale_plot_test_{}_{nanos}.png",
+            std::process::id()
+        ));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap()
+            .write_all(contents)
+            .unwrap();
+        path
+    }
+
+    #[test]
+    fn was_written_this_run_false_for_file_on_disk_but_not_recorded() {
+        // Regression: a PNG left on disk by an earlier run under a colliding root name must
+        // not count as "written" for this run just because Path::exists() is true.
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        let stale_path = create_unique_test_file(b"stale");
+        let stale_path_str = stale_path.to_string_lossy().to_string();
+        assert!(std::path::Path::new(&stale_path_str).exists());
+        assert!(!was_written_this_run(&stale_path_str));
+        std::fs::remove_file(&stale_path).ok();
+    }
+
+    #[test]
+    fn written_this_run_with_prefix_matches_dynamic_suffix_only() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        record_written_this_run("LOG1_Step_Response_stacked_plot_2.5s_500dps.png");
+        record_written_this_run("LOG1_SetpointVsGyro_stacked.png");
+        let matches = written_this_run_with_prefix("LOG1_Step_Response_stacked_plot_");
+        assert_eq!(
+            matches,
+            vec!["LOG1_Step_Response_stacked_plot_2.5s_500dps.png".to_string()]
+        );
+    }
+
+    #[test]
+    fn record_written_this_run_is_idempotent() {
+        let _guard = REGISTRY_TEST_LOCK.lock().unwrap();
+        reset_written_this_run();
+        record_written_this_run("LOG2_SetpointVsGyro_stacked.png");
+        record_written_this_run("LOG2_SetpointVsGyro_stacked.png");
+        let matches = written_this_run_with_prefix("LOG2_SetpointVsGyro_stacked");
+        assert_eq!(matches, vec!["LOG2_SetpointVsGyro_stacked.png".to_string()]);
     }
 }

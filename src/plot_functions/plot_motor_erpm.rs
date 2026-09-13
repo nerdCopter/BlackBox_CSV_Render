@@ -8,6 +8,7 @@ use crate::constants::{
     MOTOR_ERPM_PLOT_Y_AXIS_MAX, MOTOR_ERPM_PLOT_Y_AXIS_MIN, PLOT_HEIGHT, PLOT_WIDTH,
 };
 use crate::data_input::log_data::LogRowData;
+use crate::plot_framework::record_written_this_run;
 use crate::plot_functions::motor_desync::MotorDesyncResult;
 
 /// Per-motor colors, distinct from `plot_motor_spectrums.rs`'s palette so the two plot types
@@ -244,6 +245,7 @@ pub fn plot_motor_erpm(
     }
 
     root_area.present()?;
+    record_written_this_run(&output_file);
     println!("  Stacked plot saved as '{output_file}'.");
 
     Ok(())
