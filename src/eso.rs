@@ -411,3 +411,284 @@ pub fn run_eso_optimization(
         f_hat_trace,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SAMPLE_RATE: f64 = 2000.0;
+
+    fn row_with_gyro_and_pid(gyro: f64, pid_sum: f64, t: f64) -> LogRowData {
+        LogRowData {
+            time_sec: Some(t),
+            gyro: [Some(gyro), None, None],
+            p_term: [Some(pid_sum), None, None],
+            ..Default::default()
+        }
+    }
+
+    // --- leso2_gains: pure formula ---
+
+    #[test]
+    fn leso2_gains_matches_bandwidth_parameterisation() {
+        for omega0 in [1.0, 50.0, 123.4, 500.0] {
+            let (beta1, beta2) = leso2_gains(omega0);
+            assert_eq!(beta1, 2.0 * omega0);
+            assert_eq!(beta2, omega0 * omega0);
+        }
+    }
+
+    // --- nstep_prediction_mse: regression test for the posterior-state fix ---
+    //
+    // Hand-derived with ts=1, omega0=1 (beta1=2, beta2=1), b0=1, n=7 (the minimum that
+    // yields exactly one evaluated k, since warmup=1 and end=n-ESO_N_AHEAD_STEPS=2 when
+    // n=7 — this makes the expected value tractable to compute by hand instead of trusting
+    // the implementation under test.
+    //
+    // First pass (only k=0,1 affect the single evaluated state at k=1):
+    //   X(0)=omega_meas[0]=0, F(0)=0
+    //   k=0: e=0-0=0;            X(1)=0+(0+1*u0+2*0)=u0=1;         F(1)=0+1*0=0
+    //   k=1: e=omega_meas[1]-X(1)=2-1=1;
+    //        X(2)=1+(0+1*u1+2*1)=1+(-1)+2=2;   F(2)=0+1*1*1=1
+    //   Posterior storage means omega_hat_states[1]=X(2)=2, f_hat_states[1]=F(2)=1.
+    //
+    // Second pass at k=1 (j=1..4, using u[2..5]=2,0.5,-0.5,1.5, f_pred frozen at 1):
+    //   pred=2; +1*(1+2)=3 -> 5; +1*(1+0.5)=1.5 -> 6.5; +1*(1-0.5)=0.5 -> 7.0; +1*(1+1.5)=2.5 -> 9.5
+    //   diff = 9.5 - omega_meas[6](=6) = 3.5 -> MSE = 12.25
+    //
+    // A pre-fix implementation (state stored *before* the correction, propagated with
+    // j=0..5 instead of 1..5) gives MSE=6.25 on this same input — this test fails under
+    // that implementation, so it guards the fix rather than merely restating the code.
+    #[test]
+    fn nstep_prediction_mse_uses_posterior_state_for_forecast() {
+        let omega_meas = vec![0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 6.0];
+        let u = vec![1.0, -1.0, 2.0, 0.5, -0.5, 1.5, 0.0];
+        let mse = nstep_prediction_mse(&omega_meas, &u, 1.0, 1.0, 1.0);
+        assert!(
+            (mse - 12.25).abs() < 1e-9,
+            "expected MSE=12.25 (posterior-state forecast), got {mse}"
+        );
+    }
+
+    #[test]
+    fn nstep_prediction_mse_infinite_below_minimum_length() {
+        // n <= ESO_N_AHEAD_STEPS + 1 must short-circuit rather than index out of bounds.
+        let short = vec![0.0; ESO_N_AHEAD_STEPS + 1];
+        let mse = nstep_prediction_mse(&short, &short, 1.0, 100.0, 1.0);
+        assert_eq!(mse, f64::INFINITY);
+    }
+
+    // --- estimate_b0: OLS ground-truth recovery + rejection paths ---
+
+    #[test]
+    fn estimate_b0_recovers_true_value_from_noiseless_data() {
+        let ts = 0.001;
+        let b0_true = 2.5;
+        let u: Vec<f64> = (0..20).map(|k| 50.0 + 2.0 * k as f64).collect();
+        let mut omega_meas = vec![100.0];
+        for k in 0..19 {
+            let next = omega_meas[k] + ts * b0_true * u[k];
+            omega_meas.push(next);
+        }
+        let result = estimate_b0(&omega_meas, &u, ts);
+        let b0 = result.expect("noiseless high-excitation data must yield an estimate");
+        assert!(
+            (b0 - b0_true).abs() < 1e-6,
+            "expected b0≈{b0_true}, got {b0}"
+        );
+    }
+
+    #[test]
+    fn estimate_b0_none_below_min_ols_sample_count() {
+        // Only 5 samples clear ESO_B0_MIN_CONTROL_THRESHOLD (< ESO_B0_MIN_OLS_SAMPLES=10).
+        let mut u = vec![20.0; 5];
+        u.extend(vec![1.0; 25]);
+        let omega_meas = vec![0.0; u.len() + 1];
+        assert_eq!(estimate_b0(&omega_meas, &u, 0.001), None);
+    }
+
+    #[test]
+    fn estimate_b0_none_for_inverted_sign_convention() {
+        // Same construction as the recovery test but with the sign flipped: OLS finds
+        // b0=-2.5, which must be rejected as non-positive rather than returned.
+        let ts = 0.001;
+        let b0_true = -2.5;
+        let u: Vec<f64> = (0..20).map(|k| 50.0 + 2.0 * k as f64).collect();
+        let mut omega_meas = vec![100.0];
+        for k in 0..19 {
+            let next = omega_meas[k] + ts * b0_true * u[k];
+            omega_meas.push(next);
+        }
+        assert_eq!(estimate_b0(&omega_meas, &u, ts), None);
+    }
+
+    // --- B0Source: label text ---
+
+    #[test]
+    fn b0_source_labels() {
+        assert_eq!(B0Source::UserSupplied.label(), "user-supplied");
+        assert_eq!(B0Source::AutoEstimated.label(), "auto-estimated");
+        assert_eq!(B0Source::DefaultFallback.label(), "default fallback");
+    }
+
+    // --- run_eso_optimization: input validation ---
+
+    #[test]
+    fn rejects_invalid_axis() {
+        let config = EsoConfig::default();
+        assert!(run_eso_optimization(&[], TEST_SAMPLE_RATE, AXIS_COUNT, &config).is_err());
+    }
+
+    #[test]
+    fn rejects_nonpositive_or_nonfinite_sample_rate() {
+        let config = EsoConfig::default();
+        for bad_rate in [0.0, -100.0, f64::NAN, f64::INFINITY] {
+            assert!(
+                run_eso_optimization(&[], bad_rate, 0, &config).is_err(),
+                "sample_rate={bad_rate} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_inverted_omega0_bounds() {
+        let config = EsoConfig {
+            omega0_min: 500.0,
+            omega0_max: 50.0,
+            ..Default::default()
+        };
+        assert!(run_eso_optimization(&[], TEST_SAMPLE_RATE, 0, &config).is_err());
+    }
+
+    #[test]
+    fn rejects_insufficient_data() {
+        let config = EsoConfig::default();
+        let log_data = vec![row_with_gyro_and_pid(1.0, 10.0, 0.0)];
+        assert!(run_eso_optimization(&log_data, TEST_SAMPLE_RATE, 0, &config).is_err());
+    }
+
+    #[test]
+    fn rejects_no_control_input_excitation() {
+        let config = EsoConfig::default();
+        let log_data: Vec<LogRowData> = (0..20)
+            .map(|k| row_with_gyro_and_pid(1.0, 0.0, k as f64 / TEST_SAMPLE_RATE))
+            .collect();
+        let err = run_eso_optimization(&log_data, TEST_SAMPLE_RATE, 0, &config).unwrap_err();
+        assert!(err.to_string().contains("excitation"));
+    }
+
+    // --- run_eso_optimization: end-to-end behavior ---
+
+    #[test]
+    fn recovers_b0_from_noiseless_synthetic_log() {
+        let ts = 1.0 / TEST_SAMPLE_RATE;
+        let b0_true = 3.0;
+        let u: Vec<f64> = (0..200)
+            .map(|k| 30.0 + 5.0 * (k as f64 * 0.3).sin())
+            .collect();
+        let mut omega_meas = vec![0.0];
+        for k in 0..199 {
+            let next = omega_meas[k] + ts * b0_true * u[k];
+            omega_meas.push(next);
+        }
+        let log_data: Vec<LogRowData> = omega_meas
+            .iter()
+            .zip(u.iter())
+            .enumerate()
+            .map(|(k, (&g, &p))| row_with_gyro_and_pid(g, p, k as f64 * ts))
+            .collect();
+
+        let config = EsoConfig::default();
+        let result = run_eso_optimization(&log_data, TEST_SAMPLE_RATE, 0, &config)
+            .expect("well-excited noiseless log must succeed");
+
+        assert_eq!(result.b0_source, B0Source::AutoEstimated);
+        assert!(
+            (result.b0 - b0_true).abs() < 1e-3,
+            "expected b0≈{b0_true}, got {}",
+            result.b0
+        );
+    }
+
+    #[test]
+    fn respects_user_supplied_b0() {
+        let ts = 1.0 / TEST_SAMPLE_RATE;
+        let u: Vec<f64> = (0..200)
+            .map(|k| 30.0 + 5.0 * (k as f64 * 0.3).sin())
+            .collect();
+        let mut omega_meas = vec![0.0];
+        for k in 0..199 {
+            let next = omega_meas[k] + ts * 3.0 * u[k];
+            omega_meas.push(next);
+        }
+        let log_data: Vec<LogRowData> = omega_meas
+            .iter()
+            .zip(u.iter())
+            .enumerate()
+            .map(|(k, (&g, &p))| row_with_gyro_and_pid(g, p, k as f64 * ts))
+            .collect();
+
+        let config = EsoConfig {
+            b0: 7.0,
+            b0_user_override: true,
+            ..Default::default()
+        };
+        let result = run_eso_optimization(&log_data, TEST_SAMPLE_RATE, 0, &config).unwrap();
+
+        assert_eq!(result.b0, 7.0);
+        assert_eq!(result.b0_source, B0Source::UserSupplied);
+    }
+
+    #[test]
+    fn falls_back_to_default_b0_when_ols_rejects() {
+        // Every sample clears VALUE_EPSILON (so the coarse excitation gate passes) but
+        // stays below ESO_B0_MIN_CONTROL_THRESHOLD (so OLS's own count never reaches
+        // ESO_B0_MIN_OLS_SAMPLES) — must fall back, not silently label itself user-supplied.
+        let config = EsoConfig::default();
+        let log_data: Vec<LogRowData> = (0..20)
+            .map(|k| row_with_gyro_and_pid(1.0, 0.5, k as f64 / TEST_SAMPLE_RATE))
+            .collect();
+        let result = run_eso_optimization(&log_data, TEST_SAMPLE_RATE, 0, &config).unwrap();
+
+        assert_eq!(result.b0_source, B0Source::DefaultFallback);
+        assert_eq!(result.b0, ESO_DEFAULT_B0);
+    }
+
+    #[test]
+    fn search_finds_a_point_no_worse_than_either_boundary() {
+        // A minimizer must never do worse than the bracket's own endpoints. Data mixes a
+        // slow "disturbance" component with a faster one so the cost genuinely varies with
+        // omega_0, rather than being flat (which would make this check vacuous).
+        let ts = 1.0 / TEST_SAMPLE_RATE;
+        let omega_meas: Vec<f64> = (0..200)
+            .map(|k| {
+                let t = k as f64 * ts;
+                10.0 * (2.0 * std::f64::consts::PI * 3.0 * t).sin()
+                    + 2.0 * (2.0 * std::f64::consts::PI * 80.0 * t).sin()
+            })
+            .collect();
+        let u: Vec<f64> = (0..200)
+            .map(|k| {
+                let t = k as f64 * ts;
+                30.0 * (2.0 * std::f64::consts::PI * 5.0 * t).cos()
+            })
+            .collect();
+        let log_data: Vec<LogRowData> = omega_meas
+            .iter()
+            .zip(u.iter())
+            .enumerate()
+            .map(|(k, (&g, &p))| row_with_gyro_and_pid(g, p, k as f64 * ts))
+            .collect();
+
+        let config = EsoConfig::default();
+        let result = run_eso_optimization(&log_data, TEST_SAMPLE_RATE, 0, &config).unwrap();
+
+        let omega0_max_stable =
+            (TEST_SAMPLE_RATE / ESO_OMEGA0_STABILITY_RATIO).min(config.omega0_max);
+        let mse_at_min = nstep_prediction_mse(&omega_meas, &u, ts, config.omega0_min, result.b0);
+        let mse_at_max = nstep_prediction_mse(&omega_meas, &u, ts, omega0_max_stable, result.b0);
+
+        assert!(result.mse <= mse_at_min + 1e-9);
+        assert!(result.mse <= mse_at_max + 1e-9);
+    }
+}
