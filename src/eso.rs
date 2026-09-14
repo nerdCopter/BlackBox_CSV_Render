@@ -690,5 +690,9 @@ mod tests {
 
         assert!(result.mse <= mse_at_min + 1e-9);
         assert!(result.mse <= mse_at_max + 1e-9);
+        assert!(
+            (mse_at_min - mse_at_max).abs() > 1e-9,
+            "test data must produce different endpoint costs, or the boundary check above is vacuous"
+        );
     }
 }
