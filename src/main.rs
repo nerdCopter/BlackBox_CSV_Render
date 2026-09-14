@@ -126,7 +126,7 @@ impl PlotConfig {
 }
 
 // Analysis options struct to group related analysis parameters
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct AnalysisOptions {
     pub setpoint_threshold: f64,
     pub show_legend: bool,
@@ -137,10 +137,18 @@ struct AnalysisOptions {
     pub trim_start: Option<f64>,
     /// Trim end, in seconds relative to the log's first row. `None` = log end.
     pub trim_end: Option<f64>,
+    /// Raw `--start` argument text, as typed. Used verbatim in the output filename suffix so
+    /// two distinct user-supplied values can never collide there, unlike a rounded re-format
+    /// of the parsed f64 (`None` when `--start` was omitted; the filename then uses a fixed
+    /// formatted default, which is deterministic and so can't collide with itself either).
+    pub trim_start_str: Option<String>,
+    /// Raw `--end` argument text, as typed. Same rationale as `trim_start_str`.
+    pub trim_end_str: Option<String>,
 }
 
 use crate::constants::{
     DEFAULT_SETPOINT_THRESHOLD, EXCLUDE_END_S, EXCLUDE_START_S, FRAME_LENGTH_S,
+    TRIM_START_DEFAULT_S,
 };
 
 // Specific plot function imports
@@ -413,6 +421,8 @@ fn print_usage_and_exit(program_name: &str) {
     );
     eprintln!("  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch");
     eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
+    eprintln!("                        Its Td target always profiles the full file, ignoring");
+    eprintln!("                        --start/--end; only its Td measurement is trimmed.");
     eprintln!();
     eprintln!("--- TIME WINDOW ---");
     eprintln!();
@@ -434,9 +444,12 @@ fn print_usage_and_exit(program_name: &str) {
 
 /// Parses a `--start`/`--end` style flag: consumes its numeric value, rejects a negative or a
 /// repeated flag, and advances `i` past the value. Exits via `print_usage_and_exit` on error.
+/// Also captures the argument's raw text into `raw_slot` for use in the output filename suffix
+/// (see `AnalysisOptions::trim_start_str` for why).
 fn parse_trim_flag(
     flag: &str,
     slot: &mut Option<f64>,
+    raw_slot: &mut Option<String>,
     args: &[String],
     i: &mut usize,
     program_name: &str,
@@ -450,12 +463,13 @@ fn parse_trim_flag(
         print_usage_and_exit(program_name);
     }
     match args[*i + 1].parse::<f64>() {
-        Ok(val) if val >= 0.0 => {
+        Ok(val) if val >= TRIM_START_DEFAULT_S => {
             *slot = Some(val);
+            *raw_slot = Some(args[*i + 1].clone());
             *i += 1;
         }
         Ok(val) => {
-            eprintln!("Error: {flag} must be >= 0: {val}");
+            eprintln!("Error: {flag} must be >= {TRIM_START_DEFAULT_S}: {val}");
             print_usage_and_exit(program_name);
         }
         Err(_) => {
@@ -695,7 +709,7 @@ fn process_file(
             }
         };
         let duration = log_last - log_first;
-        let rel_start = analysis_opts.trim_start.unwrap_or(0.0);
+        let rel_start = analysis_opts.trim_start.unwrap_or(TRIM_START_DEFAULT_S);
         let rel_end = analysis_opts.trim_end.unwrap_or(duration);
         if rel_start >= duration {
             eprintln!(
@@ -739,10 +753,20 @@ fn process_file(
             );
         }
         trim_window = Some((rel_start, rel_end, all_log_data.len()));
-        // 3 decimals (ms resolution) matches the console/error precision above and makes a
-        // same-run filename collision between two distinct --start/--end values very unlikely,
-        // though not mathematically impossible for values differing only past the 3rd decimal.
-        root_name_string = format!("{root_name_string}_trim{rel_start:.3}s-{rel_end:.3}s");
+        // Use the raw --start/--end text the user typed, not a rounded re-format of the parsed
+        // f64: two distinct inputs then can never collide on the same filename (a rounded
+        // format could, e.g. --start 1.0001 and --start 1.0004 both rounding to "1.000"). The
+        // omitted side (no raw text) falls back to a fixed formatted default, which is the same
+        // for every run of the same file and so can't newly collide with itself either.
+        let start_label = analysis_opts
+            .trim_start_str
+            .clone()
+            .unwrap_or_else(|| format!("{rel_start:.3}"));
+        let end_label = analysis_opts
+            .trim_end_str
+            .clone()
+            .unwrap_or_else(|| format!("{rel_end:.3}"));
+        root_name_string = format!("{root_name_string}_trim{start_label}s-{end_label}s");
     }
 
     // Parse PID metadata from headers
@@ -1990,6 +2014,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut estimate_optimal_p = false;
     let mut trim_start: Option<f64> = None;
     let mut trim_end: Option<f64> = None;
+    let mut trim_start_str: Option<String> = None;
+    let mut trim_end_str: Option<String> = None;
 
     let mut version_flag_set = false;
 
@@ -2055,9 +2081,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg == "--start" {
-            parse_trim_flag("--start", &mut trim_start, &args, &mut i, program_name);
+            parse_trim_flag(
+                "--start",
+                &mut trim_start,
+                &mut trim_start_str,
+                &args,
+                &mut i,
+                program_name,
+            );
         } else if arg == "--end" {
-            parse_trim_flag("--end", &mut trim_end, &args, &mut i, program_name);
+            parse_trim_flag(
+                "--end",
+                &mut trim_end,
+                &mut trim_end_str,
+                &args,
+                &mut i,
+                program_name,
+            );
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -2163,7 +2203,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // Construct AnalysisOptions once before the loop (Copy type, reusable across all files)
+    // Construct AnalysisOptions once before the loop; cloned per file at the process_file call
+    // site below (not Copy — carries the raw --start/--end argument text as owned Strings).
     let analysis_opts = AnalysisOptions {
         setpoint_threshold,
         show_legend,
@@ -2172,6 +2213,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         estimate_optimal_p,
         trim_start,
         trim_end,
+        trim_start_str,
+        trim_end_str,
     };
 
     // Group input files by aircraft key for two-phase processing.
@@ -2207,7 +2250,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 use_dir_prefix_for_root_name,
                 actual_output_dir,
                 plot_config,
-                analysis_opts,
+                analysis_opts.clone(),
                 &aircraft_profile,
             ) {
                 eprintln!("Error: Processing {input_file_str}: {e}");

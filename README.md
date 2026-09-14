@@ -56,6 +56,8 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
   --dps <value>    Deg/s threshold for detailed step response plots (positive number).
   --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch
                         dynamics. Requires .headers.csv; skips if absent.
+                        Its Td target always profiles the full file, ignoring
+                        --start/--end; only its Td measurement is trimmed.
 
 === TIME WINDOW ===
 
@@ -107,9 +109,12 @@ analysis and plot — everything except `--estimate-optimal-p`'s Phase 1 aircraf
 always re-reads the full file regardless of `--start`/`--end` (see the caveat below).
 
 **General workflow:**
-1. Run the full log first (no `--start`/`--end`). Every run prints `Note: Log spans absolute time
-   Xs-Ys (duration Ds)` — that `X` is the offset between this log's own first row and 0. Note the
-   timestamp(s) of the event you want to zoom into — for a desync, that's the
+1. Run the full log first (no `--start`/`--end`). A run prints `Note: Log spans absolute time
+   Xs-Ys (duration Ds)` whenever the log has a positive duration (both a first and last
+   timestamp, with the last one later) — that `X` is the offset between this log's own first row
+   and 0. A one-row log, or one where every row shares the same timestamp, has no duration and
+   omits this line — `--start`/`--end` aren't meaningful there either. Note the timestamp(s) of
+   the event you want to zoom into — for a desync, that's the
    `Possible`/`De Facto`/`Fallback` "Times (s)" column in the Motor Desync Detection report table;
    for anything else, read it off the full-log plot. **These are absolute flight-controller
    timestamps, not relative to the log** — subtract the printed `X` from the event's timestamp to
@@ -136,8 +141,8 @@ directions on a short tail event**: trimming tight enough to make the plot clear
 the last ~1-2s of a ~10s flight) reliably loses the table flag entirely — confirmed, this is not
 occasional. If you need the visual, read the `Motor_vs_eRPM` plot directly and don't expect the
 table to corroborate it at that trim width. Tracked in IT #182, which also covers which other
-analyses are (and aren't) affected the same way; `--estimate-optimal-p` in particular does not
-respect `--start`/`--end` at all — see `OVERVIEW.md`.
+analyses are (and aren't) affected the same way; `--estimate-optimal-p` in particular splits
+across trim and no-trim — see the Phase 1/Phase 2 note above and `OVERVIEW.md`.
 
 ### Output
 
