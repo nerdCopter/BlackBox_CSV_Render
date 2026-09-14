@@ -187,13 +187,12 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
         * `omega_hat += Ts * (f_hat + b0 * u[k] + beta1 * e)`
         * `f_hat += Ts * (beta2 * e)`
     * Bandwidth parameterisation (Gao 2003): `beta1 = 2*omega_0`, `beta2 = omega_0^2`.
-    * Minimises MSE(omega_hat, omega_meas) via golden-section search over `[ESO_OMEGA0_MIN, min(sample_rate/3, ESO_OMEGA0_MAX)]`.
+    * Minimises the `ESO_N_AHEAD_STEPS`-step-ahead open-loop prediction MSE via golden-section search over `[ESO_OMEGA0_MIN, min(sample_rate/3, ESO_OMEGA0_MAX)]`.
 * **Stability constraint:** omega_0 < sample_rate / 3 (enforced automatically).
 * **Output:** Prints optimal omega_0, beta1, beta2, and MSE per axis to console.
-* **Limitations:** `b0=1.0` (default) is dimensionless. For absolute accuracy co-tune b0 using known frame inertia. The cost function is MSE on the closed-loop observer output; unimodality is assumed over the search range.
+* **Limitations:** `b0` is dimensionless. The OLS estimate is derived from logged PID sum and gyro increments; `b0=1.0` is used only as a fallback when estimation fails or is rejected. For absolute accuracy co-tune b0 using known frame inertia. Unimodality of the prediction-MSE cost is assumed over the search range.
 
-
-
+### Output and Tuning Recommendations
 
 #### Generated PNG Plots
 

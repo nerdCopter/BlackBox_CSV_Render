@@ -421,7 +421,8 @@ fn print_usage_and_exit(program_name: &str) {
         "  --dps <value>    Deg/s threshold for detailed step response plots (positive number)."
     );
     eprintln!("  --eso            Run 2nd-order LESO bandwidth optimization (omega_0) per axis.");
-    eprintln!("  --eso-b0 <value> Control effectiveness b0 for ESO (default: 1.0).");
+    eprintln!("  --eso-b0 <value> Control effectiveness b0 for ESO (default: auto-estimated");
+    eprintln!("                   from the log; falls back to 1.0 if estimation fails).");
     eprintln!("  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch");
     eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
     eprintln!();
