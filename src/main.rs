@@ -12,7 +12,7 @@ mod plot_functions;
 mod report;
 mod types;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -22,7 +22,7 @@ use ndarray::Array1;
 
 use crate::axis_names::AXIS_COUNT;
 use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, AircraftProfile};
-use crate::types::StepResponseResults;
+use crate::types::{LogParseResult, StepResponseResults};
 
 // Build version string from git info with fallbacks for builds without vergen metadata
 fn get_version_string() -> String {
@@ -555,18 +555,24 @@ fn group_files_by_aircraft(input_files: &[String]) -> BTreeMap<String, Vec<Strin
 
 /// Parse all files in a group and collect torque-inertia ratio estimates.
 ///
-/// This is the Phase 1 profiling pass. Each file is parsed minimally and the
-/// punch-event ratios are aggregated into a single `AircraftProfile`.
-fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile {
+/// This is the Phase 1 profiling pass. Each file is parsed once and the result
+/// is cached and returned alongside the profile. Phase 2 (`process_file`) reuses
+/// the cache entry instead of re-parsing the same file.
+fn profile_aircraft_group(
+    files: &[String],
+    debug_mode: bool,
+) -> (AircraftProfile, HashMap<String, LogParseResult>) {
     let mut all_axis_ratios: [Vec<f64>; crate::axis_names::AXIS_COUNT] =
         std::array::from_fn(|_| Vec::new());
     let mut files_profiled: usize = 0;
+    let mut parsed_cache: HashMap<String, LogParseResult> = HashMap::with_capacity(files.len());
 
     for file_str in files {
         let path = Path::new(file_str);
-        match parse_log_file(path, debug_mode) {
+        let parse_result = parse_log_file(path, debug_mode);
+        match &parse_result {
             Ok((log_data, Some(sr), ..)) => {
-                let ratios = extract_punch_ratios(&log_data, sr);
+                let ratios = extract_punch_ratios(log_data, *sr);
                 let total_events: usize = ratios.iter().map(|v| v.len()).sum();
                 for (axis, axis_ratio_vec) in all_axis_ratios.iter_mut().enumerate() {
                     axis_ratio_vec.extend_from_slice(&ratios[axis]);
@@ -595,6 +601,7 @@ fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile
                 }
             }
         }
+        parsed_cache.insert(file_str.clone(), parse_result);
     }
 
     if debug_mode {
@@ -609,7 +616,7 @@ fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile
 
     let mut profile = AircraftProfile::from_axis_ratios(all_axis_ratios);
     profile.file_count = files_profiled;
-    profile
+    (profile, parsed_cache)
 }
 
 fn process_file(
@@ -619,6 +626,7 @@ fn process_file(
     plot_config: PlotConfig,
     analysis_opts: AnalysisOptions,
     aircraft_profile: &AircraftProfile,
+    pre_parsed: Option<LogParseResult>,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -669,7 +677,7 @@ fn process_file(
         _debug_header_found,
         using_debug_fallback,
         header_metadata,
-    ) = match parse_log_file(input_path, analysis_opts.debug_mode) {
+    ) = match pre_parsed.unwrap_or_else(|| parse_log_file(input_path, analysis_opts.debug_mode)) {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Error: Parsing log file {input_file_str}: {e}");
@@ -2265,17 +2273,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut overall_success = true;
     for (craft_key, group_files) in &grouped_files {
         // Phase 1: torque-inertia profiling across all files in the group.
-        let aircraft_profile = if analysis_opts.estimate_optimal_p {
+        // Reuses each file's parse result in Phase 2 below instead of re-parsing.
+        let (aircraft_profile, mut parsed_cache) = if analysis_opts.estimate_optimal_p {
             println!(
                 "\n--- Torque-Inertia Profiling: '{}' ({} file(s)) ---",
                 craft_key,
                 group_files.len()
             );
-            let profile = profile_aircraft_group(group_files, debug_mode);
+            let (profile, cache) = profile_aircraft_group(group_files, debug_mode);
             print!("{}", profile.summary());
-            profile
+            (profile, cache)
         } else {
-            AircraftProfile::default()
+            (AircraftProfile::default(), HashMap::new())
         };
 
         // Phase 2: process each file in the group.
@@ -2284,6 +2293,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 None => Path::new(input_file_str).parent(),
                 Some(dir) => Some(Path::new(dir)),
             };
+            let pre_parsed = parsed_cache.remove(input_file_str);
 
             if let Err(e) = process_file(
                 input_file_str,
@@ -2292,6 +2302,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 plot_config,
                 analysis_opts.clone(),
                 &aircraft_profile,
+                pre_parsed,
             ) {
                 eprintln!("Error: Processing {input_file_str}: {e}");
                 overall_success = false;
