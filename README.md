@@ -96,8 +96,42 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p
 ```
 ```shell
-./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --start 118 --desync
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --start 40 --desync
 ```
+
+### Time-Window Trim: How To Pick `--start`/`--end`
+
+`--start`/`--end` are seconds relative to the log's first row (`0s` = log start). Trimming drops
+every row outside the window before any plot or analysis runs, so it affects everything, not just
+the plot you're looking at.
+
+**General workflow:**
+1. Run the full log first (no `--start`/`--end`). Note the timestamp(s) of the event you want to
+   zoom into — for a desync, that's the `Possible`/`De Facto`/`Fallback` "Times (s)" column in the
+   Motor Desync Detection report table; for anything else, read it off the full-log plot.
+2. Trim with real margin *before* that timestamp — don't cut the window right up against the
+   event. Re-run and compare the plot to the full-log version.
+3. If a report table's flag (desync, oscillation, etc.) depended on statistics computed from the
+   window — see the caveat below — confirm the flag still appears after trimming. If it
+   disappeared, move `--start` earlier (more margin) and re-check. The boundary between "flag
+   holds" and "flag disappears" is not a fixed number of seconds; it depends on how much
+   representative data is left in the window, and can flip on trim values close together — don't
+   trim to the exact minimum that still worked once.
+
+**Motor Desync Detection specifically:** the `Possible`/`De Facto`/`Fallback` tiers
+(`src/plot_functions/motor_desync.rs`) score each motor against statistics computed *only from the
+rows in the analyzed window* — its own high-command runs, their eRPM baseline, and (for `Possible`)
+a 90th-percentile eRPM reference. Tested against a real 9.86s log with a known tail-end desync: the
+report's `Possible` flag held reliably down to roughly the last 60% of the flight (`--start` at 40%
+of the way in) but flipped on and off inconsistently for `--start` values within about half a
+second of that point — evidence the cutoff is data-dependent, not a formula to reuse on other logs.
+Leave comfortable margin if the table flag matters. **The table and the plot pull in opposite
+directions on a short tail event**: trimming tight enough to make the plot clearly readable (e.g.
+the last ~1-2s of a ~10s flight) reliably loses the table flag entirely — confirmed, this is not
+occasional. If you need the visual, read the `Motor_vs_eRPM` plot directly and don't expect the
+table to corroborate it at that trim width. Tracked in IT #182, which also covers which other
+analyses are (and aren't) affected the same way; `--estimate-optimal-p` in particular does not
+respect `--start`/`--end` at all — see `OVERVIEW.md`.
 
 ### Output
 
