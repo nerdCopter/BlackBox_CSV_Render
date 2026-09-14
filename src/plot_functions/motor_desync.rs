@@ -351,11 +351,36 @@ fn detect_control_loss_fallback(log_data: &[LogRowData]) -> Vec<(usize, f64)> {
     events
 }
 
+/// Restricts flagged events to `report_window` (inclusive absolute `time_sec` bounds), leaving
+/// `events` untouched when `report_window` is `None`. All baseline/threshold statistics in
+/// `detect_motor_desync` are computed from `log_data` before this filter runs — `log_data` must
+/// be the full, untrimmed log so a `--start`/`--end` window narrows only what gets reported, not
+/// what each motor's own normal behavior is measured against (see IT #182).
+fn filter_to_window(
+    events: Vec<MotorDesyncEvent>,
+    report_window: Option<(f64, f64)>,
+) -> Vec<MotorDesyncEvent> {
+    match report_window {
+        Some((start, end)) => events
+            .into_iter()
+            .filter(|e| e.time_s >= start && e.time_s <= end)
+            .collect(),
+        None => events,
+    }
+}
+
 /// Flags candidate motor-desync events by comparing each motor's commanded output
 /// (`motor[N]`) against its eRPM telemetry (`eRPM[N]`), self-relative to that same motor's
 /// own behavior elsewhere in this same flight — never a fixed cross-aircraft threshold, since
 /// raw motor/eRPM units and normal spin-up/response behavior both vary by protocol, pole
 /// count, and airframe.
+///
+/// `log_data` must be the full, untrimmed log — every baseline/threshold below is computed from
+/// it. `report_window`, when given, is the absolute `time_sec` bounds of a `--start`/`--end`
+/// trim: events outside it are dropped from the result, but never affect what other events are
+/// found or how baselines are built (IT #182 — a window-scoped baseline made a motor's own
+/// established behavior shrink or shift with the window, so a tightly trimmed report could lose
+/// a flag a full-log report would keep).
 ///
 /// Two eRPM-based confidence tiers plus a motor+gyro/setpoint `Fallback` used only when this
 /// log has no eRPM telemetry at all — see `DesyncConfidence`. The eRPM tiers are calibrated
@@ -367,7 +392,10 @@ fn detect_control_loss_fallback(log_data: &[LogRowData]) -> Vec<(usize, f64)> {
 /// but was caught by `Possible`, which also produced zero false positives across the same
 /// data. Still a heuristic, not a certainty — cross-check any flagged time against
 /// gyro/accelerometer disturbance at the same timestamp.
-pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
+pub fn detect_motor_desync(
+    log_data: &[LogRowData],
+    report_window: Option<(f64, f64)>,
+) -> Vec<MotorDesyncResult> {
     let motor_count = log_data
         .iter()
         .map(|row| row.motors.len())
@@ -398,7 +426,7 @@ pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
                 motor_idx,
                 erpm_signal_available: false,
                 fallback_used: true,
-                events,
+                events: filter_to_window(events, report_window),
             })
             .collect();
     }
@@ -469,7 +497,7 @@ pub fn detect_motor_desync(log_data: &[LogRowData]) -> Vec<MotorDesyncResult> {
             motor_idx,
             erpm_signal_available: true,
             fallback_used: false,
-            events,
+            events: filter_to_window(events, report_window),
         });
     }
 
@@ -542,9 +570,36 @@ mod tests {
             data.push(row(t, 1, 0, motor, erpm));
         }
 
-        let results = detect_motor_desync(&data);
+        let results = detect_motor_desync(&data, None);
         assert!(results[0].erpm_signal_available);
         assert!(results[0].events.is_empty());
+    }
+
+    /// Shared by the three `DeFacto` tests below: `BASELINE_SAMPLES` of healthy high/low-command
+    /// cycling (rich baseline history), then `ANOMALY_SAMPLES` of sustained high command with
+    /// collapsed eRPM — the confirmed-crash signature (motor commanded to max, eRPM never
+    /// follows). Returns the log plus the anomaly block's own `[start, end]` time bounds, so
+    /// callers derive their report_window from the data layout instead of a hardcoded value.
+    fn de_facto_test_log() -> (Vec<LogRowData>, f64, f64) {
+        const BASELINE_SAMPLES: u32 = 3000;
+        const ANOMALY_SAMPLES: u32 = 200;
+        let mut data = Vec::new();
+        let mut i = 0u32;
+        for _ in 0..BASELINE_SAMPLES {
+            let t = i as f64 * SAMPLE_INTERVAL_S;
+            let motor = 1000.0 + (i as f64 % 1000.0);
+            let erpm = motor * 1.4;
+            data.push(row(t, 1, 0, motor, erpm));
+            i += 1;
+        }
+        for _ in 0..ANOMALY_SAMPLES {
+            let t = i as f64 * SAMPLE_INTERVAL_S;
+            data.push(row(t, 1, 0, 2000.0, 50.0));
+            i += 1;
+        }
+        let anomaly_start_s = BASELINE_SAMPLES as f64 * SAMPLE_INTERVAL_S;
+        let anomaly_end_s = (BASELINE_SAMPLES + ANOMALY_SAMPLES) as f64 * SAMPLE_INTERVAL_S;
+        (data, anomaly_start_s, anomaly_end_s)
     }
 
     #[test]
@@ -553,24 +608,44 @@ mod tests {
         // high command). A later sustained window holds command high while eRPM collapses to
         // near-zero for the whole window — the confirmed-crash signature (motor commanded to
         // max, eRPM never follows), caught with a rich baseline available.
-        let mut data = Vec::new();
-        let mut i = 0u32;
-        for _ in 0..3000 {
-            let t = i as f64 * SAMPLE_INTERVAL_S;
-            let motor = 1000.0 + (i as f64 % 1000.0);
-            let erpm = motor * 1.4;
-            data.push(row(t, 1, 0, motor, erpm));
-            i += 1;
-        }
-        for _ in 0..200 {
-            let t = i as f64 * SAMPLE_INTERVAL_S;
-            data.push(row(t, 1, 0, 2000.0, 50.0));
-            i += 1;
-        }
+        let (data, _, _) = de_facto_test_log();
 
-        let results = detect_motor_desync(&data);
+        let results = detect_motor_desync(&data, None);
         assert_eq!(results[0].events.len(), 1);
         assert_eq!(results[0].events[0].confidence, DesyncConfidence::DeFacto);
+    }
+
+    #[test]
+    fn de_facto_baseline_survives_narrow_report_window() {
+        // IT #182 regression: same log as sustained_high_command_with_no_rpm_response_is_de_facto,
+        // but report_window covers only the anomaly block, widened by one DeFacto sustain-window
+        // (MOTOR_DESYNC_SUSTAIN_S) so the sliding-window scan's transition window — which spans
+        // the boundary and may be flagged slightly before the anomaly's own start — still falls
+        // inside it, without hardcoding exactly which stride index gets flagged. No healthy
+        // high-command run falls inside this window. Before this fix, `log_data` itself was
+        // pre-trimmed to the window, so the baseline had no "elsewhere" run to draw from and
+        // DeFacto never fired. Passing the full log plus a report_window must still find the
+        // event via DeFacto — the baseline comes from the full log regardless of what's reported.
+        let (data, anomaly_start_s, anomaly_end_s) = de_facto_test_log();
+        let report_start_s = anomaly_start_s - MOTOR_DESYNC_SUSTAIN_S;
+
+        let results = detect_motor_desync(&data, Some((report_start_s, anomaly_end_s)));
+        assert_eq!(results[0].events.len(), 1);
+        assert_eq!(results[0].events[0].confidence, DesyncConfidence::DeFacto);
+        assert!(results[0].events[0].time_s >= report_start_s);
+        assert!(results[0].events[0].time_s <= anomaly_end_s);
+    }
+
+    #[test]
+    fn event_outside_report_window_is_not_reported() {
+        // Same log and event as above, but report_window ends one sustain-window before the
+        // anomaly could be flagged — baseline computation still succeeds (same full log), the
+        // event is still found internally, it's just filtered out of the reported result.
+        let (data, anomaly_start_s, _) = de_facto_test_log();
+        let before_anomaly_s = anomaly_start_s - MOTOR_DESYNC_SUSTAIN_S;
+
+        let results = detect_motor_desync(&data, Some((0.0, before_anomaly_s)));
+        assert!(results[0].events.is_empty());
     }
 
     #[test]
@@ -607,7 +682,7 @@ mod tests {
             i += 1;
         }
 
-        let results = detect_motor_desync(&data);
+        let results = detect_motor_desync(&data, None);
         assert_eq!(results[0].events.len(), 1);
         assert_eq!(results[0].events[0].confidence, DesyncConfidence::Possible);
     }
@@ -621,7 +696,7 @@ mod tests {
             data.push(row(t, 1, 0, motor, 12.0));
         }
 
-        let results = detect_motor_desync(&data);
+        let results = detect_motor_desync(&data, None);
         assert!(!results[0].erpm_signal_available);
         assert!(results[0].events.is_empty());
     }
@@ -636,7 +711,7 @@ mod tests {
             data.push(row(t, 1, 0, motor, erpm));
         }
 
-        let results = detect_motor_desync(&data);
+        let results = detect_motor_desync(&data, None);
         assert!(!results[0].erpm_signal_available);
         assert!(results[0].events.is_empty());
     }
@@ -661,7 +736,7 @@ mod tests {
             data.push(row(t, 1, 0, motor, erpm));
         }
 
-        let results = detect_motor_desync(&data);
+        let results = detect_motor_desync(&data, None);
         assert!(results[0].events.is_empty());
     }
 
@@ -686,9 +761,10 @@ mod tests {
         // window holds the motor near its own ceiling while gyro diverges sharply from an
         // unchanged (near-zero) setpoint — rotation the pilot never commanded, the actual
         // no-eRPM crash signature this tier targets.
+        const BASELINE_SAMPLES: u32 = 20_000;
         let mut data = Vec::new();
         let mut i = 0u32;
-        for _ in 0..20_000 {
+        for _ in 0..BASELINE_SAMPLES {
             let t = i as f64 * SAMPLE_INTERVAL_S;
             let motor = 500.0 + (i as f64 % 1000.0);
             let sp = (i as f64 % 20.0) - 10.0; // small, bounded commanded rate
@@ -706,12 +782,23 @@ mod tests {
             ));
             i += 1;
         }
+        // The anomaly can only be flagged at or after this point — the whole baseline before it
+        // is calm, tightly-tracking flight with nothing for Fallback to flag. Back off by one
+        // Fallback sustain-window (MOTOR_DESYNC_FALLBACK_SUSTAIN_S) so a window ending exactly
+        // at the boundary can't still include it.
+        let anomaly_start_s = BASELINE_SAMPLES as f64 * SAMPLE_INTERVAL_S;
+        let before_anomaly_s = anomaly_start_s - MOTOR_DESYNC_FALLBACK_SUSTAIN_S;
 
-        let results = detect_motor_desync(&data);
+        let results = detect_motor_desync(&data, None);
         assert!(results[0].fallback_used);
         assert!(!results[0].erpm_signal_available);
         assert_eq!(results[0].events.len(), 1);
         assert_eq!(results[0].events[0].confidence, DesyncConfidence::Fallback);
+
+        // Same log, report_window ends before the anomaly could ever be flagged — Fallback tier
+        // respects the window filter the same way as the eRPM-based tiers (IT #182).
+        let windowed = detect_motor_desync(&data, Some((0.0, before_anomaly_s)));
+        assert!(windowed[0].events.is_empty());
     }
 
     #[test]
@@ -741,7 +828,7 @@ mod tests {
             i += 1;
         }
 
-        let results = detect_motor_desync(&data);
+        let results = detect_motor_desync(&data, None);
         assert!(results[0].fallback_used);
         assert!(results[0].events.is_empty());
     }
@@ -761,7 +848,7 @@ mod tests {
             data.push(fallback_row(t, motor, [sp, sp, sp], [sp, sp, sp]));
         }
 
-        let results = detect_motor_desync(&data);
+        let results = detect_motor_desync(&data, None);
         assert!(results[0].fallback_used);
         assert!(results[0].events.is_empty());
     }
