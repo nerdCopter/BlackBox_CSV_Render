@@ -682,9 +682,8 @@ fn process_file(
         return Ok(());
     }
 
-    // time_sec is absolute (flight-controller uptime), not zero-based — printed unconditionally
-    // so a --start/--end value can be derived from an absolute timestamp seen elsewhere (e.g. a
-    // Motor Desync Detection report row) by subtracting this log's first row.
+    // Captured before zeroing below — this note is the only place absolute FC uptime is shown,
+    // for cross-referencing against OSD/video overlays that also display FC uptime.
     let log_first = all_log_data.first().and_then(|row| row.time_sec);
     let log_last = all_log_data.last().and_then(|row| row.time_sec);
     if let (Some(f), Some(l)) = (log_first, log_last) {
@@ -777,6 +776,34 @@ fn process_file(
             .clone()
             .unwrap_or_else(|| format!("{rel_end:.3}"));
         root_name_string = format!("{root_name_string}_trim{start_label}s-{end_label}s");
+    }
+
+    // Zero the timeline to this window's own start (log start, or --start when trimmed) so
+    // every plot and console/report timestamp reads flight time, not raw FC uptime. Applied to
+    // all_log_data and, when present, to the untrimmed clone/window Motor Desync Detection uses
+    // for its full-log baseline (IT #182) — both must share the same zero point as the plots, or
+    // its reported event timestamps would disagree with everything else.
+    let time_origin = match trim_window {
+        Some((rel_start, ..)) => log_first.map(|f| f + rel_start),
+        None => log_first,
+    };
+    if let Some(origin) = time_origin {
+        for row in &mut all_log_data {
+            if let Some(t) = row.time_sec.as_mut() {
+                *t -= origin;
+            }
+        }
+        if let Some(full_data) = desync_full_log_data.as_mut() {
+            for row in full_data.iter_mut() {
+                if let Some(t) = row.time_sec.as_mut() {
+                    *t -= origin;
+                }
+            }
+        }
+        if let Some((window_start, window_end)) = desync_report_window.as_mut() {
+            *window_start -= origin;
+            *window_end -= origin;
+        }
     }
 
     // Parse PID metadata from headers
