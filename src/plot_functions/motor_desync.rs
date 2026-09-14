@@ -648,43 +648,84 @@ mod tests {
         assert!(results[0].events.is_empty());
     }
 
+    /// Shared by the three `Possible` tests below: `BASELINE_SAMPLES` of mostly-idle flight, a
+    /// brief `BURST_SAMPLES` near-ceiling command with no eRPM response (too little high-command
+    /// history for DeFacto's baseline — mirrors the real short-flight crash case this tier
+    /// exists for), then `TAIL_SAMPLES` back to idle. Returns the log plus the burst's own
+    /// `[start, end]` time bounds.
+    fn possible_test_log() -> (Vec<LogRowData>, f64, f64) {
+        const BASELINE_SAMPLES: u32 = 2000;
+        // Long enough that some stride-aligned window start lands fully inside the burst
+        // (window=12 samples, stride=6 — a shorter burst can fall between stride steps and
+        // never get a fully-contained window at all), but still below
+        // MOTOR_DESYNC_MIN_BASELINE_SAMPLES (20): the burst must not become its own degenerate
+        // self-referential "baseline", or DeFacto's guard against too-little history never
+        // triggers Possible at all.
+        const BURST_SAMPLES: u32 = 19;
+        const TAIL_SAMPLES: u32 = 500;
+        let mut data = Vec::new();
+        let mut i = 0u32;
+        for _ in 0..BASELINE_SAMPLES {
+            let t = i as f64 * SAMPLE_INTERVAL_S;
+            let motor = 300.0 + (i as f64 % 100.0);
+            let erpm = motor * 1.2;
+            data.push(row(t, 1, 0, motor, erpm));
+            i += 1;
+        }
+        for _ in 0..BURST_SAMPLES {
+            let t = i as f64 * SAMPLE_INTERVAL_S;
+            data.push(row(t, 1, 0, 2000.0, 40.0));
+            i += 1;
+        }
+        for _ in 0..TAIL_SAMPLES {
+            let t = i as f64 * SAMPLE_INTERVAL_S;
+            let motor = 300.0 + (i as f64 % 100.0);
+            let erpm = motor * 1.2;
+            data.push(row(t, 1, 0, motor, erpm));
+            i += 1;
+        }
+        let burst_start_s = BASELINE_SAMPLES as f64 * SAMPLE_INTERVAL_S;
+        let burst_end_s = (BASELINE_SAMPLES + BURST_SAMPLES) as f64 * SAMPLE_INTERVAL_S;
+        (data, burst_start_s, burst_end_s)
+    }
+
     #[test]
     fn brief_full_send_with_sparse_history_is_possible() {
         // A mostly-idle short flight whose only near-ceiling command is one brief burst with
         // no eRPM response — too little high-command history for DeFacto's baseline (mirrors
         // the real short-flight crash case this tier exists for), but the looser Possible
         // check still catches it.
-        let mut data = Vec::new();
-        let mut i = 0u32;
-        for _ in 0..2000 {
-            let t = i as f64 * SAMPLE_INTERVAL_S;
-            let motor = 300.0 + (i as f64 % 100.0);
-            let erpm = motor * 1.2;
-            data.push(row(t, 1, 0, motor, erpm));
-            i += 1;
-        }
-        for _ in 0..19 {
-            // Long enough that some stride-aligned window start lands fully inside the burst
-            // (window=12 samples, stride=6 — a shorter burst can fall between stride steps
-            // and never get a fully-contained window at all), but still below
-            // MOTOR_DESYNC_MIN_BASELINE_SAMPLES (20): the burst must not become its own
-            // degenerate self-referential "baseline", or DeFacto's guard against too-little
-            // history never triggers Possible at all.
-            let t = i as f64 * SAMPLE_INTERVAL_S;
-            data.push(row(t, 1, 0, 2000.0, 40.0));
-            i += 1;
-        }
-        for _ in 0..500 {
-            let t = i as f64 * SAMPLE_INTERVAL_S;
-            let motor = 300.0 + (i as f64 % 100.0);
-            let erpm = motor * 1.2;
-            data.push(row(t, 1, 0, motor, erpm));
-            i += 1;
-        }
+        let (data, _, _) = possible_test_log();
 
         let results = detect_motor_desync(&data, None);
         assert_eq!(results[0].events.len(), 1);
         assert_eq!(results[0].events[0].confidence, DesyncConfidence::Possible);
+    }
+
+    #[test]
+    fn possible_event_reported_within_narrow_window() {
+        // Same regression shape as de_facto_baseline_survives_narrow_report_window, for the
+        // Possible tier: report_window covers only the burst, widened by one Possible
+        // sustain-window (MOTOR_DESYNC_POSSIBLE_SUSTAIN_S) so the sliding-window scan's
+        // transition window still falls inside it. Confirms Possible shares filter_to_window
+        // correctly, not just DeFacto/Fallback.
+        let (data, burst_start_s, burst_end_s) = possible_test_log();
+        let report_start_s = burst_start_s - MOTOR_DESYNC_POSSIBLE_SUSTAIN_S;
+
+        let results = detect_motor_desync(&data, Some((report_start_s, burst_end_s)));
+        assert_eq!(results[0].events.len(), 1);
+        assert_eq!(results[0].events[0].confidence, DesyncConfidence::Possible);
+        assert!(results[0].events[0].time_s >= report_start_s);
+        assert!(results[0].events[0].time_s <= burst_end_s);
+    }
+
+    #[test]
+    fn possible_event_outside_report_window_is_not_reported() {
+        let (data, burst_start_s, _) = possible_test_log();
+        let before_burst_s = burst_start_s - MOTOR_DESYNC_POSSIBLE_SUSTAIN_S;
+
+        let results = detect_motor_desync(&data, Some((0.0, before_burst_s)));
+        assert!(results[0].events.is_empty());
     }
 
     #[test]
