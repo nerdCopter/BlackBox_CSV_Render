@@ -53,6 +53,8 @@ pub struct StepAxisReport {
 pub struct FlightReport {
     pub root_name: String,
     pub sample_rate: Option<f64>,
+    /// (start_s, end_s, row_count) when --start/--end trimmed the log, relative to log start.
+    pub trim_window: Option<(f64, f64, usize)>,
     pub header_metadata: Vec<(String, String)>,
     pub pd_ratios: [Option<f64>; AXIS_COUNT],
     pub step_reports: Vec<StepAxisReport>,
@@ -90,6 +92,13 @@ pub fn generate_markdown_report(
     match report.sample_rate {
         Some(sr) => writeln!(md, "- **Sample Rate:** {:.1} Hz", sr)?,
         None => writeln!(md, "- **Sample Rate:** Unknown")?,
+    }
+    if let Some((start, end, rows)) = report.trim_window {
+        writeln!(
+            md,
+            "- **Time Window:** {:.3}s – {:.3}s ({} rows)",
+            start, end, rows
+        )?;
     }
     let interesting_keys = [
         "Firmware revision",

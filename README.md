@@ -56,6 +56,18 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
   --dps <value>    Deg/s threshold for detailed step response plots (positive number).
   --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch
                         dynamics. Requires .headers.csv; skips if absent.
+                        Its Td target always profiles the full file, ignoring
+                        --start/--end; only its Td measurement is trimmed.
+
+=== TIME WINDOW ===
+
+  --start <seconds>  Trim analysis to this offset onward, relative to the
+                     log's first row. Omit to start at the log start.
+  --end <seconds>    Trim analysis up to this offset, relative to the log's
+                     first row. Omit to end at the log end.
+                     Independent — use either or both. Applies before every
+                     analysis and plot (step response may skip if the
+                     trimmed window is too short).
 
 === GENERAL ===
 
@@ -85,6 +97,52 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p
 ```
+```shell
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --start 40 --desync
+```
+
+### Time-Window Trim: How To Pick `--start`/`--end`
+
+`--start`/`--end` are seconds relative to the log's first row (`0s` = log start). Trimming drops
+every row outside the window before any plot or analysis runs, so it affects every Phase 2
+analysis and plot — everything except `--estimate-optimal-p`'s Phase 1 aircraft profiling, which
+always re-reads the full file regardless of `--start`/`--end` (see the caveat below).
+
+**General workflow:**
+1. Run the full log first (no `--start`/`--end`). A run prints `Note: Log spans absolute time
+   Xs-Ys (duration Ds)` whenever the log has a positive duration (both a first and last
+   timestamp, with the last one later) — that `X` is the offset between this log's own first row
+   and 0. A one-row log, or one where every row shares the same timestamp, has no duration and
+   omits this line — `--start`/`--end` aren't meaningful there either. Note the timestamp(s) of
+   the event you want to zoom into — for a desync, that's the
+   `Possible`/`De Facto`/`Fallback` "Times (s)" column in the Motor Desync Detection report table;
+   for anything else, read it off the full-log plot. **These are absolute flight-controller
+   timestamps, not relative to the log** — subtract the printed `X` from the event's timestamp to
+   get the value to pass to `--start`/`--end` (e.g. event at `50.35s`, log starts at `40.50s` →
+   `--start` around `9.5` or earlier for margin, not `--start 50`).
+2. Trim with real margin *before* that timestamp — don't cut the window right up against the
+   event. Re-run and compare the plot to the full-log version.
+3. If a report table's flag (desync, oscillation, etc.) depended on statistics computed from the
+   window — see the caveat below — confirm the flag still appears after trimming. If it
+   disappeared, move `--start` earlier (more margin) and re-check. The boundary between "flag
+   holds" and "flag disappears" is not a fixed number of seconds; it depends on how much
+   representative data is left in the window, and can flip on trim values close together — don't
+   trim to the exact minimum that still worked once.
+
+**Motor Desync Detection specifically:** the `Possible`/`De Facto`/`Fallback` tiers
+(`src/plot_functions/motor_desync.rs`) score each motor against statistics computed *only from the
+rows in the analyzed window* — its own high-command runs, their eRPM baseline, and (for `Possible`)
+a 90th-percentile eRPM reference. Tested against a real 9.86s log with a known tail-end desync: the
+report's `Possible` flag held reliably down to roughly the last 60% of the flight (`--start` at 40%
+of the way in) but flipped on and off inconsistently for `--start` values within about half a
+second of that point — evidence the cutoff is data-dependent, not a formula to reuse on other logs.
+Leave comfortable margin if the table flag matters. **The table and the plot pull in opposite
+directions on a short tail event**: trimming tight enough to make the plot clearly readable (e.g.
+the last ~1-2s of a ~10s flight) reliably loses the table flag entirely — confirmed, this is not
+occasional. If you need the visual, read the `Motor_vs_eRPM` plot directly and don't expect the
+table to corroborate it at that trim width. Tracked in IT #182, which also covers which other
+analyses are (and aren't) affected the same way; `--estimate-optimal-p` in particular splits
+across trim and no-trim — see the Phase 1/Phase 2 note above and `OVERVIEW.md`.
 
 ### Output
 
@@ -112,7 +170,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 
 #### Markdown Report (always generated)
 
-- `*_report.md` — Structured flight report written alongside PNGs on every run. Sections: Metadata (firmware, PIDs, sample rate, gyroUnfilt source), Filter Configuration (LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning, Step Response Analysis (Roll/Pitch with P:D assessment and setpoint authority), Gyro Analysis (filtering delay, confidence, spectrum peaks per axis), D-Term Analysis (filtering delay with N/A reason, spectrum peaks), Motor Oscillation (per-motor sliding-window spectrum check, catches a brief burst a whole-log average would dilute away), Motor Desync Detection (per-motor motor[N] vs eRPM[N] divergence, self-relative to that same motor's own behavior elsewhere in the flight; De Facto/Possible confidence tiers; requires bidirectional DShot telemetry), Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), links to all generated PNGs, and a Skipped Plots list naming any enabled plot type with no plottable data for any axis, unless a stale PNG from an earlier run causes it to be classified as generated instead. Optimal P Estimation and Bode Analysis sections appear when those features are active.
+- `*_report.md` — Structured flight report written alongside PNGs on every run. Sections: Metadata (firmware, PIDs, sample rate, trimmed time window when `--start`/`--end` was used, gyroUnfilt source), Filter Configuration (LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning, Step Response Analysis (Roll/Pitch with P:D assessment and setpoint authority), Gyro Analysis (filtering delay, confidence, spectrum peaks per axis), D-Term Analysis (filtering delay with N/A reason, spectrum peaks), Motor Oscillation (per-motor sliding-window spectrum check, catches a brief burst a whole-log average would dilute away), Motor Desync Detection (per-motor motor[N] vs eRPM[N] divergence, self-relative to that same motor's own behavior elsewhere in the flight; De Facto/Possible confidence tiers; requires bidirectional DShot telemetry), Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), links to all generated PNGs, and a Skipped Plots list naming any enabled plot type with no plottable data for any axis, unless a stale PNG from an earlier run causes it to be classified as generated instead. Optimal P Estimation and Bode Analysis sections appear when those features are active.
 
 #### Console Output:
 - Current P:D ratio and peak analysis with response assessment
