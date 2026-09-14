@@ -12,7 +12,7 @@ mod plot_functions;
 mod report;
 mod types;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -561,11 +561,11 @@ fn group_files_by_aircraft(input_files: &[String]) -> BTreeMap<String, Vec<Strin
 fn profile_aircraft_group(
     files: &[String],
     debug_mode: bool,
-) -> (AircraftProfile, HashMap<String, LogParseResult>) {
+) -> (AircraftProfile, Vec<LogParseResult>) {
     let mut all_axis_ratios: [Vec<f64>; crate::axis_names::AXIS_COUNT] =
         std::array::from_fn(|_| Vec::new());
     let mut files_profiled: usize = 0;
-    let mut parsed_cache: HashMap<String, LogParseResult> = HashMap::with_capacity(files.len());
+    let mut parsed_cache: Vec<LogParseResult> = Vec::with_capacity(files.len());
 
     for file_str in files {
         let path = Path::new(file_str);
@@ -601,7 +601,7 @@ fn profile_aircraft_group(
                 }
             }
         }
-        parsed_cache.insert(file_str.clone(), parse_result);
+        parsed_cache.push(parse_result);
     }
 
     if debug_mode {
@@ -677,7 +677,12 @@ fn process_file(
         _debug_header_found,
         using_debug_fallback,
         header_metadata,
-    ) = match pre_parsed.unwrap_or_else(|| parse_log_file(input_path, analysis_opts.debug_mode)) {
+    ) = match pre_parsed
+        // A cached parse failure may be transient (file locked/still being flushed at
+        // profiling time); retry with a fresh parse rather than reusing a stale error.
+        .filter(|r| r.is_ok())
+        .unwrap_or_else(|| parse_log_file(input_path, analysis_opts.debug_mode))
+    {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Error: Parsing log file {input_file_str}: {e}");
@@ -2274,7 +2279,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     for (craft_key, group_files) in &grouped_files {
         // Phase 1: torque-inertia profiling across all files in the group.
         // Reuses each file's parse result in Phase 2 below instead of re-parsing.
-        let (aircraft_profile, mut parsed_cache) = if analysis_opts.estimate_optimal_p {
+        let (aircraft_profile, parsed_cache) = if analysis_opts.estimate_optimal_p {
             println!(
                 "\n--- Torque-Inertia Profiling: '{}' ({} file(s)) ---",
                 craft_key,
@@ -2284,16 +2289,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             print!("{}", profile.summary());
             (profile, cache)
         } else {
-            (AircraftProfile::default(), HashMap::new())
+            (AircraftProfile::default(), Vec::new())
         };
 
-        // Phase 2: process each file in the group.
+        // Phase 2: process each file in the group. parsed_cache (when non-empty) is
+        // ordered identically to group_files, so a plain iterator pairs them up.
+        let mut parsed_cache_iter = parsed_cache.into_iter();
         for input_file_str in group_files {
             let actual_output_dir = match &output_dir {
                 None => Path::new(input_file_str).parent(),
                 Some(dir) => Some(Path::new(dir)),
             };
-            let pre_parsed = parsed_cache.remove(input_file_str);
+            let pre_parsed = parsed_cache_iter.next();
 
             if let Err(e) = process_file(
                 input_file_str,
