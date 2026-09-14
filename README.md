@@ -111,15 +111,14 @@ always re-reads the full file regardless of `--start`/`--end` (see the caveat be
 **General workflow:**
 1. Run the full log first (no `--start`/`--end`). A run prints `Note: Log spans absolute time
    Xs-Ys (duration Ds)` whenever the log has a positive duration (both a first and last
-   timestamp, with the last one later) — that `X` is the offset between this log's own first row
-   and 0. A one-row log, or one where every row shares the same timestamp, has no duration and
-   omits this line — `--start`/`--end` aren't meaningful there either. Note the timestamp(s) of
-   the event you want to zoom into — for a desync, that's the
-   `Possible`/`De Facto`/`Fallback` "Times (s)" column in the Motor Desync Detection report table;
-   for anything else, read it off the full-log plot. **These are absolute flight-controller
-   timestamps, not relative to the log** — subtract the printed `X` from the event's timestamp to
-   get the value to pass to `--start`/`--end` (e.g. event at `50.35s`, log starts at `40.50s` →
-   `--start` around `9.5` or earlier for margin, not `--start 50`).
+   timestamp, with the last one later) — that line is informational only, for cross-referencing
+   against OSD/video overlays that also show raw flight-controller uptime. A one-row log, or one
+   where every row shares the same timestamp, has no duration and omits this line —
+   `--start`/`--end` aren't meaningful there either. Every plot, and every report table timestamp
+   (e.g. the `Possible`/`De Facto`/`Fallback` "Times (s)" column in the Motor Desync Detection
+   report), reads on the same `0s`-at-log-start timeline as `--start`/`--end` — pass the event's
+   timestamp straight to `--start`/`--end` with margin, no subtraction needed (e.g. event at
+   `9.85s` → `--start` around `9.0` or earlier for margin).
 2. Trim with real margin *before* that timestamp — don't cut the window right up against the
    event. Re-run and compare the plot to the full-log version.
 3. If a report table's flag (desync, oscillation, etc.) depended on statistics computed from the
