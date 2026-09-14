@@ -29,7 +29,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
     * Additional options include `--help` and `--version` for user assistance.
     * The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     * Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
-    * **ESO flags:** `--eso` enables 2nd-order LESO bandwidth optimization; `--eso-b0 <value>` sets control effectiveness (default: 1.0).
+    * **ESO flags:** `--eso` enables 2nd-order LESO bandwidth optimization. By default `b0` (control effectiveness) is auto-estimated via OLS from the log; `--eso-b0 <value>` overrides it explicitly.
 
 2.  **File Processing (`src/main.rs:process_file`):**
     * For each input CSV:
@@ -179,7 +179,7 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 ### ESO Gain Optimization (Optional)
 
 * **Purpose:** Offline system identification of 2nd-order LESO (Linear Extended State Observer) bandwidth (omega_0) from recorded flight data. Finds observer gains that minimise tracking error against measured gyro rate.
-* **Activation:** Disabled by default; enable with `--eso`. Set control effectiveness with `--eso-b0 <value>`.
+* **Activation:** Disabled by default; enable with `--eso`. `b0` (control effectiveness) is auto-estimated via OLS unless overridden with `--eso-b0 <value>`.
 * **Algorithm (`src/eso.rs`):**
     * Extracts filtered gyro (omega) and PID sum (P+I+D+F) per axis as measured output and control input respectively.
     * Simulates a discrete Euler-forward 2nd-order LESO at each candidate omega_0:
@@ -213,10 +213,11 @@ With `--extended`, all plots below are generated. The default (`--core`) generat
 - **`*_Motor_vs_eRPM_stacked.png`** — Commanded output vs. eRPM per motor, normalized, with Motor Desync Detection event markers
 - **`*_PID_Activity_stacked.png`** — P, I, D term activity over time for each axis (Roll, Pitch, Yaw). Displays all three PID components on the same time-domain plot with unified Y-axis scaling for visual comparison. Each term shows min/avg/max statistics in the legend. Useful for visualizing PID contribution balance during flight and identifying control issues (persistent P-term offset, I-term wind direction, D-term phase lag).
 - **`*_RC_Command_Activity_stacked.png`** — Setpoint vs. RC Command overlay for each axis (Roll, Pitch, Yaw). Visualizes blocky/unfiltered stick input against the flight controller's response; see [RC Command Step Detection](#rc-command-step-detection).
+- **`*_ESO_output_stacked.png`** — Measured vs. observer-estimated gyro rate (omega_hat) and disturbance estimate (f_hat) per axis at the optimal omega_0; see [ESO Gain Optimization](#eso-gain-optimization-optional). Generated only with `--eso`.
 
 #### Generated Reports
 
-- **`*_report.md`** — Structured markdown flight report written alongside PNGs on every run. Content is assembled from typed result structs returned by each analysis pass — no CSV re-reading. Sections: Metadata (firmware revision, craft name, PIDs, sample rate, gyroUnfilt source warning), Filter Configuration (per-axis LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning P:D ratios, Step Response Analysis (Roll/Pitch: peak value, assessment, setpoint authority, P:D recommendations), Gyro Analysis (per-axis filtering delay with confidence, spectrum peaks), D-Term Analysis (per-axis filtering delay with N/A disambiguation, spectrum peaks), Motor Oscillation table (per-motor sliding-window spectrum check, catches a brief burst a whole-log average would dilute away), Motor Desync Detection (per-motor motor[N] vs eRPM[N] divergence table, self-relative to that same motor's own behavior elsewhere in the flight; De Facto/Possible confidence tiers require bidirectional DShot telemetry; a lower-confidence Fallback tier runs instead when it's absent), Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), and relative links to all generated PNGs. Optimal P Estimation and Bode Analysis sections are included when those features produce results.
+- **`*_report.md`** — Structured markdown flight report written alongside PNGs on every run. Content is assembled from typed result structs returned by each analysis pass — no CSV re-reading. Sections: Metadata (firmware revision, craft name, PIDs, sample rate, gyroUnfilt source warning), Filter Configuration (per-axis LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning P:D ratios, Step Response Analysis (Roll/Pitch: peak value, assessment, setpoint authority, P:D recommendations), Gyro Analysis (per-axis filtering delay with confidence, spectrum peaks), D-Term Analysis (per-axis filtering delay with N/A disambiguation, spectrum peaks), Motor Oscillation table (per-motor sliding-window spectrum check, catches a brief burst a whole-log average would dilute away), Motor Desync Detection (per-motor motor[N] vs eRPM[N] divergence table, self-relative to that same motor's own behavior elsewhere in the flight; De Facto/Possible confidence tiers require bidirectional DShot telemetry; a lower-confidence Fallback tier runs instead when it's absent), ESO Gain Optimization (per-axis omega_0/beta1/beta2/b0 table with b0 source and an at-ceiling note, when `--eso` is enabled), Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), and relative links to all generated PNGs. Optimal P Estimation and Bode Analysis sections are included when those features produce results.
   A Skipped Plots section lists any enabled plot type with no plottable data; omitted when nothing was skipped.
 
 

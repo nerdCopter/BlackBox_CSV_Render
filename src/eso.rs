@@ -48,6 +48,27 @@ impl Default for EsoConfig {
     }
 }
 
+/// Where a `EsoResult`'s `b0` value came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum B0Source {
+    /// Explicitly supplied via `--eso-b0`.
+    UserSupplied,
+    /// Estimated from data via OLS.
+    AutoEstimated,
+    /// OLS estimation failed or was rejected; fell back to `ESO_DEFAULT_B0`.
+    DefaultFallback,
+}
+
+impl B0Source {
+    pub fn label(self) -> &'static str {
+        match self {
+            B0Source::UserSupplied => "user-supplied",
+            B0Source::AutoEstimated => "auto-estimated",
+            B0Source::DefaultFallback => "default fallback",
+        }
+    }
+}
+
 /// Result of a single-axis ESO bandwidth optimization.
 #[derive(Debug, Clone)]
 pub struct EsoResult {
@@ -62,8 +83,8 @@ pub struct EsoResult {
     pub beta2: f64,
     /// Control effectiveness used.
     pub b0: f64,
-    /// True when b0 was estimated from data; false when provided by the user.
-    pub b0_auto: bool,
+    /// Where `b0` came from: user override, OLS estimate, or default fallback.
+    pub b0_source: B0Source,
     /// N-step-ahead prediction MSE at the optimal omega0.
     pub mse: f64,
     /// True when omega0_opt is at the search ceiling (result may not be the true optimum).
@@ -148,11 +169,13 @@ fn nstep_prediction_mse(omega_meas: &[f64], u: &[f64], ts: f64, omega0: f64, b0:
     let mut omega_hat = omega_meas[0];
     let mut f_hat = 0.0_f64;
     for k in 0..n {
-        omega_hat_states[k] = omega_hat;
-        f_hat_states[k] = f_hat;
         let e = omega_meas[k] - omega_hat;
         omega_hat += ts * (f_hat + b0 * u[k] + beta1 * e);
         f_hat += ts * (beta2 * e);
+        // Store the state *after* incorporating omega_meas[k], so the open-loop forecast
+        // below starts from the freshest correction rather than one sample stale.
+        omega_hat_states[k] = omega_hat;
+        f_hat_states[k] = f_hat;
     }
 
     // Warm-up: skip initial fraction to let the observer states converge.
@@ -168,7 +191,8 @@ fn nstep_prediction_mse(omega_meas: &[f64], u: &[f64], ts: f64, omega0: f64, b0:
     for k in warmup..end {
         let mut omega_pred = omega_hat_states[k];
         let f_pred = f_hat_states[k]; // frozen — no correction in open-loop propagation
-        for j in 0..ESO_N_AHEAD_STEPS {
+                                      // omega_hat_states[k] already incorporates sample k, so only k+1..k+N-1 remain.
+        for j in 1..ESO_N_AHEAD_STEPS {
             omega_pred += ts * (f_pred + b0 * u[k + j]);
         }
         sum_sq += (omega_pred - omega_meas[k + ESO_N_AHEAD_STEPS]).powi(2);
@@ -331,12 +355,12 @@ pub fn run_eso_optimization(
 
     // Stage 1: estimate b0 from data via OLS on rate derivatives (QuickFlash guidance).
     // If the user explicitly provided b0 via --eso-b0 (b0_user_override = true), respect it.
-    let (b0, b0_auto) = if config.b0_user_override {
-        (config.b0, false)
+    let (b0, b0_source) = if config.b0_user_override {
+        (config.b0, B0Source::UserSupplied)
     } else {
         match estimate_b0(&omega_meas, &pid_sum, ts) {
-            Some(estimated) => (estimated, true),
-            None => (config.b0, false),
+            Some(estimated) => (estimated, B0Source::AutoEstimated),
+            None => (config.b0, B0Source::DefaultFallback),
         }
     };
 
@@ -377,7 +401,7 @@ pub fn run_eso_optimization(
         beta1,
         beta2,
         b0,
-        b0_auto,
+        b0_source,
         mse,
         at_ceiling,
         sample_count: omega_meas.len(),

@@ -1816,7 +1816,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
 
     // --- ESO Gain Optimization ---
     // Runs before report so results and PNG link are included.
-    let mut eso_results: [Option<eso::EsoResult>; AXIS_COUNT] = [None, None, None];
+    let mut eso_results: [Option<eso::EsoResult>; AXIS_COUNT] = std::array::from_fn(|_| None);
     if plot_config.run_eso {
         println!("\n--- ESO Gain Optimization (2nd-order LESO) ---");
         if let Some(sr) = sample_rate {
@@ -1832,13 +1832,9 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
                 print!("  {axis_name}: running ... ");
                 match eso::run_eso_optimization(&all_log_data, sr, axis_idx, &config) {
                     Ok(result) => {
-                        let b0_label = if result.b0_auto {
-                            "(estimated)"
-                        } else {
-                            "(user)"
-                        };
+                        let b0_label = result.b0_source.label();
                         println!(
-                            "[OK] omega0={:.1} rad/s  b0={:.4} {b0_label}  beta1={:.2}  beta2={:.2}  MSE={:.6}",
+                            "[OK] omega0={:.1} rad/s  b0={:.4} ({b0_label})  beta1={:.2}  beta2={:.2}  MSE={:.6}",
                             result.omega0_opt, result.b0, result.beta1, result.beta2, result.mse
                         );
                         *eso_slot = Some(result);
@@ -1855,10 +1851,12 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         if any_eso {
             println!("\n--- Generating ESO Output Plot ---");
             match plot_functions::plot_eso::plot_eso_output(&eso_results, &root_name_string) {
-                Ok(()) => {
-                    println!("  [OK] ESO output plot written.");
-                    png_links.push(format!("{root_name_string}_ESO_output_stacked.png"));
-                }
+                Ok(()) => push_if_written(
+                    &mut png_links,
+                    &mut skipped_plots,
+                    "ESO Output",
+                    format!("{root_name_string}_ESO_output_stacked.png"),
+                ),
                 Err(e) => eprintln!("  [ERROR] ESO output plot failed: {e}"),
             }
         }

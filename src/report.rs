@@ -526,11 +526,7 @@ pub fn generate_markdown_report(
         for (i, slot) in report.eso_results.iter().enumerate() {
             let axis = AXIS_NAMES.get(i).copied().unwrap_or("?");
             if let Some(r) = slot {
-                let b0_src = if r.b0_auto {
-                    "auto-estimated"
-                } else {
-                    "user-supplied"
-                };
+                let b0_src = r.b0_source.label();
                 let note = if r.at_ceiling { "[at ceiling]" } else { "" };
                 writeln!(
                     md,

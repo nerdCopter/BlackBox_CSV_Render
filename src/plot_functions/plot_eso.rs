@@ -5,10 +5,11 @@
 use plotters::style::RGBColor;
 use std::error::Error;
 
-use crate::axis_names::AXIS_NAMES;
+use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
 use crate::constants::{
-    COLOR_ESO_FHAT, COLOR_ESO_HAT, COLOR_ESO_MEAS, ESO_FHAT_Y_FRACTION, LINE_WIDTH_PLOT,
-    UNIFIED_Y_AXIS_HEADROOM_SCALE, UNIFIED_Y_AXIS_MIN_SCALE, UNIFIED_Y_AXIS_PERCENTILE,
+    COLOR_ESO_FHAT, COLOR_ESO_HAT, COLOR_ESO_MEAS, ESO_FHAT_RENDER_THRESHOLD, ESO_FHAT_Y_FRACTION,
+    LINE_WIDTH_PLOT, UNIFIED_Y_AXIS_HEADROOM_SCALE, UNIFIED_Y_AXIS_MIN_SCALE,
+    UNIFIED_Y_AXIS_PERCENTILE,
 };
 use crate::eso::EsoResult;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
@@ -22,7 +23,7 @@ use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 ///
 /// Only axes with a valid EsoResult are rendered; others show the unavailable message.
 pub fn plot_eso_output(
-    eso_results: &[Option<EsoResult>; 3],
+    eso_results: &[Option<EsoResult>; AXIS_COUNT],
     root_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let output_file = format!("{root_name}_ESO_output_stacked.png");
@@ -34,7 +35,7 @@ pub fn plot_eso_output(
     let stroke = LINE_WIDTH_PLOT;
 
     // Pre-compute per-axis plot data so the closure can own it.
-    let mut axis_data: [Option<AxisEsoData>; 3] = [None, None, None];
+    let mut axis_data: [Option<AxisEsoData>; AXIS_COUNT] = std::array::from_fn(|_| None);
     for (i, result) in eso_results.iter().enumerate() {
         if let Some(eso) = result {
             axis_data[i] = Some(build_axis_data(eso));
@@ -99,7 +100,7 @@ pub fn plot_eso_output(
         ];
 
         // Scale f_hat to fit ±50% of the omega Y range for visual interpretability.
-        if data.fhat_max_abs > 1e-12 {
+        if data.fhat_max_abs > ESO_FHAT_RENDER_THRESHOLD {
             let scale = (half_range * ESO_FHAT_Y_FRACTION) / data.fhat_max_abs;
             let fhat_data: Vec<(f64, f64)> =
                 data.fhat.iter().map(|&(t, f)| (t, f * scale)).collect();
