@@ -102,13 +102,19 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ### Time-Window Trim: How To Pick `--start`/`--end`
 
 `--start`/`--end` are seconds relative to the log's first row (`0s` = log start). Trimming drops
-every row outside the window before any plot or analysis runs, so it affects everything, not just
-the plot you're looking at.
+every row outside the window before any plot or analysis runs, so it affects every Phase 2
+analysis and plot — everything except `--estimate-optimal-p`'s Phase 1 aircraft profiling, which
+always re-reads the full file regardless of `--start`/`--end` (see the caveat below).
 
 **General workflow:**
-1. Run the full log first (no `--start`/`--end`). Note the timestamp(s) of the event you want to
-   zoom into — for a desync, that's the `Possible`/`De Facto`/`Fallback` "Times (s)" column in the
-   Motor Desync Detection report table; for anything else, read it off the full-log plot.
+1. Run the full log first (no `--start`/`--end`). Every run prints `Note: Log spans absolute time
+   Xs-Ys (duration Ds)` — that `X` is the offset between this log's own first row and 0. Note the
+   timestamp(s) of the event you want to zoom into — for a desync, that's the
+   `Possible`/`De Facto`/`Fallback` "Times (s)" column in the Motor Desync Detection report table;
+   for anything else, read it off the full-log plot. **These are absolute flight-controller
+   timestamps, not relative to the log** — subtract the printed `X` from the event's timestamp to
+   get the value to pass to `--start`/`--end` (e.g. event at `50.35s`, log starts at `40.50s` →
+   `--start` around `9.5` or earlier for margin, not `--start 50`).
 2. Trim with real margin *before* that timestamp — don't cut the window right up against the
    event. Re-run and compare the plot to the full-log version.
 3. If a report table's flag (desync, oscillation, etc.) depended on statistics computed from the

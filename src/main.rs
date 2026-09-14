@@ -432,6 +432,39 @@ fn print_usage_and_exit(program_name: &str) {
     std::process::exit(1);
 }
 
+/// Parses a `--start`/`--end` style flag: consumes its numeric value, rejects a negative or a
+/// repeated flag, and advances `i` past the value. Exits via `print_usage_and_exit` on error.
+fn parse_trim_flag(
+    flag: &str,
+    slot: &mut Option<f64>,
+    args: &[String],
+    i: &mut usize,
+    program_name: &str,
+) {
+    if slot.is_some() {
+        eprintln!("Error: {flag} argument specified more than once.");
+        print_usage_and_exit(program_name);
+    }
+    if *i + 1 >= args.len() {
+        eprintln!("Error: {flag} requires a numeric value (seconds).");
+        print_usage_and_exit(program_name);
+    }
+    match args[*i + 1].parse::<f64>() {
+        Ok(val) if val >= 0.0 => {
+            *slot = Some(val);
+            *i += 1;
+        }
+        Ok(val) => {
+            eprintln!("Error: {flag} must be >= 0: {val}");
+            print_usage_and_exit(program_name);
+        }
+        Err(_) => {
+            eprintln!("Error: Invalid numeric value for {flag}: {}", args[*i + 1]);
+            print_usage_and_exit(program_name);
+        }
+    }
+}
+
 /// Extract an aircraft grouping key from a file path.
 ///
 /// Strips the date-time portion (`_YYYYMMDD_HHMMSS`) so files from the same aircraft
@@ -634,12 +667,24 @@ fn process_file(
         return Ok(());
     }
 
+    // time_sec is absolute (flight-controller uptime), not zero-based — printed unconditionally
+    // so a --start/--end value can be derived from an absolute timestamp seen elsewhere (e.g. a
+    // Motor Desync Detection report row) by subtracting this log's first row.
+    let log_first = all_log_data.first().and_then(|row| row.time_sec);
+    let log_last = all_log_data.last().and_then(|row| row.time_sec);
+    if let (Some(f), Some(l)) = (log_first, log_last) {
+        if l > f {
+            println!(
+                "Note: Log spans absolute time {f:.3}s-{l:.3}s (duration {:.3}s) of {input_file_str}",
+                l - f
+            );
+        }
+    }
+
     // --- Apply --start/--end time-window trim ---
     // Runs before every analysis/plot module below, so all of them see only the trimmed rows.
     let mut trim_window: Option<(f64, f64, usize)> = None;
     if analysis_opts.trim_start.is_some() || analysis_opts.trim_end.is_some() {
-        let log_first = all_log_data.first().and_then(|row| row.time_sec);
-        let log_last = all_log_data.last().and_then(|row| row.time_sec);
         let (log_first, log_last) = match (log_first, log_last) {
             (Some(f), Some(l)) if l > f => (f, l),
             _ => {
@@ -649,8 +694,6 @@ fn process_file(
                 return Ok(());
             }
         };
-        // time_sec is absolute (flight-controller uptime), not zero-based, so --start/--end
-        // (relative to the log's first row) are offset by log_first before filtering.
         let duration = log_last - log_first;
         let rel_start = analysis_opts.trim_start.unwrap_or(0.0);
         let rel_end = analysis_opts.trim_end.unwrap_or(duration);
@@ -696,7 +739,10 @@ fn process_file(
             );
         }
         trim_window = Some((rel_start, rel_end, all_log_data.len()));
-        root_name_string = format!("{root_name_string}_trim{rel_start:.2}s-{rel_end:.2}s");
+        // 3 decimals (ms resolution) matches the console/error precision above and makes a
+        // same-run filename collision between two distinct --start/--end values very unlikely,
+        // though not mathematically impossible for values differing only past the 3rd decimal.
+        root_name_string = format!("{root_name_string}_trim{rel_start:.3}s-{rel_end:.3}s");
     }
 
     // Parse PID metadata from headers
@@ -2009,51 +2055,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
         } else if arg == "--start" {
-            if trim_start.is_some() {
-                eprintln!("Error: --start argument specified more than once.");
-                print_usage_and_exit(program_name);
-            }
-            if i + 1 >= args.len() {
-                eprintln!("Error: --start requires a numeric value (seconds).");
-                print_usage_and_exit(program_name);
-            }
-            match args[i + 1].parse::<f64>() {
-                Ok(val) if val >= 0.0 => {
-                    trim_start = Some(val);
-                    i += 1;
-                }
-                Ok(val) => {
-                    eprintln!("Error: --start must be >= 0: {val}");
-                    print_usage_and_exit(program_name);
-                }
-                Err(_) => {
-                    eprintln!("Error: Invalid numeric value for --start: {}", args[i + 1]);
-                    print_usage_and_exit(program_name);
-                }
-            }
+            parse_trim_flag("--start", &mut trim_start, &args, &mut i, program_name);
         } else if arg == "--end" {
-            if trim_end.is_some() {
-                eprintln!("Error: --end argument specified more than once.");
-                print_usage_and_exit(program_name);
-            }
-            if i + 1 >= args.len() {
-                eprintln!("Error: --end requires a numeric value (seconds).");
-                print_usage_and_exit(program_name);
-            }
-            match args[i + 1].parse::<f64>() {
-                Ok(val) if val >= 0.0 => {
-                    trim_end = Some(val);
-                    i += 1;
-                }
-                Ok(val) => {
-                    eprintln!("Error: --end must be >= 0: {val}");
-                    print_usage_and_exit(program_name);
-                }
-                Err(_) => {
-                    eprintln!("Error: Invalid numeric value for --end: {}", args[i + 1]);
-                    print_usage_and_exit(program_name);
-                }
-            }
+            parse_trim_flag("--end", &mut trim_end, &args, &mut i, program_name);
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
