@@ -133,6 +133,10 @@ struct AnalysisOptions {
     pub debug_mode: bool,
     pub show_butterworth: bool,
     pub estimate_optimal_p: bool,
+    /// Trim start, in seconds relative to the log's first row. `None` = log start.
+    pub trim_start: Option<f64>,
+    /// Trim end, in seconds relative to the log's first row. `None` = log end.
+    pub trim_end: Option<f64>,
 }
 
 use crate::constants::{
@@ -410,6 +414,16 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch");
     eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
     eprintln!();
+    eprintln!("--- TIME WINDOW ---");
+    eprintln!();
+    eprintln!("  --start <seconds>  Trim analysis to this offset onward, relative to the");
+    eprintln!("                     log's first row. Omit to start at the log start.");
+    eprintln!("  --end <seconds>    Trim analysis up to this offset, relative to the log's");
+    eprintln!("                     first row. Omit to end at the log end.");
+    eprintln!("                     Independent — use either or both. Applies before every");
+    eprintln!("                     analysis and plot (step response may skip if the");
+    eprintln!("                     trimmed window is too short).");
+    eprintln!();
     eprintln!("--- GENERAL ---");
     eprintln!();
     eprintln!("  --debug          Show detailed metadata during processing.");
@@ -570,7 +584,7 @@ fn process_file(
         .file_stem()
         .unwrap_or_else(|| std::ffi::OsStr::new("unknown_filestem"))
         .to_string_lossy();
-    let root_name_string: String = if use_dir_prefix {
+    let mut root_name_string: String = if use_dir_prefix {
         let mut dir_prefix_to_add = String::new();
         if let Some(parent_dir) = input_path.parent() {
             if let Some(dir_os_str) = parent_dir.file_name() {
@@ -598,7 +612,7 @@ fn process_file(
 
     // --- Data Reading and Header Status ---
     let (
-        all_log_data,
+        mut all_log_data,
         sample_rate,
         f_term_header_found,
         setpoint_header_found,
@@ -618,6 +632,71 @@ fn process_file(
     if all_log_data.is_empty() {
         println!("No valid data rows read from {input_file_str}, cannot generate plots.");
         return Ok(());
+    }
+
+    // --- Apply --start/--end time-window trim ---
+    // Runs before every analysis/plot module below, so all of them see only the trimmed rows.
+    let mut trim_window: Option<(f64, f64, usize)> = None;
+    if analysis_opts.trim_start.is_some() || analysis_opts.trim_end.is_some() {
+        let log_first = all_log_data.first().and_then(|row| row.time_sec);
+        let log_last = all_log_data.last().and_then(|row| row.time_sec);
+        let (log_first, log_last) = match (log_first, log_last) {
+            (Some(f), Some(l)) if l > f => (f, l),
+            _ => {
+                eprintln!(
+                    "Error: Cannot apply --start/--end trim to {input_file_str}: time data unavailable."
+                );
+                return Ok(());
+            }
+        };
+        // time_sec is absolute (flight-controller uptime), not zero-based, so --start/--end
+        // (relative to the log's first row) are offset by log_first before filtering.
+        let duration = log_last - log_first;
+        let rel_start = analysis_opts.trim_start.unwrap_or(0.0);
+        let rel_end = analysis_opts.trim_end.unwrap_or(duration);
+        if rel_start >= duration {
+            eprintln!(
+                "Error: --start {rel_start:.3}s is at or beyond log duration ({duration:.3}s) for {input_file_str}"
+            );
+            return Ok(());
+        }
+        if rel_end > duration {
+            eprintln!(
+                "Error: --end {rel_end:.3}s exceeds log duration ({duration:.3}s) for {input_file_str}"
+            );
+            return Ok(());
+        }
+        if rel_start >= rel_end {
+            eprintln!(
+                "Error: --start ({rel_start:.3}s) must be less than --end ({rel_end:.3}s) for {input_file_str}"
+            );
+            return Ok(());
+        }
+        let window_start = log_first + rel_start;
+        let window_end = log_first + rel_end;
+        all_log_data.retain(|row| {
+            row.time_sec
+                .is_some_and(|t| t >= window_start && t <= window_end)
+        });
+        if all_log_data.is_empty() {
+            eprintln!(
+                "Error: --start/--end window leaves no data rows for {input_file_str} (log spans 0.000s-{duration:.3}s)"
+            );
+            return Ok(());
+        }
+        println!(
+            "Note: Trimmed to {rel_start:.3}s-{rel_end:.3}s ({} rows, log duration {duration:.3}s) of {input_file_str}",
+            all_log_data.len()
+        );
+        if rel_end - rel_start < EXCLUDE_START_S + EXCLUDE_END_S {
+            println!(
+                "Note: Trimmed window ({:.3}s) is shorter than the {:.1}s step-response margin — step response will likely be skipped.",
+                rel_end - rel_start,
+                EXCLUDE_START_S + EXCLUDE_END_S
+            );
+        }
+        trim_window = Some((rel_start, rel_end, all_log_data.len()));
+        root_name_string = format!("{root_name_string}_trim{rel_start:.2}s-{rel_end:.2}s");
     }
 
     // Parse PID metadata from headers
@@ -1807,6 +1886,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
     let flight_report = report::FlightReport {
         root_name: root_name_string.clone(),
         sample_rate,
+        trim_window,
         header_metadata,
         pd_ratios: pd_ratios_for_report,
         step_reports,
@@ -1862,6 +1942,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut desync_requested = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
+    let mut trim_start: Option<f64> = None;
+    let mut trim_end: Option<f64> = None;
 
     let mut version_flag_set = false;
 
@@ -1926,6 +2008,52 @@ fn main() -> Result<(), Box<dyn Error>> {
             desync_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
+        } else if arg == "--start" {
+            if trim_start.is_some() {
+                eprintln!("Error: --start argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --start requires a numeric value (seconds).");
+                print_usage_and_exit(program_name);
+            }
+            match args[i + 1].parse::<f64>() {
+                Ok(val) if val >= 0.0 => {
+                    trim_start = Some(val);
+                    i += 1;
+                }
+                Ok(val) => {
+                    eprintln!("Error: --start must be >= 0: {val}");
+                    print_usage_and_exit(program_name);
+                }
+                Err(_) => {
+                    eprintln!("Error: Invalid numeric value for --start: {}", args[i + 1]);
+                    print_usage_and_exit(program_name);
+                }
+            }
+        } else if arg == "--end" {
+            if trim_end.is_some() {
+                eprintln!("Error: --end argument specified more than once.");
+                print_usage_and_exit(program_name);
+            }
+            if i + 1 >= args.len() {
+                eprintln!("Error: --end requires a numeric value (seconds).");
+                print_usage_and_exit(program_name);
+            }
+            match args[i + 1].parse::<f64>() {
+                Ok(val) if val >= 0.0 => {
+                    trim_end = Some(val);
+                    i += 1;
+                }
+                Ok(val) => {
+                    eprintln!("Error: --end must be >= 0: {val}");
+                    print_usage_and_exit(program_name);
+                }
+                Err(_) => {
+                    eprintln!("Error: Invalid numeric value for --end: {}", args[i + 1]);
+                    print_usage_and_exit(program_name);
+                }
+            }
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -1938,6 +2066,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     if core_requested && extended_requested {
         eprintln!("Error: --core and --extended are mutually exclusive.");
         print_usage_and_exit(program_name);
+    }
+
+    if let (Some(start), Some(end)) = (trim_start, trim_end) {
+        if start >= end {
+            eprintln!("Error: --start ({start:.3}s) must be less than --end ({end:.3}s).");
+            print_usage_and_exit(program_name);
+        }
     }
 
     // Derive plot configuration from flags
@@ -2031,6 +2166,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         debug_mode,
         show_butterworth,
         estimate_optimal_p,
+        trim_start,
+        trim_end,
     };
 
     // Group input files by aircraft key for two-phase processing.
