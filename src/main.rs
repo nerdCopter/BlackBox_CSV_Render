@@ -200,6 +200,7 @@ impl Drop for CwdGuard {
 }
 
 // Data input import
+use crate::data_input::log_data::LogRowData;
 use crate::data_input::log_parser::parse_log_file;
 use crate::data_input::pid_metadata::parse_pid_metadata;
 
@@ -695,8 +696,15 @@ fn process_file(
     }
 
     // --- Apply --start/--end time-window trim ---
-    // Runs before every analysis/plot module below, so all of them see only the trimmed rows.
+    // Runs before every analysis/plot module below, so all of them see only the trimmed rows —
+    // except Motor Desync Detection, which needs the full untrimmed log for its baseline
+    // statistics (see `desync_full_log_data`/`desync_report_window` below and IT #182).
     let mut trim_window: Option<(f64, f64, usize)> = None;
+    // Motor Desync Detection baselines must not shrink with the trim window (IT #182) — captured
+    // only when a trim actually runs; `None` for both means "use all_log_data itself, unfiltered",
+    // identical to today's untrimmed behavior.
+    let mut desync_full_log_data: Option<Vec<LogRowData>> = None;
+    let mut desync_report_window: Option<(f64, f64)> = None;
     if analysis_opts.trim_start.is_some() || analysis_opts.trim_end.is_some() {
         let (log_first, log_last) = match (log_first, log_last) {
             (Some(f), Some(l)) if l > f => (f, l),
@@ -730,6 +738,8 @@ fn process_file(
         }
         let window_start = log_first + rel_start;
         let window_end = log_first + rel_end;
+        desync_full_log_data = Some(all_log_data.clone());
+        desync_report_window = Some((window_start, window_end));
         all_log_data.retain(|row| {
             row.time_sec
                 .is_some_and(|t| t >= window_start && t <= window_end)
@@ -1723,7 +1733,10 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
     };
 
     let motor_desync_results = if plot_config.motor_spectrums || plot_config.motor_erpm {
-        detect_motor_desync(&all_log_data)
+        // Baseline always comes from the full untrimmed log; report_window (when a trim is
+        // active) only restricts which flagged events get reported (IT #182).
+        let desync_source = desync_full_log_data.as_deref().unwrap_or(&all_log_data);
+        detect_motor_desync(desync_source, desync_report_window)
     } else {
         vec![]
     };

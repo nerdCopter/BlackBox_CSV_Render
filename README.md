@@ -105,8 +105,10 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 
 `--start`/`--end` are seconds relative to the log's first row (`0s` = log start). Trimming drops
 every row outside the window before any plot or analysis runs, so it affects every Phase 2
-analysis and plot — everything except `--estimate-optimal-p`'s Phase 1 aircraft profiling, which
-always re-reads the full file regardless of `--start`/`--end` (see the caveat below).
+analysis and plot — except `--estimate-optimal-p`'s Phase 1 aircraft profiling, which always
+re-reads the full file regardless of `--start`/`--end`, and Motor Desync Detection's baseline
+statistics, which are always computed from the full log even when a window is applied (see both
+caveats below).
 
 **General workflow:**
 1. Run the full log first (no `--start`/`--end`). A run prints `Note: Log spans absolute time
@@ -121,27 +123,20 @@ always re-reads the full file regardless of `--start`/`--end` (see the caveat be
    `9.85s` → `--start` around `9.0` or earlier for margin).
 2. Trim with real margin *before* that timestamp — don't cut the window right up against the
    event. Re-run and compare the plot to the full-log version.
-3. If a report table's flag (desync, oscillation, etc.) depended on statistics computed from the
-   window — see the caveat below — confirm the flag still appears after trimming. If it
-   disappeared, move `--start` earlier (more margin) and re-check. The boundary between "flag
-   holds" and "flag disappears" is not a fixed number of seconds; it depends on how much
-   representative data is left in the window, and can flip on trim values close together — don't
-   trim to the exact minimum that still worked once.
+3. If a report table's flag depends on a statistic computed only from the trimmed window itself
+   (e.g. an axis's percentile-based classification), confirm the flag still appears after
+   trimming. If it disappeared, move `--start` earlier (more margin) and re-check — the boundary
+   between "flag holds" and "flag disappears" isn't a fixed number of seconds and can flip on trim
+   values close together. Motor Desync Detection is exempt from this: see below.
 
-**Motor Desync Detection specifically:** the `Possible`/`De Facto`/`Fallback` tiers
-(`src/plot_functions/motor_desync.rs`) score each motor against statistics computed *only from the
-rows in the analyzed window* — its own high-command runs, their eRPM baseline, and (for `Possible`)
-a 90th-percentile eRPM reference. Tested against a real 9.86s log with a known tail-end desync: the
-report's `Possible` flag held reliably down to roughly the last 60% of the flight (`--start` at 40%
-of the way in) but flipped on and off inconsistently for `--start` values within about half a
-second of that point — evidence the cutoff is data-dependent, not a formula to reuse on other logs.
-Leave comfortable margin if the table flag matters. **The table and the plot pull in opposite
-directions on a short tail event**: trimming tight enough to make the plot clearly readable (e.g.
-the last ~1-2s of a ~10s flight) reliably loses the table flag entirely — confirmed, this is not
-occasional. If you need the visual, read the `Motor_vs_eRPM` plot directly and don't expect the
-table to corroborate it at that trim width. Tracked in IT #182, which also covers which other
-analyses are (and aren't) affected the same way; `--estimate-optimal-p` in particular splits
-across trim and no-trim — see the Phase 1/Phase 2 note above and `OVERVIEW.md`.
+**Motor Desync Detection specifically:** fixed in IT #182. The `Possible`/`De Facto`/`Fallback`
+tiers (`src/plot_functions/motor_desync.rs`) always score each motor against statistics built from
+the **full, untrimmed log** — its own high-command runs elsewhere in the flight, their eRPM
+baseline, and (for `Possible`) a 90th-percentile eRPM reference — regardless of `--start`/`--end`.
+Only which flagged events get *reported* is restricted to the trimmed window. A tight trim can
+therefore make the `Motor_vs_eRPM` plot readable without losing the table flag, unlike before the
+fix. `--estimate-optimal-p` in particular still splits across trim and no-trim — see the Phase
+1/Phase 2 note above and `OVERVIEW.md`.
 
 ### Output
 
