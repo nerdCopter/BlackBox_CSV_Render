@@ -97,47 +97,103 @@ pub fn plot_gyro_spectrums(
     let axis_count = AXIS_NAMES.len().min(3); // gyro arrays are [Option<f64>; 3]
     for axis_idx in 0..axis_count {
         let axis_name = AXIS_NAMES[axis_idx];
+
+        // No unfiltered/debug-fallback data anywhere for this axis: render filtered gyro alone.
+        let filtered_only = super::axis_lacks_unfiltered_data(log_data, axis_idx);
+
         let mut unfilt_samples: Vec<f32> = Vec::new();
         let mut filt_samples: Vec<f32> = Vec::new();
 
-        for row in log_data {
-            if let (Some(unfilt_val), Some(filt_val)) =
-                (row.gyro_unfilt[axis_idx], row.gyro[axis_idx])
-            {
-                unfilt_samples.push(unfilt_val as f32);
-                filt_samples.push(filt_val as f32);
+        if filtered_only {
+            for row in log_data {
+                if let Some(filt_val) = row.gyro[axis_idx] {
+                    filt_samples.push(filt_val as f32);
+                }
+            }
+        } else {
+            // Matched-pair extraction keeps the two vectors index-aligned for the
+            // cross-correlation delay calculation below.
+            for row in log_data {
+                if let (Some(unfilt_val), Some(filt_val)) =
+                    (row.gyro_unfilt[axis_idx], row.gyro[axis_idx])
+                {
+                    unfilt_samples.push(unfilt_val as f32);
+                    filt_samples.push(filt_val as f32);
+                }
             }
         }
 
-        if unfilt_samples.is_empty() || filt_samples.is_empty() {
-            println!("  No unfiltered or filtered gyro data for {axis_name} axis. Skipping spectrum peak analysis.");
+        if filt_samples.is_empty() {
+            println!(
+                "  No filtered gyro data for {axis_name} axis. Skipping spectrum peak analysis."
+            );
             continue;
         }
 
-        let min_len = unfilt_samples.len().min(filt_samples.len());
+        let min_len = if filtered_only {
+            filt_samples.len()
+        } else {
+            unfilt_samples.len().min(filt_samples.len())
+        };
         if min_len == 0 {
             println!("  Not enough common gyro data for {axis_name} axis. Skipping spectrum peak analysis.");
             continue;
         }
 
-        let unfilt_samples_slice = &unfilt_samples[0..min_len];
         let filt_samples_slice = &filt_samples[0..min_len];
         let window_func = calc_step_response::tukeywin(min_len, TUKEY_ALPHA);
-
         let fft_padded_len = min_len.next_power_of_two();
-        let mut padded_unfilt = Array1::<f32>::zeros(fft_padded_len);
-        padded_unfilt
-            .slice_mut(s![0..min_len])
-            .assign(&(&Array1::from_vec(unfilt_samples_slice.to_vec()) * &window_func));
+
         let mut padded_filt = Array1::<f32>::zeros(fft_padded_len);
         padded_filt
             .slice_mut(s![0..min_len])
             .assign(&(&Array1::from_vec(filt_samples_slice.to_vec()) * &window_func));
-
-        let unfilt_spec = fft_utils::fft_forward(&padded_unfilt);
         let filt_spec = fft_utils::fft_forward(&padded_filt);
 
-        if unfilt_spec.is_empty() || filt_spec.is_empty() {
+        if filt_spec.is_empty() {
+            println!("  FFT computation failed or resulted in empty spectrum for {axis_name} axis. Skipping spectrum peak analysis.");
+            continue;
+        }
+
+        let freq_step = sr_value / fft_padded_len as f64;
+        let num_unique_freqs = if fft_padded_len % 2 == 0 {
+            fft_padded_len / 2 + 1
+        } else {
+            fft_padded_len.div_ceil(2)
+        };
+
+        if filtered_only {
+            let filt_series_data: Vec<(f64, f64)> = (0..num_unique_freqs)
+                .map(|i| (i as f64 * freq_step, filt_spec[i].norm() as f64))
+                .collect();
+
+            let noise_floor_sample_idx = (SPECTRUM_NOISE_FLOOR_HZ / freq_step).max(0.0) as usize;
+            let max_amp_after_noise_floor_filt = filt_series_data
+                .get(noise_floor_sample_idx..)
+                .map_or(0.0, |data_slice| {
+                    data_slice
+                        .iter()
+                        .map(|&(_, amp)| amp)
+                        .fold(0.0f64, |max_val, amp| max_val.max(amp))
+                });
+            let y_max_filt_for_range = SPECTRUM_Y_AXIS_FLOOR
+                .max(max_amp_after_noise_floor_filt * SPECTRUM_Y_AXIS_HEADROOM_FACTOR);
+
+            // No peak detection on filtered-only plots; no unfiltered series/peaks in this mode.
+            all_fft_raw_data[axis_idx] =
+                Some((Vec::new(), Vec::new(), filt_series_data, Vec::new()));
+            global_max_y_filt = global_max_y_filt.max(y_max_filt_for_range);
+            continue;
+        }
+
+        let unfilt_samples_slice = &unfilt_samples[0..min_len];
+        let mut padded_unfilt = Array1::<f32>::zeros(fft_padded_len);
+        padded_unfilt
+            .slice_mut(s![0..min_len])
+            .assign(&(&Array1::from_vec(unfilt_samples_slice.to_vec()) * &window_func));
+        let unfilt_spec = fft_utils::fft_forward(&padded_unfilt);
+
+        if unfilt_spec.is_empty() {
             println!("  FFT computation failed or resulted in empty spectrums for {axis_name} axis. Skipping spectrum peak analysis.");
             continue;
         }
@@ -245,93 +301,103 @@ pub fn plot_gyro_spectrums(
         if let Some((unfilt_series_data, unfilt_peaks, filt_series_data, filt_peaks)) =
             all_fft_raw_data[axis_index].as_ref().cloned()
         {
+            // No unfiltered spectrum data for this axis (filtered-only mode) —
+            // skip building the unfiltered column entirely so it falls through to the
+            // existing "Data Unavailable" rendering instead of showing filter-curve
+            // overlays with no underlying spectrum trace.
+            let filtered_only = unfilt_series_data.is_empty();
+
             let max_freq_val = sr_value / 2.0;
             let x_range = 0.0..max_freq_val * 1.05;
             let y_range_for_all_clone = 0.0..overall_max_y_amplitude;
 
-            // Build series in Betaflight signal path order:
-            // 1. Unfiltered Gyro (raw)
-            // 2. Dynamic Notch (first applied filter)
-            // 3. RPM Filter (if configured - not yet implemented)
-            // 4. Gyro LPF1 (static or dynamic)
-            // 5. Gyro LPF2 (static)
-            // 6. IMUF (if configured)
-            let mut unfilt_plot_series = vec![];
+            let unfiltered_plot_config = if filtered_only {
+                None
+            } else {
+                // Build series in Betaflight signal path order:
+                // 1. Unfiltered Gyro (raw)
+                // 2. Dynamic Notch (first applied filter)
+                // 3. RPM Filter (if configured - not yet implemented)
+                // 4. Gyro LPF1 (static or dynamic)
+                // 5. Gyro LPF2 (static)
+                // 6. IMUF (if configured)
+                let mut unfilt_plot_series = vec![];
 
-            // 1. Unfiltered Gyro (raw data)
-            unfilt_plot_series.push(PlotSeries {
-                data: unfilt_series_data,
-                label: {
-                    // Check if dynamic LPF is being used to enhance the legend
-                    let base_label = if let Some(ref config) = filter_config {
-                        let (has_dynamic, min_cutoff, max_cutoff) =
-                            filter_response::check_gyro_dynamic_lpf_usage(config);
-                        if has_dynamic {
-                            format!(
-                                "Unfiltered Gyro (Dynamic LPF {:.0}-{:.0}Hz)",
-                                min_cutoff, max_cutoff
-                            )
+                // 1. Unfiltered Gyro (raw data)
+                unfilt_plot_series.push(PlotSeries {
+                    data: unfilt_series_data,
+                    label: {
+                        // Check if dynamic LPF is being used to enhance the legend
+                        let base_label = if let Some(ref config) = filter_config {
+                            let (has_dynamic, min_cutoff, max_cutoff) =
+                                filter_response::check_gyro_dynamic_lpf_usage(config);
+                            if has_dynamic {
+                                format!(
+                                    "Unfiltered Gyro (Dynamic LPF {:.0}-{:.0}Hz)",
+                                    min_cutoff, max_cutoff
+                                )
+                            } else {
+                                "Unfiltered Gyro".to_string()
+                            }
                         } else {
                             "Unfiltered Gyro".to_string()
-                        }
+                        };
+                        super::format_debug_suffix(
+                            &base_label,
+                            using_debug_fallback,
+                            debug_mode_name_owned.as_deref(),
+                        )
+                    },
+                    color: *COLOR_GYRO_VS_UNFILT_UNFILT,
+                    stroke_width: LINE_WIDTH_PLOT,
+                });
+
+                // 2. Dynamic Notch (second in signal path - if configured)
+                // Check if dynamic notch applies to this axis (Emuflight can exclude Yaw)
+                let dynamic_notch_config = dynamic_notch_range.as_ref();
+                let show_dynamic_notch = if let Some(config) = dynamic_notch_config {
+                    // axis_index: 0=Roll, 1=Pitch, 2=Yaw
+                    if axis_index == 2 && !config.applies_to_yaw {
+                        false // Skip Yaw if dynamic notch is RP-only
                     } else {
-                        "Unfiltered Gyro".to_string()
-                    };
-                    super::format_debug_suffix(
-                        &base_label,
-                        using_debug_fallback,
-                        debug_mode_name_owned.as_deref(),
-                    )
-                },
-                color: *COLOR_GYRO_VS_UNFILT_UNFILT,
-                stroke_width: LINE_WIDTH_PLOT,
-            });
-
-            // 2. Dynamic Notch (second in signal path - if configured)
-            // Check if dynamic notch applies to this axis (Emuflight can exclude Yaw)
-            let dynamic_notch_config = dynamic_notch_range.as_ref();
-            let show_dynamic_notch = if let Some(config) = dynamic_notch_config {
-                // axis_index: 0=Roll, 1=Pitch, 2=Yaw
-                if axis_index == 2 && !config.applies_to_yaw {
-                    false // Skip Yaw if dynamic notch is RP-only
+                        true
+                    }
                 } else {
-                    true
-                }
-            } else {
-                false
-            };
+                    false
+                };
 
-            // Add Dynamic Notch legend entry in correct signal path position (before RPM filter)
-            if show_dynamic_notch {
-                if let Some(config) = dynamic_notch_config {
-                    unfilt_plot_series.push(PlotSeries {
-                        data: vec![], // No data - just for legend
-                        label: format!(
-                            "Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
-                            config.notch_count,
-                            if config.notch_count > 1 { "es" } else { "" },
-                            config.q_factor,
-                            config.min_hz,
-                            config.max_hz,
-                            if !config.applies_to_yaw {
-                                " (RP only)"
-                            } else {
-                                ""
-                            }
-                        ),
-                        color: RGBColor(147, 112, 219), // Medium purple - matches shading
-                        stroke_width: 1,
-                    });
+                // Add Dynamic Notch legend entry in correct signal path position (before RPM filter)
+                if show_dynamic_notch {
+                    if let Some(config) = dynamic_notch_config {
+                        unfilt_plot_series.push(PlotSeries {
+                            data: vec![], // No data - just for legend
+                            label: format!(
+                                "Dynamic Notch: {} notch{}, Q: {:.0}, range: {:.0}-{:.0}Hz{}",
+                                config.notch_count,
+                                if config.notch_count > 1 { "es" } else { "" },
+                                config.q_factor,
+                                config.min_hz,
+                                config.max_hz,
+                                if !config.applies_to_yaw {
+                                    " (RP only)"
+                                } else {
+                                    ""
+                                }
+                            ),
+                            color: RGBColor(147, 112, 219), // Medium purple - matches shading
+                            stroke_width: 1,
+                        });
+                    }
                 }
-            }
 
-            // 3. RPM Filter (if configured - Betaflight only)
-            // Signal path order: Dynamic Notch → RPM Filter → Gyro LPF1 → Gyro LPF2 → IMUF
-            if let Some(ref rpm_config) = rpm_filter_config {
-                // Estimate motor base frequency from the unfiltered gyro spectrum data
-                // We'll use a reasonable range for typical 5" quads (100-500 Hz)
-                let motor_base_hz =
-                    if let Some((unfilt_data, _, _, _)) = all_fft_raw_data[axis_index].as_ref() {
+                // 3. RPM Filter (if configured - Betaflight only)
+                // Signal path order: Dynamic Notch → RPM Filter → Gyro LPF1 → Gyro LPF2 → IMUF
+                if let Some(ref rpm_config) = rpm_filter_config {
+                    // Estimate motor base frequency from the unfiltered gyro spectrum data
+                    // We'll use a reasonable range for typical 5" quads (100-500 Hz)
+                    let motor_base_hz = if let Some((unfilt_data, _, _, _)) =
+                        all_fft_raw_data[axis_index].as_ref()
+                    {
                         filter_response::estimate_motor_base_frequency(
                             unfilt_data,
                             rpm_config.min_hz,
@@ -342,175 +408,212 @@ pub fn plot_gyro_spectrums(
                         180.0 // Fallback if no spectrum data
                     };
 
-                // Generate RPM filter notch curves
-                let rpm_curves = filter_response::generate_rpm_filter_curves(
-                    rpm_config,
-                    motor_base_hz,
-                    max_freq_val,
-                    1000, // Number of points for smooth curves
-                );
+                    // Generate RPM filter notch curves
+                    let rpm_curves = filter_response::generate_rpm_filter_curves(
+                        rpm_config,
+                        motor_base_hz,
+                        max_freq_val,
+                        1000, // Number of points for smooth curves
+                    );
 
-                // Use subtle blue color to distinguish from other filters
-                let rpm_filter_color = RGBColor(70, 130, 180); // Steel blue
+                    // Use subtle blue color to distinguish from other filters
+                    let rpm_filter_color = RGBColor(70, 130, 180); // Steel blue
 
-                // Draw individual RPM curves
-                let mut has_curves = false;
+                    // Draw individual RPM curves
+                    let mut has_curves = false;
 
-                for item in rpm_curves.iter() {
-                    let (_harmonic_num, _label, rpm_curve_data, _center_hz) = item;
-                    if !rpm_curve_data.is_empty() {
-                        has_curves = true;
+                    for item in rpm_curves.iter() {
+                        let (_harmonic_num, _label, rpm_curve_data, _center_hz) = item;
+                        if !rpm_curve_data.is_empty() {
+                            has_curves = true;
 
-                        // Scale RPM filter response to overlay on spectrum
-                        let filter_curve_amplitude = overall_max_y_amplitude * 0.3;
-                        let filter_curve_offset = overall_max_y_amplitude * 0.05;
+                            // Scale RPM filter response to overlay on spectrum
+                            let filter_curve_amplitude = overall_max_y_amplitude * 0.3;
+                            let filter_curve_offset = overall_max_y_amplitude * 0.05;
 
-                        let scaled_rpm_response: Vec<(f64, f64)> = rpm_curve_data
-                            .iter()
-                            .filter(|(freq, _)| *freq <= max_freq_val)
-                            .map(|(freq, response)| {
-                                let scaled_amplitude =
-                                    filter_curve_offset + (response * filter_curve_amplitude);
-                                (*freq, scaled_amplitude)
-                            })
-                            .collect();
+                            let scaled_rpm_response: Vec<(f64, f64)> = rpm_curve_data
+                                .iter()
+                                .filter(|(freq, _)| *freq <= max_freq_val)
+                                .map(|(freq, response)| {
+                                    let scaled_amplitude =
+                                        filter_curve_offset + (response * filter_curve_amplitude);
+                                    (*freq, scaled_amplitude)
+                                })
+                                .collect();
 
-                        // Add curve with empty label (won't appear in legend)
+                            // Add curve with empty label (won't appear in legend)
+                            unfilt_plot_series.push(PlotSeries {
+                                data: scaled_rpm_response,
+                                label: String::new(), // Empty label = no legend entry
+                                color: rpm_filter_color,
+                                stroke_width: 1,
+                            });
+                        }
+                    }
+
+                    // Add single legend-only series (no data, just for legend)
+                    if has_curves {
+                        // Format: "RPM Filter: W @ xxxHz, W @ xxxHz, ..."
+                        let mut legend_items = Vec::new();
+                        for item in rpm_curves.iter() {
+                            let (harmonic_num, _label, _curve_data, center_hz) = item;
+                            let weight = rpm_config
+                                .weights
+                                .get(*harmonic_num as usize - 1)
+                                .copied()
+                                .unwrap_or(1.0)
+                                * 100.0;
+                            legend_items.push(format!("{:.0}% @ {:.0}Hz", weight, center_hz));
+                        }
                         unfilt_plot_series.push(PlotSeries {
-                            data: scaled_rpm_response,
-                            label: String::new(), // Empty label = no legend entry
+                            data: vec![], // No data - just for legend
+                            label: format!("RPM Filter: {}", legend_items.join(", ")),
                             color: rpm_filter_color,
                             stroke_width: 1,
                         });
                     }
                 }
 
-                // Add single legend-only series (no data, just for legend)
-                if has_curves {
-                    // Format: "RPM Filter: W @ xxxHz, W @ xxxHz, ..."
-                    let mut legend_items = Vec::new();
-                    for item in rpm_curves.iter() {
-                        let (harmonic_num, _label, _curve_data, center_hz) = item;
-                        let weight = rpm_config
-                            .weights
-                            .get(*harmonic_num as usize - 1)
-                            .copied()
-                            .unwrap_or(1.0)
-                            * 100.0;
-                        legend_items.push(format!("{:.0}% @ {:.0}Hz", weight, center_hz));
-                    }
-                    unfilt_plot_series.push(PlotSeries {
-                        data: vec![], // No data - just for legend
-                        label: format!("RPM Filter: {}", legend_items.join(", ")),
-                        color: rpm_filter_color,
-                        stroke_width: 1,
-                    });
-                }
-            }
+                // 4-6. Gyro LPF1, LPF2, IMUF filters
+                // Add filter response curves to unfiltered plot if available
+                if let Some(ref config) = filter_config {
+                    // Use gyro rate for Nyquist, not logging rate - filters operate at gyro frequency
+                    let max_freq = gyro_rate_hz / 2.0; // Proper gyro Nyquist frequency
+                    let num_points = 1000; // More points for smooth curves
 
-            // 4-6. Gyro LPF1, LPF2, IMUF filters
-            // Add filter response curves to unfiltered plot if available
-            if let Some(ref config) = filter_config {
-                // Use gyro rate for Nyquist, not logging rate - filters operate at gyro frequency
-                let max_freq = gyro_rate_hz / 2.0; // Proper gyro Nyquist frequency
-                let num_points = 1000; // More points for smooth curves
-
-                // Generate individual filter response curves for this axis
-                let filter_curves = filter_response::generate_individual_filter_curves(
-                    &config.gyro[axis_index],
-                    max_freq,
-                    num_points,
-                    show_butterworth,
-                );
-
-                // Filter colors matching Betaflight signal path order:
-                // LPF1 (4th filter) - Crimson/Red
-                // LPF2 (5th filter) - Orange
-                // IMUF (6th filter) - Brown/Dark Red
-                let filter_colors = [
-                    RGBColor(220, 20, 60), // Crimson for LPF1 (first in filter chain after notches)
-                    RGBColor(255, 140, 0), // Dark orange for LPF2
-                    RGBColor(139, 69, 19), // Saddle brown for IMUF
-                ];
-
-                for (curve_idx, (label, curve_data, cutoff_hz_ref)) in
-                    filter_curves.iter().enumerate()
-                {
-                    if !curve_data.is_empty() {
-                        // Show filter response as a normalized curve overlaid on the spectrum
-                        // Use a fixed amplitude scale that makes the cutoff frequency visible
-                        let filter_curve_amplitude = overall_max_y_amplitude * 0.3; // 30% of max spectrum height
-                        let filter_curve_offset = overall_max_y_amplitude * 0.05; // Offset from bottom
-
-                        let scaled_response: Vec<(f64, f64)> = curve_data
-                            .iter()
-                            // Keep overlay within the plotted spectrum range
-                            .filter(|(freq, _)| *freq <= max_freq_val)
-                            .map(|(freq, response)| {
-                                // Scale response from [0,1] to [offset, offset + amplitude]
-                                let scaled_amplitude =
-                                    filter_curve_offset + (response * filter_curve_amplitude);
-                                (*freq, scaled_amplitude)
-                            })
-                            .collect();
-
-                        // Create filter response series - use gray for per-stage curves
-                        let curve_color = if label.contains("per-stage") {
-                            RGBColor(128, 128, 128) // Gray for per-stage PT1 cutoffs
-                        } else {
-                            filter_colors[curve_idx % filter_colors.len()] // Standard colors for combined response curves
-                        };
-
-                        unfilt_plot_series.push(PlotSeries {
-                            data: scaled_response,
-                            label: label.clone(),
-                            color: curve_color,
-                            stroke_width: 2,
-                        });
-
-                        // Add vertical cutoff indicator line (no legend entry)
-                        let cutoff_hz = *cutoff_hz_ref;
-                        if !cutoff_hz.is_finite() {
-                            continue;
-                        }
-
-                        // Use dotted line and different color for IMUF per-stage cutoffs
-                        let (cutoff_prefix, cutoff_color) = if label.contains("per-stage") {
-                            // Per-stage cutoffs: dotted line with muted gray color to show Butterworth correction
-                            (CUTOFF_LINE_DOTTED_PREFIX, RGBColor(128, 128, 128))
-                        // Gray for per-stage values
-                        } else {
-                            // Combined cutoffs: solid line with filter color to show effective response
-                            (
-                                CUTOFF_LINE_PREFIX,
-                                filter_colors[curve_idx % filter_colors.len()],
-                            )
-                        };
-
-                        unfilt_plot_series.push(PlotSeries {
-                            data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
-                            label: format!("{}{}", cutoff_prefix, cutoff_hz), // Special prefix to avoid legend
-                            color: cutoff_color,
-                            stroke_width: 1,
-                        });
-                    }
-                }
-
-                // Add IMUF parameters to legend (Q and W parameters)
-                if let Some(ref imuf) = config.gyro[axis_index].imuf {
-                    let imuf_label = format!(
-                        "IMUF Config: Q={:.1}, W={:.0}",
-                        imuf.q_factor,
-                        imuf.pseudo_kalman_w.unwrap_or(0.0)
+                    // Generate individual filter response curves for this axis
+                    let filter_curves = filter_response::generate_individual_filter_curves(
+                        &config.gyro[axis_index],
+                        max_freq,
+                        num_points,
+                        show_butterworth,
                     );
-                    unfilt_plot_series.push(PlotSeries {
-                        data: vec![], // No data - just for legend
-                        label: imuf_label,
-                        color: RGBColor(200, 200, 200), // Light gray - no visible line
-                        stroke_width: 0,
-                    });
+
+                    // Filter colors matching Betaflight signal path order:
+                    // LPF1 (4th filter) - Crimson/Red
+                    // LPF2 (5th filter) - Orange
+                    // IMUF (6th filter) - Brown/Dark Red
+                    let filter_colors = [
+                        RGBColor(220, 20, 60), // Crimson for LPF1 (first in filter chain after notches)
+                        RGBColor(255, 140, 0), // Dark orange for LPF2
+                        RGBColor(139, 69, 19), // Saddle brown for IMUF
+                    ];
+
+                    for (curve_idx, (label, curve_data, cutoff_hz_ref)) in
+                        filter_curves.iter().enumerate()
+                    {
+                        if !curve_data.is_empty() {
+                            // Show filter response as a normalized curve overlaid on the spectrum
+                            // Use a fixed amplitude scale that makes the cutoff frequency visible
+                            let filter_curve_amplitude = overall_max_y_amplitude * 0.3; // 30% of max spectrum height
+                            let filter_curve_offset = overall_max_y_amplitude * 0.05; // Offset from bottom
+
+                            let scaled_response: Vec<(f64, f64)> = curve_data
+                                .iter()
+                                // Keep overlay within the plotted spectrum range
+                                .filter(|(freq, _)| *freq <= max_freq_val)
+                                .map(|(freq, response)| {
+                                    // Scale response from [0,1] to [offset, offset + amplitude]
+                                    let scaled_amplitude =
+                                        filter_curve_offset + (response * filter_curve_amplitude);
+                                    (*freq, scaled_amplitude)
+                                })
+                                .collect();
+
+                            // Create filter response series - use gray for per-stage curves
+                            let curve_color = if label.contains("per-stage") {
+                                RGBColor(128, 128, 128) // Gray for per-stage PT1 cutoffs
+                            } else {
+                                filter_colors[curve_idx % filter_colors.len()] // Standard colors for combined response curves
+                            };
+
+                            unfilt_plot_series.push(PlotSeries {
+                                data: scaled_response,
+                                label: label.clone(),
+                                color: curve_color,
+                                stroke_width: 2,
+                            });
+
+                            // Add vertical cutoff indicator line (no legend entry)
+                            let cutoff_hz = *cutoff_hz_ref;
+                            if !cutoff_hz.is_finite() {
+                                continue;
+                            }
+
+                            // Use dotted line and different color for IMUF per-stage cutoffs
+                            let (cutoff_prefix, cutoff_color) = if label.contains("per-stage") {
+                                // Per-stage cutoffs: dotted line with muted gray color to show Butterworth correction
+                                (CUTOFF_LINE_DOTTED_PREFIX, RGBColor(128, 128, 128))
+                            // Gray for per-stage values
+                            } else {
+                                // Combined cutoffs: solid line with filter color to show effective response
+                                (
+                                    CUTOFF_LINE_PREFIX,
+                                    filter_colors[curve_idx % filter_colors.len()],
+                                )
+                            };
+
+                            unfilt_plot_series.push(PlotSeries {
+                                data: vec![(cutoff_hz, 0.0), (cutoff_hz, overall_max_y_amplitude)],
+                                label: format!("{}{}", cutoff_prefix, cutoff_hz), // Special prefix to avoid legend
+                                color: cutoff_color,
+                                stroke_width: 1,
+                            });
+                        }
+                    }
+
+                    // Add IMUF parameters to legend (Q and W parameters)
+                    if let Some(ref imuf) = config.gyro[axis_index].imuf {
+                        let imuf_label = format!(
+                            "IMUF Config: Q={:.1}, W={:.0}",
+                            imuf.q_factor,
+                            imuf.pseudo_kalman_w.unwrap_or(0.0)
+                        );
+                        unfilt_plot_series.push(PlotSeries {
+                            data: vec![], // No data - just for legend
+                            label: imuf_label,
+                            color: RGBColor(200, 200, 200), // Light gray - no visible line
+                            stroke_width: 0,
+                        });
+                    }
                 }
-            }
+
+                // Create dynamic notch frequency range visualization if configured
+                // Only show on axes where dynamic notch applies (respect RP-only setting)
+                // Note: Legend entry is added in series above, this only adds the shaded region
+                let frequency_ranges = if show_dynamic_notch {
+                    if let Some(config) = dynamic_notch_config {
+                        use crate::plot_framework::FrequencyRange;
+                        use plotters::style::RGBColor;
+
+                        Some(vec![FrequencyRange {
+                            min_hz: config.min_hz,
+                            max_hz: config.max_hz,
+                            color: RGBColor(147, 112, 219), // Medium purple
+                            opacity: 0.15,                  // Semi-transparent
+                            label: String::new(), // Empty label - legend already added above
+                        }])
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                Some(PlotConfig {
+                    title: format!("{} Unfiltered Gyro Spectrum", AXIS_NAMES[axis_index]),
+                    x_range: x_range.clone(),
+                    y_range: y_range_for_all_clone.clone(),
+                    series: unfilt_plot_series,
+                    x_label: "Frequency (Hz)".to_string(),
+                    y_label: "Amplitude".to_string(),
+                    peaks: unfilt_peaks,
+                    // MINIMAL CHANGE: Initialize new fields to Some for linear amplitude plots
+                    peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
+                    peak_label_format_string: Some("{:.0}".to_string()),
+                    frequency_ranges, // Dynamic notch only on unfiltered plot
+                })
+            };
 
             let filt_plot_series = vec![PlotSeries {
                 data: filt_series_data,
@@ -552,42 +655,6 @@ pub fn plot_gyro_spectrums(
                 color: *COLOR_GYRO_VS_UNFILT_FILT,
                 stroke_width: LINE_WIDTH_PLOT,
             }];
-
-            // Create dynamic notch frequency range visualization if configured
-            // Only show on axes where dynamic notch applies (respect RP-only setting)
-            // Note: Legend entry is added in series above, this only adds the shaded region
-            let frequency_ranges = if show_dynamic_notch {
-                if let Some(config) = dynamic_notch_config {
-                    use crate::plot_framework::FrequencyRange;
-                    use plotters::style::RGBColor;
-
-                    Some(vec![FrequencyRange {
-                        min_hz: config.min_hz,
-                        max_hz: config.max_hz,
-                        color: RGBColor(147, 112, 219), // Medium purple
-                        opacity: 0.15,                  // Semi-transparent
-                        label: String::new(),           // Empty label - legend already added above
-                    }])
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            let unfiltered_plot_config = Some(PlotConfig {
-                title: format!("{} Unfiltered Gyro Spectrum", AXIS_NAMES[axis_index]),
-                x_range: x_range.clone(),
-                y_range: y_range_for_all_clone.clone(),
-                series: unfilt_plot_series,
-                x_label: "Frequency (Hz)".to_string(),
-                y_label: "Amplitude".to_string(),
-                peaks: unfilt_peaks,
-                // MINIMAL CHANGE: Initialize new fields to Some for linear amplitude plots
-                peak_label_threshold: Some(PEAK_LABEL_MIN_AMPLITUDE),
-                peak_label_format_string: Some("{:.0}".to_string()),
-                frequency_ranges, // Dynamic notch only on unfiltered plot
-            });
 
             let filtered_plot_config = Some(PlotConfig {
                 title: format!("{} Filtered Gyro Spectrum", AXIS_NAMES[axis_index]),

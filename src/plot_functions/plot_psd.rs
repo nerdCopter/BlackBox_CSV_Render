@@ -70,64 +70,117 @@ pub fn plot_psd(
     let axis_count = AXIS_NAMES.len().min(all_psd_raw_data.len());
     for axis_idx in 0..axis_count {
         let axis_name = AXIS_NAMES[axis_idx];
+
+        // No unfiltered/debug-fallback data anywhere for this axis: render filtered gyro alone.
+        let filtered_only = super::axis_lacks_unfiltered_data(log_data, axis_idx);
+
         let mut unfilt_samples: Vec<f32> = Vec::new();
         let mut filt_samples: Vec<f32> = Vec::new();
 
-        for row in log_data {
-            if let (Some(unfilt_val), Some(filt_val)) =
-                (row.gyro_unfilt[axis_idx], row.gyro[axis_idx])
-            {
-                unfilt_samples.push(unfilt_val as f32);
-                filt_samples.push(filt_val as f32);
+        if filtered_only {
+            for row in log_data {
+                if let Some(filt_val) = row.gyro[axis_idx] {
+                    filt_samples.push(filt_val as f32);
+                }
+            }
+        } else {
+            // Matched-pair extraction keeps the two vectors index-aligned for the PSD scale
+            // and any downstream comparison that assumes same-row correspondence.
+            for row in log_data {
+                if let (Some(unfilt_val), Some(filt_val)) =
+                    (row.gyro_unfilt[axis_idx], row.gyro[axis_idx])
+                {
+                    unfilt_samples.push(unfilt_val as f32);
+                    filt_samples.push(filt_val as f32);
+                }
             }
         }
 
-        if unfilt_samples.is_empty() || filt_samples.is_empty() {
-            println!("  No unfiltered or filtered gyro data for {axis_name} axis. Skipping PSD analysis.");
+        if filt_samples.is_empty() {
+            println!("  No filtered gyro data for {axis_name} axis. Skipping PSD analysis.");
             continue;
         }
 
-        let min_len = unfilt_samples.len().min(filt_samples.len());
+        let min_len = if filtered_only {
+            filt_samples.len()
+        } else {
+            unfilt_samples.len().min(filt_samples.len())
+        };
         if min_len == 0 {
             println!("  Not enough common gyro data for {axis_name} axis. Skipping PSD analysis.");
             continue;
         }
 
-        let unfilt_samples_slice = &unfilt_samples[0..min_len];
         let filt_samples_slice = &filt_samples[0..min_len];
         let window_func = calc_step_response::tukeywin(min_len, TUKEY_ALPHA);
-
         let fft_padded_len = min_len.next_power_of_two();
-        let mut padded_unfilt = Array1::<f32>::zeros(fft_padded_len);
-        padded_unfilt
-            .slice_mut(s![0..min_len])
-            .assign(&(&Array1::from_vec(unfilt_samples_slice.to_vec()) * &window_func));
+
         let mut padded_filt = Array1::<f32>::zeros(fft_padded_len);
         padded_filt
             .slice_mut(s![0..min_len])
             .assign(&(&Array1::from_vec(filt_samples_slice.to_vec()) * &window_func));
-
-        let unfilt_spec = fft_utils::fft_forward(&padded_unfilt);
         let filt_spec = fft_utils::fft_forward(&padded_filt);
 
-        if unfilt_spec.is_empty() || filt_spec.is_empty() {
-            println!("  FFT computation failed or resulted in empty spectrums for {axis_name} axis. Skipping PSD analysis.");
+        if filt_spec.is_empty() {
+            println!("  FFT computation failed or resulted in empty spectrum for {axis_name} axis. Skipping PSD analysis.");
             continue;
         }
 
-        let mut unfilt_psd_data: Vec<(f64, f64)> = Vec::new();
-        let mut filt_psd_data: Vec<(f64, f64)> = Vec::new();
         let freq_step = sr_value / fft_padded_len as f64;
         let num_unique_freqs = if fft_padded_len % 2 == 0 {
             fft_padded_len / 2 + 1
         } else {
             fft_padded_len.div_ceil(2)
         };
+        let psd_scale = 1.0 / (min_len as f64 * sr_value);
+
+        if filtered_only {
+            let mut filt_psd_data: Vec<(f64, f64)> = Vec::new();
+            for i in 0..num_unique_freqs {
+                let freq_val = i as f64 * freq_step;
+                let mut amp_filt_linear_psd = filt_spec[i].norm_sqr() as f64 * psd_scale;
+                let is_nyquist = fft_padded_len % 2 == 0 && i == num_unique_freqs - 1;
+                if i > 0 && !is_nyquist {
+                    amp_filt_linear_psd *= 2.0;
+                }
+                filt_psd_data.push((freq_val, linear_to_db_for_plot(amp_filt_linear_psd)));
+            }
+
+            let noise_floor_sample_idx = (SPECTRUM_NOISE_FLOOR_HZ / freq_step).max(0.0) as usize;
+            let max_val_after_noise_floor_filt_db = filt_psd_data
+                .get(noise_floor_sample_idx..)
+                .map_or(f64::NEG_INFINITY, |data_slice| {
+                    data_slice
+                        .iter()
+                        .map(|&(_, val)| val)
+                        .fold(f64::NEG_INFINITY, |max_val, val| max_val.max(val))
+                });
+            let y_max_filt_for_range_db = PSD_Y_AXIS_FLOOR_DB
+                .max(max_val_after_noise_floor_filt_db + PSD_Y_AXIS_HEADROOM_FACTOR_DB);
+
+            // No peak detection on filtered-only plots; no unfiltered series/peaks in this mode.
+            all_psd_raw_data[axis_idx] = Some((Vec::new(), Vec::new(), filt_psd_data, Vec::new()));
+            global_max_y_filt_db = global_max_y_filt_db.max(y_max_filt_for_range_db);
+            continue;
+        }
+
+        let unfilt_samples_slice = &unfilt_samples[0..min_len];
+        let mut padded_unfilt = Array1::<f32>::zeros(fft_padded_len);
+        padded_unfilt
+            .slice_mut(s![0..min_len])
+            .assign(&(&Array1::from_vec(unfilt_samples_slice.to_vec()) * &window_func));
+        let unfilt_spec = fft_utils::fft_forward(&padded_unfilt);
+
+        if unfilt_spec.is_empty() {
+            println!("  FFT computation failed or resulted in empty spectrums for {axis_name} axis. Skipping PSD analysis.");
+            continue;
+        }
+
+        let mut unfilt_psd_data: Vec<(f64, f64)> = Vec::new();
+        let mut filt_psd_data: Vec<(f64, f64)> = Vec::new();
 
         let mut primary_peak_unfilt_db: Option<(f64, f64)> = None;
         let mut primary_peak_filt_db: Option<(f64, f64)> = None;
-
-        let psd_scale = 1.0 / (min_len as f64 * sr_value);
 
         for i in 0..num_unique_freqs {
             let freq_val = i as f64 * freq_step;
