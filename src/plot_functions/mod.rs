@@ -93,8 +93,14 @@ mod tests {
             gyro_unfilt: [Some(1.0), None, None],
             ..Default::default()
         }];
-        assert!(!axis_lacks_unfiltered_data(&rows, 0));
-        assert!(axis_lacks_unfiltered_data(&rows, 1));
-        assert!(axis_lacks_unfiltered_data(&rows, 2));
+        // Only the first axis in the fixture carries unfiltered data.
+        for (axis_idx, axis_name) in crate::axis_names::AXIS_NAMES.iter().enumerate() {
+            let expected = axis_idx != 0;
+            assert_eq!(
+                axis_lacks_unfiltered_data(&rows, axis_idx),
+                expected,
+                "{axis_name} axis mismatch"
+            );
+        }
     }
 }
