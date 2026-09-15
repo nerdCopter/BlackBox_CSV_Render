@@ -99,9 +99,7 @@ pub fn plot_gyro_spectrums(
         let axis_name = AXIS_NAMES[axis_idx];
 
         // No unfiltered/debug-fallback data anywhere for this axis: render filtered gyro alone.
-        let filtered_only = !log_data
-            .iter()
-            .any(|row| row.gyro_unfilt[axis_idx].is_some());
+        let filtered_only = super::axis_lacks_unfiltered_data(log_data, axis_idx);
 
         let mut unfilt_samples: Vec<f32> = Vec::new();
         let mut filt_samples: Vec<f32> = Vec::new();
