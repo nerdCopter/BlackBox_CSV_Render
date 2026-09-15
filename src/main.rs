@@ -2478,4 +2478,24 @@ mod aircraft_grouping_tests {
         assert_eq!(key_a, "craft:QuadA");
         assert_eq!(key_b, "craft:QuadB");
     }
+
+    /// Documents a known, accepted limitation (not a bug to fix): when neither file carries a
+    /// usable header `Craft name` AND both filenames collapse to the identical generic key,
+    /// there is no remaining signal to distinguish two different physical aircraft — they
+    /// still merge into one group. `craft:`-namespacing only prevents a header-sourced key
+    /// from coincidentally colliding with a filename-derived one; it cannot invent an identity
+    /// signal where none of the inputs provide one.
+    #[test]
+    fn two_generic_filenames_with_no_craft_name_still_merge() {
+        let path_a = write_synthetic_log("BTFL_BLACKBOX_LOG_20250101_120000.csv", &[]);
+        let path_b = write_synthetic_log("BTFL_BLACKBOX_LOG_20250101_120001.csv", &[]);
+
+        let key_a = aircraft_group_key(&path_a, false, true);
+        let key_b = aircraft_group_key(&path_b, false, true);
+        std::fs::remove_file(&path_a).ok();
+        std::fs::remove_file(&path_b).ok();
+
+        assert_eq!(key_a, key_b);
+        assert!(!key_a.starts_with("craft:"));
+    }
 }
