@@ -791,16 +791,13 @@ fn process_file(
         root_name_string = format!("{root_name_string}_trim{start_label}s-{end_label}s");
     }
 
-    // Zero the timeline to this window's own start (log start, or --start when trimmed) so
-    // every plot and console/report timestamp reads flight time, not raw FC uptime. Applied to
-    // all_log_data and, when present, to the untrimmed clone/window Motor Desync Detection uses
-    // for its full-log baseline (IT #182) — both must share the same zero point as the plots, or
-    // its reported event timestamps would disagree with everything else.
-    let time_origin = match trim_window {
-        Some((rel_start, ..)) => log_first.map(|f| f + rel_start),
-        None => log_first,
-    };
-    if let Some(origin) = time_origin {
+    // Zero the timeline to the log's own start (regardless of --start/--end trimming) so every
+    // plot and console/report timestamp reads flight-relative time, not raw FC uptime, while a
+    // trimmed window still shows its true offset into the flight instead of resetting to 0.
+    // Applied to all_log_data and, when present, to the untrimmed clone/window Motor Desync
+    // Detection uses for its full-log baseline — both must share the same zero point as the
+    // plots, or its reported event timestamps would disagree with everything else.
+    if let Some(origin) = log_first {
         for row in &mut all_log_data {
             if let Some(t) = row.time_sec.as_mut() {
                 *t -= origin;
