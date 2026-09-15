@@ -58,6 +58,9 @@ pub const HIGH_AUTHORITY_SETPOINT_THRESHOLD_DEG_S: f32 = 250.0;
 pub const EXCLUDE_START_S: f64 = 3.0; // Exclude seconds from the start of the log
 pub const EXCLUDE_END_S: f64 = 3.0; // Exclude seconds from the end of the log
 
+// --start/--end time-window trim
+pub const TRIM_START_DEFAULT_S: f64 = 0.0; // Lower bound for --start/--end and --start's default (log start)
+
 // Motor spectrum analysis constants
 pub const MOTOR_OSCILLATION_FREQ_MIN_HZ: f64 = 50.0; // Lower bound for motor oscillation detection (Hz)
 pub const MOTOR_OSCILLATION_FREQ_MAX_HZ: f64 = 200.0; // Upper bound for motor oscillation detection (Hz)

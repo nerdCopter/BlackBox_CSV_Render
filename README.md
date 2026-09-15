@@ -56,6 +56,18 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
   --dps <value>    Deg/s threshold for detailed step response plots (positive number).
   --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch
                         dynamics. Requires .headers.csv; skips if absent.
+                        Its Td target always profiles the full file, ignoring
+                        --start/--end; only its Td measurement is trimmed.
+
+=== TIME WINDOW ===
+
+  --start <seconds>  Trim analysis to this offset onward, relative to the
+                     log's first row. Omit to start at the log start.
+  --end <seconds>    Trim analysis up to this offset, relative to the log's
+                     first row. Omit to end at the log end.
+                     Independent — use either or both. Applies before every
+                     analysis and plot (step response may skip if the
+                     trimmed window is too short).
 
 === GENERAL ===
 
@@ -85,6 +97,46 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --step --estimate-optimal-p
 ```
+```shell
+./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv --start 40 --desync
+```
+
+### Time-Window Trim: How To Pick `--start`/`--end`
+
+`--start`/`--end` are seconds relative to the log's first row (`0s` = log start). Trimming drops
+every row outside the window before any plot or analysis runs, so it affects every Phase 2
+analysis and plot — except `--estimate-optimal-p`'s Phase 1 aircraft profiling, which always
+re-reads the full file regardless of `--start`/`--end`, and Motor Desync Detection's baseline
+statistics, which are always computed from the full log even when a window is applied (see both
+caveats below).
+
+**General workflow:**
+1. Run the full log first (no `--start`/`--end`). A run prints `Note: Log spans absolute time
+   Xs-Ys (duration Ds)` whenever the log has a positive duration (both a first and last
+   timestamp, with the last one later) — that line is informational only, for cross-referencing
+   against OSD/video overlays that also show raw flight-controller uptime. A one-row log, or one
+   where every row shares the same timestamp, has no duration and omits this line —
+   `--start`/`--end` aren't meaningful there either. Every plot, and every report table timestamp
+   (e.g. the `Possible`/`De Facto`/`Fallback` "Times (s)" column in the Motor Desync Detection
+   report), reads on the same `0s`-at-log-start timeline as `--start`/`--end` — pass the event's
+   timestamp straight to `--start`/`--end` with margin, no subtraction needed (e.g. event at
+   `9.85s` → `--start` around `9.0` or earlier for margin).
+2. Trim with real margin *before* that timestamp — don't cut the window right up against the
+   event. Re-run and compare the plot to the full-log version.
+3. If a report table's flag depends on a statistic computed only from the trimmed window itself
+   (e.g. an axis's percentile-based classification), confirm the flag still appears after
+   trimming. If it disappeared, move `--start` earlier (more margin) and re-check — the boundary
+   between "flag holds" and "flag disappears" isn't a fixed number of seconds and can flip on trim
+   values close together. Motor Desync Detection is exempt from this: see below.
+
+**Motor Desync Detection specifically:** fixed in IT #182. The `Possible`/`De Facto`/`Fallback`
+tiers (`src/plot_functions/motor_desync.rs`) always score each motor against statistics built from
+the **full, untrimmed log** — its own high-command runs elsewhere in the flight, their eRPM
+baseline, and (for `Possible`) a 90th-percentile eRPM reference — regardless of `--start`/`--end`.
+Only which flagged events get *reported* is restricted to the trimmed window. A tight trim can
+therefore make the `Motor_vs_eRPM` plot readable without losing the table flag, unlike before the
+fix. `--estimate-optimal-p` in particular still splits across trim and no-trim — see the Phase
+1/Phase 2 note above and `OVERVIEW.md`.
 
 ### Output
 
@@ -112,7 +164,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 
 #### Markdown Report (always generated)
 
-- `*_report.md` — Structured flight report written alongside PNGs on every run. Sections: Metadata (firmware, PIDs, sample rate, gyroUnfilt source), Filter Configuration (LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning, Step Response Analysis (Roll/Pitch with P:D assessment and setpoint authority), Gyro Analysis (filtering delay, confidence, spectrum peaks per axis), D-Term Analysis (filtering delay with N/A reason, spectrum peaks), Motor Oscillation (per-motor sliding-window spectrum check, catches a brief burst a whole-log average would dilute away), Motor Desync Detection (per-motor motor[N] vs eRPM[N] divergence, self-relative to that same motor's own behavior elsewhere in the flight; De Facto/Possible confidence tiers; requires bidirectional DShot telemetry), Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), links to all generated PNGs, and a Skipped Plots list naming any enabled plot type with no plottable data for any axis, unless a stale PNG from an earlier run causes it to be classified as generated instead. Optimal P Estimation and Bode Analysis sections appear when those features are active.
+- `*_report.md` — Structured flight report written alongside PNGs on every run. Sections: Metadata (firmware, PIDs, sample rate, trimmed time window when `--start`/`--end` was used, gyroUnfilt source), Filter Configuration (LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning, Step Response Analysis (Roll/Pitch with P:D assessment and setpoint authority), Gyro Analysis (filtering delay, confidence, spectrum peaks per axis), D-Term Analysis (filtering delay with N/A reason, spectrum peaks), Motor Oscillation (per-motor sliding-window spectrum check, catches a brief burst a whole-log average would dilute away), Motor Desync Detection (per-motor motor[N] vs eRPM[N] divergence, self-relative to that same motor's own behavior elsewhere in the flight; De Facto/Possible confidence tiers; requires bidirectional DShot telemetry), Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), links to all generated PNGs, and a Skipped Plots list naming any enabled plot type with no plottable data for any axis, unless a stale PNG from an earlier run causes it to be classified as generated instead. Optimal P Estimation and Bode Analysis sections appear when those features are active.
 
 #### Console Output:
 - Current P:D ratio and peak analysis with response assessment

@@ -23,7 +23,7 @@ use ndarray::Array1;
 
 use crate::axis_names::AXIS_COUNT;
 use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, AircraftProfile};
-use crate::types::StepResponseResults;
+use crate::types::{LogParseResult, StepResponseResults};
 
 // Build version string from git info with fallbacks for builds without vergen metadata
 fn get_version_string() -> String {
@@ -139,17 +139,29 @@ impl PlotConfig {
 }
 
 // Analysis options struct to group related analysis parameters
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct AnalysisOptions {
     pub setpoint_threshold: f64,
     pub show_legend: bool,
     pub debug_mode: bool,
     pub show_butterworth: bool,
     pub estimate_optimal_p: bool,
+    /// Trim start, in seconds relative to the log's first row. `None` = log start.
+    pub trim_start: Option<f64>,
+    /// Trim end, in seconds relative to the log's first row. `None` = log end.
+    pub trim_end: Option<f64>,
+    /// Raw `--start` argument text, as typed. Used verbatim in the output filename suffix so
+    /// two distinct user-supplied values can never collide there, unlike a rounded re-format
+    /// of the parsed f64 (`None` when `--start` was omitted; the filename then uses a fixed
+    /// formatted default, which is deterministic and so can't collide with itself either).
+    pub trim_start_str: Option<String>,
+    /// Raw `--end` argument text, as typed. Same rationale as `trim_start_str`.
+    pub trim_end_str: Option<String>,
 }
 
 use crate::constants::{
     DEFAULT_SETPOINT_THRESHOLD, EXCLUDE_END_S, EXCLUDE_START_S, FRAME_LENGTH_S,
+    TRIM_START_DEFAULT_S,
 };
 
 // Specific plot function imports
@@ -201,6 +213,7 @@ impl Drop for CwdGuard {
 }
 
 // Data input import
+use crate::data_input::log_data::LogRowData;
 use crate::data_input::log_parser::parse_log_file;
 use crate::data_input::pid_metadata::parse_pid_metadata;
 
@@ -425,6 +438,18 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("                   from the log; falls back to 1.0 if estimation fails).");
     eprintln!("  --estimate-optimal-p  [EXPERIMENTAL] Optimal P estimation from throttle-punch");
     eprintln!("                        dynamics. Requires .headers.csv; skips if absent.");
+    eprintln!("                        Its Td target always profiles the full file, ignoring");
+    eprintln!("                        --start/--end; only its Td measurement is trimmed.");
+    eprintln!();
+    eprintln!("--- TIME WINDOW ---");
+    eprintln!();
+    eprintln!("  --start <seconds>  Trim analysis to this offset onward, relative to the");
+    eprintln!("                     log's first row. Omit to start at the log start.");
+    eprintln!("  --end <seconds>    Trim analysis up to this offset, relative to the log's");
+    eprintln!("                     first row. Omit to end at the log end.");
+    eprintln!("                     Independent — use either or both. Applies before every");
+    eprintln!("                     analysis and plot (step response may skip if the");
+    eprintln!("                     trimmed window is too short).");
     eprintln!();
     eprintln!("--- GENERAL ---");
     eprintln!();
@@ -432,6 +457,43 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  -h, --help       Show this help message and exit.");
     eprintln!("  -V, --version    Show version information.");
     std::process::exit(1);
+}
+
+/// Parses a `--start`/`--end` style flag: consumes its numeric value, rejects a negative or a
+/// repeated flag, and advances `i` past the value. Exits via `print_usage_and_exit` on error.
+/// Also captures the argument's raw text into `raw_slot` for use in the output filename suffix
+/// (see `AnalysisOptions::trim_start_str` for why).
+fn parse_trim_flag(
+    flag: &str,
+    slot: &mut Option<f64>,
+    raw_slot: &mut Option<String>,
+    args: &[String],
+    i: &mut usize,
+    program_name: &str,
+) {
+    if slot.is_some() {
+        eprintln!("Error: {flag} argument specified more than once.");
+        print_usage_and_exit(program_name);
+    }
+    if *i + 1 >= args.len() {
+        eprintln!("Error: {flag} requires a numeric value (seconds).");
+        print_usage_and_exit(program_name);
+    }
+    match args[*i + 1].parse::<f64>() {
+        Ok(val) if val >= TRIM_START_DEFAULT_S => {
+            *slot = Some(val);
+            *raw_slot = Some(args[*i + 1].clone());
+            *i += 1;
+        }
+        Ok(val) => {
+            eprintln!("Error: {flag} must be >= {TRIM_START_DEFAULT_S}: {val}");
+            print_usage_and_exit(program_name);
+        }
+        Err(_) => {
+            eprintln!("Error: Invalid numeric value for {flag}: {}", args[*i + 1]);
+            print_usage_and_exit(program_name);
+        }
+    }
 }
 
 /// Extract an aircraft grouping key from a file path.
@@ -509,18 +571,24 @@ fn group_files_by_aircraft(input_files: &[String]) -> BTreeMap<String, Vec<Strin
 
 /// Parse all files in a group and collect torque-inertia ratio estimates.
 ///
-/// This is the Phase 1 profiling pass. Each file is parsed minimally and the
-/// punch-event ratios are aggregated into a single `AircraftProfile`.
-fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile {
+/// This is the Phase 1 profiling pass. Each file is parsed once and the result
+/// is cached and returned alongside the profile. Phase 2 (`process_file`) reuses
+/// the cache entry instead of re-parsing the same file.
+fn profile_aircraft_group(
+    files: &[String],
+    debug_mode: bool,
+) -> (AircraftProfile, Vec<LogParseResult>) {
     let mut all_axis_ratios: [Vec<f64>; crate::axis_names::AXIS_COUNT] =
         std::array::from_fn(|_| Vec::new());
     let mut files_profiled: usize = 0;
+    let mut parsed_cache: Vec<LogParseResult> = Vec::with_capacity(files.len());
 
     for file_str in files {
         let path = Path::new(file_str);
-        match parse_log_file(path, debug_mode) {
+        let parse_result = parse_log_file(path, debug_mode);
+        match &parse_result {
             Ok((log_data, Some(sr), ..)) => {
-                let ratios = extract_punch_ratios(&log_data, sr);
+                let ratios = extract_punch_ratios(log_data, *sr);
                 let total_events: usize = ratios.iter().map(|v| v.len()).sum();
                 for (axis, axis_ratio_vec) in all_axis_ratios.iter_mut().enumerate() {
                     axis_ratio_vec.extend_from_slice(&ratios[axis]);
@@ -549,6 +617,7 @@ fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile
                 }
             }
         }
+        parsed_cache.push(parse_result);
     }
 
     if debug_mode {
@@ -563,7 +632,7 @@ fn profile_aircraft_group(files: &[String], debug_mode: bool) -> AircraftProfile
 
     let mut profile = AircraftProfile::from_axis_ratios(all_axis_ratios);
     profile.file_count = files_profiled;
-    profile
+    (profile, parsed_cache)
 }
 
 fn process_file(
@@ -573,6 +642,7 @@ fn process_file(
     plot_config: PlotConfig,
     analysis_opts: AnalysisOptions,
     aircraft_profile: &AircraftProfile,
+    pre_parsed: Option<LogParseResult>,
 ) -> Result<(), Box<dyn Error>> {
     // --- Setup paths and names ---
     let input_path = Path::new(input_file_str);
@@ -586,7 +656,7 @@ fn process_file(
         .file_stem()
         .unwrap_or_else(|| std::ffi::OsStr::new("unknown_filestem"))
         .to_string_lossy();
-    let root_name_string: String = if use_dir_prefix {
+    let mut root_name_string: String = if use_dir_prefix {
         let mut dir_prefix_to_add = String::new();
         if let Some(parent_dir) = input_path.parent() {
             if let Some(dir_os_str) = parent_dir.file_name() {
@@ -614,7 +684,7 @@ fn process_file(
 
     // --- Data Reading and Header Status ---
     let (
-        all_log_data,
+        mut all_log_data,
         sample_rate,
         f_term_header_found,
         setpoint_header_found,
@@ -623,7 +693,12 @@ fn process_file(
         _debug_header_found,
         using_debug_fallback,
         header_metadata,
-    ) = match parse_log_file(input_path, analysis_opts.debug_mode) {
+    ) = match pre_parsed
+        // A cached parse failure may be transient (file locked/still being flushed at
+        // profiling time); retry with a fresh parse rather than reusing a stale error.
+        .filter(|r| r.is_ok())
+        .unwrap_or_else(|| parse_log_file(input_path, analysis_opts.debug_mode))
+    {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Error: Parsing log file {input_file_str}: {e}");
@@ -634,6 +709,127 @@ fn process_file(
     if all_log_data.is_empty() {
         println!("No valid data rows read from {input_file_str}, cannot generate plots.");
         return Ok(());
+    }
+
+    // Captured before zeroing below — this note is the only place absolute FC uptime is shown,
+    // for cross-referencing against OSD/video overlays that also display FC uptime.
+    let log_first = all_log_data.first().and_then(|row| row.time_sec);
+    let log_last = all_log_data.last().and_then(|row| row.time_sec);
+    if let (Some(f), Some(l)) = (log_first, log_last) {
+        if l > f {
+            println!(
+                "Note: Log spans absolute time {f:.3}s-{l:.3}s (duration {:.3}s) of {input_file_str}",
+                l - f
+            );
+        }
+    }
+
+    // --- Apply --start/--end time-window trim ---
+    // Runs before every analysis/plot module below, so all of them see only the trimmed rows —
+    // except Motor Desync Detection, which needs the full untrimmed log for its baseline
+    // statistics (see `desync_full_log_data`/`desync_report_window` below and IT #182).
+    let mut trim_window: Option<(f64, f64, usize)> = None;
+    // Motor Desync Detection baselines must not shrink with the trim window (IT #182) — captured
+    // only when a trim actually runs; `None` for both means "use all_log_data itself, unfiltered",
+    // identical to today's untrimmed behavior.
+    let mut desync_full_log_data: Option<Vec<LogRowData>> = None;
+    let mut desync_report_window: Option<(f64, f64)> = None;
+    if analysis_opts.trim_start.is_some() || analysis_opts.trim_end.is_some() {
+        let (log_first, log_last) = match (log_first, log_last) {
+            (Some(f), Some(l)) if l > f => (f, l),
+            _ => {
+                eprintln!(
+                    "Error: Cannot apply --start/--end trim to {input_file_str}: time data unavailable."
+                );
+                return Ok(());
+            }
+        };
+        let duration = log_last - log_first;
+        let rel_start = analysis_opts.trim_start.unwrap_or(TRIM_START_DEFAULT_S);
+        let rel_end = analysis_opts.trim_end.unwrap_or(duration);
+        if rel_start >= duration {
+            eprintln!(
+                "Error: --start {rel_start:.3}s is at or beyond log duration ({duration:.3}s) for {input_file_str}"
+            );
+            return Ok(());
+        }
+        if rel_end > duration {
+            eprintln!(
+                "Error: --end {rel_end:.3}s exceeds log duration ({duration:.3}s) for {input_file_str}"
+            );
+            return Ok(());
+        }
+        if rel_start >= rel_end {
+            eprintln!(
+                "Error: --start ({rel_start:.3}s) must be less than --end ({rel_end:.3}s) for {input_file_str}"
+            );
+            return Ok(());
+        }
+        let window_start = log_first + rel_start;
+        let window_end = log_first + rel_end;
+        desync_full_log_data = Some(all_log_data.clone());
+        desync_report_window = Some((window_start, window_end));
+        all_log_data.retain(|row| {
+            row.time_sec
+                .is_some_and(|t| t >= window_start && t <= window_end)
+        });
+        if all_log_data.is_empty() {
+            eprintln!(
+                "Error: --start/--end window leaves no data rows for {input_file_str} (log spans 0.000s-{duration:.3}s)"
+            );
+            return Ok(());
+        }
+        println!(
+            "Note: Trimmed to {rel_start:.3}s-{rel_end:.3}s ({} rows, log duration {duration:.3}s) of {input_file_str}",
+            all_log_data.len()
+        );
+        if rel_end - rel_start < EXCLUDE_START_S + EXCLUDE_END_S {
+            println!(
+                "Note: Trimmed window ({:.3}s) is shorter than the {:.1}s step-response margin — step response will likely be skipped.",
+                rel_end - rel_start,
+                EXCLUDE_START_S + EXCLUDE_END_S
+            );
+        }
+        trim_window = Some((rel_start, rel_end, all_log_data.len()));
+        // Use the raw --start/--end text the user typed, not a rounded re-format of the parsed
+        // f64: two distinct inputs then can never collide on the same filename (a rounded
+        // format could, e.g. --start 1.0001 and --start 1.0004 both rounding to "1.000"). The
+        // omitted side (no raw text) falls back to a fixed formatted default, which is the same
+        // for every run of the same file and so can't newly collide with itself either.
+        let start_label = analysis_opts
+            .trim_start_str
+            .clone()
+            .unwrap_or_else(|| format!("{rel_start:.3}"));
+        let end_label = analysis_opts
+            .trim_end_str
+            .clone()
+            .unwrap_or_else(|| format!("{rel_end:.3}"));
+        root_name_string = format!("{root_name_string}_trim{start_label}s-{end_label}s");
+    }
+
+    // Zero the timeline to the log's own start (regardless of --start/--end trimming) so every
+    // plot and console/report timestamp reads flight-relative time, not raw FC uptime, while a
+    // trimmed window still shows its true offset into the flight instead of resetting to 0.
+    // Applied to all_log_data and, when present, to the untrimmed clone/window Motor Desync
+    // Detection uses for its full-log baseline — both must share the same zero point as the
+    // plots, or its reported event timestamps would disagree with everything else.
+    if let Some(origin) = log_first {
+        for row in &mut all_log_data {
+            if let Some(t) = row.time_sec.as_mut() {
+                *t -= origin;
+            }
+        }
+        if let Some(full_data) = desync_full_log_data.as_mut() {
+            for row in full_data.iter_mut() {
+                if let Some(t) = row.time_sec.as_mut() {
+                    *t -= origin;
+                }
+            }
+        }
+        if let Some((window_start, window_end)) = desync_report_window.as_mut() {
+            *window_start -= origin;
+            *window_end -= origin;
+        }
     }
 
     // Parse PID metadata from headers
@@ -1577,7 +1773,10 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
     };
 
     let motor_desync_results = if plot_config.motor_spectrums || plot_config.motor_erpm {
-        detect_motor_desync(&all_log_data)
+        // Baseline always comes from the full untrimmed log; report_window (when a trim is
+        // active) only restricts which flagged events get reported (IT #182).
+        let desync_source = desync_full_log_data.as_deref().unwrap_or(&all_log_data);
+        detect_motor_desync(desync_source, desync_report_window)
     } else {
         vec![]
     };
@@ -1871,6 +2070,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
     let flight_report = report::FlightReport {
         root_name: root_name_string.clone(),
         sample_rate,
+        trim_window,
         header_metadata,
         pd_ratios: pd_ratios_for_report,
         step_reports,
@@ -1929,6 +2129,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut desync_requested = false;
     let mut recursive = false;
     let mut estimate_optimal_p = false;
+    let mut trim_start: Option<f64> = None;
+    let mut trim_end: Option<f64> = None;
+    let mut trim_start_str: Option<String> = None;
+    let mut trim_end_str: Option<String> = None;
 
     let mut version_flag_set = false;
 
@@ -2020,6 +2224,24 @@ fn main() -> Result<(), Box<dyn Error>> {
             desync_requested = true;
         } else if arg == "--estimate-optimal-p" {
             estimate_optimal_p = true;
+        } else if arg == "--start" {
+            parse_trim_flag(
+                "--start",
+                &mut trim_start,
+                &mut trim_start_str,
+                &args,
+                &mut i,
+                program_name,
+            );
+        } else if arg == "--end" {
+            parse_trim_flag(
+                "--end",
+                &mut trim_end,
+                &mut trim_end_str,
+                &args,
+                &mut i,
+                program_name,
+            );
         } else if arg.starts_with("--") {
             eprintln!("Error: Unknown option '{arg}'");
             print_usage_and_exit(program_name);
@@ -2032,6 +2254,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     if core_requested && extended_requested {
         eprintln!("Error: --core and --extended are mutually exclusive.");
         print_usage_and_exit(program_name);
+    }
+
+    if let (Some(start), Some(end)) = (trim_start, trim_end) {
+        if start >= end {
+            eprintln!("Error: --start ({start:.3}s) must be less than --end ({end:.3}s).");
+            print_usage_and_exit(program_name);
+        }
     }
 
     // Derive plot configuration from flags
@@ -2129,13 +2358,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // Construct AnalysisOptions once before the loop (Copy type, reusable across all files)
+    // Construct AnalysisOptions once before the loop; cloned per file at the process_file call
+    // site below (not Copy — carries the raw --start/--end argument text as owned Strings).
     let analysis_opts = AnalysisOptions {
         setpoint_threshold,
         show_legend,
         debug_mode,
         show_butterworth,
         estimate_optimal_p,
+        trim_start,
+        trim_end,
+        trim_start_str,
+        trim_end_str,
     };
 
     // Group input files by aircraft key for two-phase processing.
@@ -2146,33 +2380,38 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut overall_success = true;
     for (craft_key, group_files) in &grouped_files {
         // Phase 1: torque-inertia profiling across all files in the group.
-        let aircraft_profile = if analysis_opts.estimate_optimal_p {
+        // Reuses each file's parse result in Phase 2 below instead of re-parsing.
+        let (aircraft_profile, parsed_cache) = if analysis_opts.estimate_optimal_p {
             println!(
                 "\n--- Torque-Inertia Profiling: '{}' ({} file(s)) ---",
                 craft_key,
                 group_files.len()
             );
-            let profile = profile_aircraft_group(group_files, debug_mode);
+            let (profile, cache) = profile_aircraft_group(group_files, debug_mode);
             print!("{}", profile.summary());
-            profile
+            (profile, cache)
         } else {
-            AircraftProfile::default()
+            (AircraftProfile::default(), Vec::new())
         };
 
-        // Phase 2: process each file in the group.
+        // Phase 2: process each file in the group. parsed_cache (when non-empty) is
+        // ordered identically to group_files, so a plain iterator pairs them up.
+        let mut parsed_cache_iter = parsed_cache.into_iter();
         for input_file_str in group_files {
             let actual_output_dir = match &output_dir {
                 None => Path::new(input_file_str).parent(),
                 Some(dir) => Some(Path::new(dir)),
             };
+            let pre_parsed = parsed_cache_iter.next();
 
             if let Err(e) = process_file(
                 input_file_str,
                 use_dir_prefix_for_root_name,
                 actual_output_dir,
                 plot_config,
-                analysis_opts,
+                analysis_opts.clone(),
                 &aircraft_profile,
+                pre_parsed,
             ) {
                 eprintln!("Error: Processing {input_file_str}: {e}");
                 overall_success = false;
