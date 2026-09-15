@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
-use crate::constants::DEBUG_MODE_GYRO_SCALED;
+use crate::constants::{DEBUG_MODE_GYRO_SCALED, HEADER_METADATA_DEBUG_SAMPLE_LIMIT};
 use crate::data_input::log_data::LogRowData;
 use crate::types::LogParseResult;
 
@@ -272,11 +272,18 @@ fn read_header_metadata(
 
     if debug_mode && !header_metadata.is_empty() {
         println!("Sample header metadata:");
-        for (i, (key, value)) in header_metadata.iter().take(5).enumerate() {
+        for (i, (key, value)) in header_metadata
+            .iter()
+            .take(HEADER_METADATA_DEBUG_SAMPLE_LIMIT)
+            .enumerate()
+        {
             println!("  {}: '{}' = '{}'", i + 1, key, value);
         }
-        if header_metadata.len() > 5 {
-            println!("  ... and {} more", header_metadata.len() - 5);
+        if header_metadata.len() > HEADER_METADATA_DEBUG_SAMPLE_LIMIT {
+            println!(
+                "  ... and {} more",
+                header_metadata.len() - HEADER_METADATA_DEBUG_SAMPLE_LIMIT
+            );
         }
     }
 
