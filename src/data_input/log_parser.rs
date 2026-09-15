@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
-use crate::constants::DEBUG_MODE_GYRO_SCALED;
+use crate::constants::{DEBUG_MODE_GYRO_SCALED, HEADER_METADATA_DEBUG_SAMPLE_LIMIT};
 use crate::data_input::log_data::LogRowData;
 use crate::types::LogParseResult;
 
@@ -171,6 +171,144 @@ fn resolve_gyro_unfilt_fallback(
     }
 }
 
+// (key-value pairs, CSV data start offset, sidecar .headers.csv actually contributed entries)
+type HeaderMetadata = (Vec<(String, String)>, u64, bool);
+
+/// Reads header metadata only (separate `.headers.csv` sidecar, then embedded header lines),
+/// stopping at the CSV data row. Shared by `parse_log_file` and the aircraft-grouping pre-scan
+/// so header lines are never read as part of the full data-row parse.
+///
+/// Returns the collected metadata, the byte offset where the CSV data header row starts, and
+/// whether a `.headers.csv` sidecar actually contributed entries (vs. merely existing but
+/// failing to parse, or not existing at all — both fall through to the embedded scan below).
+fn read_header_metadata(
+    input_file_path: &Path,
+    debug_mode: bool,
+) -> Result<HeaderMetadata, Box<dyn Error>> {
+    let mut header_metadata: Vec<(String, String)> = Vec::new();
+
+    // First, check for separate .headers.csv file (Type 1)
+    let headers_file_path = {
+        let file_stem = input_file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        input_file_path.with_file_name(format!("{file_stem}.headers.csv"))
+    };
+
+    let mut used_headers_file = false;
+    if headers_file_path.exists() {
+        if debug_mode {
+            println!("Found separate headers file: {headers_file_path:?}");
+        }
+        match read_headers_csv(&headers_file_path) {
+            Ok(mut headers_metadata) => {
+                if debug_mode {
+                    println!(
+                        "Successfully read {} entries from headers file",
+                        headers_metadata.len()
+                    );
+                }
+                used_headers_file = !headers_metadata.is_empty();
+                header_metadata.append(&mut headers_metadata);
+            }
+            Err(e) => {
+                println!("⚠️  Failed to read headers file: {e}");
+            }
+        }
+    }
+
+    let csv_start_position: u64;
+
+    // Next, extract embedded header metadata from the CSV file itself (Type 2)
+    // Single-pass file reading: extract header metadata and find CSV start position
+    {
+        let mut file = File::open(input_file_path)?;
+        let mut reader = BufReader::new(&mut file);
+        let mut line_buffer = String::new();
+        let mut current_position = 0u64;
+
+        loop {
+            line_buffer.clear();
+            let bytes_read = reader.read_line(&mut line_buffer)?;
+            if bytes_read == 0 {
+                return Err("Reached end of file without finding CSV headers".into());
+            }
+
+            let trimmed_line = line_buffer.trim();
+
+            // Skip empty lines
+            if trimmed_line.is_empty() {
+                current_position += bytes_read as u64;
+                continue;
+            }
+
+            // Check if this line contains the CSV headers
+            if trimmed_line.contains("time")
+                && (trimmed_line.contains("axisP") || trimmed_line.contains("gyroADC"))
+            {
+                csv_start_position = current_position;
+                if debug_mode {
+                    println!("Found CSV headers at file position {csv_start_position}");
+                }
+                break;
+            }
+
+            // Parse metadata line directly without CSV reader (more efficient)
+            if trimmed_line.contains(',') {
+                let parts: Vec<&str> = trimmed_line.splitn(2, ',').collect();
+                if parts.len() == 2 {
+                    let key = parts[0].trim().trim_matches('"').to_string();
+                    let value = parts[1].trim().trim_matches('"').to_string();
+                    if !key.is_empty() {
+                        header_metadata.push((key, value));
+                    }
+                }
+            }
+
+            current_position += bytes_read as u64;
+        }
+    }
+
+    if debug_mode && !header_metadata.is_empty() {
+        println!("Sample header metadata:");
+        for (i, (key, value)) in header_metadata
+            .iter()
+            .take(HEADER_METADATA_DEBUG_SAMPLE_LIMIT)
+            .enumerate()
+        {
+            println!("  {}: '{}' = '{}'", i + 1, key, value);
+        }
+        if header_metadata.len() > HEADER_METADATA_DEBUG_SAMPLE_LIMIT {
+            println!(
+                "  ... and {} more",
+                header_metadata.len() - HEADER_METADATA_DEBUG_SAMPLE_LIMIT
+            );
+        }
+    }
+
+    Ok((header_metadata, csv_start_position, used_headers_file))
+}
+
+/// Reads only the header metadata for a log file and returns the `Craft name` value, when
+/// present and non-empty. Used by aircraft grouping, before the full per-file parse, so a
+/// craft-identity check never requires reading the (much larger) data rows.
+///
+/// Read failures (missing/unreadable file, no header found) fall back to `None` rather than
+/// propagating an error — grouping is best-effort here, and any real parse failure surfaces
+/// later when the file is actually parsed.
+pub fn peek_craft_name(input_file_path: &Path, debug_mode: bool) -> Option<String> {
+    let (header_metadata, _, _) = read_header_metadata(input_file_path, debug_mode).ok()?;
+    header_metadata.iter().find_map(|(key, value)| {
+        let value = value.trim();
+        if key.eq_ignore_ascii_case("Craft name") && !value.is_empty() {
+            Some(value.to_string())
+        } else {
+            None
+        }
+    })
+}
+
 /// Parses the CSV log file, extracts data, determines header presence, and calculates sample rate.
 ///
 /// Returns a tuple containing:
@@ -220,91 +358,10 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
     ];
 
     // --- Header Metadata Extraction and CSV Position Tracking ---
-    let mut header_metadata: Vec<(String, String)> = Vec::new();
+    let (header_metadata, csv_start_position, used_headers_file) =
+        read_header_metadata(input_file_path, debug_mode)?;
 
-    // First, check for separate .headers.csv file (Type 1)
-    let headers_file_path = {
-        let file_stem = input_file_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
-        input_file_path.with_file_name(format!("{file_stem}.headers.csv"))
-    };
-
-    if headers_file_path.exists() {
-        if debug_mode {
-            println!("Found separate headers file: {headers_file_path:?}");
-        }
-        match read_headers_csv(&headers_file_path) {
-            Ok(mut headers_metadata) => {
-                if debug_mode {
-                    println!(
-                        "Successfully read {} entries from headers file",
-                        headers_metadata.len()
-                    );
-                }
-                header_metadata.append(&mut headers_metadata);
-            }
-            Err(e) => {
-                println!("⚠️  Failed to read headers file: {e}");
-            }
-        }
-    }
-
-    let csv_start_position: u64;
-
-    // Next, extract embedded header metadata from the CSV file itself (Type 2)
-    // Single-pass file reading: extract header metadata and find CSV start position
-    let embedded_start_count = header_metadata.len(); // Track how many we had from headers file
-    {
-        let mut file = File::open(input_file_path)?;
-        let mut reader = BufReader::new(&mut file);
-        let mut line_buffer = String::new();
-        let mut current_position = 0u64;
-
-        loop {
-            line_buffer.clear();
-            let bytes_read = reader.read_line(&mut line_buffer)?;
-            if bytes_read == 0 {
-                return Err("Reached end of file without finding CSV headers".into());
-            }
-
-            let trimmed_line = line_buffer.trim();
-
-            // Skip empty lines
-            if trimmed_line.is_empty() {
-                current_position += bytes_read as u64;
-                continue;
-            }
-
-            // Check if this line contains the CSV headers
-            if trimmed_line.contains("time")
-                && (trimmed_line.contains("axisP") || trimmed_line.contains("gyroADC"))
-            {
-                csv_start_position = current_position;
-                if debug_mode {
-                    println!("Found CSV headers at file position {csv_start_position}");
-                }
-                break;
-            }
-
-            // Parse metadata line directly without CSV reader (more efficient)
-            if trimmed_line.contains(',') {
-                let parts: Vec<&str> = trimmed_line.splitn(2, ',').collect();
-                if parts.len() == 2 {
-                    let key = parts[0].trim().trim_matches('"').to_string();
-                    let value = parts[1].trim().trim_matches('"').to_string();
-                    if !key.is_empty() {
-                        header_metadata.push((key, value));
-                    }
-                }
-            }
-
-            current_position += bytes_read as u64;
-        }
-    }
-
-    if embedded_start_count > 0 {
+    if used_headers_file {
         println!(
             "Extracted {} total header metadata (separate header file)",
             header_metadata.len()
@@ -314,15 +371,6 @@ pub fn parse_log_file(input_file_path: &Path, debug_mode: bool) -> LogParseResul
             "Extracted {} total header metadata (embedded)",
             header_metadata.len()
         );
-    }
-    if debug_mode && !header_metadata.is_empty() {
-        println!("Sample header metadata:");
-        for (i, (key, value)) in header_metadata.iter().take(5).enumerate() {
-            println!("  {}: '{}' = '{}'", i + 1, key, value);
-        }
-        if header_metadata.len() > 5 {
-            println!("  ... and {} more", header_metadata.len() - 5);
-        }
     }
 
     let mut setpoint_header_found = [false; 4];

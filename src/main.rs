@@ -201,7 +201,7 @@ impl Drop for CwdGuard {
 
 // Data input import
 use crate::data_input::log_data::LogRowData;
-use crate::data_input::log_parser::parse_log_file;
+use crate::data_input::log_parser::{self, parse_log_file};
 use crate::data_input::pid_metadata::parse_pid_metadata;
 
 // PID context import
@@ -480,12 +480,16 @@ fn parse_trim_flag(
     }
 }
 
-/// Extract an aircraft grouping key from a file path.
+/// Extract an aircraft grouping key from a file path alone.
 ///
+/// Fallback key used when the log header has no usable `Craft name` (see
+/// `aircraft_group_key`) — e.g. no `.headers.csv` sidecar and no embedded header block.
 /// Strips the date-time portion (`_YYYYMMDD_HHMMSS`) so files from the same aircraft
 /// across multiple sessions share one key.  When the craft name follows the timestamp
 /// (e.g. the standard Betaflight naming scheme), it is appended to the prefix so that
-/// different craft logged under the same generic prefix remain distinct.
+/// different craft logged under the same generic prefix remain distinct. This filename
+/// heuristic cannot help when the name was manually changed or is a generic MSC-mode
+/// export with nothing after the timestamp — such files still collapse into one group.
 ///
 /// Examples:
 ///   `EMUF_BLACKBOX_LOG_FOXEERF722V4_426_20240406_132335_notes.19.csv`
@@ -541,13 +545,44 @@ fn extract_aircraft_key(path: &Path) -> String {
     stem.to_string()
 }
 
+/// Resolve the aircraft grouping key for one file.
+///
+/// The log header's `Craft name` is authoritative when present and non-empty — it survives
+/// a pilot renaming the file and is the only signal available for generic/MSC-mode exports,
+/// where the filename carries no craft-distinguishing suffix at all (see
+/// `extract_aircraft_key`). Falls back to the filename-derived key only when no header
+/// metadata is available (no `.headers.csv` sidecar and none embedded in the CSV) or the
+/// header has no `Craft name` entry.
+///
+/// A header-sourced key is namespaced with a `craft:` prefix so it can never collide with a
+/// filename-derived key by coincidence — the two are drawn from different identity sources
+/// and must never be treated as equal. Mixing craft names across two genuinely different
+/// aircraft that share the same pilot-set name is an accepted limitation: it requires pilots
+/// to keep craft names unique, same as any other tool keyed on it.
+///
+/// `use_header_craft_name` skips the header pre-scan entirely when false — grouping only
+/// affects the optimal-P profiler's aircraft grouping, so a run without `--estimate-optimal-p`
+/// has no reason to pay for reading each file's header a second time.
+fn aircraft_group_key(path: &Path, debug_mode: bool, use_header_craft_name: bool) -> String {
+    if use_header_craft_name {
+        if let Some(craft_name) = log_parser::peek_craft_name(path, debug_mode) {
+            return format!("craft:{craft_name}");
+        }
+    }
+    extract_aircraft_key(path)
+}
+
 /// Group a list of file paths by aircraft key.
 ///
 /// Returns a `BTreeMap` (sorted by key) mapping each aircraft key to its files.
-fn group_files_by_aircraft(input_files: &[String]) -> BTreeMap<String, Vec<String>> {
+fn group_files_by_aircraft(
+    input_files: &[String],
+    debug_mode: bool,
+    use_header_craft_name: bool,
+) -> BTreeMap<String, Vec<String>> {
     let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for file in input_files {
-        let key = extract_aircraft_key(Path::new(file));
+        let key = aircraft_group_key(Path::new(file), debug_mode, use_header_craft_name);
         groups.entry(key).or_default().push(file.clone());
     }
     groups
@@ -2270,7 +2305,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Group input files by aircraft key for two-phase processing.
     // Phase 1 (profiling) aggregates throttle-punch events across all logs for each group.
     // Phase 2 (processing) runs the standard per-file analysis with the group's Td target.
-    let grouped_files = group_files_by_aircraft(&input_files);
+    let grouped_files =
+        group_files_by_aircraft(&input_files, debug_mode, analysis_opts.estimate_optimal_p);
 
     let mut overall_success = true;
     for (craft_key, group_files) in &grouped_files {
@@ -2330,5 +2366,116 @@ Some files could not be processed successfully."
         // For now, exiting with 0 if any file succeeded, or if all failed but were handled.
         // To signal overall failure to scripts, one might `std::process::exit(1)` here.
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod aircraft_grouping_tests {
+    use super::*;
+
+    /// Writes a synthetic log CSV with an embedded header block, followed by one data row.
+    /// `header_lines` are raw `key,value` lines emitted before the CSV data-header row.
+    fn write_synthetic_log(file_name: &str, header_lines: &[&str]) -> PathBuf {
+        let path = std::env::temp_dir().join(file_name);
+        let mut contents = String::new();
+        for line in header_lines {
+            contents.push_str(line);
+            contents.push('\n');
+        }
+        contents.push_str("time (us),axisP[0],gyroADC[0]\n0,0,0\n");
+        std::fs::write(&path, contents).expect("failed to write synthetic test log");
+        path
+    }
+
+    #[test]
+    fn header_craft_name_overrides_generic_filename_key() {
+        let path = write_synthetic_log("bbcsvr_test_craft_override.csv", &["Craft name,MyQuad"]);
+        let key = aircraft_group_key(&path, false, true);
+        std::fs::remove_file(&path).ok();
+        assert_eq!(key, "craft:MyQuad");
+    }
+
+    #[test]
+    fn header_lookup_is_skipped_when_disabled() {
+        let path = write_synthetic_log("bbcsvr_test_craft_disabled.csv", &["Craft name,MyQuad"]);
+        let key = aircraft_group_key(&path, false, false);
+        let expected = extract_aircraft_key(&path);
+        std::fs::remove_file(&path).ok();
+        assert_eq!(key, expected);
+        assert!(!key.starts_with("craft:"));
+    }
+
+    #[test]
+    fn missing_craft_name_header_falls_back_to_filename_key() {
+        let path = write_synthetic_log(
+            "bbcsvr_test_no_craft_header.csv",
+            &["Firmware revision,4.5.0"],
+        );
+        let key = aircraft_group_key(&path, false, true);
+        let expected = extract_aircraft_key(&path);
+        std::fs::remove_file(&path).ok();
+        assert_eq!(key, expected);
+        assert!(!key.starts_with("craft:"));
+    }
+
+    #[test]
+    fn no_header_metadata_at_all_falls_back_to_filename_key() {
+        let path = write_synthetic_log("bbcsvr_test_no_header_at_all.csv", &[]);
+        let key = aircraft_group_key(&path, false, true);
+        let expected = extract_aircraft_key(&path);
+        std::fs::remove_file(&path).ok();
+        assert_eq!(key, expected);
+    }
+
+    #[test]
+    fn whitespace_only_craft_name_is_treated_as_absent() {
+        let path = write_synthetic_log("bbcsvr_test_blank_craft_name.csv", &["Craft name,   "]);
+        let key = aircraft_group_key(&path, false, true);
+        let expected = extract_aircraft_key(&path);
+        std::fs::remove_file(&path).ok();
+        assert_eq!(key, expected);
+        assert!(!key.starts_with("craft:"));
+    }
+
+    /// A blank `Craft name` line ahead of a real one (e.g. a stray or malformed duplicate
+    /// header) must not shadow the later, valid entry — the first match by key alone would
+    /// return `None` and lose real craft-identity data that was present in the file.
+    #[test]
+    fn blank_craft_name_entry_does_not_shadow_a_later_valid_one() {
+        let path = write_synthetic_log(
+            "bbcsvr_test_duplicate_craft_name.csv",
+            &["Craft name,", "Craft name,MyQuad"],
+        );
+        let key = aircraft_group_key(&path, false, true);
+        std::fs::remove_file(&path).ok();
+        assert_eq!(key, "craft:MyQuad");
+    }
+
+    /// Two different aircraft exported with an identical generic filename pattern (no craft
+    /// suffix after the timestamp, e.g. an MSC-mode export) used to collapse into one
+    /// `extract_aircraft_key` group. A distinct header `Craft name` on each file must now keep
+    /// them in separate groups.
+    #[test]
+    fn distinct_craft_names_split_groups_despite_identical_generic_filename_key() {
+        let path_a = write_synthetic_log(
+            "BTFL_BLACKBOX_LOG_20250101_120000.csv",
+            &["Craft name,QuadA"],
+        );
+        let path_b = write_synthetic_log(
+            "BTFL_BLACKBOX_LOG_20250101_120001.csv",
+            &["Craft name,QuadB"],
+        );
+
+        // Both files collapse to the same bare filename-derived key (no craft suffix present).
+        assert_eq!(extract_aircraft_key(&path_a), extract_aircraft_key(&path_b));
+
+        let key_a = aircraft_group_key(&path_a, false, true);
+        let key_b = aircraft_group_key(&path_b, false, true);
+        std::fs::remove_file(&path_a).ok();
+        std::fs::remove_file(&path_b).ok();
+
+        assert_ne!(key_a, key_b);
+        assert_eq!(key_a, "craft:QuadA");
+        assert_eq!(key_b, "craft:QuadB");
     }
 }
