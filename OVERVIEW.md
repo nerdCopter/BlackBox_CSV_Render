@@ -15,7 +15,7 @@
     - [Compared to PIDtoolbox/Matlab (PTstepcalc.m)](#compared-to-pidtoolboxmatlab-ptstepcalcm)
     - [Compared to PlasmaTree/Python (PID-Analyzer.py)](#compared-to-plasmatreepython-pid-analyzerpy)
 
-The Rust program processes Betaflight Blackbox CSV logs to generate various plots. Here's a concise overview:
+The Rust program processes Betaflight/EmuFlight Blackbox CSV or BBL logs to generate various plots. Here's a concise overview:
 
 ### Configuration
 
@@ -24,10 +24,11 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 ### Core Functionality
 
 1.  **Argument Parsing (`src/main.rs`):**
-    * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and plot-selection flags (`--core` [default], `--extended`, `--step`, `--bode`, `--desync`).
+    * Parses command-line arguments: input CSV/BBL file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and plot-selection flags (`--core` [default], `--extended`, `--step`, `--bode`, `--desync`).
     * Additional options include `--help` and `--version` for user assistance.
     * The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     * Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
+    * **BBL input expansion (`src/data_input/bbl_reader.rs`):** a `.bbl`/`.BBL` input is decoded via the `bbl_parser` crate and exported (its own documented CSV export, not its internal frame-data keys) to a scratch CSV/`.headers.csv` pair per embedded flight, in the OS temp directory — this reuses the existing CSV parser unchanged instead of duplicating its motor/eRPM channel-alignment and header-detection logic. A multi-flight `.bbl` therefore expands to multiple entries (matching the `.01.csv`/`.02.csv`-per-flight convention already used for exported CSVs) before the normal per-file loop runs. When `--output-dir` is not given, the default output location is the source `.bbl`'s own folder, not the scratch directory. Scratch files are removed after all files are processed.
 
 2.  **File Processing (`src/main.rs:process_file`):**
     * For each input CSV:
@@ -222,7 +223,7 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 Physics-derived P gain optimization using a Torque-Inertia Profiler that measures aircraft-specific dynamics directly from flight log throttle-punch events. No prop-size input is required — the aircraft's torque-to-inertia ratio is derived from the logs.
 
 - **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag.
-- **Requires:** A `.headers.csv` metadata file alongside each input CSV (produced by `blackbox_decode`). Without it, P gain values are unavailable and optimal P estimation is skipped with a skip-reason shown in console and PNG. All other analyses (step response, spectrums, P:D recommendations) remain unaffected.
+- **Requires:** A `.headers.csv` metadata file alongside each input CSV (produced by `blackbox_decode`, or automatically by BBL input expansion — see above). Without it, P gain values are unavailable and optimal P estimation is skipped with a skip-reason shown in console and PNG. All other analyses (step response, spectrums, P:D recommendations) remain unaffected.
 - **⚠️ Status:** Experimental. `TORQUE_PROFILER_ACHIEVABILITY_FACTOR` bridges the gap between the theoretical physics formula and real-world flight performance (ESC lag, prop-wash, motor startup). It is empirically calibrated and may need adjustment for aircraft significantly different from a mid-size freestyle build.
 
 ##### Torque-Inertia Profiler (`src/data_analysis/torque_inertia_profiler.rs`)

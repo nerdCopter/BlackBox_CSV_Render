@@ -1,4 +1,4 @@
-## This is an experimental RUST program, mostly created via A.I., to read Betaflight Blackbox CSV and produce meaningful graphs.
+## This is an experimental RUST program, mostly created via A.I., to read Betaflight/EmuFlight Blackbox BBL or CSV logs and produce meaningful graphs.
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
@@ -16,7 +16,9 @@
 ### Prerequisites
 
 1. [Rust installation page](https://www.rust-lang.org/tools/install)
-2. [blackbox_decode](https://github.com/betaflight/blackbox-tools) your BBL to CSV (`--save-headers`, `--index <num>`, and `--limits` parameters may be useful)
+2. Optional: `.BBL` files are read directly (multi-flight files expand to one report per flight). Manual
+   [blackbox_decode](https://github.com/betaflight/blackbox-tools) preprocessing to CSV is only needed for its
+   selective-extraction flags (`--save-headers`, `--index <num>`, `--limits`).
 
 ### Build
 
@@ -33,9 +35,10 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 
 === INPUT/OUTPUT OPTIONS ===
 
-  <inputX>: CSV files, directories, or wildcards (*.csv). Header files auto-excluded.
+  <inputX>: CSV or BBL files, directories, or wildcards (*.csv, *.bbl). Header files
+            auto-excluded. A multi-flight .bbl expands to one report per flight.
   -O, --output-dir <directory>: Output directory (default: source folder).
-  -R, --recursive: Recursively find CSV files in subdirectories.
+  -R, --recursive: Recursively find CSV/BBL files in subdirectories.
 
 === PLOT TYPE SELECTION ===
 
@@ -81,6 +84,9 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 ### Example execution commands
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/BTFL_Log.csv
+```
+```shell
+./target/release/BlackBox_CSV_Render path/to/EMUF_Log.BBL
 ```
 ```shell
 ./target/release/BlackBox_CSV_Render path/to/*LOG*.csv --dps 500 --butterworth

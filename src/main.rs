@@ -12,7 +12,7 @@ mod plot_functions;
 mod report;
 mod types;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -22,7 +22,7 @@ use ndarray::Array1;
 
 use crate::axis_names::AXIS_COUNT;
 use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, AircraftProfile};
-use crate::types::{LogParseResult, StepResponseResults};
+use crate::types::{InputExpansionResult, LogParseResult, StepResponseResults};
 
 // Build version string from git info with fallbacks for builds without vergen metadata
 fn get_version_string() -> String {
@@ -200,6 +200,7 @@ impl Drop for CwdGuard {
 }
 
 // Data input import
+use crate::data_input::bbl_reader::expand_bbl_to_scratch_csvs;
 use crate::data_input::log_data::LogRowData;
 use crate::data_input::log_parser::{self, parse_log_file};
 use crate::data_input::pid_metadata::parse_pid_metadata;
@@ -213,24 +214,30 @@ use crate::data_analysis::calc_step_response::{compute_setpoint_authority, Setpo
 use crate::data_analysis::filter_response;
 
 /// Expand input paths to a list of CSV files.
-/// If a path is a file, validate CSV extension before adding.
-/// If a path is a directory, find CSV files (optionally recursing into subdirectories).
-/// Returns (csv_files, total_skipped_subdirectories)
+/// If a path is a file, validate CSV/BBL extension before adding. A `.bbl`/`.BBL` file is
+/// decoded and expanded into one scratch CSV per embedded flight (see `bbl_origin_dirs` below).
+/// If a path is a directory, find CSV/BBL files (optionally recursing into subdirectories).
+/// Returns (csv_files, total_skipped_subdirectories, bbl_origin_dirs). `bbl_origin_dirs` maps
+/// each BBL-derived scratch CSV path to its source `.bbl`'s own parent directory, so the default
+/// (no `--output-dir`) output location stays next to the file the user actually gave, not the
+/// scratch directory.
 fn expand_input_paths(
     input_paths: &[String],
     recursive: bool,
     debug_mode: bool,
-) -> (Vec<String>, usize) {
+) -> InputExpansionResult {
     let mut csv_files = Vec::new();
     let mut total_skipped = 0;
+    let mut bbl_origin_dirs = HashMap::new();
 
     for input_path_str in input_paths {
         let input_path = Path::new(input_path_str);
 
         if input_path.is_file() {
-            // It's a file, validate CSV extension before adding
+            // It's a file, validate CSV/BBL extension before adding
             if let Some(extension) = input_path.extension() {
-                if extension.to_string_lossy().eq_ignore_ascii_case("csv") {
+                let extension = extension.to_string_lossy();
+                if extension.eq_ignore_ascii_case("csv") {
                     // Skip header files (these are metadata files, not flight logs)
                     let lowercase_path = input_path_str.to_ascii_lowercase();
                     if lowercase_path.ends_with(".header.csv")
@@ -240,18 +247,26 @@ fn expand_input_paths(
                     } else {
                         csv_files.push(input_path_str.clone());
                     }
+                } else if extension.eq_ignore_ascii_case("bbl") {
+                    expand_one_bbl_file(
+                        input_path,
+                        debug_mode,
+                        &mut csv_files,
+                        &mut bbl_origin_dirs,
+                    );
                 } else {
-                    eprintln!("⚠️  Skipping non-CSV file: {}", input_path_str);
+                    eprintln!("⚠️  Skipping unsupported file: {}", input_path_str);
                 }
             } else {
                 eprintln!("⚠️  Skipping file without extension: {}", input_path_str);
             }
         } else if input_path.is_dir() {
-            // It's a directory, find CSV files (recursive only if flag is set)
+            // It's a directory, find CSV/BBL files (recursive only if flag is set)
             match find_csv_files_in_dir(input_path, recursive, debug_mode) {
-                Ok((mut dir_csv_files, skipped_count)) => {
+                Ok((mut dir_csv_files, skipped_count, dir_bbl_origin_dirs)) => {
                     csv_files.append(&mut dir_csv_files);
                     total_skipped += skipped_count;
+                    bbl_origin_dirs.extend(dir_bbl_origin_dirs);
                 }
                 Err(err) => eprintln!("⚠️  Error processing directory {}: {}", input_path_str, err),
             }
@@ -261,33 +276,55 @@ fn expand_input_paths(
         }
     }
 
-    (csv_files, total_skipped)
+    (csv_files, total_skipped, bbl_origin_dirs)
 }
 
-/// Find CSV files in a directory, optionally recursing into subdirectories
-/// Returns (csv_files, skipped_subdirectories_count)
+/// Decodes one `.bbl`/`.BBL` file into its per-flight scratch CSVs and appends them to
+/// `csv_files`, recording each scratch path's source directory in `bbl_origin_dirs`. Errors
+/// (unparseable/corrupt BBL) are reported and the file is skipped, matching the CSV path's
+/// per-file error handling — one bad input must not abort the whole batch.
+fn expand_one_bbl_file(
+    bbl_path: &Path,
+    debug_mode: bool,
+    csv_files: &mut Vec<String>,
+    bbl_origin_dirs: &mut HashMap<String, PathBuf>,
+) {
+    match expand_bbl_to_scratch_csvs(bbl_path, debug_mode) {
+        Ok(flights) => {
+            for (scratch_csv_path, origin_dir) in flights {
+                bbl_origin_dirs.insert(scratch_csv_path.clone(), origin_dir);
+                csv_files.push(scratch_csv_path);
+            }
+        }
+        Err(err) => eprintln!("⚠️  Skipping BBL file {}: {}", bbl_path.display(), err),
+    }
+}
+
+/// Find CSV/BBL files in a directory, optionally recursing into subdirectories
+/// Returns (csv_files, skipped_subdirectories_count, bbl_origin_dirs)
 fn find_csv_files_in_dir(
     dir_path: &Path,
     recursive: bool,
     debug_mode: bool,
-) -> Result<(Vec<String>, usize), Box<dyn Error>> {
+) -> Result<InputExpansionResult, Box<dyn Error>> {
     let mut visited = HashSet::new();
     find_csv_files_in_dir_impl(dir_path, &mut visited, recursive, debug_mode)
 }
 
 /// Internal implementation with symlink loop protection
-/// Returns (csv_files, skipped_subdirectories_count)
+/// Returns (csv_files, skipped_subdirectories_count, bbl_origin_dirs)
 fn find_csv_files_in_dir_impl(
     dir_path: &Path,
     visited: &mut HashSet<PathBuf>,
     recursive: bool,
     debug_mode: bool,
-) -> Result<(Vec<String>, usize), Box<dyn Error>> {
+) -> Result<InputExpansionResult, Box<dyn Error>> {
     let mut csv_files = Vec::new();
     let mut skipped_count = 0;
+    let mut bbl_origin_dirs = HashMap::new();
 
     if !dir_path.is_dir() {
-        return Ok((csv_files, skipped_count));
+        return Ok((csv_files, skipped_count, bbl_origin_dirs));
     }
 
     // Canonicalize path to detect symlink loops
@@ -298,7 +335,7 @@ fn find_csv_files_in_dir_impl(
                 "⚠️  Cannot canonicalize directory path: {}",
                 dir_path.display()
             );
-            return Ok((csv_files, skipped_count));
+            return Ok((csv_files, skipped_count, bbl_origin_dirs));
         }
     };
 
@@ -308,7 +345,7 @@ fn find_csv_files_in_dir_impl(
             "⚠️  Skipping directory due to symlink loop: {}",
             dir_path.display()
         );
-        return Ok((csv_files, skipped_count));
+        return Ok((csv_files, skipped_count, bbl_origin_dirs));
     }
     visited.insert(canonical_path);
 
@@ -320,7 +357,7 @@ fn find_csv_files_in_dir_impl(
                 dir_path.display(),
                 err
             );
-            return Ok((csv_files, skipped_count));
+            return Ok((csv_files, skipped_count, bbl_origin_dirs));
         }
     };
 
@@ -342,9 +379,10 @@ fn find_csv_files_in_dir_impl(
             // Recurse into subdirectories only if recursive flag is set
             if recursive {
                 match find_csv_files_in_dir_impl(&path, visited, recursive, debug_mode) {
-                    Ok((mut sub_csv_files, sub_skipped)) => {
+                    Ok((mut sub_csv_files, sub_skipped, sub_bbl_origin_dirs)) => {
                         csv_files.append(&mut sub_csv_files);
                         skipped_count += sub_skipped;
+                        bbl_origin_dirs.extend(sub_bbl_origin_dirs);
                     }
                     Err(err) => eprintln!(
                         "⚠️  Error processing subdirectory '{}': {}",
@@ -364,9 +402,10 @@ fn find_csv_files_in_dir_impl(
                 }
             }
         } else if path.is_file() {
-            // Check if it's a CSV file
+            // Check if it's a CSV or BBL file
             if let Some(extension) = path.extension() {
-                if extension.to_string_lossy().eq_ignore_ascii_case("csv") {
+                let extension = extension.to_string_lossy();
+                if extension.eq_ignore_ascii_case("csv") {
                     // Skip header files (these are metadata files, not flight logs)
                     if let Some(path_str) = path.to_str() {
                         let lowercase = path_str.to_ascii_lowercase();
@@ -379,6 +418,8 @@ fn find_csv_files_in_dir_impl(
                     } else {
                         eprintln!("⚠️  Skipping file with non-UTF-8 path: {}", path.display());
                     }
+                } else if extension.eq_ignore_ascii_case("bbl") {
+                    expand_one_bbl_file(&path, debug_mode, &mut csv_files, &mut bbl_origin_dirs);
                 }
             }
         }
@@ -386,7 +427,7 @@ fn find_csv_files_in_dir_impl(
 
     // Sort the files for consistent ordering
     csv_files.sort();
-    Ok((csv_files, skipped_count))
+    Ok((csv_files, skipped_count, bbl_origin_dirs))
 }
 
 fn print_usage_and_exit(program_name: &str) {
@@ -396,10 +437,11 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("--- INPUT/OUTPUT OPTIONS ---");
     eprintln!();
     eprintln!(
-        "  <inputX>: CSV files, directories, or wildcards (*.csv). Header files auto-excluded."
+        "  <inputX>: CSV or BBL files, directories, or wildcards (*.csv, *.bbl). Header files"
     );
+    eprintln!("            auto-excluded. A multi-flight .bbl expands to one report per flight.");
     eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
-    eprintln!("  -R, --recursive: Recursively find CSV files in subdirectories.");
+    eprintln!("  -R, --recursive: Recursively find CSV/BBL files in subdirectories.");
     eprintln!();
     eprintln!("--- PLOT TYPE SELECTION ---");
     eprintln!();
@@ -2246,7 +2288,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Expand input paths (files and directories) to a list of CSV files
-    let (input_files, skipped_subdirs) = expand_input_paths(&input_paths, recursive, debug_mode);
+    let (input_files, skipped_subdirs, bbl_origin_dirs) =
+        expand_input_paths(&input_paths, recursive, debug_mode);
 
     // Print summary of skipped subdirectories when not using recursive mode
     if !recursive && skipped_subdirs > 0 {
@@ -2330,7 +2373,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut parsed_cache_iter = parsed_cache.into_iter();
         for input_file_str in group_files {
             let actual_output_dir = match &output_dir {
-                None => Path::new(input_file_str).parent(),
+                None => bbl_origin_dirs
+                    .get(input_file_str)
+                    .map(|p| p.as_path())
+                    .or_else(|| Path::new(input_file_str).parent()),
                 Some(dir) => Some(Path::new(dir)),
             };
             let pre_parsed = parsed_cache_iter.next();
@@ -2348,6 +2394,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 overall_success = false;
             }
         }
+    }
+
+    // Scratch CSVs are only used to feed the parser above; remove them now regardless of outcome.
+    for scratch_csv_path in bbl_origin_dirs.keys() {
+        crate::data_input::bbl_reader::cleanup_scratch_dir(scratch_csv_path);
     }
 
     if overall_success {
@@ -2514,5 +2565,68 @@ mod aircraft_grouping_tests {
 
         assert_eq!(key_a, key_b);
         assert!(!key_a.starts_with("craft:"));
+    }
+}
+
+#[cfg(test)]
+mod bbl_input_expansion_tests {
+    use super::*;
+
+    /// Writes an empty/garbage file with the given extension into a unique temp subdirectory,
+    /// returning its path. Mirrors `aircraft_grouping_tests::write_synthetic_log`'s pattern for
+    /// avoiding cross-test filename collisions under concurrent `cargo test` execution.
+    fn write_garbage_file(file_name: &str) -> PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let unique_id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "bbcsvr_bbl_expand_test_{}_{unique_id}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("failed to create test dir");
+        let path = dir.join(file_name);
+        std::fs::write(&path, b"not a real blackbox log").expect("failed to write test file");
+        path
+    }
+
+    fn cleanup(path: &Path) {
+        if let Some(dir) = path.parent() {
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    /// A `.bbl`/`.BBL` extension (either case) must be dispatched to BBL expansion, not treated
+    /// as an unsupported file — verified indirectly via `expand_one_bbl_file`'s error path, since
+    /// hand-crafting valid binary BBL frame data is impractical in a unit test (real decoding is
+    /// covered by the live smoke test against actual flight logs, not by synthetic fixtures).
+    #[test]
+    fn bbl_extension_is_case_insensitively_dispatched() {
+        for file_name in ["flight.bbl", "flight.BBL", "flight.Bbl"] {
+            let path = write_garbage_file(file_name);
+            let mut csv_files = Vec::new();
+            let mut bbl_origin_dirs = HashMap::new();
+
+            expand_one_bbl_file(&path, false, &mut csv_files, &mut bbl_origin_dirs);
+
+            // Garbage content fails to parse, so no scratch CSV is produced — the assertion here
+            // is that dispatch happened at all (extension matched), not that parsing succeeded.
+            assert!(
+                csv_files.is_empty(),
+                "garbage BBL content must not produce a scratch CSV for {file_name}"
+            );
+            cleanup(&path);
+        }
+    }
+
+    /// An input file with neither a `.csv` nor `.bbl` extension is skipped without affecting
+    /// other inputs in the same batch.
+    #[test]
+    fn unsupported_extension_is_skipped_not_fatal() {
+        let path = write_garbage_file("flight.txt");
+        let (csv_files, _skipped_subdirs, bbl_origin_dirs) =
+            expand_input_paths(&[path.to_string_lossy().to_string()], false, false);
+
+        assert!(csv_files.is_empty());
+        assert!(bbl_origin_dirs.is_empty());
+        cleanup(&path);
     }
 }
