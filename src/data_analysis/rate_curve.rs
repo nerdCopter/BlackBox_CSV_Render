@@ -402,10 +402,12 @@ mod tests {
 
     #[test]
     fn kiss_rate_matches_hand_derivation() {
+        // rc_rates is a firmware uint8_t (max 255), so 250 is the largest realistic input —
+        // a real blackbox header can never contain a value this function can't be tested with.
         // kiss_rc_commandf collapses to rc_rate/1000 at full stick regardless of expo (same
-        // cancellation pattern). kiss_angle = 2000 * (1/(1-0.5)) * (300/1000) = 1200.
+        // cancellation pattern). kiss_angle = 2000 * (1/(1-0.5)) * (250/1000) = 1000.
         let config = parse_rate_curve_config(&headers(&[
-            ("rc_rates", "\"300,300,300\""),
+            ("rc_rates", "\"250,250,250\""),
             ("rc_expo", "\"30,30,30\""),
             ("rates", "\"50,50,50\""),
             ("rates_type", "2"),
@@ -414,8 +416,8 @@ mod tests {
         assert_eq!(config.rates_type, RatesType::Kiss);
         let max_rate = configured_max_rate(&config, 0).unwrap();
         assert!(
-            (max_rate - 1200.0).abs() < 0.01,
-            "expected 1200.0 deg/s, got {max_rate}"
+            (max_rate - 1000.0).abs() < 0.01,
+            "expected 1000.0 deg/s, got {max_rate}"
         );
     }
 
