@@ -380,4 +380,61 @@ mod tests {
         .unwrap();
         assert_eq!(configured_max_rate(&config, 0), None);
     }
+
+    #[test]
+    fn raceflight_rate_matches_hand_derivation() {
+        // rc_commandf collapses to 1.0 at full stick regardless of expo (same cancellation as
+        // Betaflight). angle_rate = 10 * rc_rate * (1 + super_rate/100) = 10*80*1.4 = 1120.
+        let config = parse_rate_curve_config(&headers(&[
+            ("rc_rates", "\"80,80,80\""),
+            ("rc_expo", "\"25,25,25\""),
+            ("rates", "\"40,40,40\""),
+            ("rates_type", "1"),
+        ]))
+        .unwrap();
+        assert_eq!(config.rates_type, RatesType::RaceFlight);
+        let max_rate = configured_max_rate(&config, 0).unwrap();
+        assert!(
+            (max_rate - 1120.0).abs() < 0.01,
+            "expected 1120.0 deg/s, got {max_rate}"
+        );
+    }
+
+    #[test]
+    fn kiss_rate_matches_hand_derivation() {
+        // kiss_rc_commandf collapses to rc_rate/1000 at full stick regardless of expo (same
+        // cancellation pattern). kiss_angle = 2000 * (1/(1-0.5)) * (300/1000) = 1200.
+        let config = parse_rate_curve_config(&headers(&[
+            ("rc_rates", "\"300,300,300\""),
+            ("rc_expo", "\"30,30,30\""),
+            ("rates", "\"50,50,50\""),
+            ("rates_type", "2"),
+        ]))
+        .unwrap();
+        assert_eq!(config.rates_type, RatesType::Kiss);
+        let max_rate = configured_max_rate(&config, 0).unwrap();
+        assert!(
+            (max_rate - 1200.0).abs() < 0.01,
+            "expected 1200.0 deg/s, got {max_rate}"
+        );
+    }
+
+    #[test]
+    fn actual_rate_matches_hand_derivation() {
+        // expof collapses to 1.0 at full stick, so angle_rate = rc_rate*10 + max(0, super_rate*10
+        // - rc_rate*10) = max(rc_rate, super_rate) * 10. With rc_rate=50 < super_rate=90: 900.
+        let config = parse_rate_curve_config(&headers(&[
+            ("rc_rates", "\"50,50,50\""),
+            ("rc_expo", "\"0,0,0\""),
+            ("rates", "\"90,90,90\""),
+            ("rates_type", "3"),
+        ]))
+        .unwrap();
+        assert_eq!(config.rates_type, RatesType::Actual);
+        let max_rate = configured_max_rate(&config, 0).unwrap();
+        assert!(
+            (max_rate - 900.0).abs() < 0.01,
+            "expected 900.0 deg/s, got {max_rate}"
+        );
+    }
 }
