@@ -455,3 +455,7 @@ pub const DEBUG_MODE_GYRO_SCALED: u32 = 6;
 
 /// Multiplier to convert a 0.0-1.0 ratio (e.g. RPM filter harmonic weight) to a percentage.
 pub const RATIO_TO_PERCENT: f64 = 100.0;
+
+/// Number of header metadata entries shown in the `debug_mode` sample dump before truncating
+/// to "... and N more".
+pub const HEADER_METADATA_DEBUG_SAMPLE_LIMIT: usize = 5;
