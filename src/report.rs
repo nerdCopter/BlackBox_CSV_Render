@@ -26,6 +26,7 @@ use crate::plot_functions::plot_d_term_spectrums::DTermAxisResult;
 use crate::plot_functions::plot_gyro_spectrums::GyroAnalysisResult;
 use crate::plot_functions::plot_motor_spectrums::MotorOscillationResult;
 use crate::plot_functions::plot_rc_command_activity::RcCommandStepResult;
+use crate::plot_functions::plot_stick_distribution::StickDistributionResult;
 
 /// D-term recommendation for one tier (conservative, moderate, or aggressive)
 pub struct DTermRec {
@@ -65,6 +66,7 @@ pub struct FlightReport {
     pub motor_results: Vec<MotorOscillationResult>,
     pub motor_desync_results: Vec<MotorDesyncResult>,
     pub rc_command_steps: Vec<RcCommandStepResult>,
+    pub stick_distribution_results: Vec<StickDistributionResult>,
     pub png_links: Vec<String>,
     /// Human-readable labels of plot types that were enabled but produced no plottable data.
     pub skipped_plots: Vec<String>,
@@ -669,6 +671,75 @@ pub fn generate_markdown_report(
             )?;
             writeln!(md)?;
         }
+    }
+
+    // --- Stick Position & Rate Analysis (IT #163) ---
+    let has_stick_distribution_data = report
+        .stick_distribution_results
+        .iter()
+        .any(|r| r.peak_stick.is_some_and(|p| p > 0.0));
+    if has_stick_distribution_data {
+        writeln!(md, "## Stick Position & Rate Analysis")?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "| Axis | Center | Mid | High | Saturation (s) | Center Reversal Rate (Hz) |"
+        )?;
+        writeln!(
+            md,
+            "|------|--------|-----|------|-----------------|---------------------------|"
+        )?;
+        for r in &report.stick_distribution_results {
+            if r.peak_stick.map_or(true, |p| p <= 0.0) {
+                writeln!(md, "| {} | N/A | N/A | N/A | N/A | N/A |", r.axis_name)?;
+                continue;
+            }
+            let reversal_rate = r
+                .center_reversal_rate_hz
+                .map_or("N/A".into(), |v| format!("{:.2}", v));
+            writeln!(
+                md,
+                "| {} | {:.0}% | {:.0}% | {:.0}% | {:.1} | {} |",
+                r.axis_name,
+                r.center_pct,
+                r.mid_pct,
+                r.high_pct,
+                r.saturation_time_s,
+                reversal_rate
+            )?;
+        }
+        writeln!(md)?;
+        writeln!(
+            md,
+            "Center/Mid/High are % of flight time spent below 15%, 15-75%, and above 75% of this axis's own peak RC Command deflection. Saturation is time spent above 95%."
+        )?;
+        writeln!(md)?;
+
+        writeln!(
+            md,
+            "| Axis | P95 Setpoint (deg/s) | P95 Gyro Achieved (deg/s) | Tracking Error (P95) |"
+        )?;
+        writeln!(
+            md,
+            "|------|----------------------|----------------------------|-----------------------|"
+        )?;
+        for r in &report.stick_distribution_results {
+            let p95_setpoint = r.p95_setpoint.map_or("N/A".into(), |v| format!("{:.0}", v));
+            let p95_gyro = r.p95_gyro.map_or("N/A".into(), |v| format!("{:.0}", v));
+            let tracking_error = r
+                .tracking_error_pct
+                .map_or("N/A".into(), |v| format!("{:.1}%", v));
+            writeln!(
+                md,
+                "| {} | {} | {} | {} |",
+                r.axis_name, p95_setpoint, p95_gyro, tracking_error
+            )?;
+        }
+        writeln!(
+            md,
+            "\n95th percentile, not the flight's raw maximum — a single crash/tumble sample can put raw max gyro rate an order of magnitude above the rest of the flight. Tracking Error is N/A when P95 Setpoint is near zero (axis barely commanded this flight) — dividing by a near-zero setpoint would turn ordinary gyro noise into a meaningless triple-digit percentage."
+        )?;
+        writeln!(md)?;
     }
 
     // --- Generated Plots ---

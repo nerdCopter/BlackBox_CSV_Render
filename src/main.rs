@@ -52,6 +52,7 @@ struct PlotConfig {
     pub pid_activity: bool,
     pub rc_command_activity: bool,
     pub motor_erpm: bool,
+    pub stick_distribution: bool,
 }
 
 impl Default for PlotConfig {
@@ -75,6 +76,7 @@ impl Default for PlotConfig {
             pid_activity: false,
             rc_command_activity: true,
             motor_erpm: false,
+            stick_distribution: false,
         }
     }
 }
@@ -99,6 +101,7 @@ impl PlotConfig {
             pid_activity: false,
             rc_command_activity: false,
             motor_erpm: false,
+            stick_distribution: false,
         }
     }
 
@@ -121,6 +124,7 @@ impl PlotConfig {
             pid_activity: true,
             rc_command_activity: true,
             motor_erpm: true,
+            stick_distribution: true,
         }
     }
 }
@@ -171,6 +175,7 @@ use crate::plot_functions::plot_rc_command_activity::plot_rc_command_activity;
 use crate::plot_functions::plot_setpoint_derivative::plot_setpoint_derivative;
 use crate::plot_functions::plot_setpoint_vs_gyro::plot_setpoint_vs_gyro;
 use crate::plot_functions::plot_step_response::plot_step_response;
+use crate::plot_functions::plot_stick_distribution::plot_stick_distribution;
 use crate::plot_functions::plot_throttle_freq_heatmap::plot_throttle_freq_heatmap;
 
 /// RAII guard to ensure current working directory is restored
@@ -407,8 +412,9 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("                   Setpoint vs Gyro, Gyro vs Unfiltered, Motor Spectrums,");
     eprintln!("                   RC Command Activity.");
     eprintln!("  --extended       All plots except Bode — adds PIDsum/Error, PID Activity,");
-    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, heatmaps, and");
-    eprintln!("                   Motor vs eRPM (requires bidirectional DShot telemetry).");
+    eprintln!("                   Setpoint Derivative, Gyro PSD, D-term PSD, heatmaps,");
+    eprintln!("                   Stick Distribution, and Motor vs eRPM (requires");
+    eprintln!("                   bidirectional DShot telemetry).");
     eprintln!("  --step           Step response only.");
     eprintln!("  --bode           Bode only (requires chirp/sweep system-id test flight).");
     eprintln!("  --desync         Motor vs eRPM plot only (needs eRPM telemetry). Desync");
@@ -1871,6 +1877,12 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         vec![]
     };
 
+    let stick_distribution_results = if plot_config.stick_distribution {
+        plot_stick_distribution(&all_log_data, &root_name_string)?
+    } else {
+        vec![]
+    };
+
     // --- Filter configuration (from header metadata, independent of CSV data) ---
     let filter_config = Some(filter_response::parse_filter_config(&header_metadata));
     let dynamic_notch = filter_response::extract_dynamic_notch_range(Some(&header_metadata));
@@ -2032,6 +2044,14 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
             format!("{root_name_string}_RC_Command_Activity_stacked.png"),
         );
     }
+    if plot_config.stick_distribution {
+        push_if_written(
+            &mut png_links,
+            &mut skipped_plots,
+            "Stick Distribution",
+            format!("{root_name_string}_Stick_Distribution_stacked.png"),
+        );
+    }
 
     // --- Markdown Report ---
     // Must run after all plots so png_links is complete.
@@ -2052,6 +2072,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         motor_results,
         motor_desync_results,
         rc_command_steps,
+        stick_distribution_results,
         png_links,
         skipped_plots,
         filter_config,

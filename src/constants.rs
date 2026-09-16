@@ -267,6 +267,17 @@ pub const RC_STEP_MIN_COUNT_FOR_ASSESSMENT: usize = 20;
 pub const COLOR_D_TERM_FILT: &RGBColor = &GREEN; // Use green for filtered D-term (distinct from gyro blue/amber)
 pub const COLOR_D_TERM_UNFILT: &RGBColor = &ORANGE; // Use orange for unfiltered D-term (distinct from gyro yellow)
 
+// Stick Position Distribution (IT #163). Zone boundaries are % of this log's own peak
+// |rc_command| for the axis, not a configured max-rate value — no rate-curve formula
+// (Betaflight/Raceflight/KISS/Actual all differ) is reconstructed from header metadata.
+pub const COLOR_STICK_DISTRIBUTION: &RGBColor = &PURPLE;
+pub const STICK_DIST_ZONE_MARKER_COLOR: RGBColor = RGBColor(128, 128, 128);
+pub const STICK_DIST_CENTER_THRESHOLD_PCT: f64 = 15.0; // Below this: Center zone (fine tracking)
+pub const STICK_DIST_HIGH_THRESHOLD_PCT: f64 = 75.0; // Above this: High zone (large maneuvering input)
+pub const STICK_DIST_SATURATION_THRESHOLD_PCT: f64 = 95.0; // Above this: Saturation (near/at full stick)
+pub const STICK_DIST_HISTOGRAM_BINS: usize = 20; // 5%-wide bins across the 0-100% deflection axis
+pub const STICK_DIST_Y_AXIS_HEADROOM_SCALE: f64 = 1.1; // Headroom above the tallest histogram bin
+
 // Step Response Plot
 pub const COLOR_STEP_RESPONSE_LOW_SP: &RGBColor = &LIGHTBLUE;
 pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE;
