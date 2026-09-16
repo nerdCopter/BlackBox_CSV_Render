@@ -5,13 +5,12 @@ use std::error::Error;
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
     COLOR_STICK_DISTRIBUTION, LINE_WIDTH_PLOT, MOVEMENT_THRESHOLD_DEG_S, RATIO_TO_PERCENT,
-    STICK_DIST_CENTER_THRESHOLD_PCT, STICK_DIST_HIGH_THRESHOLD_PCT, STICK_DIST_HISTOGRAM_BINS,
-    STICK_DIST_SATURATION_THRESHOLD_PCT, STICK_DIST_Y_AXIS_HEADROOM_SCALE,
-    STICK_DIST_ZONE_MARKER_COLOR, UNIFIED_Y_AXIS_PERCENTILE,
+    STICK_DIST_CENTER_THRESHOLD_PCT, STICK_DIST_HIGH_THRESHOLD_PCT,
+    STICK_DIST_SATURATION_THRESHOLD_PCT, STICK_DIST_ZONE_MARKER_COLOR, UNIFIED_Y_AXIS_PERCENTILE,
 };
 use crate::data_analysis::rate_curve::{configured_max_rate, parse_rate_curve_config};
 use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{draw_stacked_plot, PlotSeries, CUTOFF_LINE_PREFIX};
+use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 
 /// Per-axis stick position distribution and rate-utilization statistics.
 /// Zone percentages are relative to this flight's own peak `rc_command` magnitude for the
@@ -59,17 +58,14 @@ struct StickZoneStats {
     high_pct: f64,
     saturation_time_s: f64,
     center_reversal_rate_hz: Option<f64>,
-    /// % of total flight time spent in each 100/STICK_DIST_HISTOGRAM_BINS-wide deflection bin.
-    /// Empty when there is no time-weighted data to bin (see `analyze_stick_zones`).
-    bin_time_pct: Vec<f64>,
 }
 
-/// Walks one axis's (time, rc_command) samples and computes zone-time percentages, a
-/// deflection histogram, and the Center-zone reversal rate.
+/// Walks one axis's (time, rc_command) samples and computes zone-time percentages and the
+/// Center-zone reversal rate.
 ///
 /// Each interval `[points[i], points[i+1])` is classified by the value at its start (the
 /// same sample-and-hold weighting `detect_rc_command_steps` uses for plateau timing), and its
-/// duration credited to that zone/bin — so the result is time-weighted, not sample-count-weighted.
+/// duration credited to that zone — so the result is time-weighted, not sample-count-weighted.
 fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
     if points.len() < 2 {
         return StickZoneStats::default();
@@ -83,8 +79,6 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
         };
     }
 
-    let bin_width = RATIO_TO_PERCENT / STICK_DIST_HISTOGRAM_BINS as f64;
-    let mut bin_time = [0.0_f64; STICK_DIST_HISTOGRAM_BINS];
     let mut center_time = 0.0_f64;
     let mut mid_time = 0.0_f64;
     let mut high_time = 0.0_f64;
@@ -113,9 +107,6 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
         if pct >= STICK_DIST_SATURATION_THRESHOLD_PCT {
             saturation_time += dt;
         }
-
-        let bin_idx = ((pct / bin_width) as usize).min(STICK_DIST_HISTOGRAM_BINS - 1);
-        bin_time[bin_idx] += dt;
 
         // Reversal = a sign change of rc_command while continuously inside the Center zone.
         // Leaving the Center zone resets tracking, so a real transit out to Mid/High and back
@@ -151,10 +142,6 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
         // outside it — two flights with identical center-jitter behavior but different
         // center-zone occupancy should report the same rate here.
         center_reversal_rate_hz: (center_time > 0.0).then(|| reversal_count as f64 / center_time),
-        bin_time_pct: bin_time
-            .iter()
-            .map(|t| (t / total_time) * RATIO_TO_PERCENT)
-            .collect(),
     }
 }
 
@@ -173,9 +160,10 @@ fn percentile_95(values: &mut [f64]) -> Option<f64> {
 /// returns the underlying per-axis statistics for the markdown report.
 ///
 /// Plots `rc_command` (the pre-rate-curve stick input, already labeled "stick position" by
-/// `plot_rc_command_activity`) as a time-weighted deflection histogram, with reference lines at
-/// the Center/High/Saturation zone boundaries. Rate utilization (max Setpoint vs. max Gyro
-/// achieved) is computed independently from the same log rows.
+/// `plot_rc_command_activity`) as a time-domain trace of % of this flight's own peak deflection,
+/// in the same style as `plot_rc_command_activity`'s Setpoint/RC Command overlay, with
+/// horizontal reference lines at the Center/High/Saturation zone boundaries. Rate utilization
+/// (P95 Setpoint vs. P95 Gyro achieved) is computed independently from the same log rows.
 pub fn plot_stick_distribution(
     log_data: &[LogRowData],
     root_name: &str,
@@ -247,58 +235,55 @@ pub fn plot_stick_distribution(
         zone_stats.push(stats);
     }
 
-    let bin_width = RATIO_TO_PERCENT / STICK_DIST_HISTOGRAM_BINS as f64;
-
     draw_stacked_plot(&output_file, root_name, plot_type_name, move |axis_index| {
         let stats = &zone_stats[axis_index];
-        if stats.bin_time_pct.is_empty() {
+        let peak = stats.peak_stick.filter(|p| *p > 0.0)?;
+        let points = &rc_points[axis_index];
+        if points.len() < 2 {
             return None;
         }
 
-        let y_max = (stats.bin_time_pct.iter().cloned().fold(0.0_f64, f64::max)
-            * STICK_DIST_Y_AXIS_HEADROOM_SCALE)
-            .max(1.0);
-
-        let mut hist_points: Vec<(f64, f64)> = Vec::with_capacity(stats.bin_time_pct.len() * 2);
-        for (bin_idx, pct) in stats.bin_time_pct.iter().enumerate() {
-            let lo = bin_idx as f64 * bin_width;
-            let hi = lo + bin_width;
-            hist_points.push((lo, *pct));
-            hist_points.push((hi, *pct));
-        }
+        let deflection_series: Vec<(f64, f64)> = points
+            .iter()
+            .map(|(t, v)| (*t, (v.abs() / peak) * RATIO_TO_PERCENT))
+            .collect();
+        let time_min = deflection_series.first()?.0;
+        let time_max = deflection_series.last()?.0;
 
         let mut series = vec![PlotSeries {
-            data: hist_points,
-            label: "Time in Deflection Bin (%)".to_string(),
+            data: deflection_series,
+            label: "Stick Deflection (% of this flight's peak)".to_string(),
             color: *COLOR_STICK_DISTRIBUTION,
             stroke_width: LINE_WIDTH_PLOT,
         }];
 
+        // Horizontal zone-boundary markers, spanning the full time range. Empty label skips
+        // the legend entry — three near-identical "boundary" rows would just be noise there.
         for boundary in [
             STICK_DIST_CENTER_THRESHOLD_PCT,
             STICK_DIST_HIGH_THRESHOLD_PCT,
             STICK_DIST_SATURATION_THRESHOLD_PCT,
         ] {
             series.push(PlotSeries {
-                data: vec![(boundary, 0.0), (boundary, y_max)],
-                label: format!("{CUTOFF_LINE_PREFIX}{boundary}"),
+                data: vec![(time_min, boundary), (time_max, boundary)],
+                label: String::new(),
                 color: STICK_DIST_ZONE_MARKER_COLOR,
                 stroke_width: 1,
             });
         }
 
         let title = format!(
-            "{} Stick Position Distribution \u{2014} Center {:.0}% / Mid {:.0}% / High {:.0}% (Saturation {:.1}s)",
+            "{} Stick Position \u{2014} Center {:.0}% / Mid {:.0}% / High {:.0}% (Saturation {:.1}s)",
             AXIS_NAMES[axis_index], stats.center_pct, stats.mid_pct, stats.high_pct, stats.saturation_time_s
         );
 
         Some((
             title,
+            time_min..time_max,
             0.0..RATIO_TO_PERCENT,
-            0.0..y_max,
             series,
+            "Time (s)".to_string(),
             "Stick Deflection (% of this flight's peak)".to_string(),
-            "Time in Bin (%)".to_string(),
         ))
     })?;
 
@@ -350,17 +335,16 @@ mod tests {
     }
 
     #[test]
-    fn zero_deflection_log_has_no_peak_and_empty_histogram() {
+    fn zero_deflection_log_has_no_peak() {
         let points = points_from(&[0.0, 0.0, 0.0]);
         let stats = analyze_stick_zones(&points);
         assert_eq!(stats.peak_stick, Some(0.0));
-        assert!(stats.bin_time_pct.is_empty());
+        assert_eq!(stats.center_pct, 0.0);
     }
 
     #[test]
     fn fewer_than_two_samples_returns_default() {
         let stats = analyze_stick_zones(&points_from(&[1.0]));
         assert_eq!(stats.peak_stick, None);
-        assert!(stats.bin_time_pct.is_empty());
     }
 }

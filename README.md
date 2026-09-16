@@ -162,7 +162,7 @@ fix. `--estimate-optimal-p` in particular still splits across trim and no-trim �
 - `*_Gyro_PSD_Spectrogram_comparative.png` — Gyro spectrogram (PSD vs. time)
 - `*_Throttle_Freq_Heatmap_comparative.png` — Throttle/frequency heatmap analysis
 - `*_Motor_vs_eRPM_stacked.png` — One row per motor, commanded output and eRPM telemetry overlaid, each normalized to its own 0-100% range; vertical markers at every Motor Desync Detection event timestamp. Skipped when the log has no eRPM telemetry.
-- `*_Stick_Distribution_stacked.png` — Per-axis time-weighted histogram of RC Command (stick position) deflection, 0-100% of that axis's own peak for the flight, with reference lines at the Center/High/Saturation zone boundaries.
+- `*_Stick_Distribution_stacked.png` — Per-axis time-domain trace of RC Command (stick position) deflection as % of that axis's own peak for the flight, with horizontal reference lines at the Center/High/Saturation zone boundaries.
 
 #### Markdown Report (always generated)
 

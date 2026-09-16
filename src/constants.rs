@@ -275,8 +275,6 @@ pub const STICK_DIST_ZONE_MARKER_COLOR: RGBColor = RGBColor(128, 128, 128);
 pub const STICK_DIST_CENTER_THRESHOLD_PCT: f64 = 15.0; // Below this: Center zone (fine tracking)
 pub const STICK_DIST_HIGH_THRESHOLD_PCT: f64 = 75.0; // Above this: High zone (large maneuvering input)
 pub const STICK_DIST_SATURATION_THRESHOLD_PCT: f64 = 95.0; // Above this: Saturation (near/at full stick)
-pub const STICK_DIST_HISTOGRAM_BINS: usize = 20; // 5%-wide bins across the 0-100% deflection axis
-pub const STICK_DIST_Y_AXIS_HEADROOM_SCALE: f64 = 1.1; // Headroom above the tallest histogram bin
 
 // Rate curve (RC Rate/Expo/Super Rate -> configured max setpoint, deg/s). Mirrors
 // applyBetaflightRates/applyRaceFlightRates/applyKissRates/applyActualRates/applyQuickRates in
