@@ -2373,10 +2373,19 @@ Some files could not be processed successfully."
 mod aircraft_grouping_tests {
     use super::*;
 
-    /// Writes a synthetic log CSV with an embedded header block, followed by one data row.
+    /// Writes a synthetic log CSV with an embedded header block, followed by one data row,
+    /// inside a unique temp subdirectory. `cargo test` runs tests concurrently by default, so
+    /// two tests writing/removing the same OS temp-dir path race non-deterministically; a
+    /// unique subdirectory (rather than a filename suffix) keeps the exact filename callers
+    /// ask for, since `extract_aircraft_key`'s date-pattern parsing is sensitive to it.
     /// `header_lines` are raw `key,value` lines emitted before the CSV data-header row.
     fn write_synthetic_log(file_name: &str, header_lines: &[&str]) -> PathBuf {
-        let path = std::env::temp_dir().join(file_name);
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let unique_id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("bbcsvr_test_{}_{unique_id}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("failed to create synthetic test log dir");
+        let path = dir.join(file_name);
         let mut contents = String::new();
         for line in header_lines {
             contents.push_str(line);
@@ -2387,11 +2396,19 @@ mod aircraft_grouping_tests {
         path
     }
 
+    /// Removes a synthetic log and the unique temp subdirectory `write_synthetic_log` created
+    /// for it.
+    fn cleanup_synthetic_log(path: &Path) {
+        if let Some(dir) = path.parent() {
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
     #[test]
     fn header_craft_name_overrides_generic_filename_key() {
         let path = write_synthetic_log("bbcsvr_test_craft_override.csv", &["Craft name,MyQuad"]);
         let key = aircraft_group_key(&path, false, true);
-        std::fs::remove_file(&path).ok();
+        cleanup_synthetic_log(&path);
         assert_eq!(key, "craft:MyQuad");
     }
 
@@ -2400,7 +2417,7 @@ mod aircraft_grouping_tests {
         let path = write_synthetic_log("bbcsvr_test_craft_disabled.csv", &["Craft name,MyQuad"]);
         let key = aircraft_group_key(&path, false, false);
         let expected = extract_aircraft_key(&path);
-        std::fs::remove_file(&path).ok();
+        cleanup_synthetic_log(&path);
         assert_eq!(key, expected);
         assert!(!key.starts_with("craft:"));
     }
@@ -2413,7 +2430,7 @@ mod aircraft_grouping_tests {
         );
         let key = aircraft_group_key(&path, false, true);
         let expected = extract_aircraft_key(&path);
-        std::fs::remove_file(&path).ok();
+        cleanup_synthetic_log(&path);
         assert_eq!(key, expected);
         assert!(!key.starts_with("craft:"));
     }
@@ -2423,7 +2440,7 @@ mod aircraft_grouping_tests {
         let path = write_synthetic_log("bbcsvr_test_no_header_at_all.csv", &[]);
         let key = aircraft_group_key(&path, false, true);
         let expected = extract_aircraft_key(&path);
-        std::fs::remove_file(&path).ok();
+        cleanup_synthetic_log(&path);
         assert_eq!(key, expected);
     }
 
@@ -2432,7 +2449,7 @@ mod aircraft_grouping_tests {
         let path = write_synthetic_log("bbcsvr_test_blank_craft_name.csv", &["Craft name,   "]);
         let key = aircraft_group_key(&path, false, true);
         let expected = extract_aircraft_key(&path);
-        std::fs::remove_file(&path).ok();
+        cleanup_synthetic_log(&path);
         assert_eq!(key, expected);
         assert!(!key.starts_with("craft:"));
     }
@@ -2447,7 +2464,7 @@ mod aircraft_grouping_tests {
             &["Craft name,", "Craft name,MyQuad"],
         );
         let key = aircraft_group_key(&path, false, true);
-        std::fs::remove_file(&path).ok();
+        cleanup_synthetic_log(&path);
         assert_eq!(key, "craft:MyQuad");
     }
 
@@ -2471,8 +2488,8 @@ mod aircraft_grouping_tests {
 
         let key_a = aircraft_group_key(&path_a, false, true);
         let key_b = aircraft_group_key(&path_b, false, true);
-        std::fs::remove_file(&path_a).ok();
-        std::fs::remove_file(&path_b).ok();
+        cleanup_synthetic_log(&path_a);
+        cleanup_synthetic_log(&path_b);
 
         assert_ne!(key_a, key_b);
         assert_eq!(key_a, "craft:QuadA");
@@ -2492,8 +2509,8 @@ mod aircraft_grouping_tests {
 
         let key_a = aircraft_group_key(&path_a, false, true);
         let key_b = aircraft_group_key(&path_b, false, true);
-        std::fs::remove_file(&path_a).ok();
-        std::fs::remove_file(&path_b).ok();
+        cleanup_synthetic_log(&path_a);
+        cleanup_synthetic_log(&path_b);
 
         assert_eq!(key_a, key_b);
         assert!(!key_a.starts_with("craft:"));
