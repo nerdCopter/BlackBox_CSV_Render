@@ -6,6 +6,7 @@ use crate::constants::{
     STICK_DIST_SATURATION_THRESHOLD_PCT, UNIFIED_Y_AXIS_PERCENTILE,
 };
 use crate::data_analysis::rate_curve::{configured_max_rate, parse_rate_curve_config};
+use crate::data_analysis::threshold_events::count_rising_edge_events;
 use crate::data_input::log_data::LogRowData;
 
 /// Per-axis stick position distribution and rate-utilization statistics.
@@ -74,12 +75,20 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
         };
     }
 
+    // Normalized (time, % of peak) series, shared by the zone/reversal loop below and by the
+    // Saturation Events count, which delegates to the generic level-crossing counter rather
+    // than duplicating its own rising-edge state machine.
+    let pct_points: Vec<(f64, f64)> = points
+        .iter()
+        .map(|(t, v)| (*t, (v.abs() / peak) * RATIO_TO_PERCENT))
+        .collect();
+    let saturation_event_count =
+        count_rising_edge_events(&pct_points, STICK_DIST_SATURATION_THRESHOLD_PCT);
+
     let mut center_time = 0.0_f64;
     let mut mid_time = 0.0_f64;
     let mut high_time = 0.0_f64;
     let mut saturation_time = 0.0_f64;
-    let mut saturation_event_count: u32 = 0;
-    let mut was_saturated = false;
     let mut total_time = 0.0_f64;
     let mut reversal_count: u64 = 0;
     let mut prev_sign: Option<f64> = None;
@@ -101,14 +110,9 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
         } else {
             high_time += dt;
         }
-        let is_saturated = pct >= STICK_DIST_SATURATION_THRESHOLD_PCT;
-        if is_saturated {
+        if pct >= STICK_DIST_SATURATION_THRESHOLD_PCT {
             saturation_time += dt;
-            if !was_saturated {
-                saturation_event_count += 1;
-            }
         }
-        was_saturated = is_saturated;
 
         // Reversal = a sign change of rc_command while continuously inside the Center zone.
         // Leaving the Center zone resets tracking, so a real transit out to Mid/High and back

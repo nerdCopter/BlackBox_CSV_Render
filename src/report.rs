@@ -745,7 +745,7 @@ pub fn generate_markdown_report(
         }
         writeln!(
             md,
-            "\nP95 Setpoint/P95 Gyro Achieved use the 95th percentile, not the flight's raw maximum — a single crash/tumble sample can put raw max gyro rate an order of magnitude above the rest of the flight. Configured Max Rate is the setpoint at full stick deflection, computed from this log's own rc_rates/rc_expo/rates/rates_type/rate_limits headers — N/A when the header set is incomplete. Rate Headroom is P95 Setpoint as a % of Configured Max Rate."
+            "\nP95 Setpoint/P95 Gyro Achieved use the 95th percentile, not the flight's raw maximum — a single crash/tumble sample can put raw max gyro rate an order of magnitude above the rest of the flight. Configured Max Rate is the setpoint at full stick deflection, computed from this log's own rc_rates/rc_expo/rates/rates_type/rate_limits headers — N/A when the header set is incomplete. Rate Headroom is P95 Setpoint as a % of Configured Max Rate. For tracking quality (how closely gyro follows setpoint), see the Step Response Analysis section above — not duplicated here."
         )?;
         writeln!(md)?;
     }
