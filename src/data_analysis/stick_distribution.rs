@@ -1,16 +1,12 @@
-// src/plot_functions/plot_stick_distribution.rs
-
-use std::error::Error;
+// src/data_analysis/stick_distribution.rs
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    COLOR_STICK_DISTRIBUTION, LINE_WIDTH_PLOT, MOVEMENT_THRESHOLD_DEG_S, RATIO_TO_PERCENT,
-    STICK_DIST_CENTER_THRESHOLD_PCT, STICK_DIST_HIGH_THRESHOLD_PCT,
-    STICK_DIST_SATURATION_THRESHOLD_PCT, STICK_DIST_ZONE_MARKER_COLOR, UNIFIED_Y_AXIS_PERCENTILE,
+    RATIO_TO_PERCENT, STICK_DIST_CENTER_THRESHOLD_PCT, STICK_DIST_HIGH_THRESHOLD_PCT,
+    STICK_DIST_SATURATION_THRESHOLD_PCT, UNIFIED_Y_AXIS_PERCENTILE,
 };
 use crate::data_analysis::rate_curve::{configured_max_rate, parse_rate_curve_config};
 use crate::data_input::log_data::LogRowData;
-use crate::plot_framework::{draw_stacked_plot, PlotSeries};
 
 /// Per-axis stick position distribution and rate-utilization statistics.
 /// Zone percentages are relative to this flight's own peak `rc_command` magnitude for the
@@ -24,17 +20,15 @@ pub struct StickDistributionResult {
     pub mid_pct: f64,
     pub high_pct: f64,
     pub saturation_time_s: f64,
+    /// Count of discrete transitions into Saturation (>95%) from below — how many separate
+    /// times the stick hit the extreme, not how long each one lasted (`saturation_time_s`).
+    pub saturation_event_count: u32,
     /// 95th percentile of |setpoint|/|gyro| for this axis, not the raw maximum — a single
     /// crash/tumble sample can put raw max gyro rate an order of magnitude above every other
     /// sample in the flight (same outlier problem `plot_setpoint_vs_gyro`'s Y-axis scaling
-    /// guards against), which would make a max-based tracking-error figure meaningless.
+    /// guards against).
     pub p95_setpoint: Option<f64>,
     pub p95_gyro: Option<f64>,
-    /// `(|p95_gyro| - |p95_setpoint|).abs() / |p95_setpoint| * 100`.
-    /// `None` when p95_setpoint is below `MOVEMENT_THRESHOLD_DEG_S` — a small denominator turns
-    /// ordinary gyro noise on a barely-touched axis into a percentage in the hundreds or
-    /// thousands, which isn't a real tracking failure.
-    pub tracking_error_pct: Option<f64>,
     /// Sign-reversal rate of RC Command while inside the Center zone, in Hz — reversal count
     /// divided by time actually spent in the Center zone, not by total flight time, so it
     /// isn't diluted by however much of the flight was spent outside Center.
@@ -57,6 +51,7 @@ struct StickZoneStats {
     mid_pct: f64,
     high_pct: f64,
     saturation_time_s: f64,
+    saturation_event_count: u32,
     center_reversal_rate_hz: Option<f64>,
 }
 
@@ -83,6 +78,8 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
     let mut mid_time = 0.0_f64;
     let mut high_time = 0.0_f64;
     let mut saturation_time = 0.0_f64;
+    let mut saturation_event_count: u32 = 0;
+    let mut was_saturated = false;
     let mut total_time = 0.0_f64;
     let mut reversal_count: u64 = 0;
     let mut prev_sign: Option<f64> = None;
@@ -104,9 +101,14 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
         } else {
             high_time += dt;
         }
-        if pct >= STICK_DIST_SATURATION_THRESHOLD_PCT {
+        let is_saturated = pct >= STICK_DIST_SATURATION_THRESHOLD_PCT;
+        if is_saturated {
             saturation_time += dt;
+            if !was_saturated {
+                saturation_event_count += 1;
+            }
         }
+        was_saturated = is_saturated;
 
         // Reversal = a sign change of rc_command while continuously inside the Center zone.
         // Leaving the Center zone resets tracking, so a real transit out to Mid/High and back
@@ -138,6 +140,7 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
         mid_pct: (mid_time / total_time) * RATIO_TO_PERCENT,
         high_pct: (high_time / total_time) * RATIO_TO_PERCENT,
         saturation_time_s: saturation_time,
+        saturation_event_count,
         // Density of reversals within Center-zone dwell time, not diluted by time spent
         // outside it — two flights with identical center-jitter behavior but different
         // center-zone occupancy should report the same rate here.
@@ -156,21 +159,15 @@ fn percentile_95(values: &mut [f64]) -> Option<f64> {
     Some(values[idx])
 }
 
-/// Generates the Stick Position Distribution histogram plot per axis (Roll, Pitch, Yaw), and
-/// returns the underlying per-axis statistics for the markdown report.
-///
-/// Plots `rc_command` (the pre-rate-curve stick input, already labeled "stick position" by
-/// `plot_rc_command_activity`) as a time-domain trace of % of this flight's own peak deflection,
-/// in the same style as `plot_rc_command_activity`'s Setpoint/RC Command overlay, with
-/// horizontal reference lines at the Center/High/Saturation zone boundaries. Rate utilization
-/// (P95 Setpoint vs. P95 Gyro achieved) is computed independently from the same log rows.
-pub fn plot_stick_distribution(
+/// Computes per-axis stick position distribution and rate-utilization statistics for the
+/// markdown report. Report-only — no plot is generated; `rc_command` (the pre-rate-curve stick
+/// input) is already visualized over time by `plot_rc_command_activity`, and a deflection
+/// histogram/CDF plot tried for this feature added confusion without adding information the
+/// report table doesn't already state directly.
+pub fn analyze_stick_distribution(
     log_data: &[LogRowData],
-    root_name: &str,
     header_metadata: Option<&[(String, String)]>,
-) -> Result<Vec<StickDistributionResult>, Box<dyn Error>> {
-    let output_file = format!("{root_name}_Stick_Distribution_stacked.png");
-    let plot_type_name = "Stick Distribution";
+) -> Vec<StickDistributionResult> {
     let axis_count = AXIS_NAMES.len();
     let rate_curve_config = header_metadata.and_then(parse_rate_curve_config);
 
@@ -197,18 +194,11 @@ pub fn plot_stick_distribution(
     }
 
     let mut results = Vec::with_capacity(axis_count);
-    let mut zone_stats = Vec::with_capacity(axis_count);
 
     for axis in 0..axis_count {
         let stats = analyze_stick_zones(&rc_points[axis]);
         let p95_setpoint = percentile_95(&mut setpoint_abs[axis]);
         let p95_gyro = percentile_95(&mut gyro_abs[axis]);
-        let tracking_error_pct = match (p95_setpoint, p95_gyro) {
-            (Some(sp), Some(g)) if sp.abs() >= MOVEMENT_THRESHOLD_DEG_S => {
-                Some(((g - sp).abs() / sp) * RATIO_TO_PERCENT)
-            }
-            _ => None,
-        };
 
         let max_rate = rate_curve_config
             .as_ref()
@@ -225,69 +215,16 @@ pub fn plot_stick_distribution(
             mid_pct: stats.mid_pct,
             high_pct: stats.high_pct,
             saturation_time_s: stats.saturation_time_s,
+            saturation_event_count: stats.saturation_event_count,
             p95_setpoint,
             p95_gyro,
-            tracking_error_pct,
             center_reversal_rate_hz: stats.center_reversal_rate_hz,
             configured_max_rate: max_rate,
             rate_headroom_pct,
         });
-        zone_stats.push(stats);
     }
 
-    draw_stacked_plot(&output_file, root_name, plot_type_name, move |axis_index| {
-        let stats = &zone_stats[axis_index];
-        let peak = stats.peak_stick.filter(|p| *p > 0.0)?;
-        let points = &rc_points[axis_index];
-        if points.len() < 2 {
-            return None;
-        }
-
-        let deflection_series: Vec<(f64, f64)> = points
-            .iter()
-            .map(|(t, v)| (*t, (v.abs() / peak) * RATIO_TO_PERCENT))
-            .collect();
-        let time_min = deflection_series.first()?.0;
-        let time_max = deflection_series.last()?.0;
-
-        let mut series = vec![PlotSeries {
-            data: deflection_series,
-            label: "Stick Deflection (% of this flight's peak)".to_string(),
-            color: *COLOR_STICK_DISTRIBUTION,
-            stroke_width: LINE_WIDTH_PLOT,
-        }];
-
-        // Horizontal zone-boundary markers, spanning the full time range. Empty label skips
-        // the legend entry — three near-identical "boundary" rows would just be noise there.
-        for boundary in [
-            STICK_DIST_CENTER_THRESHOLD_PCT,
-            STICK_DIST_HIGH_THRESHOLD_PCT,
-            STICK_DIST_SATURATION_THRESHOLD_PCT,
-        ] {
-            series.push(PlotSeries {
-                data: vec![(time_min, boundary), (time_max, boundary)],
-                label: String::new(),
-                color: STICK_DIST_ZONE_MARKER_COLOR,
-                stroke_width: 1,
-            });
-        }
-
-        let title = format!(
-            "{} Stick Position \u{2014} Center {:.0}% / Mid {:.0}% / High {:.0}% (Saturation {:.1}s)",
-            AXIS_NAMES[axis_index], stats.center_pct, stats.mid_pct, stats.high_pct, stats.saturation_time_s
-        );
-
-        Some((
-            title,
-            time_min..time_max,
-            0.0..RATIO_TO_PERCENT,
-            series,
-            "Time (s)".to_string(),
-            "Stick Deflection (% of this flight's peak)".to_string(),
-        ))
-    })?;
-
-    Ok(results)
+    results
 }
 
 #[cfg(test)]
@@ -323,6 +260,16 @@ mod tests {
         let stats = analyze_stick_zones(&points);
         assert!(stats.saturation_time_s > 0.0);
         assert!(stats.high_pct > 0.0);
+        assert_eq!(stats.saturation_event_count, 1);
+    }
+
+    #[test]
+    fn saturation_events_count_separate_excursions_not_samples() {
+        // Two separate trips into saturation (>95%), each held for two samples, separated by a
+        // return to center — must count as 2 events, not 4 (one per saturated sample).
+        let points = points_from(&[100.0, 100.0, 0.0, 0.0, 100.0, 100.0, 0.0]);
+        let stats = analyze_stick_zones(&points);
+        assert_eq!(stats.saturation_event_count, 2);
     }
 
     #[test]

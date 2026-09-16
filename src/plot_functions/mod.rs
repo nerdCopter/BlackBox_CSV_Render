@@ -20,7 +20,6 @@ pub mod plot_rc_command_activity;
 pub mod plot_setpoint_derivative;
 pub mod plot_setpoint_vs_gyro;
 pub mod plot_step_response;
-pub mod plot_stick_distribution;
 pub mod plot_throttle_freq_heatmap;
 
 // Helper function for formatting debug suffix in plot labels

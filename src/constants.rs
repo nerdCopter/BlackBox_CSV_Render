@@ -270,8 +270,7 @@ pub const COLOR_D_TERM_UNFILT: &RGBColor = &ORANGE; // Use orange for unfiltered
 // Stick Position Distribution. Zone boundaries are % of this log's own peak
 // |rc_command| for the axis — a data-driven reference, independent of the rate-curve
 // computation below (see RATE_CURVE_* — configured max rate is reported separately).
-pub const COLOR_STICK_DISTRIBUTION: &RGBColor = &PURPLE;
-pub const STICK_DIST_ZONE_MARKER_COLOR: RGBColor = RGBColor(128, 128, 128);
+// Report-only (no plot): see src/data_analysis/stick_distribution.rs.
 pub const STICK_DIST_CENTER_THRESHOLD_PCT: f64 = 15.0; // Below this: Center zone (fine tracking)
 pub const STICK_DIST_HIGH_THRESHOLD_PCT: f64 = 75.0; // Above this: High zone (large maneuvering input)
 pub const STICK_DIST_SATURATION_THRESHOLD_PCT: f64 = 95.0; // Above this: Saturation (near/at full stick)

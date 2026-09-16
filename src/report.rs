@@ -17,6 +17,7 @@ use crate::data_analysis::filter_response::{
     AllFilterConfigs, DynamicNotchConfig, RpmFilterConfig,
 };
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
+use crate::data_analysis::stick_distribution::StickDistributionResult;
 use crate::data_analysis::transfer_function_estimation::Confidence;
 use crate::plot_functions::motor_desync::{
     fallback_oscillation_overlaps, DesyncConfidence, MotorDesyncResult,
@@ -26,7 +27,6 @@ use crate::plot_functions::plot_d_term_spectrums::DTermAxisResult;
 use crate::plot_functions::plot_gyro_spectrums::GyroAnalysisResult;
 use crate::plot_functions::plot_motor_spectrums::MotorOscillationResult;
 use crate::plot_functions::plot_rc_command_activity::RcCommandStepResult;
-use crate::plot_functions::plot_stick_distribution::StickDistributionResult;
 
 /// D-term recommendation for one tier (conservative, moderate, or aggressive)
 pub struct DTermRec {
@@ -683,15 +683,19 @@ pub fn generate_markdown_report(
         writeln!(md)?;
         writeln!(
             md,
-            "| Axis | Center | Mid | High | Saturation (s) | Center Reversal Rate (Hz) |"
+            "| Axis | Center | Mid | High | Saturation (s) | Saturation Events | Center Reversal Rate (Hz) |"
         )?;
         writeln!(
             md,
-            "|------|--------|-----|------|-----------------|---------------------------|"
+            "|------|--------|-----|------|-----------------|--------------------|---------------------------|"
         )?;
         for r in &report.stick_distribution_results {
             if r.peak_stick.map_or(true, |p| p <= 0.0) {
-                writeln!(md, "| {} | N/A | N/A | N/A | N/A | N/A |", r.axis_name)?;
+                writeln!(
+                    md,
+                    "| {} | N/A | N/A | N/A | N/A | N/A | N/A |",
+                    r.axis_name
+                )?;
                 continue;
             }
             let reversal_rate = r
@@ -699,36 +703,34 @@ pub fn generate_markdown_report(
                 .map_or("N/A".into(), |v| format!("{:.2}", v));
             writeln!(
                 md,
-                "| {} | {:.0}% | {:.0}% | {:.0}% | {:.1} | {} |",
+                "| {} | {:.0}% | {:.0}% | {:.0}% | {:.1} | {} | {} |",
                 r.axis_name,
                 r.center_pct,
                 r.mid_pct,
                 r.high_pct,
                 r.saturation_time_s,
+                r.saturation_event_count,
                 reversal_rate
             )?;
         }
         writeln!(md)?;
         writeln!(
             md,
-            "Center/Mid/High are % of flight time spent below 15%, 15-75%, and above 75% of this axis's own peak RC Command deflection. Saturation is time spent above 95%."
+            "Center/Mid/High are % of flight time spent below 15%, 15-75%, and above 75% of this axis's own peak RC Command deflection. Saturation is time spent above 95%; Saturation Events counts separate excursions above that threshold, not cumulative time."
         )?;
         writeln!(md)?;
 
         writeln!(
             md,
-            "| Axis | P95 Setpoint (deg/s) | P95 Gyro Achieved (deg/s) | Tracking Error (P95) | Configured Max Rate (deg/s) | Rate Headroom (P95) |"
+            "| Axis | P95 Setpoint (deg/s) | P95 Gyro Achieved (deg/s) | Configured Max Rate (deg/s) | Rate Headroom (P95) |"
         )?;
         writeln!(
             md,
-            "|------|----------------------|----------------------------|-----------------------|------------------------------|----------------------|"
+            "|------|----------------------|----------------------------|------------------------------|----------------------|"
         )?;
         for r in &report.stick_distribution_results {
             let p95_setpoint = r.p95_setpoint.map_or("N/A".into(), |v| format!("{:.0}", v));
             let p95_gyro = r.p95_gyro.map_or("N/A".into(), |v| format!("{:.0}", v));
-            let tracking_error = r
-                .tracking_error_pct
-                .map_or("N/A".into(), |v| format!("{:.1}%", v));
             let configured_max_rate = r
                 .configured_max_rate
                 .map_or("N/A".into(), |v| format!("{:.0}", v));
@@ -737,18 +739,13 @@ pub fn generate_markdown_report(
                 .map_or("N/A".into(), |v| format!("{:.0}%", v));
             writeln!(
                 md,
-                "| {} | {} | {} | {} | {} | {} |",
-                r.axis_name,
-                p95_setpoint,
-                p95_gyro,
-                tracking_error,
-                configured_max_rate,
-                rate_headroom
+                "| {} | {} | {} | {} | {} |",
+                r.axis_name, p95_setpoint, p95_gyro, configured_max_rate, rate_headroom
             )?;
         }
         writeln!(
             md,
-            "\n95th percentile, not the flight's raw maximum — a single crash/tumble sample can put raw max gyro rate an order of magnitude above the rest of the flight. Tracking Error is N/A when P95 Setpoint is near zero (axis barely commanded this flight) — dividing by a near-zero setpoint would turn ordinary gyro noise into a meaningless triple-digit percentage. Configured Max Rate is the setpoint at full stick deflection, computed from this log's own rc_rates/rc_expo/rates/rates_type/rate_limits headers — N/A when the header set is incomplete. Rate Headroom is P95 Setpoint as a % of Configured Max Rate."
+            "\nP95 Setpoint/P95 Gyro Achieved use the 95th percentile, not the flight's raw maximum — a single crash/tumble sample can put raw max gyro rate an order of magnitude above the rest of the flight. Configured Max Rate is the setpoint at full stick deflection, computed from this log's own rc_rates/rc_expo/rates/rates_type/rate_limits headers — N/A when the header set is incomplete. Rate Headroom is P95 Setpoint as a % of Configured Max Rate."
         )?;
         writeln!(md)?;
     }
