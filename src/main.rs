@@ -281,6 +281,22 @@ fn expand_input_paths(
     (csv_files, total_skipped, bbl_origin_dirs)
 }
 
+/// Returns the real source directory to associate with an already-expanded input path, for both
+/// `--output-dir` defaulting and output-filename directory-prefix disambiguation: the original
+/// `.bbl`'s own parent directory when `input_file_str` is a BBL-derived scratch CSV path, or
+/// that path's own parent otherwise. A scratch temp directory must never leak into either —
+/// every caller that once used `Path::new(input_file_str).parent()` directly for one of those
+/// two purposes must go through this instead.
+fn effective_source_dir<'a>(
+    input_file_str: &'a str,
+    bbl_origin_dirs: &'a HashMap<String, PathBuf>,
+) -> Option<&'a Path> {
+    bbl_origin_dirs
+        .get(input_file_str)
+        .map(|p| p.as_path())
+        .or_else(|| Path::new(input_file_str).parent())
+}
+
 /// Decodes one `.bbl`/`.BBL` file into its per-flight scratch CSVs and appends them to
 /// `csv_files`, recording each scratch path's source directory in `bbl_origin_dirs`. Errors
 /// (unparseable/corrupt BBL) are reported and the file is skipped, matching the CSV path's
@@ -723,7 +739,9 @@ fn profile_aircraft_group(
 
 fn process_file(
     input_file_str: &str,
-    use_dir_prefix: bool,
+    // `Some(dir)` adds a sanitized `dir`-derived prefix to the output root name (disambiguating
+    // same-named logs from different source folders); `None` skips the prefix entirely.
+    dir_prefix_source: Option<&Path>,
     output_dir: Option<&Path>,
     plot_config: PlotConfig,
     analysis_opts: AnalysisOptions,
@@ -742,9 +760,9 @@ fn process_file(
         .file_stem()
         .unwrap_or_else(|| std::ffi::OsStr::new("unknown_filestem"))
         .to_string_lossy();
-    let mut root_name_string: String = if use_dir_prefix {
+    let mut root_name_string: String = {
         let mut dir_prefix_to_add = String::new();
-        if let Some(parent_dir) = input_path.parent() {
+        if let Some(parent_dir) = dir_prefix_source {
             if let Some(dir_os_str) = parent_dir.file_name() {
                 let dir_name_part = dir_os_str.to_string_lossy();
                 // Add prefix only if parent dir name is meaningful (not empty, not current dir indicator like ".")
@@ -764,8 +782,6 @@ fn process_file(
             }
         }
         format!("{dir_prefix_to_add}{file_stem_cow}")
-    } else {
-        file_stem_cow.into_owned()
     };
 
     // --- Data Reading and Header Status ---
@@ -2353,7 +2369,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     if input_files.len() > 1 {
         let parent_dirs_set: HashSet<PathBuf> = input_files
             .iter()
-            .filter_map(|f_str| Path::new(f_str).parent().map(|p| p.to_path_buf()))
+            .filter_map(|f_str| {
+                effective_source_dir(f_str, &bbl_origin_dirs).map(|p| p.to_path_buf())
+            })
             .collect();
         if parent_dirs_set.len() > 1 {
             use_dir_prefix_for_root_name = true;
@@ -2401,18 +2419,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         // ordered identically to group_files, so a plain iterator pairs them up.
         let mut parsed_cache_iter = parsed_cache.into_iter();
         for input_file_str in group_files {
+            let naming_source_dir = effective_source_dir(input_file_str, &bbl_origin_dirs);
             let actual_output_dir = match &output_dir {
-                None => bbl_origin_dirs
-                    .get(input_file_str)
-                    .map(|p| p.as_path())
-                    .or_else(|| Path::new(input_file_str).parent()),
+                None => naming_source_dir,
                 Some(dir) => Some(Path::new(dir)),
             };
+            let dir_prefix_source = use_dir_prefix_for_root_name
+                .then_some(naming_source_dir)
+                .flatten();
             let pre_parsed = parsed_cache_iter.next();
 
             if let Err(e) = process_file(
                 input_file_str,
-                use_dir_prefix_for_root_name,
+                dir_prefix_source,
                 actual_output_dir,
                 plot_config,
                 analysis_opts.clone(),

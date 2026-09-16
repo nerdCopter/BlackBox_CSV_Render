@@ -48,11 +48,13 @@ pub fn expand_bbl_to_scratch_csvs(
     };
 
     println!("Exporting {} (BBL) to scratch CSV...", bbl_path.display());
+    // Callers (expand_one_bbl_file) already print bbl_path alongside any Err returned here, so
+    // these messages carry only the cause — not the path again — to avoid double-printing it.
     let logs = parse_bbl_file_all_logs(bbl_path, export_options.clone(), debug_mode)
-        .map_err(|e| format!("Failed to parse BBL file '{}': {e}", bbl_path.display()))?;
+        .map_err(|e| format!("failed to parse: {e}"))?;
 
     if logs.is_empty() {
-        return Err(format!("No flight logs found in BBL file '{}'", bbl_path.display()).into());
+        return Err("no flight logs found".into());
     }
 
     let mut results = Vec::with_capacity(logs.len());
@@ -69,17 +71,12 @@ pub fn expand_bbl_to_scratch_csvs(
             continue;
         }
 
-        let report = export_to_csv(log, bbl_path, &export_options, None).map_err(|e| {
-            format!(
-                "Failed to export flight {} of '{}' to scratch CSV: {e}",
-                log.log_number,
-                bbl_path.display()
-            )
-        })?;
+        let report = export_to_csv(log, bbl_path, &export_options, None)
+            .map_err(|e| format!("failed to export flight {}: {e}", log.log_number))?;
         let csv_path = report.csv_path.ok_or_else(|| {
             format!(
-                "bbl_parser produced no CSV path for '{}'",
-                bbl_path.display()
+                "bbl_parser produced no CSV path for flight {}",
+                log.log_number
             )
         })?;
         results.push((csv_path.to_string_lossy().to_string(), origin_dir.clone()));
