@@ -616,10 +616,10 @@ pub fn generate_markdown_report(
         let overlaps =
             fallback_oscillation_overlaps(&report.motor_desync_results, &report.motor_results);
         if !overlaps.is_empty() {
-            for (motor_idx, t) in &overlaps {
+            for (motor_idx, count) in &overlaps {
                 writeln!(
                     md,
-                    "**⚠ Note:** Motor {motor_idx}'s Fallback event at {t:.2}s coincides with a Motor Oscillation detection on the same motor — may be chronic tune/mechanical resonance rather than a desync."
+                    "**⚠ Note:** Motor {motor_idx}'s Fallback event(s) ({count} overlapping event(s)) coincides with a Motor Oscillation detection — may be chronic tune/mechanical resonance rather than a desync. See Fallback column above for exact timestamps."
                 )?;
             }
             writeln!(md)?;
