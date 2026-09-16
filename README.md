@@ -39,6 +39,8 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
             auto-excluded. A multi-flight .bbl expands to one report per flight.
   -O, --output-dir <directory>: Output directory (default: source folder).
   -R, --recursive: Recursively find CSV/BBL files in subdirectories.
+  -F, --force-export: Export .bbl flights bbl_parser would otherwise skip as low-value
+                       (very short / low data density / minimal gyro activity).
 
 === PLOT TYPE SELECTION ===
 

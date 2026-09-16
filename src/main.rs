@@ -224,6 +224,7 @@ use crate::data_analysis::filter_response;
 fn expand_input_paths(
     input_paths: &[String],
     recursive: bool,
+    bbl_force_export: bool,
     debug_mode: bool,
 ) -> InputExpansionResult {
     let mut csv_files = Vec::new();
@@ -250,6 +251,7 @@ fn expand_input_paths(
                 } else if extension.eq_ignore_ascii_case("bbl") {
                     expand_one_bbl_file(
                         input_path,
+                        bbl_force_export,
                         debug_mode,
                         &mut csv_files,
                         &mut bbl_origin_dirs,
@@ -262,7 +264,7 @@ fn expand_input_paths(
             }
         } else if input_path.is_dir() {
             // It's a directory, find CSV/BBL files (recursive only if flag is set)
-            match find_csv_files_in_dir(input_path, recursive, debug_mode) {
+            match find_csv_files_in_dir(input_path, recursive, bbl_force_export, debug_mode) {
                 Ok((mut dir_csv_files, skipped_count, dir_bbl_origin_dirs)) => {
                     csv_files.append(&mut dir_csv_files);
                     total_skipped += skipped_count;
@@ -285,11 +287,12 @@ fn expand_input_paths(
 /// per-file error handling — one bad input must not abort the whole batch.
 fn expand_one_bbl_file(
     bbl_path: &Path,
+    force_export: bool,
     debug_mode: bool,
     csv_files: &mut Vec<String>,
     bbl_origin_dirs: &mut HashMap<String, PathBuf>,
 ) {
-    match expand_bbl_to_scratch_csvs(bbl_path, debug_mode) {
+    match expand_bbl_to_scratch_csvs(bbl_path, force_export, debug_mode) {
         Ok(flights) => {
             for (scratch_csv_path, origin_dir) in flights {
                 bbl_origin_dirs.insert(scratch_csv_path.clone(), origin_dir);
@@ -305,10 +308,17 @@ fn expand_one_bbl_file(
 fn find_csv_files_in_dir(
     dir_path: &Path,
     recursive: bool,
+    bbl_force_export: bool,
     debug_mode: bool,
 ) -> Result<InputExpansionResult, Box<dyn Error>> {
     let mut visited = HashSet::new();
-    find_csv_files_in_dir_impl(dir_path, &mut visited, recursive, debug_mode)
+    find_csv_files_in_dir_impl(
+        dir_path,
+        &mut visited,
+        recursive,
+        bbl_force_export,
+        debug_mode,
+    )
 }
 
 /// Internal implementation with symlink loop protection
@@ -317,6 +327,7 @@ fn find_csv_files_in_dir_impl(
     dir_path: &Path,
     visited: &mut HashSet<PathBuf>,
     recursive: bool,
+    bbl_force_export: bool,
     debug_mode: bool,
 ) -> Result<InputExpansionResult, Box<dyn Error>> {
     let mut csv_files = Vec::new();
@@ -378,7 +389,13 @@ fn find_csv_files_in_dir_impl(
         if path.is_dir() {
             // Recurse into subdirectories only if recursive flag is set
             if recursive {
-                match find_csv_files_in_dir_impl(&path, visited, recursive, debug_mode) {
+                match find_csv_files_in_dir_impl(
+                    &path,
+                    visited,
+                    recursive,
+                    bbl_force_export,
+                    debug_mode,
+                ) {
                     Ok((mut sub_csv_files, sub_skipped, sub_bbl_origin_dirs)) => {
                         csv_files.append(&mut sub_csv_files);
                         skipped_count += sub_skipped;
@@ -419,7 +436,13 @@ fn find_csv_files_in_dir_impl(
                         eprintln!("⚠️  Skipping file with non-UTF-8 path: {}", path.display());
                     }
                 } else if extension.eq_ignore_ascii_case("bbl") {
-                    expand_one_bbl_file(&path, debug_mode, &mut csv_files, &mut bbl_origin_dirs);
+                    expand_one_bbl_file(
+                        &path,
+                        bbl_force_export,
+                        debug_mode,
+                        &mut csv_files,
+                        &mut bbl_origin_dirs,
+                    );
                 }
             }
         }
@@ -442,6 +465,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("            auto-excluded. A multi-flight .bbl expands to one report per flight.");
     eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
     eprintln!("  -R, --recursive: Recursively find CSV/BBL files in subdirectories.");
+    eprintln!("  -F, --force-export: Export .bbl flights bbl_parser would otherwise skip as");
+    eprintln!("            low-value (very short / low data density / minimal gyro activity).");
     eprintln!();
     eprintln!("--- PLOT TYPE SELECTION ---");
     eprintln!();
@@ -2138,6 +2163,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut bode_requested = false;
     let mut desync_requested = false;
     let mut recursive = false;
+    let mut bbl_force_export = false;
     let mut estimate_optimal_p = false;
     let mut trim_start: Option<f64> = None;
     let mut trim_end: Option<f64> = None;
@@ -2155,6 +2181,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             version_flag_set = true;
         } else if arg == "--recursive" || arg == "-R" {
             recursive = true;
+        } else if arg == "--force-export" || arg == "-F" || arg == "--force" {
+            // --force is an undocumented alias, kept for convenience.
+            bbl_force_export = true;
         } else if arg == "--dps" {
             if dps_flag_present {
                 eprintln!("Error: --dps argument specified more than once.");
@@ -2289,7 +2318,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Expand input paths (files and directories) to a list of CSV files
     let (input_files, skipped_subdirs, bbl_origin_dirs) =
-        expand_input_paths(&input_paths, recursive, debug_mode);
+        expand_input_paths(&input_paths, recursive, bbl_force_export, debug_mode);
 
     // Print summary of skipped subdirectories when not using recursive mode
     if !recursive && skipped_subdirs > 0 {
@@ -2605,7 +2634,7 @@ mod bbl_input_expansion_tests {
             let mut csv_files = Vec::new();
             let mut bbl_origin_dirs = HashMap::new();
 
-            expand_one_bbl_file(&path, false, &mut csv_files, &mut bbl_origin_dirs);
+            expand_one_bbl_file(&path, false, false, &mut csv_files, &mut bbl_origin_dirs);
 
             // Garbage content fails to parse, so no scratch CSV is produced — the assertion here
             // is that dispatch happened at all (extension matched), not that parsing succeeded.
@@ -2623,7 +2652,7 @@ mod bbl_input_expansion_tests {
     fn unsupported_extension_is_skipped_not_fatal() {
         let path = write_garbage_file("flight.txt");
         let (csv_files, _skipped_subdirs, bbl_origin_dirs) =
-            expand_input_paths(&[path.to_string_lossy().to_string()], false, false);
+            expand_input_paths(&[path.to_string_lossy().to_string()], false, false, false);
 
         assert!(csv_files.is_empty());
         assert!(bbl_origin_dirs.is_empty());
