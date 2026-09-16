@@ -21,6 +21,7 @@
 - **ALWAYS** prefer `cargo build --release` rather than `cargo run`
 - **ALWAYS** use `--output-dir` ./output/
 - Temporary test code must go in ./tests/
+- Disk-writing unit tests **must** use a unique path per test (e.g. a per-call temp subdirectory) — `cargo test` runs concurrently by default, and a shared path races
 
 ## Git Workflow  
 - **NEVER** use `git add -A` or `git add .`
