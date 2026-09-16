@@ -508,14 +508,16 @@ pub fn detect_motor_desync(
 /// of a same-motor Motor Oscillation detection (`plot_motor_spectrums.rs`) — a known, confirmed
 /// cause of `Fallback` false positives (chronic tune/mechanical resonance can also produce a
 /// large gyro/setpoint tracking error, with no way for `Fallback` to tell that apart from a
-/// real desync). Returns `(motor_idx, time_s)` pairs to caveat in the console and report,
-/// without suppressing or altering the underlying event — `Fallback` stays as-is by design;
-/// this only flags when its known blind spot may apply.
+/// real desync). Returns `(motor_idx, count)` pairs (count = number of overlapping events)
+/// to caveat in the console and report, without suppressing or altering the underlying event —
+/// `Fallback` stays as-is by design; this only flags when its known blind spot may apply.
 pub fn fallback_oscillation_overlaps(
     desync_results: &[MotorDesyncResult],
     motor_results: &[MotorOscillationResult],
-) -> Vec<(usize, f64)> {
-    let mut overlaps = Vec::new();
+) -> Vec<(usize, usize)> {
+    // Group overlaps by motor_idx, counting how many overlapping events each motor has
+    let mut overlaps_by_motor: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::new();
     for desync in desync_results {
         let Some(osc) = motor_results
             .iter()
@@ -533,11 +535,14 @@ pub fn fallback_oscillation_overlaps(
             if event.confidence == DesyncConfidence::Fallback
                 && (event.time_s - osc_time).abs() <= MOTOR_DESYNC_FALLBACK_OSCILLATION_OVERLAP_S
             {
-                overlaps.push((desync.motor_idx, event.time_s));
+                *overlaps_by_motor.entry(desync.motor_idx).or_insert(0) += 1;
             }
         }
     }
-    overlaps
+    // Convert to sorted vector for deterministic ordering
+    let mut overlaps_vec: Vec<(usize, usize)> = overlaps_by_motor.into_iter().collect();
+    overlaps_vec.sort_by_key(|&(motor_idx, _)| motor_idx);
+    overlaps_vec
 }
 
 #[cfg(test)]
@@ -930,7 +935,7 @@ mod tests {
         let osc = vec![osc_result(0, true, Some(45.5))]; // within the 2.0s overlap tolerance
 
         let overlaps = fallback_oscillation_overlaps(&desync, &osc);
-        assert_eq!(overlaps, vec![(0, 44.94)]);
+        assert_eq!(overlaps, vec![(0, 1)]);
     }
 
     #[test]
@@ -959,6 +964,67 @@ mod tests {
         let osc = vec![osc_result(0, false, None)]; // this motor's own spectrum never crossed the bar
 
         assert!(fallback_oscillation_overlaps(&desync, &osc).is_empty());
+    }
+
+    #[test]
+    fn fallback_overlaps_are_grouped_and_counted_per_motor() {
+        // Motor 0: two qualifying Fallback events near its own oscillation detection.
+        // Motor 3: one qualifying Fallback event. Motor 1 has an event but no oscillation
+        // detected, so it contributes nothing. Input lists motor 3 before motor 0 so the
+        // ascending-motor_idx expectation actually exercises the sort, not input order.
+        let desync = vec![
+            desync_result(
+                3,
+                vec![MotorDesyncEvent {
+                    time_s: 30.0,
+                    confidence: DesyncConfidence::Fallback,
+                }],
+            ),
+            desync_result(
+                1,
+                vec![MotorDesyncEvent {
+                    time_s: 20.0,
+                    confidence: DesyncConfidence::Fallback,
+                }],
+            ),
+            desync_result(
+                0,
+                vec![
+                    MotorDesyncEvent {
+                        time_s: 10.0,
+                        confidence: DesyncConfidence::Fallback,
+                    },
+                    MotorDesyncEvent {
+                        time_s: 11.5,
+                        confidence: DesyncConfidence::Fallback,
+                    },
+                ],
+            ),
+        ];
+        let osc = vec![
+            osc_result(0, true, Some(10.5)),
+            osc_result(1, false, None),
+            osc_result(3, true, Some(29.5)),
+        ];
+
+        let overlaps = fallback_oscillation_overlaps(&desync, &osc);
+        assert_eq!(overlaps, vec![(0, 2), (3, 1)]);
+    }
+
+    #[test]
+    fn fallback_at_exact_overlap_boundary_is_flagged() {
+        // The predicate uses <=, so an event exactly MOTOR_DESYNC_FALLBACK_OSCILLATION_OVERLAP_S
+        // away from the oscillation time must still count as an overlap.
+        let desync = vec![desync_result(
+            0,
+            vec![MotorDesyncEvent {
+                time_s: 10.0 + MOTOR_DESYNC_FALLBACK_OSCILLATION_OVERLAP_S,
+                confidence: DesyncConfidence::Fallback,
+            }],
+        )];
+        let osc = vec![osc_result(0, true, Some(10.0))];
+
+        assert_eq!(fallback_oscillation_overlaps(&desync, &osc), vec![(0, 1)]);
     }
 }
 

@@ -1800,9 +1800,9 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         vec![]
     };
 
-    for (motor_idx, t) in fallback_oscillation_overlaps(&motor_desync_results, &motor_results) {
+    for (motor_idx, count) in fallback_oscillation_overlaps(&motor_desync_results, &motor_results) {
         println!(
-            "  ⚠️  Motor {motor_idx} Fallback desync event at {t:.2}s coincides with a Motor Oscillation detection on the same motor — may be chronic tune/mechanical resonance rather than a desync"
+            "  ⚠️  Motor {motor_idx} Fallback desync event(s) ({count} overlapping) coincides with a Motor Oscillation detection — see Fallback table for exact times"
         );
     }
 
