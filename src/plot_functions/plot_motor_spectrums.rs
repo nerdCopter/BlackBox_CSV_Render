@@ -198,7 +198,7 @@ pub fn detect_motor_oscillations(
             let (event_time_s, peak_in_range, avg_in_range) = match worst {
                 Some((t, peak, avg)) => {
                     println!(
-                        "  ⚠ Motor {}: Potential oscillation detected in {:.0}-{:.0} Hz range at t={:.2}s (peak {:.1} >> avg {:.1})",
+                        "  ⚠️  Motor {}: Potential oscillation detected in {:.0}-{:.0} Hz range at t={:.2}s (peak {:.1} >> avg {:.1})",
                         motor_idx, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ, t, peak, avg
                     );
                     (Some(t), Some(peak), Some(avg))
