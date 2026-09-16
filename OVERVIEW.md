@@ -29,7 +29,8 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
     * The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     * Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
     * **BBL input expansion (`src/data_input/bbl_reader.rs`):** a `.bbl`/`.BBL` input is decoded via the `bbl_parser` crate and exported to a scratch CSV/`.headers.csv` pair per flight, reusing the existing CSV parser unchanged instead of duplicating its motor/eRPM channel-alignment logic. A multi-flight `.bbl` expands to multiple entries (matching the `.01.csv`/`.02.csv` convention) before the per-file loop runs. Output defaults to the source `.bbl`'s own folder, not the scratch directory; scratch files are removed after processing.
-    * `bbl_parser`'s low-value-flight heuristic (too short / low data density / minimal gyro activity — ground tests, arm checks) is applied per flight; `-F`/`--force-export` overrides it, matching `bbl_parser`'s own CLI flag.
+    * `bbl_parser`'s low-value-flight heuristic (too short / low data density / minimal gyro activity — ground tests, arm checks) is applied per flight; `-F`/`--force-export` overrides it, matching `bbl_parser`'s own CLI flag. A per-flight export failure is skipped, not fatal to sibling flights in the same `.bbl`.
+    * `--keep` writes flight CSV/`.headers.csv` directly to the resolved output location (source folder, or `-O`/`--output-dir`) instead of the scratch directory, and skips the scratch-cleanup pass entirely — the exported files persist as a normal side effect, matching what a manual `bbl_parser` CLI export would produce.
 
 2.  **File Processing (`src/main.rs:process_file`):**
     * For each input CSV:
