@@ -1878,7 +1878,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
     };
 
     let stick_distribution_results = if plot_config.stick_distribution {
-        plot_stick_distribution(&all_log_data, &root_name_string)?
+        plot_stick_distribution(&all_log_data, &root_name_string, Some(&header_metadata))?
     } else {
         vec![]
     };

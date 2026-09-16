@@ -673,7 +673,7 @@ pub fn generate_markdown_report(
         }
     }
 
-    // --- Stick Position & Rate Analysis (IT #163) ---
+    // --- Stick Position & Rate Analysis ---
     let has_stick_distribution_data = report
         .stick_distribution_results
         .iter()
@@ -717,11 +717,11 @@ pub fn generate_markdown_report(
 
         writeln!(
             md,
-            "| Axis | P95 Setpoint (deg/s) | P95 Gyro Achieved (deg/s) | Tracking Error (P95) |"
+            "| Axis | P95 Setpoint (deg/s) | P95 Gyro Achieved (deg/s) | Tracking Error (P95) | Configured Max Rate (deg/s) | Rate Headroom (P95) |"
         )?;
         writeln!(
             md,
-            "|------|----------------------|----------------------------|-----------------------|"
+            "|------|----------------------|----------------------------|-----------------------|------------------------------|----------------------|"
         )?;
         for r in &report.stick_distribution_results {
             let p95_setpoint = r.p95_setpoint.map_or("N/A".into(), |v| format!("{:.0}", v));
@@ -729,15 +729,26 @@ pub fn generate_markdown_report(
             let tracking_error = r
                 .tracking_error_pct
                 .map_or("N/A".into(), |v| format!("{:.1}%", v));
+            let configured_max_rate = r
+                .configured_max_rate
+                .map_or("N/A".into(), |v| format!("{:.0}", v));
+            let rate_headroom = r
+                .rate_headroom_pct
+                .map_or("N/A".into(), |v| format!("{:.0}%", v));
             writeln!(
                 md,
-                "| {} | {} | {} | {} |",
-                r.axis_name, p95_setpoint, p95_gyro, tracking_error
+                "| {} | {} | {} | {} | {} | {} |",
+                r.axis_name,
+                p95_setpoint,
+                p95_gyro,
+                tracking_error,
+                configured_max_rate,
+                rate_headroom
             )?;
         }
         writeln!(
             md,
-            "\n95th percentile, not the flight's raw maximum — a single crash/tumble sample can put raw max gyro rate an order of magnitude above the rest of the flight. Tracking Error is N/A when P95 Setpoint is near zero (axis barely commanded this flight) — dividing by a near-zero setpoint would turn ordinary gyro noise into a meaningless triple-digit percentage."
+            "\n95th percentile, not the flight's raw maximum — a single crash/tumble sample can put raw max gyro rate an order of magnitude above the rest of the flight. Tracking Error is N/A when P95 Setpoint is near zero (axis barely commanded this flight) — dividing by a near-zero setpoint would turn ordinary gyro noise into a meaningless triple-digit percentage. Configured Max Rate is the setpoint at full stick deflection, computed from this log's own rc_rates/rc_expo/rates/rates_type/rate_limits headers — N/A when the header set is incomplete. Rate Headroom is P95 Setpoint as a % of Configured Max Rate."
         )?;
         writeln!(md)?;
     }

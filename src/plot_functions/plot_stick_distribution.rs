@@ -9,14 +9,13 @@ use crate::constants::{
     STICK_DIST_SATURATION_THRESHOLD_PCT, STICK_DIST_Y_AXIS_HEADROOM_SCALE,
     STICK_DIST_ZONE_MARKER_COLOR, UNIFIED_Y_AXIS_PERCENTILE,
 };
+use crate::data_analysis::rate_curve::{configured_max_rate, parse_rate_curve_config};
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries, CUTOFF_LINE_PREFIX};
 
-/// Per-axis stick position distribution and rate-utilization statistics (IT #163).
+/// Per-axis stick position distribution and rate-utilization statistics.
 /// Zone percentages are relative to this flight's own peak `rc_command` magnitude for the
-/// axis, not a configured max-rate value — no rate-curve formula (Betaflight/Raceflight/KISS/
-/// Actual all differ, and diverge further between Betaflight and EmuFlight) is reconstructed
-/// from header metadata.
+/// axis — a data-driven reference independent of `configured_max_rate` below.
 pub struct StickDistributionResult {
     pub axis_name: String,
     /// Peak |rc_command| observed for this axis — the 100% reference for the zone percentages.
@@ -42,6 +41,14 @@ pub struct StickDistributionResult {
     /// isn't diluted by however much of the flight was spent outside Center.
     /// `None` when the axis spent no time in the Center zone.
     pub center_reversal_rate_hz: Option<f64>,
+    /// Setpoint at full stick deflection, computed from the header's `rates_type`/`rc_rates`/
+    /// `rc_expo`/`rates`/`rate_limits` rate-curve configuration (see
+    /// `data_analysis::rate_curve`). `None` when the header lacks a complete rate-curve config.
+    pub configured_max_rate: Option<f64>,
+    /// `p95_setpoint / configured_max_rate * 100` — how much of the configured ceiling this
+    /// flight's P95 setpoint reached. `None` when either input is `None`, or
+    /// `configured_max_rate` is not a positive value.
+    pub rate_headroom_pct: Option<f64>,
 }
 
 #[derive(Default)]
@@ -172,10 +179,12 @@ fn percentile_95(values: &mut [f64]) -> Option<f64> {
 pub fn plot_stick_distribution(
     log_data: &[LogRowData],
     root_name: &str,
+    header_metadata: Option<&[(String, String)]>,
 ) -> Result<Vec<StickDistributionResult>, Box<dyn Error>> {
     let output_file = format!("{root_name}_Stick_Distribution_stacked.png");
     let plot_type_name = "Stick Distribution";
     let axis_count = AXIS_NAMES.len();
+    let rate_curve_config = header_metadata.and_then(parse_rate_curve_config);
 
     let mut rc_points: Vec<Vec<(f64, f64)>> = vec![Vec::new(); axis_count];
     let mut setpoint_abs: Vec<Vec<f64>> = vec![Vec::new(); axis_count];
@@ -213,6 +222,14 @@ pub fn plot_stick_distribution(
             _ => None,
         };
 
+        let max_rate = rate_curve_config
+            .as_ref()
+            .and_then(|config| configured_max_rate(config, axis));
+        let rate_headroom_pct = match (p95_setpoint, max_rate) {
+            (Some(sp), Some(max)) if max > 0.0 => Some((sp.abs() / max) * RATIO_TO_PERCENT),
+            _ => None,
+        };
+
         results.push(StickDistributionResult {
             axis_name: AXIS_NAMES[axis].to_string(),
             peak_stick: stats.peak_stick,
@@ -224,6 +241,8 @@ pub fn plot_stick_distribution(
             p95_gyro,
             tracking_error_pct,
             center_reversal_rate_hz: stats.center_reversal_rate_hz,
+            configured_max_rate: max_rate,
+            rate_headroom_pct,
         });
         zone_stats.push(stats);
     }
