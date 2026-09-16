@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use bbl_parser::{export_to_csv, parse_bbl_file_all_logs, should_skip_export, ExportOptions};
 
+use crate::types::BblExpansionResult;
+
 /// Decodes a `.bbl`/`.BBL` file via the `bbl_parser` crate and exports each embedded flight to a
 /// scratch CSV/`.headers.csv` pair in the OS temp directory, reusing `bbl_parser`'s own CSV
 /// export (its documented, stable output format) instead of depending on `DecodedFrame.data`'s
@@ -20,23 +22,27 @@ use bbl_parser::{export_to_csv, parse_bbl_file_all_logs, should_skip_export, Exp
 /// it unless replicated. `force_export` (from `-F`/`--force-export`) overrides the heuristic,
 /// matching bbl_parser's own CLI flag semantics.
 ///
-/// Returns one `(scratch_csv_path, original_bbl_parent_dir)` pair per flight that was exported
-/// (flights skipped by the heuristic, or that individually failed to export, are simply absent,
-/// not a whole-file error — one bad flight in a multi-flight file must not discard the flights
-/// that already exported fine), in flight order. `original_bbl_parent_dir` lets the caller
-/// default `--output-dir` to the source `.bbl`'s own folder rather than the scratch directory.
+/// Returns `(flights, scratch_dir)`. `flights` has one `(scratch_csv_path,
+/// original_bbl_parent_dir)` pair per flight that was exported (flights skipped by the
+/// heuristic, or that individually failed to export, are simply absent, not a whole-file error —
+/// one bad flight in a multi-flight file must not discard the flights that already exported
+/// fine), in flight order. `original_bbl_parent_dir` lets the caller default `--output-dir` to
+/// the source `.bbl`'s own folder rather than the scratch directory.
 ///
-/// When `keep` is true, flight CSVs are written directly to `keep_base_dir` (the resolved
-/// `--output-dir`, or the source `.bbl`'s own folder when that's not given) instead of a
-/// temp-directory scratch copy, and the caller must not clean them up afterward — see `--keep`
-/// in `main.rs`.
+/// `scratch_dir` is `Some(dir)` — the exact directory the caller must remove afterward — only
+/// when `keep` is false; it is the directory actually passed to `bbl_parser`, tracked explicitly
+/// rather than re-derived from a CSV path's `.parent()` (fragile: depends on bbl_parser never
+/// nesting its output in a subdirectory, and silently does nothing if a path ever lacks a
+/// parent). `None` when `keep` is true: flight CSVs are written directly to `keep_base_dir` (the
+/// resolved `--output-dir`, or the source `.bbl`'s own folder when that's not given) and the
+/// caller must never remove them — see `--keep` in `main.rs`.
 pub fn expand_bbl_to_scratch_csvs(
     bbl_path: &Path,
     force_export: bool,
     keep: bool,
     keep_base_dir: Option<&Path>,
     debug_mode: bool,
-) -> Result<Vec<(String, PathBuf)>, Box<dyn Error>> {
+) -> Result<BblExpansionResult, Box<dyn Error>> {
     let origin_dir = bbl_path
         .parent()
         .map(|p| p.to_path_buf())
@@ -125,16 +131,16 @@ pub fn expand_bbl_to_scratch_csvs(
         );
     }
 
-    Ok(results)
+    let scratch_dir = if keep { None } else { Some(export_dir) };
+    Ok((results, scratch_dir))
 }
 
-/// Removes a scratch directory created by `expand_bbl_to_scratch_csvs`. Best-effort: called
-/// after all scratch CSVs have been parsed, at end of program. Never called for `--keep` output
-/// — those files live in the user's real output directory, not a scratch temp directory.
-pub fn cleanup_scratch_dir(scratch_csv_path: &str) {
-    if let Some(dir) = Path::new(scratch_csv_path).parent() {
-        let _ = std::fs::remove_dir_all(dir);
-    }
+/// Removes a scratch directory returned by `expand_bbl_to_scratch_csvs`. Best-effort: called
+/// after all scratch CSVs have been parsed, at end of program. Takes the scratch directory
+/// itself (tracked explicitly by the caller), never a CSV file path — removing a directory
+/// inferred from an arbitrary path is exactly the kind of mistake this function must not permit.
+pub fn cleanup_scratch_dir(scratch_dir: &Path) {
+    let _ = std::fs::remove_dir_all(scratch_dir);
 }
 
 #[cfg(test)]

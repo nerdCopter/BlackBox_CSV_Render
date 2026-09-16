@@ -230,10 +230,11 @@ struct BblExpansionOptions<'a> {
 /// If a path is a file, validate CSV/BBL extension before adding. A `.bbl`/`.BBL` file is
 /// decoded and expanded into one scratch CSV per embedded flight (see `bbl_origin_dirs` below).
 /// If a path is a directory, find CSV/BBL files (optionally recursing into subdirectories).
-/// Returns (csv_files, total_skipped_subdirectories, bbl_origin_dirs). `bbl_origin_dirs` maps
-/// each BBL-derived scratch CSV path to its source `.bbl`'s own parent directory, so the default
-/// (no `--output-dir`) output location stays next to the file the user actually gave, not the
-/// scratch directory.
+/// Returns (csv_files, total_skipped_subdirectories, bbl_origin_dirs, scratch_dirs).
+/// `bbl_origin_dirs` maps each BBL-derived scratch CSV path to its source `.bbl`'s own parent
+/// directory, so the default (no `--output-dir`) output location stays next to the file the
+/// user actually gave, not the scratch directory. `scratch_dirs` lists every temp directory that
+/// must be removed at end of program (empty when `--keep` is set).
 fn expand_input_paths(
     input_paths: &[String],
     recursive: bool,
@@ -243,6 +244,7 @@ fn expand_input_paths(
     let mut csv_files = Vec::new();
     let mut total_skipped = 0;
     let mut bbl_origin_dirs = HashMap::new();
+    let mut scratch_dirs = Vec::new();
 
     for input_path_str in input_paths {
         let input_path = Path::new(input_path_str);
@@ -268,6 +270,7 @@ fn expand_input_paths(
                         debug_mode,
                         &mut csv_files,
                         &mut bbl_origin_dirs,
+                        &mut scratch_dirs,
                     );
                 } else {
                     eprintln!("⚠️  Skipping unsupported file: {}", input_path_str);
@@ -278,10 +281,16 @@ fn expand_input_paths(
         } else if input_path.is_dir() {
             // It's a directory, find CSV/BBL files (recursive only if flag is set)
             match find_csv_files_in_dir(input_path, recursive, bbl_opts, debug_mode) {
-                Ok((mut dir_csv_files, skipped_count, dir_bbl_origin_dirs)) => {
+                Ok((
+                    mut dir_csv_files,
+                    skipped_count,
+                    dir_bbl_origin_dirs,
+                    mut dir_scratch_dirs,
+                )) => {
                     csv_files.append(&mut dir_csv_files);
                     total_skipped += skipped_count;
                     bbl_origin_dirs.extend(dir_bbl_origin_dirs);
+                    scratch_dirs.append(&mut dir_scratch_dirs);
                 }
                 Err(err) => eprintln!("⚠️  Error processing directory {}: {}", input_path_str, err),
             }
@@ -291,7 +300,7 @@ fn expand_input_paths(
         }
     }
 
-    (csv_files, total_skipped, bbl_origin_dirs)
+    (csv_files, total_skipped, bbl_origin_dirs, scratch_dirs)
 }
 
 /// Returns the real source directory to associate with an already-expanded input path, for both
@@ -328,6 +337,7 @@ fn expand_one_bbl_file(
     debug_mode: bool,
     csv_files: &mut Vec<String>,
     bbl_origin_dirs: &mut HashMap<String, PathBuf>,
+    scratch_dirs: &mut Vec<PathBuf>,
 ) {
     match expand_bbl_to_scratch_csvs(
         bbl_path,
@@ -336,10 +346,13 @@ fn expand_one_bbl_file(
         bbl_opts.keep_base_dir,
         debug_mode,
     ) {
-        Ok(flights) => {
+        Ok((flights, scratch_dir)) => {
             for (scratch_csv_path, origin_dir) in flights {
                 bbl_origin_dirs.insert(scratch_csv_path.clone(), origin_dir);
                 csv_files.push(scratch_csv_path);
+            }
+            if let Some(dir) = scratch_dir {
+                scratch_dirs.push(dir);
             }
         }
         Err(err) => eprintln!("⚠️  Skipping BBL file {}: {}", bbl_path.display(), err),
@@ -347,7 +360,7 @@ fn expand_one_bbl_file(
 }
 
 /// Find CSV/BBL files in a directory, optionally recursing into subdirectories
-/// Returns (csv_files, skipped_subdirectories_count, bbl_origin_dirs)
+/// Returns (csv_files, skipped_subdirectories_count, bbl_origin_dirs, scratch_dirs)
 fn find_csv_files_in_dir(
     dir_path: &Path,
     recursive: bool,
@@ -359,7 +372,7 @@ fn find_csv_files_in_dir(
 }
 
 /// Internal implementation with symlink loop protection
-/// Returns (csv_files, skipped_subdirectories_count, bbl_origin_dirs)
+/// Returns (csv_files, skipped_subdirectories_count, bbl_origin_dirs, scratch_dirs)
 fn find_csv_files_in_dir_impl(
     dir_path: &Path,
     visited: &mut HashSet<PathBuf>,
@@ -370,9 +383,10 @@ fn find_csv_files_in_dir_impl(
     let mut csv_files = Vec::new();
     let mut skipped_count = 0;
     let mut bbl_origin_dirs = HashMap::new();
+    let mut scratch_dirs = Vec::new();
 
     if !dir_path.is_dir() {
-        return Ok((csv_files, skipped_count, bbl_origin_dirs));
+        return Ok((csv_files, skipped_count, bbl_origin_dirs, scratch_dirs));
     }
 
     // Canonicalize path to detect symlink loops
@@ -383,7 +397,7 @@ fn find_csv_files_in_dir_impl(
                 "⚠️  Cannot canonicalize directory path: {}",
                 dir_path.display()
             );
-            return Ok((csv_files, skipped_count, bbl_origin_dirs));
+            return Ok((csv_files, skipped_count, bbl_origin_dirs, scratch_dirs));
         }
     };
 
@@ -393,7 +407,7 @@ fn find_csv_files_in_dir_impl(
             "⚠️  Skipping directory due to symlink loop: {}",
             dir_path.display()
         );
-        return Ok((csv_files, skipped_count, bbl_origin_dirs));
+        return Ok((csv_files, skipped_count, bbl_origin_dirs, scratch_dirs));
     }
     visited.insert(canonical_path);
 
@@ -405,7 +419,7 @@ fn find_csv_files_in_dir_impl(
                 dir_path.display(),
                 err
             );
-            return Ok((csv_files, skipped_count, bbl_origin_dirs));
+            return Ok((csv_files, skipped_count, bbl_origin_dirs, scratch_dirs));
         }
     };
 
@@ -427,10 +441,16 @@ fn find_csv_files_in_dir_impl(
             // Recurse into subdirectories only if recursive flag is set
             if recursive {
                 match find_csv_files_in_dir_impl(&path, visited, recursive, bbl_opts, debug_mode) {
-                    Ok((mut sub_csv_files, sub_skipped, sub_bbl_origin_dirs)) => {
+                    Ok((
+                        mut sub_csv_files,
+                        sub_skipped,
+                        sub_bbl_origin_dirs,
+                        mut sub_scratch_dirs,
+                    )) => {
                         csv_files.append(&mut sub_csv_files);
                         skipped_count += sub_skipped;
                         bbl_origin_dirs.extend(sub_bbl_origin_dirs);
+                        scratch_dirs.append(&mut sub_scratch_dirs);
                     }
                     Err(err) => eprintln!(
                         "⚠️  Error processing subdirectory '{}': {}",
@@ -473,6 +493,7 @@ fn find_csv_files_in_dir_impl(
                         debug_mode,
                         &mut csv_files,
                         &mut bbl_origin_dirs,
+                        &mut scratch_dirs,
                     );
                 }
             }
@@ -481,7 +502,7 @@ fn find_csv_files_in_dir_impl(
 
     // Sort the files for consistent ordering
     csv_files.sort();
-    Ok((csv_files, skipped_count, bbl_origin_dirs))
+    Ok((csv_files, skipped_count, bbl_origin_dirs, scratch_dirs))
 }
 
 fn print_usage_and_exit(program_name: &str) {
@@ -2359,7 +2380,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         keep: keep_bbl_csv,
         keep_base_dir: output_dir.as_deref().map(Path::new),
     };
-    let (input_files, skipped_subdirs, bbl_origin_dirs) =
+    let (input_files, skipped_subdirs, bbl_origin_dirs, bbl_scratch_dirs) =
         expand_input_paths(&input_paths, recursive, bbl_opts, debug_mode);
 
     // Print summary of skipped subdirectories when not using recursive mode
@@ -2471,11 +2492,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Scratch CSVs are only used to feed the parser above; remove them now regardless of outcome.
-    // --keep places these in the user's real output location instead of a scratch temp
-    // directory — never delete them.
+    // bbl_scratch_dirs is already empty under --keep (expand_bbl_to_scratch_csvs never records a
+    // scratch dir to clean up in that mode) — the explicit guard here is a second, independent
+    // safety net against ever deleting --keep output.
     if !keep_bbl_csv {
-        for scratch_csv_path in bbl_origin_dirs.keys() {
-            crate::data_input::bbl_reader::cleanup_scratch_dir(scratch_csv_path);
+        for scratch_dir in &bbl_scratch_dirs {
+            crate::data_input::bbl_reader::cleanup_scratch_dir(scratch_dir);
         }
     }
 
@@ -2682,13 +2704,21 @@ mod bbl_input_expansion_tests {
             let path = write_garbage_file(file_name);
             let mut csv_files = Vec::new();
             let mut bbl_origin_dirs = HashMap::new();
+            let mut scratch_dirs = Vec::new();
             let bbl_opts = BblExpansionOptions {
                 force_export: false,
                 keep: false,
                 keep_base_dir: None,
             };
 
-            expand_one_bbl_file(&path, bbl_opts, false, &mut csv_files, &mut bbl_origin_dirs);
+            expand_one_bbl_file(
+                &path,
+                bbl_opts,
+                false,
+                &mut csv_files,
+                &mut bbl_origin_dirs,
+                &mut scratch_dirs,
+            );
 
             // Garbage content fails to parse, so no scratch CSV is produced — the assertion here
             // is that dispatch happened at all (extension matched), not that parsing succeeded.
@@ -2710,7 +2740,7 @@ mod bbl_input_expansion_tests {
             keep: false,
             keep_base_dir: None,
         };
-        let (csv_files, _skipped_subdirs, bbl_origin_dirs) = expand_input_paths(
+        let (csv_files, _skipped_subdirs, bbl_origin_dirs, _scratch_dirs) = expand_input_paths(
             &[path.to_string_lossy().to_string()],
             false,
             bbl_opts,
