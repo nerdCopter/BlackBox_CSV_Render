@@ -224,6 +224,13 @@ struct BblExpansionOptions<'a> {
     /// leave them there, instead of a temp-directory scratch copy removed after processing.
     keep: bool,
     keep_base_dir: Option<&'a Path>,
+    /// When true, decode+export a `.bbl` immediately during input discovery (required by
+    /// `--estimate-optimal-p`'s aircraft-grouping/profiling phase, which needs every flight's
+    /// real file materialized before any of them can be processed). When false, discovery only
+    /// records the raw `.bbl` path — decode+export is deferred to immediately before that file's
+    /// own processing, so a multi-file run reads-and-processes one file at a time instead of
+    /// exporting every `.bbl` up front. See the main per-file loop's placeholder-detection branch.
+    eager: bool,
 }
 
 /// Expand input paths to a list of CSV files.
@@ -331,6 +338,13 @@ fn effective_source_dir<'a>(
 /// `csv_files`, recording each scratch path's source directory in `bbl_origin_dirs`. Errors
 /// (unparseable/corrupt BBL) are reported and the file is skipped, matching the CSV path's
 /// per-file error handling — one bad input must not abort the whole batch.
+///
+/// When `bbl_opts.eager` is false, decode+export is skipped entirely here: `bbl_path` is pushed
+/// into `csv_files` unchanged, as a placeholder for the main per-file loop to lazily expand
+/// immediately before processing it (see that loop's placeholder-detection branch). This is what
+/// makes a multi-file `.bbl` run read-and-process one file at a time instead of exporting every
+/// file up front — `--estimate-optimal-p` needs the opposite (every flight materialized before
+/// its aircraft group's profiling phase can run), so it always passes `eager: true`.
 fn expand_one_bbl_file(
     bbl_path: &Path,
     bbl_opts: BblExpansionOptions,
@@ -339,6 +353,11 @@ fn expand_one_bbl_file(
     bbl_origin_dirs: &mut HashMap<String, PathBuf>,
     scratch_dirs: &mut Vec<PathBuf>,
 ) {
+    if !bbl_opts.eager {
+        csv_files.push(bbl_path.to_string_lossy().to_string());
+        return;
+    }
+
     match expand_bbl_to_scratch_csvs(
         bbl_path,
         bbl_opts.force_export,
@@ -2379,6 +2398,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         force_export: bbl_force_export,
         keep: keep_bbl_csv,
         keep_base_dir: output_dir.as_deref().map(Path::new),
+        // --estimate-optimal-p's aircraft-grouping/profiling phase needs every flight's real
+        // file materialized before any of them can be processed (see the main loop below) — the
+        // default path defers .bbl expansion instead, so files are read-and-processed one at a
+        // time.
+        eager: estimate_optimal_p,
     };
     let (input_files, skipped_subdirs, bbl_origin_dirs, bbl_scratch_dirs) =
         expand_input_paths(&input_paths, recursive, bbl_opts, debug_mode);
@@ -2466,6 +2490,59 @@ fn main() -> Result<(), Box<dyn Error>> {
         // ordered identically to group_files, so a plain iterator pairs them up.
         let mut parsed_cache_iter = parsed_cache.into_iter();
         for input_file_str in group_files {
+            // A deferred (non-eager) .bbl entry is still its own raw, unexpanded path at this
+            // point — decode+export it now, immediately before processing, instead of during
+            // input discovery. This is what keeps a multi-.bbl run reading-and-processing one
+            // file at a time: the previous file is fully done (report written) before this one's
+            // decode even starts. Never reached when bbl_opts.eager is true (--estimate-optimal-p)
+            // — expand_one_bbl_file already replaced every .bbl entry with real scratch CSV paths
+            // during discovery in that mode.
+            let is_deferred_bbl = !bbl_opts.eager
+                && Path::new(input_file_str)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("bbl"));
+            if is_deferred_bbl {
+                let bbl_path = Path::new(input_file_str);
+                match expand_bbl_to_scratch_csvs(
+                    bbl_path,
+                    bbl_opts.force_export,
+                    bbl_opts.keep,
+                    bbl_opts.keep_base_dir,
+                    debug_mode,
+                ) {
+                    Ok((flights, scratch_dir)) => {
+                        let origin_dir = bbl_path.parent();
+                        for (flight_csv_path, _origin_dir) in &flights {
+                            let actual_output_dir = match &output_dir {
+                                None => origin_dir,
+                                Some(dir) => Some(Path::new(dir)),
+                            };
+                            let dir_prefix_source =
+                                use_dir_prefix_for_root_name.then_some(origin_dir).flatten();
+                            if let Err(e) = process_file(
+                                flight_csv_path,
+                                dir_prefix_source,
+                                actual_output_dir,
+                                plot_config,
+                                analysis_opts.clone(),
+                                &aircraft_profile,
+                                None,
+                            ) {
+                                eprintln!("Error: Processing {flight_csv_path}: {e}");
+                                overall_success = false;
+                            }
+                        }
+                        if !bbl_opts.keep {
+                            if let Some(dir) = scratch_dir {
+                                crate::data_input::bbl_reader::cleanup_scratch_dir(&dir);
+                            }
+                        }
+                    }
+                    Err(err) => eprintln!("⚠️  Skipping BBL file {input_file_str}: {err}"),
+                }
+                continue;
+            }
+
             let naming_source_dir = effective_source_dir(input_file_str, &bbl_origin_dirs);
             let actual_output_dir = match &output_dir {
                 None => naming_source_dir,
@@ -2709,6 +2786,7 @@ mod bbl_input_expansion_tests {
                 force_export: false,
                 keep: false,
                 keep_base_dir: None,
+                eager: true,
             };
 
             expand_one_bbl_file(
@@ -2730,6 +2808,38 @@ mod bbl_input_expansion_tests {
         }
     }
 
+    /// `eager: false` (the default, non-`--estimate-optimal-p` path) must not decode/export at
+    /// all during discovery — the raw `.bbl` path is pushed unchanged as a placeholder, and
+    /// `bbl_origin_dirs`/`scratch_dirs` stay untouched (nothing to clean up yet; the main
+    /// per-file loop expands it lazily, immediately before processing).
+    #[test]
+    fn deferred_bbl_expansion_pushes_raw_path_unchanged() {
+        let path = write_garbage_file("flight.bbl");
+        let mut csv_files = Vec::new();
+        let mut bbl_origin_dirs = HashMap::new();
+        let mut scratch_dirs = Vec::new();
+        let bbl_opts = BblExpansionOptions {
+            force_export: false,
+            keep: false,
+            keep_base_dir: None,
+            eager: false,
+        };
+
+        expand_one_bbl_file(
+            &path,
+            bbl_opts,
+            false,
+            &mut csv_files,
+            &mut bbl_origin_dirs,
+            &mut scratch_dirs,
+        );
+
+        assert_eq!(csv_files, vec![path.to_string_lossy().to_string()]);
+        assert!(bbl_origin_dirs.is_empty());
+        assert!(scratch_dirs.is_empty());
+        cleanup(&path);
+    }
+
     /// An input file with neither a `.csv` nor `.bbl` extension is skipped without affecting
     /// other inputs in the same batch.
     #[test]
@@ -2739,6 +2849,7 @@ mod bbl_input_expansion_tests {
             force_export: false,
             keep: false,
             keep_base_dir: None,
+            eager: true,
         };
         let (csv_files, _skipped_subdirs, bbl_origin_dirs, _scratch_dirs) = expand_input_paths(
             &[path.to_string_lossy().to_string()],
