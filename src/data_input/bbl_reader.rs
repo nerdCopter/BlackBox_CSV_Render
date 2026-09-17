@@ -27,13 +27,16 @@ use crate::types::BblExpansionResult;
 /// fine), in flight order. `original_bbl_parent_dir` lets the caller default `--output-dir` to
 /// the source `.bbl`'s own folder rather than the scratch directory.
 ///
-/// `scratch_dir` is `Some(dir)` — the exact directory the caller must remove afterward — only
-/// when `keep` is false; it is the directory actually passed to `bbl_parser`, tracked explicitly
-/// rather than re-derived from a CSV path's `.parent()` (fragile: depends on bbl_parser never
-/// nesting its output in a subdirectory, and silently does nothing if a path ever lacks a
-/// parent). `None` when `keep` is true: flight CSVs are written directly to `keep_base_dir` (the
-/// resolved `--output-dir`, or the source `.bbl`'s own folder when that's not given) and the
-/// caller must never remove them — see `--keep` in `main.rs`.
+/// `scratch_dir` is `Some(guard)` — an exclusively-created temp directory that removes itself
+/// (and everything under it) when dropped — only when `keep` is false. The caller must keep the
+/// guard alive until it is done reading the flight CSVs, then drop it explicitly (or let it fall
+/// out of scope) to clean up. Using `tempfile::TempDir` instead of a predictable
+/// `pid`-plus-counter path avoids a real collision risk: a stale directory left behind by an
+/// earlier crashed run with a reused PID, or another local process racing to the same path,
+/// could otherwise be silently reused and then `remove_dir_all`'d by a run that never created it.
+/// `None` when `keep` is true: flight CSVs are written directly to `keep_base_dir` (the resolved
+/// `--output-dir`, or the source `.bbl`'s own folder when that's not given) and must never be
+/// removed — see `--keep` in `main.rs`.
 pub fn expand_bbl_to_scratch_csvs(
     bbl_path: &Path,
     force_export: bool,
@@ -46,14 +49,25 @@ pub fn expand_bbl_to_scratch_csvs(
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
 
-    let export_dir = if keep {
-        keep_base_dir
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| origin_dir.clone())
+    // Held for the whole function so its directory survives until export_to_csv has written
+    // into it; None under --keep, where flights go straight to their real, permanent location.
+    let scratch_guard = if keep {
+        None
     } else {
-        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let unique_id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        std::env::temp_dir().join(format!("bbcsvr-bbl-{}-{unique_id}", std::process::id()))
+        Some(
+            tempfile::Builder::new()
+                .prefix("bbcsvr-bbl-")
+                .tempdir()
+                .map_err(|e| format!("failed to create scratch directory: {e}"))?,
+        )
+    };
+
+    let export_dir: PathBuf = match (&scratch_guard, keep) {
+        (Some(guard), _) => guard.path().to_path_buf(),
+        (None, true) => keep_base_dir
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| origin_dir.clone()),
+        (None, false) => unreachable!("scratch_guard is only None when keep is true"),
     };
 
     let export_options = ExportOptions {
@@ -127,16 +141,7 @@ pub fn expand_bbl_to_scratch_csvs(
         );
     }
 
-    let scratch_dir = if keep { None } else { Some(export_dir) };
-    Ok((results, scratch_dir))
-}
-
-/// Removes a scratch directory returned by `expand_bbl_to_scratch_csvs`. Best-effort: called
-/// after all scratch CSVs have been parsed, at end of program. Takes the scratch directory
-/// itself (tracked explicitly by the caller), never a CSV file path — removing a directory
-/// inferred from an arbitrary path is exactly the kind of mistake this function must not permit.
-pub fn cleanup_scratch_dir(scratch_dir: &Path) {
-    let _ = std::fs::remove_dir_all(scratch_dir);
+    Ok((results, scratch_guard))
 }
 
 #[cfg(test)]

@@ -18,6 +18,8 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use tempfile::TempDir;
+
 use ndarray::Array1;
 
 use crate::axis_names::AXIS_COUNT;
@@ -351,7 +353,7 @@ fn expand_one_bbl_file(
     debug_mode: bool,
     csv_files: &mut Vec<String>,
     bbl_origin_dirs: &mut HashMap<String, PathBuf>,
-    scratch_dirs: &mut Vec<PathBuf>,
+    scratch_dirs: &mut Vec<TempDir>,
 ) {
     if !bbl_opts.eager {
         csv_files.push(bbl_path.to_string_lossy().to_string());
@@ -2510,8 +2512,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                     bbl_opts.keep_base_dir,
                     debug_mode,
                 ) {
-                    Ok((flights, scratch_dir)) => {
-                        let origin_dir = bbl_path.parent();
+                    Ok((flights, scratch_guard)) => {
+                        // Same normalized lookup the eager path uses (falls through to
+                        // bbl_path.parent() since this placeholder was never inserted into
+                        // bbl_origin_dirs) — a bare relative input like "flight.bbl" must get
+                        // "." here, not an empty path, or downstream directory use breaks.
+                        let origin_dir = effective_source_dir(input_file_str, &bbl_origin_dirs);
                         for (flight_csv_path, _origin_dir) in &flights {
                             let actual_output_dir = match &output_dir {
                                 None => origin_dir,
@@ -2532,11 +2538,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 overall_success = false;
                             }
                         }
-                        if !bbl_opts.keep {
-                            if let Some(dir) = scratch_dir {
-                                crate::data_input::bbl_reader::cleanup_scratch_dir(&dir);
-                            }
-                        }
+                        // Drops the exclusively-owned temp directory now (None under --keep).
+                        drop(scratch_guard);
                     }
                     Err(err) => eprintln!("⚠️  Skipping BBL file {input_file_str}: {err}"),
                 }
@@ -2568,15 +2571,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // Scratch CSVs are only used to feed the parser above; remove them now regardless of outcome.
-    // bbl_scratch_dirs is already empty under --keep (expand_bbl_to_scratch_csvs never records a
-    // scratch dir to clean up in that mode) — the explicit guard here is a second, independent
-    // safety net against ever deleting --keep output.
-    if !keep_bbl_csv {
-        for scratch_dir in &bbl_scratch_dirs {
-            crate::data_input::bbl_reader::cleanup_scratch_dir(scratch_dir);
-        }
-    }
+    // Scratch CSVs are only used to feed the parser above; drop their exclusively-owned temp
+    // directories now, regardless of outcome. bbl_scratch_dirs is already empty under --keep
+    // (expand_bbl_to_scratch_csvs never records a guard to hold in that mode), so this never
+    // touches --keep output either way.
+    drop(bbl_scratch_dirs);
 
     if overall_success {
         println!(

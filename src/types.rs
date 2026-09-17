@@ -25,22 +25,20 @@ pub type StepResponseResults = [Option<StepResponseResult>; AXIS_COUNT];
 // Input expansion return type (main.rs `expand_input_paths`/`find_csv_files_in_dir`):
 // list of resolved CSV file paths, count of skipped subdirectories, a map from each BBL-derived
 // scratch CSV path to its source `.bbl`'s own parent directory (for output-dir defaulting), and
-// the list of scratch directories that must be removed at end of program (empty entries for
-// `--keep` output, which must never be removed) — see `bbl_reader::expand_bbl_to_scratch_csvs`.
+// the exclusively-owned temp-directory guards that remove their scratch directories on drop
+// (empty under `--keep`, which never produces one) — see `bbl_reader::expand_bbl_to_scratch_csvs`.
 pub type InputExpansionResult = (
     Vec<String>,
     usize,
     std::collections::HashMap<String, std::path::PathBuf>,
-    Vec<std::path::PathBuf>,
+    Vec<tempfile::TempDir>,
 );
 
 // BBL expansion return type (bbl_reader::expand_bbl_to_scratch_csvs): one (scratch_csv_path,
-// original_bbl_parent_dir) pair per exported flight, and the scratch directory to remove
-// afterward (None under --keep — see the function's own doc comment for the full contract).
-pub type BblExpansionResult = (
-    Vec<(String, std::path::PathBuf)>,
-    Option<std::path::PathBuf>,
-);
+// original_bbl_parent_dir) pair per exported flight, and an exclusively-owned temp-directory
+// guard that removes the scratch directory on drop (None under --keep — see the function's own
+// doc comment for the full contract).
+pub type BblExpansionResult = (Vec<(String, std::path::PathBuf)>, Option<tempfile::TempDir>);
 
 pub type LogParseResult = Result<
     (
