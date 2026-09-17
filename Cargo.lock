@@ -61,9 +61,9 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "bbl_parser"
-version = "1.0.1"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2ec14588cefc39171f18e8045da5865de3c2e2c3454245b2502b409e7228c09"
+checksum = "4d2b2c14d16e80717d70806a8e81e9fe41edbb72a3eea860a08ece7487f8a94b"
 dependencies = [
  "anyhow",
  "csv",

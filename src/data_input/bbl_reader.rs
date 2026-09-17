@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use bbl_parser::{export_to_csv, parse_bbl_file_all_logs, should_skip_export, ExportOptions};
+use bbl_parser::{export_to_csv, parse_bbl_file_all_logs, ExportOptions};
 
 use crate::types::BblExpansionResult;
 
@@ -14,13 +14,11 @@ use crate::types::BblExpansionResult;
 /// pipeline unchanged, so motor/eRPM channel alignment and header-detection logic are not
 /// duplicated.
 ///
-/// `bbl_parser`'s own low-value-flight heuristic (`should_skip_export`: too short, low data
-/// density, or minimal gyro activity — ground tests/arm checks) is applied here explicitly,
-/// per flight. It is NOT applied automatically by `parse_bbl_file_all_logs`/`export_to_csv` —
-/// those library functions always parse/export everything; only bbl_parser's own CLI binary
-/// calls `should_skip_export`, so calling the library directly (as this module does) bypasses
-/// it unless replicated. `force_export` (from `-F`/`--force-export`) overrides the heuristic,
-/// matching bbl_parser's own CLI flag semantics.
+/// `bbl_parser`'s own low-value-flight heuristic (too short, low data density, or minimal gyro
+/// activity — ground tests/arm checks) is applied by `export_to_csv` itself (bbl_parser >=
+/// 1.1.0), gated by `ExportOptions.force_export` (`-F`/`--force-export`) — a skipped flight
+/// returns an `ExportReport` with `csv_path: None` and `skip_reason: Some(reason)` instead of
+/// writing files. No separate pre-check needed here.
 ///
 /// Returns `(flights, scratch_dir)`. `flights` has one `(scratch_csv_path,
 /// original_bbl_parent_dir)` pair per flight that was exported (flights skipped by the
@@ -87,17 +85,6 @@ pub fn expand_bbl_to_scratch_csvs(
     let mut results = Vec::with_capacity(logs.len());
     let mut skipped_count = 0;
     for log in &logs {
-        let (should_skip, reason) = should_skip_export(log, force_export);
-        if should_skip {
-            eprintln!(
-                "⚠️  Skipping flight {} in {}: {reason} (use -F/--force-export to include it)",
-                log.log_number,
-                bbl_path.display()
-            );
-            skipped_count += 1;
-            continue;
-        }
-
         // A per-flight export failure (disk full, permissions) must not discard flights that
         // already exported successfully earlier in this same .bbl — report and skip, don't ?.
         let report = match export_to_csv(log, bbl_path, &export_options, None) {
@@ -112,6 +99,15 @@ pub fn expand_bbl_to_scratch_csvs(
                 continue;
             }
         };
+        if let Some(reason) = report.skip_reason {
+            eprintln!(
+                "⚠️  Skipping flight {} in {}: {reason} (use -F/--force-export to include it)",
+                log.log_number,
+                bbl_path.display()
+            );
+            skipped_count += 1;
+            continue;
+        }
         let Some(csv_path) = report.csv_path else {
             eprintln!(
                 "⚠️  Skipping flight {} in {}: bbl_parser produced no CSV path",
