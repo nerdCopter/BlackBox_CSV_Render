@@ -17,6 +17,7 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tempfile::TempDir;
 
@@ -26,6 +27,25 @@ use crate::axis_names::AXIS_COUNT;
 use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, AircraftProfile};
 use crate::data_input::bbl_reader::print_block_separator;
 use crate::types::{InputExpansionResult, LogParseResult, StepResponseResults};
+
+/// Whether a discovery-time "Skipping ..." warning has already printed this run. Gates
+/// `print_discovery_skip_warning` so a whole contiguous group of such warnings (which can come
+/// from either `expand_input_paths`'s direct-file-argument branch or a recursive
+/// `find_csv_files_in_dir_impl` directory walk) shares exactly one leading blank line, rather
+/// than each warning line getting its own.
+static PRINTED_DISCOVERY_WARNING: AtomicBool = AtomicBool::new(false);
+
+/// Prints a discovery-time "Skipping ..." warning, inserting one blank line via
+/// `print_block_separator()` before the very first such warning of the run and none before any
+/// warning after that — keeping a contiguous group of warnings visually tight while still
+/// separating the group as a whole from whatever printed before it (the startup banner, or
+/// nothing).
+fn print_discovery_skip_warning(message: &str) {
+    if !PRINTED_DISCOVERY_WARNING.swap(true, Ordering::Relaxed) {
+        print_block_separator();
+    }
+    eprintln!("{message}");
+}
 
 // Build version string from git info with fallbacks for builds without vergen metadata
 fn get_version_string() -> String {
@@ -349,7 +369,9 @@ fn expand_input_paths(
                     if lowercase_path.ends_with(".header.csv")
                         || lowercase_path.ends_with(".headers.csv")
                     {
-                        eprintln!("⚠️  Skipping header file: {}", input_path_str);
+                        print_discovery_skip_warning(&format!(
+                            "⚠️  Skipping header file: {input_path_str}"
+                        ));
                     } else {
                         csv_files.push(input_path_str.clone());
                     }
@@ -363,10 +385,14 @@ fn expand_input_paths(
                         &mut scratch_dirs,
                     );
                 } else {
-                    eprintln!("⚠️  Skipping unsupported file: {}", input_path_str);
+                    print_discovery_skip_warning(&format!(
+                        "⚠️  Skipping unsupported file: {input_path_str}"
+                    ));
                 }
             } else {
-                eprintln!("⚠️  Skipping file without extension: {}", input_path_str);
+                print_discovery_skip_warning(&format!(
+                    "⚠️  Skipping file without extension: {input_path_str}"
+                ));
             }
         } else if input_path.is_dir() {
             // It's a directory, find CSV/BBL files (recursive only if flag is set)
@@ -582,12 +608,17 @@ fn find_csv_files_in_dir_impl(
                         let lowercase = path_str.to_ascii_lowercase();
                         if lowercase.ends_with(".header.csv") || lowercase.ends_with(".headers.csv")
                         {
-                            eprintln!("⚠️  Skipping header file: {}", path_str);
+                            print_discovery_skip_warning(&format!(
+                                "⚠️  Skipping header file: {path_str}"
+                            ));
                         } else {
                             csv_files.push(path_str.to_string());
                         }
                     } else {
-                        eprintln!("⚠️  Skipping file with non-UTF-8 path: {}", path.display());
+                        print_discovery_skip_warning(&format!(
+                            "⚠️  Skipping file with non-UTF-8 path: {}",
+                            path.display()
+                        ));
                     }
                 } else if extension.eq_ignore_ascii_case("bbl") {
                     expand_one_bbl_file(
@@ -2499,11 +2530,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         eager: estimate_optimal_p,
         colliding_stems: &colliding_bbl_stems,
     };
-    // Marks the start of the whole post-banner output stream — whatever prints first (a
-    // "Skipping ..." discovery warning, an eager .bbl export, or the first file's own
-    // "--- Processing file: ... ---" if nothing else fires first) gets no separator of its own;
-    // everything after it does, via the same shared helper.
-    print_block_separator();
     let (input_files, skipped_subdirs, bbl_origin_dirs, bbl_scratch_dirs) =
         expand_input_paths(&input_paths, recursive, bbl_opts, debug_mode);
 
@@ -2514,10 +2540,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else {
             "subdirectories"
         };
-        eprintln!(
-            "Note: Skipped {} {} (use --recursive to include subdirectories)",
-            skipped_subdirs, plural
-        );
+        print_discovery_skip_warning(&format!(
+            "Note: Skipped {skipped_subdirs} {plural} (use --recursive to include subdirectories)"
+        ));
     }
 
     if input_files.is_empty() {

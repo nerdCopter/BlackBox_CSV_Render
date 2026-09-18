@@ -1,34 +1,25 @@
 // src/data_input/bbl_reader.rs
 
+use bbl_parser::{export_to_csv, parse_bbl_file_all_logs, ExportOptions};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-
-use bbl_parser::{export_to_csv, parse_bbl_file_all_logs, ExportOptions};
 
 use crate::types::BblExpansionResult;
 
-/// Whether any output block (a discovery warning group, a `.bbl` export, a file's
-/// "--- Processing file: ... ---") has printed yet this run. `false` means the next block is the
-/// very first thing after the banner, which needs no separator of its own. Lives here rather than
-/// in `main.rs` because this module is reachable from both this crate's `lib` and `bin` targets
-/// (`main.rs` declares its own `mod data_input;` alongside `lib.rs`'s `pub mod data_input;`) —
-/// a helper defined only in `main.rs` isn't visible when this file compiles as part of `lib`.
-static PRINTED_FIRST_BLOCK: AtomicBool = AtomicBool::new(false);
-
-/// Prints a blank line separating the next output block from whatever came before it — except
-/// before the very first block of the run, which already has the startup banner as its own
-/// preceding line and needs no additional gap. Call this once per logical block (e.g. once
-/// before a whole group of consecutive "Skipping ..." warnings, not once per warning line within
-/// that group — otherwise every line in the group gets its own blank instead of the group as a
-/// whole staying visually together). Single-threaded program, `Relaxed` is sufficient.
+/// Prints a blank line separating the next output block from whatever came before it — the
+/// startup banner, a discovery-warning group, or a previous file's own output. Always prints;
+/// callers are responsible for calling this exactly once per logical block (e.g. once before a
+/// whole group of consecutive "Skipping ..." warnings, not once per warning line within that
+/// group — otherwise every line in the group gets its own blank instead of the group as a whole
+/// staying visually together). Lives here rather than in `main.rs` because this module is
+/// reachable from both this crate's `lib` and `bin` targets (`main.rs` declares its own
+/// `mod data_input;` alongside `lib.rs`'s `pub mod data_input;`) — a helper defined only in
+/// `main.rs` isn't visible when this file compiles as part of `lib`.
 pub(crate) fn print_block_separator() {
-    if PRINTED_FIRST_BLOCK.swap(true, Ordering::Relaxed) {
-        println!();
-    }
+    println!();
 }
 
 /// 6 hex chars (24 bits) of `DefaultHasher` over `path`'s canonicalized form (falling back to the
