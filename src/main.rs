@@ -621,9 +621,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  -R, --recursive: Recursively find CSV/BBL files in subdirectories.");
     eprintln!("  -F, --force-export: Export .bbl flights bbl_parser would otherwise skip as");
     eprintln!("            low-value (very short / low data density / minimal gyro activity).");
-    eprintln!("  --keep: Write .bbl-exported CSV/.headers.csv to the output location (source");
-    eprintln!("          folder, or -O/--output-dir) and keep them, instead of a removed");
-    eprintln!("          temp-directory scratch copy.");
+    eprintln!("  --keep: Keep the exported .csv/.headers.csv files (source folder, or");
+    eprintln!("          -O/--output-dir)");
     eprintln!();
     eprintln!("--- PLOT TYPE SELECTION ---");
     eprintln!();
