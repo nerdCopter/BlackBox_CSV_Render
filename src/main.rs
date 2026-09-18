@@ -233,6 +233,86 @@ struct BblExpansionOptions<'a> {
     /// own processing, so a multi-file run reads-and-processes one file at a time instead of
     /// exporting every `.bbl` up front. See the main per-file loop's placeholder-detection branch.
     eager: bool,
+    /// Case-insensitive `.bbl` basenames (file stems) that appear more than once across this
+    /// run's full input set. Only populated when `keep` is true (collision is only possible when
+    /// writing to a shared permanent directory — scratch/tempdir mode is always exclusive per
+    /// file). Consulted by `expand_bbl_to_scratch_csvs` to decide whether a retained export needs
+    /// a disambiguating suffix; see `find_colliding_bbl_stems`.
+    colliding_stems: &'a HashSet<String>,
+}
+
+/// Pre-scans every `.bbl`/`.BBL` file reachable from `input_paths` (recursing into directories
+/// when `recursive`, matching `find_csv_files_in_dir`'s own inclusion rules) and returns the
+/// case-insensitive basenames that appear more than once. Must run to completion *before* any
+/// `.bbl` file is exported: `bbl_parser`'s `export_to_csv` truncates an existing file at its
+/// target path, so a collision discovered only after the fact is already unrecoverable — the
+/// first file's content is gone by the time a second file's export call returns. This is a
+/// separate, simpler walk from `find_csv_files_in_dir_impl` (no CSV handling, no origin-dir
+/// bookkeeping, silent on read errors) specifically so it never risks regressing that
+/// already-tested walk — only called when `--keep` is set, since scratch/tempdir mode is always
+/// collision-free.
+fn find_colliding_bbl_stems(input_paths: &[String], recursive: bool) -> HashSet<String> {
+    let mut stem_counts: HashMap<String, usize> = HashMap::new();
+    let mut visited = HashSet::new();
+    for input_path_str in input_paths {
+        collect_bbl_stems(
+            Path::new(input_path_str),
+            recursive,
+            &mut visited,
+            &mut stem_counts,
+        );
+    }
+    stem_counts
+        .into_iter()
+        .filter(|&(_, count)| count > 1)
+        .map(|(stem, _)| stem)
+        .collect()
+}
+
+/// Recursive helper for `find_colliding_bbl_stems`. Silent on unreadable paths — any file missed
+/// here still gets the real walk's own error reporting during actual expansion, and a file that
+/// can't be read can't collide with anything either.
+fn collect_bbl_stems(
+    path: &Path,
+    recursive: bool,
+    visited: &mut HashSet<PathBuf>,
+    stem_counts: &mut HashMap<String, usize>,
+) {
+    if path.is_file() {
+        if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("bbl"))
+        {
+            if let Some(stem) = path.file_stem() {
+                *stem_counts
+                    .entry(stem.to_string_lossy().to_ascii_lowercase())
+                    .or_insert(0) += 1;
+            }
+        }
+        return;
+    }
+    if !path.is_dir() {
+        return;
+    }
+    let Ok(canonical) = path.canonicalize() else {
+        return;
+    };
+    if !visited.insert(canonical) {
+        return; // symlink loop
+    }
+    let Ok(entries) = fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let child = entry.path();
+        if child.is_dir() {
+            if recursive {
+                collect_bbl_stems(&child, recursive, visited, stem_counts);
+            }
+        } else {
+            collect_bbl_stems(&child, recursive, visited, stem_counts);
+        }
+    }
 }
 
 /// Expand input paths to a list of CSV files.
@@ -365,6 +445,7 @@ fn expand_one_bbl_file(
         bbl_opts.force_export,
         bbl_opts.keep,
         bbl_opts.keep_base_dir,
+        bbl_opts.colliding_stems,
         debug_mode,
     ) {
         Ok((flights, scratch_dir)) => {
@@ -2396,6 +2477,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Expand input paths (files and directories) to a list of CSV files
+    // Only scanned under --keep: scratch/tempdir mode (the default) is always collision-free
+    // per file, so this walk would be pure overhead for the common case.
+    let colliding_bbl_stems = if keep_bbl_csv {
+        find_colliding_bbl_stems(&input_paths, recursive)
+    } else {
+        HashSet::new()
+    };
     let bbl_opts = BblExpansionOptions {
         force_export: bbl_force_export,
         keep: keep_bbl_csv,
@@ -2405,6 +2493,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // default path defers .bbl expansion instead, so files are read-and-processed one at a
         // time.
         eager: estimate_optimal_p,
+        colliding_stems: &colliding_bbl_stems,
     };
     let (input_files, skipped_subdirs, bbl_origin_dirs, bbl_scratch_dirs) =
         expand_input_paths(&input_paths, recursive, bbl_opts, debug_mode);
@@ -2510,6 +2599,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     bbl_opts.force_export,
                     bbl_opts.keep,
                     bbl_opts.keep_base_dir,
+                    bbl_opts.colliding_stems,
                     debug_mode,
                 ) {
                     Ok((flights, scratch_guard)) => {
@@ -2781,11 +2871,13 @@ mod bbl_input_expansion_tests {
             let mut csv_files = Vec::new();
             let mut bbl_origin_dirs = HashMap::new();
             let mut scratch_dirs = Vec::new();
+            let empty_collisions = HashSet::new();
             let bbl_opts = BblExpansionOptions {
                 force_export: false,
                 keep: false,
                 keep_base_dir: None,
                 eager: true,
+                colliding_stems: &empty_collisions,
             };
 
             expand_one_bbl_file(
@@ -2817,11 +2909,13 @@ mod bbl_input_expansion_tests {
         let mut csv_files = Vec::new();
         let mut bbl_origin_dirs = HashMap::new();
         let mut scratch_dirs = Vec::new();
+        let empty_collisions = HashSet::new();
         let bbl_opts = BblExpansionOptions {
             force_export: false,
             keep: false,
             keep_base_dir: None,
             eager: false,
+            colliding_stems: &empty_collisions,
         };
 
         expand_one_bbl_file(
@@ -2844,11 +2938,13 @@ mod bbl_input_expansion_tests {
     #[test]
     fn unsupported_extension_is_skipped_not_fatal() {
         let path = write_garbage_file("flight.txt");
+        let empty_collisions = HashSet::new();
         let bbl_opts = BblExpansionOptions {
             force_export: false,
             keep: false,
             keep_base_dir: None,
             eager: true,
+            colliding_stems: &empty_collisions,
         };
         let (csv_files, _skipped_subdirs, bbl_origin_dirs, _scratch_dirs) = expand_input_paths(
             &[path.to_string_lossy().to_string()],
