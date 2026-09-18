@@ -207,8 +207,11 @@ pub fn analyze_stick_distribution(
         let max_rate = rate_curve_config
             .as_ref()
             .and_then(|config| configured_max_rate(config, axis));
+        // Headroom is the unused portion of the configured range, not the used portion.
         let rate_headroom_pct = match (p95_setpoint, max_rate) {
-            (Some(sp), Some(max)) if max > 0.0 => Some((sp.abs() / max) * RATIO_TO_PERCENT),
+            (Some(sp), Some(max)) if max > 0.0 => {
+                Some(RATIO_TO_PERCENT - (sp.abs() / max) * RATIO_TO_PERCENT)
+            }
             _ => None,
         };
 
