@@ -23,6 +23,12 @@ fn path_disambiguator(path: &Path) -> String {
     format!("{:06x}", hasher.finish() & 0xFF_FFFF)
 }
 
+/// Cap on `rename_pair_unique`'s fallback counter. Not a realistic ceiling for a real collision
+/// (a true hash collision or a concurrent writer occupying every candidate up to this point is
+/// already astronomically unlikely) — purely a defensive bound so the loop has a guaranteed
+/// termination property instead of running to `u32` overflow in a pathological case.
+const RENAME_PAIR_MAX_ATTEMPTS: u32 = 10_000;
+
 /// Renames `csv_path` (and `headers_path`, when present) to `{csv_stem}.{suffix}.csv` /
 /// `{csv_stem}.{suffix}.headers.csv` in the same directory. Both target names are selected and
 /// existence-checked together under one shared fallback counter — never renamed independently —
@@ -32,6 +38,16 @@ fn path_disambiguator(path: &Path) -> String {
 /// exactly the same stem, not just the same suffix. No fixed-length hash is mathematically
 /// collision-proof, only collision-*unlikely* — the counter fallback is the defensive backstop
 /// for a true hash collision or an unrelated file already occupying the target.
+///
+/// If the headers rename fails after the CSV rename already succeeded (e.g. the headers file
+/// disappeared, a permissions or quota error), the CSV rename is rolled back before returning
+/// `Err` — the caller's own fallback keeps the pre-rename `csv_path`, which must still exist on
+/// disk for that to be correct. Left half-renamed, the caller would silently be pointed at a CSV
+/// path that no longer exists.
+///
+/// This function assumes single-process, non-concurrent use of the output directory (this tool's
+/// actual usage pattern) — it does not guard the gap between the existence check and the rename
+/// against another process racing to the same target.
 fn rename_pair_unique(
     csv_path: &Path,
     headers_path: Option<&Path>,
@@ -50,16 +66,26 @@ fn rename_pair_unique(
         let taken = csv_target.exists() || headers_target.as_ref().is_some_and(|p| p.exists());
         if !taken {
             std::fs::rename(csv_path, &csv_target)?;
-            let renamed_headers = match (headers_path, &headers_target) {
-                (Some(hp), Some(ht)) => {
-                    std::fs::rename(hp, ht)?;
-                    Some(ht.clone())
+            if let (Some(hp), Some(ht)) = (headers_path, &headers_target) {
+                if let Err(e) = std::fs::rename(hp, ht) {
+                    // Best-effort rollback so a caller that sees Err can still trust the
+                    // original csv_path — leaving the CSV renamed with no matching headers
+                    // move would just be a different flavor of the detachment this fixes.
+                    let _ = std::fs::rename(&csv_target, csv_path);
+                    return Err(e.into());
                 }
-                _ => None,
-            };
-            return Ok((csv_target, renamed_headers));
+                return Ok((csv_target, Some(ht.clone())));
+            }
+            return Ok((csv_target, None));
         }
-        attempt = Some(attempt.map_or(2, |n| n + 1));
+        let next = attempt.map_or(2, |n| n + 1);
+        if next > RENAME_PAIR_MAX_ATTEMPTS {
+            return Err(format!(
+                "no free filename found for {csv_stem}.{suffix}.csv after {RENAME_PAIR_MAX_ATTEMPTS} attempts"
+            )
+            .into());
+        }
+        attempt = Some(next);
     }
 }
 
@@ -370,6 +396,39 @@ mod tests {
             std::fs::read_to_string(new_headers.unwrap()).unwrap(),
             "new headers data"
         );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// If the headers rename fails after the CSV rename already succeeded, the CSV must be
+    /// rolled back — otherwise the caller's `Err` branch would keep pointing at a `csv_path`
+    /// that no longer exists on disk (a different flavor of the detachment this whole function
+    /// exists to prevent). Simulated by passing a headers path that doesn't actually exist, so
+    /// its `fs::rename` call fails deterministically.
+    #[test]
+    fn rename_pair_unique_rolls_back_csv_when_headers_rename_fails() {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let unique_id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "bbcsvr-rename-pair-rollback-test-{}-{unique_id}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("failed to create test dir");
+        let csv = dir.join("source.csv");
+        std::fs::write(&csv, b"csv data").expect("failed to write test csv");
+        let missing_headers = dir.join("does_not_exist.headers.csv");
+
+        let result = rename_pair_unique(&csv, Some(&missing_headers), "flight", "abc123");
+        assert!(
+            result.is_err(),
+            "must fail when the headers rename fails, not silently succeed"
+        );
+        assert!(
+            csv.exists(),
+            "CSV must be rolled back to its original path so the caller's csv_path is still valid"
+        );
+        assert!(!dir.join("flight.abc123.csv").exists());
+        assert_eq!(std::fs::read_to_string(&csv).unwrap(), "csv data");
 
         std::fs::remove_dir_all(&dir).ok();
     }
