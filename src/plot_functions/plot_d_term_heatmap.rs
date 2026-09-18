@@ -84,7 +84,7 @@ pub fn plot_d_term_heatmap(
         eprintln!("Error: Invalid frequency step calculated.");
         return Ok(());
     }
-    let num_unique_freqs = if fft_padded_len % 2 == 0 {
+    let num_unique_freqs = if fft_padded_len.is_multiple_of(2) {
         fft_padded_len / 2 + 1
     } else {
         fft_padded_len.div_ceil(2)
@@ -255,7 +255,8 @@ pub fn plot_d_term_heatmap(
                         let mut amp_unfilt_linear_psd =
                             unfilt_spec[i].norm_sqr() as f64 * psd_scale;
 
-                        let is_nyquist = fft_padded_len % 2 == 0 && i == num_unique_freqs - 1;
+                        let is_nyquist =
+                            fft_padded_len.is_multiple_of(2) && i == num_unique_freqs - 1;
 
                         if i > 0 && !is_nyquist {
                             amp_unfilt_linear_psd *= 2.0;
@@ -312,7 +313,8 @@ pub fn plot_d_term_heatmap(
 
                         let mut amp_filt_linear_psd = filt_spec[i].norm_sqr() as f64 * psd_scale;
 
-                        let is_nyquist = fft_padded_len % 2 == 0 && i == num_unique_freqs - 1;
+                        let is_nyquist =
+                            fft_padded_len.is_multiple_of(2) && i == num_unique_freqs - 1;
 
                         if i > 0 && !is_nyquist {
                             amp_filt_linear_psd *= 2.0;

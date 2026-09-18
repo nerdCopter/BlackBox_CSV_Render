@@ -119,7 +119,7 @@ fn detect_windowed_oscillation(
     let mut worst: Option<(f64, f64, f64)> = None;
     let consider = |start: usize, worst: &mut Option<(f64, f64, f64)>| {
         if let Some((t, peak, avg)) = check_window(start) {
-            if worst.map_or(true, |(_, wp, _)| peak > wp) {
+            if worst.is_none_or(|(_, wp, _)| peak > wp) {
                 *worst = Some((t, peak, avg));
             }
         }
@@ -135,7 +135,7 @@ fn detect_windowed_oscillation(
     // divide the tail), leaving a burst confined to the very end of the flight unchecked.
     // Always test the last possible window explicitly, regardless of stride alignment.
     let last_start = samples.len() - win_samples;
-    if last_start % hop != 0 {
+    if !last_start.is_multiple_of(hop) {
         consider(last_start, &mut worst);
     }
 
@@ -198,7 +198,7 @@ pub fn detect_motor_oscillations(
             let (event_time_s, peak_in_range, avg_in_range) = match worst {
                 Some((t, peak, avg)) => {
                     println!(
-                        "  ⚠ Motor {}: Potential oscillation detected in {:.0}-{:.0} Hz range at t={:.2}s (peak {:.1} >> avg {:.1})",
+                        "  ⚠️  Motor {}: Potential oscillation detected in {:.0}-{:.0} Hz range at t={:.2}s (peak {:.1} >> avg {:.1})",
                         motor_idx, MOTOR_OSCILLATION_FREQ_MIN_HZ, MOTOR_OSCILLATION_FREQ_MAX_HZ, t, peak, avg
                     );
                     (Some(t), Some(peak), Some(avg))

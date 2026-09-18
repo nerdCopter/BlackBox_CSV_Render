@@ -2,13 +2,15 @@
 name = "BlackBox_CSV_Render"
 version = "0.1.0"
 edition = "2021" # Use 2021 edition as it's standard, 2024 is not yet released/stable
-rust-version = "1.73"
+rust-version = "1.96.0" # matches bbl_parser's real floor (src/conversion.rs uses is_multiple_of)
 license = "AGPL-3.0-or-later"
 include = ["src/**", "fonts/**", "Cargo.toml", "LICENSE*", "README.md", "build.rs"]
 
 [dependencies]
 plotters = "0.3"
 csv = "1.1"
+bbl_parser = { version = "1.1", default-features = false, features = ["csv"] }
+tempfile = "3"
 realfft = "3.3"
 num-complex = "0.4"
 ndarray = "0.15"

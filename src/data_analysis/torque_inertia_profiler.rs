@@ -20,8 +20,8 @@
 
 use crate::axis_names::AXIS_COUNT;
 use crate::constants::{
-    OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER, THROTTLE_COMMAND_SCALE, THROTTLE_PUNCH_MIN_DELTA,
-    THROTTLE_PUNCH_WINDOW_MS, THROTTLE_RESPONSE_WINDOW_MS,
+    OPTIMAL_P_SECONDS_TO_MS_MULTIPLIER, PARITY_DIVISOR, THROTTLE_COMMAND_SCALE,
+    THROTTLE_PUNCH_MIN_DELTA, THROTTLE_PUNCH_WINDOW_MS, THROTTLE_RESPONSE_WINDOW_MS,
     TORQUE_PROFILER_MIN_CMD_DELTA_NORMALIZED, TORQUE_PROFILER_MIN_DT_S, TORQUE_PROFILER_MIN_EVENTS,
     TORQUE_PROFILER_P_SCALE, TORQUE_PROFILER_SETTLE_MS, TORQUE_PROFILER_TD_CALC_K,
 };
@@ -47,7 +47,7 @@ impl AxisProfile {
         }
         ratios.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-        let median = if n % 2 == 0 {
+        let median = if n.is_multiple_of(PARITY_DIVISOR) {
             (ratios[n / 2 - 1] + ratios[n / 2]) / 2.0
         } else {
             ratios[n / 2]

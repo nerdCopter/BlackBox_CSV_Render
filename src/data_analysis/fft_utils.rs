@@ -16,7 +16,11 @@ pub fn fft_forward(data: &Array1<f32>) -> Array1<Complex32> {
     let mut output = planner.make_output_vec();
     if planner.process(&mut input, &mut output).is_err() {
         eprintln!("⚠️  FFT forward processing failed.");
-        let expected_complex_len = if n % 2 == 0 { n / 2 + 1 } else { n.div_ceil(2) };
+        let expected_complex_len = if n.is_multiple_of(2) {
+            n / 2 + 1
+        } else {
+            n.div_ceil(2)
+        };
         return Array1::zeros(expected_complex_len);
     }
     Array1::from(output)
@@ -33,7 +37,7 @@ pub fn fft_inverse(data: &Array1<Complex32>, original_length_n: usize) -> Array1
     let planner = RealFftPlanner::<f32>::new().plan_fft_inverse(original_length_n);
     let mut output = planner.make_output_vec();
 
-    let expected_complex_len = if original_length_n % 2 == 0 {
+    let expected_complex_len = if original_length_n.is_multiple_of(2) {
         original_length_n / 2 + 1
     } else {
         original_length_n.div_ceil(2)
@@ -65,7 +69,11 @@ pub fn fft_rfftfreq(n: usize, d: f32) -> Array1<f32> {
     if n == 0 || d <= 0.0 {
         return Array1::zeros(0);
     }
-    let num_freqs = if n % 2 == 0 { n / 2 + 1 } else { n.div_ceil(2) };
+    let num_freqs = if n.is_multiple_of(2) {
+        n / 2 + 1
+    } else {
+        n.div_ceil(2)
+    };
     let mut freqs = Array1::<f32>::zeros(num_freqs);
     let nyquist = 0.5 / d;
     for i in 0..num_freqs {

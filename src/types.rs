@@ -22,6 +22,24 @@ pub type StepResponseResults = [Option<StepResponseResult>; AXIS_COUNT];
 // Log parser return type
 // Note: [bool; 3] and [bool; 4] arrays are header detection flags (not axis-specific).
 // They must remain hardcoded and do NOT reference AXIS_COUNT.
+// Input expansion return type (main.rs `expand_input_paths`/`find_csv_files_in_dir`):
+// list of resolved CSV file paths, count of skipped subdirectories, a map from each BBL-derived
+// scratch CSV path to its source `.bbl`'s own parent directory (for output-dir defaulting), and
+// the exclusively-owned temp-directory guards that remove their scratch directories on drop
+// (empty under `--keep`, which never produces one) — see `bbl_reader::expand_bbl_to_scratch_csvs`.
+pub type InputExpansionResult = (
+    Vec<String>,
+    usize,
+    std::collections::HashMap<String, std::path::PathBuf>,
+    Vec<tempfile::TempDir>,
+);
+
+// BBL expansion return type (bbl_reader::expand_bbl_to_scratch_csvs): one (scratch_csv_path,
+// original_bbl_parent_dir) pair per exported flight, and an exclusively-owned temp-directory
+// guard that removes the scratch directory on drop (None under --keep — see the function's own
+// doc comment for the full contract).
+pub type BblExpansionResult = (Vec<(String, std::path::PathBuf)>, Option<tempfile::TempDir>);
+
 pub type LogParseResult = Result<
     (
         Vec<crate::data_input::log_data::LogRowData>,

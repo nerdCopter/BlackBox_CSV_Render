@@ -482,3 +482,16 @@ pub const RATIO_TO_PERCENT: f64 = 100.0;
 /// Number of header metadata entries shown in the `debug_mode` sample dump before truncating
 /// to "... and N more".
 pub const HEADER_METADATA_DEBUG_SAMPLE_LIMIT: usize = 5;
+
+/// Shared divisor for evenness checks (Nyquist-bin detection in spectral analysis, and
+/// even-length-array median calculation across several statistics helpers).
+pub const PARITY_DIVISOR: usize = 2;
+
+/// Hex-digit width of the collision-disambiguation suffix appended to a retained `--keep`
+/// export's filename (`bbl_reader.rs`). Must match `BBL_DISAMBIGUATOR_MASK`'s bit width.
+pub const BBL_DISAMBIGUATOR_HEX_WIDTH: usize = 6;
+/// Bitmask truncating a path hash to `BBL_DISAMBIGUATOR_HEX_WIDTH` hex digits (24 bits).
+pub const BBL_DISAMBIGUATOR_MASK: u64 = 0xFF_FFFF;
+/// Defensive cap on `rename_pair_unique`'s fallback counter (`bbl_reader.rs`) — not a realistic
+/// ceiling for a real collision, purely a guaranteed loop-termination bound.
+pub const RENAME_PAIR_MAX_ATTEMPTS: u32 = 10_000;
