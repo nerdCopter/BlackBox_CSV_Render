@@ -894,7 +894,10 @@ fn process_file(
         eprintln!("Error: Input file not found: {input_file_str}");
         return Ok(()); // Continue to next file if this one is not found
     }
-    println!("\n--- Processing file: {input_file_str} ---");
+    // No leading blank line here — callers own the file-to-file separator, since a scratch CSV
+    // freshly exported from a .bbl needs to stay visually attached to its own "--- Exporting
+    // ... ---" line rather than getting a second blank line of its own.
+    println!("--- Processing file: {input_file_str} ---");
 
     let file_stem_cow = input_path
         .file_stem()
@@ -2645,6 +2648,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .flatten();
             let pre_parsed = parsed_cache_iter.next();
 
+            // Restores the file-to-file blank line process_file itself no longer prints — this
+            // branch (plain .csv input, or an already-expanded eager .bbl file) has no preceding
+            // "--- Exporting ... ---" line of its own to lean on.
+            println!();
             if let Err(e) = process_file(
                 input_file_str,
                 dir_prefix_source,
