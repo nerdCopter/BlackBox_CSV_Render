@@ -41,7 +41,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
   -R, --recursive: Recursively find CSV/BBL files in subdirectories.
   -F, --force-export: Export .bbl flights bbl_parser would otherwise skip as low-value
                        (very short / low data density / minimal gyro activity).
-  --keep: Keep the exported .csv/.headers.csv files (source folder, or -O/--output-dir)
+  -K, --keep: Keep the exported .csv/.headers.csv files (source folder, or -O/--output-dir)
 
 === PLOT TYPE SELECTION ===
 

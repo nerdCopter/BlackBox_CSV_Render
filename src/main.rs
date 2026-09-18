@@ -621,8 +621,8 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("  -R, --recursive: Recursively find CSV/BBL files in subdirectories.");
     eprintln!("  -F, --force-export: Export .bbl flights bbl_parser would otherwise skip as");
     eprintln!("            low-value (very short / low data density / minimal gyro activity).");
-    eprintln!("  --keep: Keep the exported .csv/.headers.csv files (source folder, or");
-    eprintln!("          -O/--output-dir)");
+    eprintln!("  -K, --keep: Keep the exported .csv/.headers.csv files (source folder, or");
+    eprintln!("              -O/--output-dir)");
     eprintln!();
     eprintln!("--- PLOT TYPE SELECTION ---");
     eprintln!();
@@ -2341,7 +2341,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else if arg == "--force-export" || arg == "-F" || arg == "--force" {
             // --force is an undocumented alias, kept for convenience.
             bbl_force_export = true;
-        } else if arg == "--keep" {
+        } else if arg == "--keep" || arg == "-K" {
             keep_bbl_csv = true;
         } else if arg == "--dps" {
             if dps_flag_present {
