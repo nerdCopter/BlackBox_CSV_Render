@@ -11,7 +11,8 @@ use std::path::Path;
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
 use crate::constants::{
     MOTOR_DESYNC_REPORT_MAX_TIMES, MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ,
-    MOTOR_OSCILLATION_SECONDS_TO_MS, MOTOR_OSCILLATION_WINDOW_S,
+    MOTOR_OSCILLATION_SECONDS_TO_MS, MOTOR_OSCILLATION_WINDOW_S, RATIO_TO_PERCENT,
+    STICK_DIST_FULL_STICK_RC_COMMAND,
 };
 use crate::data_analysis::filter_response::{
     AllFilterConfigs, DynamicNotchConfig, RpmFilterConfig,
@@ -683,28 +684,31 @@ pub fn generate_markdown_report(
         writeln!(md)?;
         writeln!(
             md,
-            "| Axis | Center | Mid | High | Saturation (s) | Saturation Events | Center Reversal Rate (Hz) |"
+            "| Axis | Peak Stick | Center | Mid | High | Saturation (s) | Saturation Events | Center Reversal Rate (Hz) |"
         )?;
         writeln!(
             md,
-            "|------|--------|-----|------|-----------------|--------------------|---------------------------|"
+            "|------|------------|--------|-----|------|-----------------|--------------------|---------------------------|"
         )?;
         for r in &report.stick_distribution_results {
             if r.peak_stick.map_or(true, |p| p <= 0.0) {
                 writeln!(
                     md,
-                    "| {} | N/A | N/A | N/A | N/A | N/A | N/A |",
+                    "| {} | N/A | N/A | N/A | N/A | N/A | N/A | N/A |",
                     r.axis_name
                 )?;
                 continue;
             }
+            let peak_stick_pct =
+                r.peak_stick.unwrap_or(0.0) / STICK_DIST_FULL_STICK_RC_COMMAND * RATIO_TO_PERCENT;
             let reversal_rate = r
                 .center_reversal_rate_hz
                 .map_or("N/A".into(), |v| format!("{:.2}", v));
             writeln!(
                 md,
-                "| {} | {:.0}% | {:.0}% | {:.0}% | {:.1} | {} | {} |",
+                "| {} | {:.0}% | {:.0}% | {:.0}% | {:.0}% | {:.1} | {} | {} |",
                 r.axis_name,
+                peak_stick_pct,
                 r.center_pct,
                 r.mid_pct,
                 r.high_pct,
@@ -716,7 +720,7 @@ pub fn generate_markdown_report(
         writeln!(md)?;
         writeln!(
             md,
-            "Center/Mid/High are % of flight time spent below 15%, 15-75%, and above 75% of this axis's own peak RC Command deflection. Saturation is time spent above 95%; Saturation Events counts separate excursions above that threshold, not cumulative time."
+            "Peak Stick is the highest |rc_command| this flight reached, as a % of true full-stick range (both Betaflight and EmuFlight clamp rcCommand to +/-500 before the rate curve). Center/Mid/High are % of flight time spent below 15%, 15-75%, and above 75% of that same true full-stick range — not this axis's own peak. Saturation is time spent above 95% of true full-stick; Saturation Events counts separate excursions above that threshold, not cumulative time. A flight whose Peak Stick never reaches 95% cannot register a Saturation Event."
         )?;
         writeln!(md)?;
 

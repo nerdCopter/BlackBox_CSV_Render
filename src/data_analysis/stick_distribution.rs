@@ -2,19 +2,21 @@
 
 use crate::axis_names::AXIS_NAMES;
 use crate::constants::{
-    RATIO_TO_PERCENT, STICK_DIST_CENTER_THRESHOLD_PCT, STICK_DIST_HIGH_THRESHOLD_PCT,
-    STICK_DIST_SATURATION_THRESHOLD_PCT, UNIFIED_Y_AXIS_PERCENTILE,
+    RATIO_TO_PERCENT, STICK_DIST_CENTER_THRESHOLD_PCT, STICK_DIST_FULL_STICK_RC_COMMAND,
+    STICK_DIST_HIGH_THRESHOLD_PCT, STICK_DIST_SATURATION_THRESHOLD_PCT, UNIFIED_Y_AXIS_PERCENTILE,
 };
 use crate::data_analysis::rate_curve::{configured_max_rate, parse_rate_curve_config};
 use crate::data_analysis::threshold_events::count_rising_edge_events;
 use crate::data_input::log_data::LogRowData;
 
 /// Per-axis stick position distribution and rate-utilization statistics.
-/// Zone percentages are relative to this flight's own peak `rc_command` magnitude for the
-/// axis — a data-driven reference independent of `configured_max_rate` below.
+/// Zone percentages are relative to true full-stick `rc_command` (`STICK_DIST_FULL_STICK_RC_COMMAND`),
+/// not this flight's own peak — a flight that never reaches full stick cannot register
+/// Saturation just by exceeding a fraction of its own already-partial peak. Independent of
+/// `configured_max_rate` below.
 pub struct StickDistributionResult {
     pub axis_name: String,
-    /// Peak |rc_command| observed for this axis — the 100% reference for the zone percentages.
+    /// Peak |rc_command| observed for this axis, reported for context — not the zone reference.
     /// `None` when the axis has fewer than two RC Command samples.
     pub peak_stick: Option<f64>,
     pub center_pct: f64,
@@ -68,19 +70,18 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
     }
 
     let peak = points.iter().fold(0.0_f64, |acc, (_, v)| acc.max(v.abs()));
-    if peak <= 0.0 {
-        return StickZoneStats {
-            peak_stick: Some(peak),
-            ..Default::default()
-        };
-    }
 
-    // Normalized (time, % of peak) series, shared by the zone/reversal loop below and by the
-    // Saturation Events count, which delegates to the generic level-crossing counter rather
-    // than duplicating its own rising-edge state machine.
+    // Normalized (time, % of true full-stick) series, shared by the zone/reversal loop below
+    // and by the Saturation Events count, which delegates to the generic level-crossing counter
+    // rather than duplicating its own rising-edge state machine.
     let pct_points: Vec<(f64, f64)> = points
         .iter()
-        .map(|(t, v)| (*t, (v.abs() / peak) * RATIO_TO_PERCENT))
+        .map(|(t, v)| {
+            (
+                *t,
+                (v.abs() / STICK_DIST_FULL_STICK_RC_COMMAND) * RATIO_TO_PERCENT,
+            )
+        })
         .collect();
     let saturation_event_count =
         count_rising_edge_events(&pct_points, STICK_DIST_SATURATION_THRESHOLD_PCT);
@@ -102,7 +103,7 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
         }
         total_time += dt;
 
-        let pct = (v0.abs() / peak) * RATIO_TO_PERCENT;
+        let pct = (v0.abs() / STICK_DIST_FULL_STICK_RC_COMMAND) * RATIO_TO_PERCENT;
         if pct < STICK_DIST_CENTER_THRESHOLD_PCT {
             center_time += dt;
         } else if pct < STICK_DIST_HIGH_THRESHOLD_PCT {
@@ -248,11 +249,12 @@ mod tests {
 
     #[test]
     fn all_center_gives_full_center_pct_and_no_saturation() {
-        // Peak (1.0) only ever appears as the trailing endpoint of the last interval, so
-        // every timed interval is classified by the 0.1 (10% of peak) value that starts it.
-        let points = points_from(&[0.1, 0.1, 0.1, 0.1, 0.1, 1.0]);
+        // Full stick (500.0, the true full-stick reference) only ever appears as the trailing
+        // endpoint of the last interval, so every timed interval is classified by the 50.0
+        // (10% of true full stick) value that starts it.
+        let points = points_from(&[50.0, 50.0, 50.0, 50.0, 50.0, 500.0]);
         let stats = analyze_stick_zones(&points);
-        assert_eq!(stats.peak_stick, Some(1.0));
+        assert_eq!(stats.peak_stick, Some(500.0));
         assert!((stats.center_pct - 100.0).abs() < 1e-9);
         assert_eq!(stats.mid_pct, 0.0);
         assert_eq!(stats.high_pct, 0.0);
@@ -263,7 +265,7 @@ mod tests {
     fn full_stick_is_saturation() {
         // Peak sample itself (pct=100%) is excluded from timed intervals (windows(2) uses it
         // only as the endpoint of the prior interval), so hold it for two samples to measure it.
-        let points = points_from(&[100.0, 100.0, 0.0]);
+        let points = points_from(&[500.0, 500.0, 0.0]);
         let stats = analyze_stick_zones(&points);
         assert!(stats.saturation_time_s > 0.0);
         assert!(stats.high_pct > 0.0);
@@ -272,28 +274,42 @@ mod tests {
 
     #[test]
     fn saturation_events_count_separate_excursions_not_samples() {
-        // Two separate trips into saturation (>95%), each held for two samples, separated by a
-        // return to center — must count as 2 events, not 4 (one per saturated sample).
-        let points = points_from(&[100.0, 100.0, 0.0, 0.0, 100.0, 100.0, 0.0]);
+        // Two separate trips into saturation (>95% of true full stick), each held for two
+        // samples, separated by a return to center — must count as 2 events, not 4.
+        let points = points_from(&[500.0, 500.0, 0.0, 0.0, 500.0, 500.0, 0.0]);
         let stats = analyze_stick_zones(&points);
         assert_eq!(stats.saturation_event_count, 2);
     }
 
     #[test]
+    fn saturation_requires_true_full_stick_not_flight_peak() {
+        // Regression for IT#163: a flight whose peak never exceeds 59% of true full stick
+        // (296 of 500, from a real reported log) must not register Saturation just because a
+        // sample exceeds 95% of that flight's own partial peak.
+        let points = points_from(&[296.0, 296.0, 0.0]);
+        let stats = analyze_stick_zones(&points);
+        assert_eq!(stats.peak_stick, Some(296.0));
+        assert_eq!(stats.saturation_time_s, 0.0);
+        assert_eq!(stats.saturation_event_count, 0);
+    }
+
+    #[test]
     fn reversal_counted_only_inside_center_zone() {
-        // +1 -> -1 while at peak (pct=100%, outside Center) must not count.
-        // +0.1 -> -0.1 relative to a peak of 1.0 (pct=10%, inside Center) must count.
-        let points = points_from(&[1.0, -1.0, 0.1, -0.1, 0.1]);
+        // +500 -> -500 (pct=100%, outside Center) must not count.
+        // +50 -> -50 (pct=10%, inside Center) must count.
+        let points = points_from(&[500.0, -500.0, 50.0, -50.0, 50.0]);
         let stats = analyze_stick_zones(&points);
         assert_eq!(stats.center_reversal_rate_hz.map(|r| r > 0.0), Some(true));
     }
 
     #[test]
-    fn zero_deflection_log_has_no_peak() {
+    fn zero_deflection_log_is_fully_center() {
+        // 0% of true full stick is below the Center threshold regardless of this flight's own
+        // (zero) peak, so the whole flight counts as Center time.
         let points = points_from(&[0.0, 0.0, 0.0]);
         let stats = analyze_stick_zones(&points);
         assert_eq!(stats.peak_stick, Some(0.0));
-        assert_eq!(stats.center_pct, 0.0);
+        assert_eq!(stats.center_pct, 100.0);
     }
 
     #[test]
