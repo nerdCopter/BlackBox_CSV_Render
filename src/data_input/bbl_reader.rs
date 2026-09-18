@@ -161,14 +161,17 @@ pub fn expand_bbl_to_scratch_csvs(
         force_export,
     };
 
+    // Leading blank line matches process_file's own "\n--- Processing file: ..." separator —
+    // without it, the previous file's "--- Finished processing file: ... ---" runs straight into
+    // this line with no visual gap, unlike a CSV-to-CSV transition.
     if keep {
         println!(
-            "Exporting {} (BBL) to {}...",
+            "\nExporting {} (BBL) to {}...",
             bbl_path.display(),
             export_dir.display()
         );
     } else {
-        println!("Exporting {} (BBL) to scratch CSV...", bbl_path.display());
+        println!("\nExporting {} (BBL) to scratch CSV...", bbl_path.display());
     }
     // Callers (expand_one_bbl_file) already print bbl_path alongside any Err returned here, so
     // these messages carry only the cause — not the path again — to avoid double-printing it.
