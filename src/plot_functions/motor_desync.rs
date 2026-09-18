@@ -9,6 +9,7 @@ use crate::constants::{
     MOTOR_DESYNC_MIN_ERPM_RANGE, MOTOR_DESYNC_MIN_MOTOR_RANGE, MOTOR_DESYNC_NOISE_MULTIPLIER,
     MOTOR_DESYNC_POSSIBLE_CEILING_FRACTION, MOTOR_DESYNC_POSSIBLE_HIGH_CMD_PERCENTILE,
     MOTOR_DESYNC_POSSIBLE_SUSTAIN_S, MOTOR_DESYNC_RESPONSE_FLOOR_FRACTION, MOTOR_DESYNC_SUSTAIN_S,
+    PARITY_DIVISOR,
 };
 use crate::data_input::log_data::LogRowData;
 use crate::plot_functions::plot_motor_spectrums::MotorOscillationResult;
@@ -98,7 +99,7 @@ fn median(vals: &[f64]) -> f64 {
     let mut sorted = vals.to_vec();
     sorted.sort_by(|a, b| a.total_cmp(b));
     let mid = sorted.len() / 2;
-    if sorted.len().is_multiple_of(2) {
+    if sorted.len().is_multiple_of(PARITY_DIVISOR) {
         (sorted[mid - 1] + sorted[mid]) / 2.0
     } else {
         sorted[mid]

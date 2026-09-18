@@ -7,6 +7,9 @@ use std::error::Error;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
+use crate::constants::{
+    BBL_DISAMBIGUATOR_HEX_WIDTH, BBL_DISAMBIGUATOR_MASK, RENAME_PAIR_MAX_ATTEMPTS,
+};
 use crate::types::BblExpansionResult;
 
 /// Prints a blank line separating the next output block from whatever came before it — the
@@ -32,14 +35,12 @@ fn path_disambiguator(path: &Path) -> String {
     let hash_input = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let mut hasher = DefaultHasher::new();
     hash_input.hash(&mut hasher);
-    format!("{:06x}", hasher.finish() & 0xFF_FFFF)
+    format!(
+        "{:0width$x}",
+        hasher.finish() & BBL_DISAMBIGUATOR_MASK,
+        width = BBL_DISAMBIGUATOR_HEX_WIDTH
+    )
 }
-
-/// Cap on `rename_pair_unique`'s fallback counter. Not a realistic ceiling for a real collision
-/// (a true hash collision or a concurrent writer occupying every candidate up to this point is
-/// already astronomically unlikely) — purely a defensive bound so the loop has a guaranteed
-/// termination property instead of running to `u32` overflow in a pathological case.
-const RENAME_PAIR_MAX_ATTEMPTS: u32 = 10_000;
 
 /// Renames `csv_path` (and `headers_path`, when present) to `{csv_stem}.{suffix}.csv` /
 /// `{csv_stem}.{suffix}.headers.csv` in the same directory. Both target names are selected and

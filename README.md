@@ -16,7 +16,8 @@
 ### Prerequisites
 
 1. [Rust installation page](https://www.rust-lang.org/tools/install)
-2. Optional: `.BBL` files are read directly (multi-flight files expand to one report per flight). Manual
+2. Optional: `.BBL` files are read directly. Multi-flight files can produce one report per eligible
+   flight; low-value flights are skipped unless `-F`/`--force-export` is used. Manual
    [blackbox_decode](https://github.com/betaflight/blackbox-tools) preprocessing to CSV is only needed for its
    selective-extraction flags (`--save-headers`, `--index <num>`, `--limits`).
 
@@ -36,7 +37,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 === INPUT/OUTPUT OPTIONS ===
 
   <inputX>: CSV or BBL files, directories, or wildcards (*.csv, *.bbl). Header files
-            auto-excluded. A multi-flight .bbl expands to one report per flight.
+            auto-excluded. A multi-flight .bbl can produce one report per eligible flight.
   -O, --output-dir <directory>: Output directory (default: source folder).
   -R, --recursive: Recursively find CSV/BBL files in subdirectories.
   -F, --force-export: Export .bbl flights bbl_parser would otherwise skip as low-value

@@ -7,9 +7,9 @@ use crate::axis_names::AXIS_NAMES;
 use crate::types::{AllAxisPlotData2, AxisPlotData2};
 
 use crate::constants::{
-    COLOR_RC_COMMAND, COLOR_SETPOINT_MAIN, LINE_WIDTH_PLOT, RC_COMMAND_ACTIVITY_Y_AXIS_MIN,
-    RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS, RC_STEP_MIN_COUNT_FOR_ASSESSMENT, RC_STEP_MIN_JUMP_SIZE,
-    RC_STEP_SECONDS_TO_MS,
+    COLOR_RC_COMMAND, COLOR_SETPOINT_MAIN, LINE_WIDTH_PLOT, PARITY_DIVISOR,
+    RC_COMMAND_ACTIVITY_Y_AXIS_MIN, RC_STEP_BLOCKY_MEDIAN_PLATEAU_MS,
+    RC_STEP_MIN_COUNT_FOR_ASSESSMENT, RC_STEP_MIN_JUMP_SIZE, RC_STEP_SECONDS_TO_MS,
 };
 use crate::data_input::log_data::LogRowData;
 use crate::plot_framework::{draw_stacked_plot, PlotSeries};
@@ -83,7 +83,7 @@ fn detect_rc_command_steps(data: &AxisPlotData2) -> RcCommandStepResult {
     } else {
         plateau_durations_ms.sort_by(|a, b| a.total_cmp(b));
         let mid = plateau_durations_ms.len() / 2;
-        let median = if plateau_durations_ms.len().is_multiple_of(2) {
+        let median = if plateau_durations_ms.len().is_multiple_of(PARITY_DIVISOR) {
             (plateau_durations_ms[mid - 1] + plateau_durations_ms[mid]) / 2.0
         } else {
             plateau_durations_ms[mid]

@@ -648,7 +648,7 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!(
         "  <inputX>: CSV or BBL files, directories, or wildcards (*.csv, *.bbl). Header files"
     );
-    eprintln!("            auto-excluded. A multi-flight .bbl expands to one report per flight.");
+    eprintln!("            auto-excluded. A multi-flight .bbl can produce one report per eligible flight.");
     eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
     eprintln!("  -R, --recursive: Recursively find CSV/BBL files in subdirectories.");
     eprintln!("  -F, --force-export: Export .bbl flights bbl_parser would otherwise skip as");
