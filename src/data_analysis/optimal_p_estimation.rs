@@ -202,7 +202,7 @@ impl TdStatistics {
             && self.consistency >= TD_CONSISTENCY_MIN_THRESHOLD
             && self
                 .coefficient_of_variation
-                .map_or(true, |cv| cv <= TD_COEFFICIENT_OF_VARIATION_MAX)
+                .is_none_or(|cv| cv <= TD_COEFFICIENT_OF_VARIATION_MAX)
     }
 }
 

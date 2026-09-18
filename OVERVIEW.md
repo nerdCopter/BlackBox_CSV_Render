@@ -15,7 +15,7 @@
     - [Compared to PIDtoolbox/Matlab (PTstepcalc.m)](#compared-to-pidtoolboxmatlab-ptstepcalcm)
     - [Compared to PlasmaTree/Python (PID-Analyzer.py)](#compared-to-plasmatreepython-pid-analyzerpy)
 
-The Rust program processes Betaflight Blackbox CSV logs to generate various plots. Here's a concise overview:
+The Rust program processes Betaflight/EmuFlight Blackbox CSV or BBL logs to generate various plots. Here's a concise overview:
 
 ### Configuration
 
@@ -24,10 +24,14 @@ All analysis parameters, thresholds, plot dimensions, and algorithmic constants 
 ### Core Functionality
 
 1.  **Argument Parsing (`src/main.rs`):**
-    * Parses command-line arguments: input CSV file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and plot-selection flags (`--core` [default], `--extended`, `--step`, `--bode`, `--desync`).
+    * Parses command-line arguments: input CSV/BBL file(s), an optional `--dps` parameter (requires a numeric threshold value for detailed step response plots with low/high split), an optional `--output-dir` for specifying the output directory, and plot-selection flags (`--core` [default], `--extended`, `--step`, `--bode`, `--desync`).
     * Additional options include `--help` and `--version` for user assistance.
     * The `--output-dir` parameter now requires a directory path when specified. If omitted, plots are saved in the source folder (input file's directory).
     * Handles multiple input files and determines if a directory prefix should be added to output filenames to avoid collisions when processing files from different directories.
+    * **BBL input expansion (`src/data_input/bbl_reader.rs`):** a `.bbl`/`.BBL` input is decoded via the `bbl_parser` crate and exported to a scratch CSV/`.headers.csv` pair per flight, reusing the existing CSV parser unchanged instead of duplicating its motor/eRPM channel-alignment logic. A multi-flight `.bbl` expands to multiple entries (matching the `.01.csv`/`.02.csv` convention). Output defaults to the source `.bbl`'s own folder, not the scratch directory; scratch files are removed after that file's own processing.
+    * **Expansion timing (`BblExpansionOptions.eager`):** by default, a `.bbl`'s decode+export is deferred until immediately before its own `process_file` call, so a multi-file run reads and processes one file at a time — the same file-by-file order a plain `.csv` batch already has — instead of exporting every `.bbl` up front. `--estimate-optimal-p` forces eager expansion instead: its aircraft-grouping/torque-inertia-profiling phase needs every flight's real file materialized before any of that group can be processed, which is an existing, unrelated two-phase requirement (present for `.csv` input too) that predates BBL support.
+    * `bbl_parser`'s low-value-flight heuristic (too short / low data density / minimal gyro activity — ground tests, arm checks) is applied per flight; `-F`/`--force-export` overrides it, matching `bbl_parser`'s own CLI flag. A per-flight export failure is skipped, not fatal to sibling flights in the same `.bbl`.
+    * `--keep` writes flight CSV/`.headers.csv` directly to the resolved output location (source folder, or `-O`/`--output-dir`) instead of the scratch directory, and skips the scratch-cleanup pass entirely — the exported files persist as a normal side effect, matching what a manual `bbl_parser` CLI export would produce.
 
 2.  **File Processing (`src/main.rs:process_file`):**
     * For each input CSV:
@@ -222,7 +226,7 @@ The system provides intelligent P:D tuning recommendations based on step-respons
 Physics-derived P gain optimization using a Torque-Inertia Profiler that measures aircraft-specific dynamics directly from flight log throttle-punch events. No prop-size input is required — the aircraft's torque-to-inertia ratio is derived from the logs.
 
 - **Activation:** Disabled by default; enable with `--estimate-optimal-p` flag.
-- **Requires:** A `.headers.csv` metadata file alongside each input CSV (produced by `blackbox_decode`). Without it, P gain values are unavailable and optimal P estimation is skipped with a skip-reason shown in console and PNG. All other analyses (step response, spectrums, P:D recommendations) remain unaffected.
+- **Requires:** A `.headers.csv` metadata file alongside each input CSV (produced by `blackbox_decode`, or automatically by BBL input expansion — see above). Without it, P gain values are unavailable and optimal P estimation is skipped with a skip-reason shown in console and PNG. All other analyses (step response, spectrums, P:D recommendations) remain unaffected.
 - **⚠️ Status:** Experimental. `TORQUE_PROFILER_ACHIEVABILITY_FACTOR` bridges the gap between the theoretical physics formula and real-world flight performance (ESC lag, prop-wash, motor startup). It is empirically calibrated and may need adjustment for aircraft significantly different from a mid-size freestyle build.
 
 ##### Torque-Inertia Profiler (`src/data_analysis/torque_inertia_profiler.rs`)
