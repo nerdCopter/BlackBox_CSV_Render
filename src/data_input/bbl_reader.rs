@@ -15,7 +15,7 @@ use crate::types::BblExpansionResult;
 /// `flight.bbl`/`flight.BBL` in the same directory hash differently too, not just cross-directory
 /// same-basename inputs. Collision probability only matters within one colliding-stem group (a
 /// handful of files in realistic use, see IT #197), where 24 bits is a comfortable margin;
-/// `rename_unique` below is the defensive backstop regardless.
+/// `rename_pair_unique` below is the defensive backstop regardless.
 fn path_disambiguator(path: &Path) -> String {
     let hash_input = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let mut hasher = DefaultHasher::new();
@@ -23,32 +23,44 @@ fn path_disambiguator(path: &Path) -> String {
     format!("{:06x}", hasher.finish() & 0xFF_FFFF)
 }
 
-/// Renames `path` to `new_filename` in the same directory. No fixed-length hash is mathematically
-/// collision-proof, only collision-*unlikely* — if the computed target already exists (a true
-/// hash collision, or an unrelated file that happens to already be there), fall back to an
-/// incrementing counter rather than silently overwriting it.
-fn rename_unique(path: &Path, new_filename: &str) -> Result<PathBuf, Box<dyn Error>> {
-    let mut target = path.with_file_name(new_filename);
-    if target.exists() {
-        let stem = Path::new(new_filename)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("output");
-        let ext = Path::new(new_filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("csv");
-        let mut n = 2;
-        loop {
-            target = path.with_file_name(format!("{stem}-{n}.{ext}"));
-            if !target.exists() {
-                break;
-            }
-            n += 1;
+/// Renames `csv_path` (and `headers_path`, when present) to `{csv_stem}.{suffix}.csv` /
+/// `{csv_stem}.{suffix}.headers.csv` in the same directory. Both target names are selected and
+/// existence-checked together under one shared fallback counter — never renamed independently —
+/// so a collision on only one of the two (e.g. a stale headers file already sitting at the
+/// natural target) can never detach the pair. `log_parser` derives the headers sidecar as
+/// `{csv_file_stem}.headers.csv` (`log_parser.rs`), so the CSV and headers filenames must share
+/// exactly the same stem, not just the same suffix. No fixed-length hash is mathematically
+/// collision-proof, only collision-*unlikely* — the counter fallback is the defensive backstop
+/// for a true hash collision or an unrelated file already occupying the target.
+fn rename_pair_unique(
+    csv_path: &Path,
+    headers_path: Option<&Path>,
+    csv_stem: &str,
+    suffix: &str,
+) -> Result<(PathBuf, Option<PathBuf>), Box<dyn Error>> {
+    let mut attempt: Option<u32> = None;
+    loop {
+        let tag = match attempt {
+            None => suffix.to_string(),
+            Some(n) => format!("{suffix}-{n}"),
+        };
+        let csv_target = csv_path.with_file_name(format!("{csv_stem}.{tag}.csv"));
+        let headers_target =
+            headers_path.map(|_| csv_path.with_file_name(format!("{csv_stem}.{tag}.headers.csv")));
+        let taken = csv_target.exists() || headers_target.as_ref().is_some_and(|p| p.exists());
+        if !taken {
+            std::fs::rename(csv_path, &csv_target)?;
+            let renamed_headers = match (headers_path, &headers_target) {
+                (Some(hp), Some(ht)) => {
+                    std::fs::rename(hp, ht)?;
+                    Some(ht.clone())
+                }
+                _ => None,
+            };
+            return Ok((csv_target, renamed_headers));
         }
+        attempt = Some(attempt.map_or(2, |n| n + 1));
     }
-    std::fs::rename(path, &target)?;
-    Ok(target)
 }
 
 /// Decodes a `.bbl`/`.BBL` file via the `bbl_parser` crate and exports each embedded flight to a
@@ -195,27 +207,13 @@ pub fn expand_bbl_to_scratch_csvs(
                     .and_then(|s| s.to_str())
                     .unwrap_or("output")
                     .to_string();
-                match rename_unique(&csv_path, &format!("{csv_stem}.{suffix}.csv")) {
-                    Ok(renamed_csv) => {
-                        // log_parser locates the headers sidecar as `{csv_file_stem}.headers.csv`
-                        // (log_parser.rs), so the headers file must be renamed to match the CSV's
-                        // *new* stem exactly, not just have the same suffix spliced into its own
-                        // name — its own file_stem is "<...>.headers", not "<...>".
-                        if let Some(headers_path) = &report.headers_path {
-                            let new_stem = renamed_csv
-                                .file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or(&csv_stem);
-                            if let Err(e) =
-                                rename_unique(headers_path, &format!("{new_stem}.headers.csv"))
-                            {
-                                eprintln!(
-                                    "⚠️  Flight {} in {}: renamed CSV to avoid a basename collision but failed to rename its headers file: {e}",
-                                    log.log_number,
-                                    bbl_path.display()
-                                );
-                            }
-                        }
+                match rename_pair_unique(
+                    &csv_path,
+                    report.headers_path.as_deref(),
+                    &csv_stem,
+                    &suffix,
+                ) {
+                    Ok((renamed_csv, _renamed_headers)) => {
                         csv_path = renamed_csv;
                     }
                     Err(e) => eprintln!(
@@ -303,49 +301,75 @@ mod tests {
     }
 
     #[test]
-    fn rename_unique_uses_natural_name_when_free() {
+    fn rename_pair_unique_uses_natural_names_when_free() {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let unique_id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "bbcsvr-rename-unique-test-{}-{unique_id}",
+            "bbcsvr-rename-pair-test-{}-{unique_id}",
             std::process::id()
         ));
         std::fs::create_dir_all(&dir).expect("failed to create test dir");
-        let src = dir.join("source.csv");
-        std::fs::write(&src, b"data").expect("failed to write test file");
+        let csv = dir.join("source.csv");
+        let headers = dir.join("source.headers.csv");
+        std::fs::write(&csv, b"data").expect("failed to write test csv");
+        std::fs::write(&headers, b"meta").expect("failed to write test headers");
 
-        let result = rename_unique(&src, "target.csv").expect("rename must succeed");
-        assert_eq!(result, dir.join("target.csv"));
-        assert!(result.exists());
-        assert!(!src.exists());
+        let (new_csv, new_headers) = rename_pair_unique(&csv, Some(&headers), "flight", "abc123")
+            .expect("rename must succeed");
+        assert_eq!(new_csv, dir.join("flight.abc123.csv"));
+        assert_eq!(new_headers, Some(dir.join("flight.abc123.headers.csv")));
+        assert!(new_csv.exists());
+        assert!(new_headers.unwrap().exists());
+        assert!(!csv.exists());
+        assert!(!headers.exists());
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// Reproduces the exact pairing bug CodeRabbit found in this PR's first pass: only the
+    /// *headers* target pre-existing (CSV target free) must not detach the pair by falling back
+    /// on the headers file alone — both must move to the next shared candidate together, so
+    /// `log_parser`'s `{csv_file_stem}.headers.csv` derivation still finds the right sidecar.
     #[test]
-    fn rename_unique_falls_back_to_counter_on_real_collision() {
+    fn rename_pair_unique_keeps_pair_aligned_when_only_headers_target_collides() {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let unique_id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "bbcsvr-rename-collision-test-{}-{unique_id}",
+            "bbcsvr-rename-pair-collision-test-{}-{unique_id}",
             std::process::id()
         ));
         std::fs::create_dir_all(&dir).expect("failed to create test dir");
-        // Target already exists before the rename — a genuine (if astronomically unlikely) hash
-        // collision, or an unrelated pre-existing file. Must never be silently overwritten.
-        std::fs::write(dir.join("target.csv"), b"must not be touched")
-            .expect("failed to write pre-existing target file");
-        let src = dir.join("source.csv");
-        std::fs::write(&src, b"new data").expect("failed to write test file");
+        // Only the natural headers target pre-exists — the natural CSV target is free.
+        std::fs::write(
+            dir.join("flight.abc123.headers.csv"),
+            b"must not be touched",
+        )
+        .expect("failed to write pre-existing headers target");
+        let csv = dir.join("source.csv");
+        let headers = dir.join("source.headers.csv");
+        std::fs::write(&csv, b"new csv data").expect("failed to write test csv");
+        std::fs::write(&headers, b"new headers data").expect("failed to write test headers");
 
-        let result = rename_unique(&src, "target.csv").expect("rename must succeed via fallback");
-        assert_eq!(result, dir.join("target-2.csv"));
+        let (new_csv, new_headers) = rename_pair_unique(&csv, Some(&headers), "flight", "abc123")
+            .expect("rename must succeed via shared fallback");
+
+        // Both targets must share the SAME fallback suffix — the CSV must not land on its
+        // natural (unoccupied) name while headers alone gets bumped, which would detach them.
+        assert_eq!(new_csv, dir.join("flight.abc123-2.csv"));
+        assert_eq!(new_headers, Some(dir.join("flight.abc123-2.headers.csv")));
         assert_eq!(
-            std::fs::read_to_string(dir.join("target.csv")).unwrap(),
-            "must not be touched",
-            "the pre-existing colliding file must survive untouched"
+            std::fs::read_to_string(dir.join("flight.abc123.headers.csv")).unwrap(),
+            "must not be touched"
         );
-        assert_eq!(std::fs::read_to_string(&result).unwrap(), "new data");
+        assert_eq!(
+            std::fs::read_to_string(&new_csv).unwrap(),
+            "new csv data",
+            "CSV must move with its headers file, not stay at the natural (now-misaligned) name"
+        );
+        assert_eq!(
+            std::fs::read_to_string(new_headers.unwrap()).unwrap(),
+            "new headers data"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
