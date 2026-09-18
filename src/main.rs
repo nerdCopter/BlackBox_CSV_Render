@@ -24,6 +24,7 @@ use ndarray::Array1;
 
 use crate::axis_names::AXIS_COUNT;
 use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, AircraftProfile};
+use crate::data_input::bbl_reader::print_block_separator;
 use crate::types::{InputExpansionResult, LogParseResult, StepResponseResults};
 
 // Build version string from git info with fallbacks for builds without vergen metadata
@@ -2498,6 +2499,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         eager: estimate_optimal_p,
         colliding_stems: &colliding_bbl_stems,
     };
+    // Marks the start of the whole post-banner output stream — whatever prints first (a
+    // "Skipping ..." discovery warning, an eager .bbl export, or the first file's own
+    // "--- Processing file: ... ---" if nothing else fires first) gets no separator of its own;
+    // everything after it does, via the same shared helper.
+    print_block_separator();
     let (input_files, skipped_subdirs, bbl_origin_dirs, bbl_scratch_dirs) =
         expand_input_paths(&input_paths, recursive, bbl_opts, debug_mode);
 
@@ -2652,7 +2658,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Restores the file-to-file blank line process_file itself no longer prints — this
             // branch (plain .csv input, or an already-expanded eager .bbl file) has no preceding
             // "--- Exporting ... ---" line of its own to lean on.
-            println!();
+            print_block_separator();
             if let Err(e) = process_file(
                 input_file_str,
                 dir_prefix_source,

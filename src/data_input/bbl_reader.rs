@@ -5,10 +5,31 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use bbl_parser::{export_to_csv, parse_bbl_file_all_logs, ExportOptions};
 
 use crate::types::BblExpansionResult;
+
+/// Whether any output block (a discovery warning group, a `.bbl` export, a file's
+/// "--- Processing file: ... ---") has printed yet this run. `false` means the next block is the
+/// very first thing after the banner, which needs no separator of its own. Lives here rather than
+/// in `main.rs` because this module is reachable from both this crate's `lib` and `bin` targets
+/// (`main.rs` declares its own `mod data_input;` alongside `lib.rs`'s `pub mod data_input;`) —
+/// a helper defined only in `main.rs` isn't visible when this file compiles as part of `lib`.
+static PRINTED_FIRST_BLOCK: AtomicBool = AtomicBool::new(false);
+
+/// Prints a blank line separating the next output block from whatever came before it — except
+/// before the very first block of the run, which already has the startup banner as its own
+/// preceding line and needs no additional gap. Call this once per logical block (e.g. once
+/// before a whole group of consecutive "Skipping ..." warnings, not once per warning line within
+/// that group — otherwise every line in the group gets its own blank instead of the group as a
+/// whole staying visually together). Single-threaded program, `Relaxed` is sufficient.
+pub(crate) fn print_block_separator() {
+    if PRINTED_FIRST_BLOCK.swap(true, Ordering::Relaxed) {
+        println!();
+    }
+}
 
 /// 6 hex chars (24 bits) of `DefaultHasher` over `path`'s canonicalized form (falling back to the
 /// given path if canonicalization fails, e.g. a broken symlink) — case-sensitive, so
@@ -161,22 +182,23 @@ pub fn expand_bbl_to_scratch_csvs(
         force_export,
     };
 
-    // Leading blank line is the file-to-file separator — without it, the previous file's
-    // "--- Finished processing file: ... ---" runs straight into this line with no visual gap,
-    // unlike a CSV-to-CSV transition. `---` wrapping matches the surrounding section-header
-    // family ("--- Processing file: ... ---", "--- Finished processing file: ... ---"). No blank
-    // line follows this message on purpose: the scratch CSV's own "--- Processing file: ... ---"
+    // print_block_separator() is the file-to-file separator — without it, the previous file's
+    // "--- Finished processing file: ... ---" (or a discovery-time warning) runs straight into
+    // this line with no visual gap. `---` wrapping matches the surrounding section-header family
+    // ("--- Processing file: ... ---", "--- Finished processing file: ... ---"). No blank line
+    // follows this message on purpose: the scratch CSV's own "--- Processing file: ... ---"
     // (printed by process_file, no leading blank of its own) stays visually attached to it as
     // one sub-step, not a second distinct file transition.
+    print_block_separator();
     if keep {
         println!(
-            "\n--- Exporting {} (BBL) to {} ---",
+            "--- Exporting {} (BBL) to {} ---",
             bbl_path.display(),
             export_dir.display()
         );
     } else {
         println!(
-            "\n--- Exporting {} (BBL) to scratch CSV ---",
+            "--- Exporting {} (BBL) to scratch CSV ---",
             bbl_path.display()
         );
     }
