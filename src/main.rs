@@ -2298,9 +2298,10 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Print version at start of every execution
+    // Print version at start of every execution. No trailing blank line here — every
+    // first-file transition (plain CSV or .bbl export) already prints its own leading blank,
+    // so this would otherwise stack into two blank lines before the very first file only.
     println!("{} {}", env!("CARGO_PKG_NAME"), get_version_string());
-    println!();
 
     // --- Argument Parsing ---
     let args: Vec<String> = env::args().collect();
