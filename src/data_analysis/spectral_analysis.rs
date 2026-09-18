@@ -164,7 +164,7 @@ pub fn welch_psd(
             let mut psd = magnitude_sqr / (sample_rate * segment_length as f64 * window_power);
 
             // One-sided spectrum: double power for positive frequencies (except DC and Nyquist)
-            let is_nyquist = (nfft % 2 == 0) && (i == num_freqs - 1);
+            let is_nyquist = nfft.is_multiple_of(2) && (i == num_freqs - 1);
             if i > 0 && !is_nyquist {
                 psd *= 2.0;
             }
@@ -277,7 +277,7 @@ pub fn welch_cpsd(
             let mut cpsd = cross_power / (sample_rate * segment_length as f64 * window_power);
 
             // One-sided spectrum: double for positive frequencies
-            let is_nyquist = (nfft % 2 == 0) && (i == num_freqs - 1);
+            let is_nyquist = nfft.is_multiple_of(2) && (i == num_freqs - 1);
             if i > 0 && !is_nyquist {
                 cpsd *= 2.0;
             }

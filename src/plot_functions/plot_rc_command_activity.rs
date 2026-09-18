@@ -83,7 +83,7 @@ fn detect_rc_command_steps(data: &AxisPlotData2) -> RcCommandStepResult {
     } else {
         plateau_durations_ms.sort_by(|a, b| a.total_cmp(b));
         let mid = plateau_durations_ms.len() / 2;
-        let median = if plateau_durations_ms.len() % 2 == 0 {
+        let median = if plateau_durations_ms.len().is_multiple_of(2) {
             (plateau_durations_ms[mid - 1] + plateau_durations_ms[mid]) / 2.0
         } else {
             plateau_durations_ms[mid]

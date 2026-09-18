@@ -98,7 +98,7 @@ fn median(vals: &[f64]) -> f64 {
     let mut sorted = vals.to_vec();
     sorted.sort_by(|a, b| a.total_cmp(b));
     let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         (sorted[mid - 1] + sorted[mid]) / 2.0
     } else {
         sorted[mid]
@@ -186,8 +186,7 @@ fn detect_de_facto(samples: &MotorSamples, motor_min: f64, motor_range: f64) -> 
                 && window_stdev > base_stdev * MOTOR_DESYNC_NOISE_MULTIPLIER;
             if low_response || noisy {
                 let t = samples.times[i];
-                if last_event_time.map_or(true, |last| t - last >= MOTOR_DESYNC_EVENT_REFRACTORY_S)
-                {
+                if last_event_time.is_none_or(|last| t - last >= MOTOR_DESYNC_EVENT_REFRACTORY_S) {
                     events.push(t);
                     last_event_time = Some(t);
                 }
@@ -221,8 +220,7 @@ fn detect_possible(samples: &MotorSamples, motor_min: f64, motor_range: f64) -> 
             let window_max = eseg.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
             if window_max < ceiling {
                 let t = samples.times[i];
-                if last_event_time.map_or(true, |last| t - last >= MOTOR_DESYNC_EVENT_REFRACTORY_S)
-                {
+                if last_event_time.is_none_or(|last| t - last >= MOTOR_DESYNC_EVENT_REFRACTORY_S) {
                     events.push(t);
                     last_event_time = Some(t);
                 }
@@ -338,7 +336,7 @@ fn detect_control_loss_fallback(log_data: &[LogRowData]) -> Vec<(usize, f64)> {
                 if motor_high {
                     let t = times[i];
                     if last_event_time[k]
-                        .map_or(true, |last| t - last >= MOTOR_DESYNC_EVENT_REFRACTORY_S)
+                        .is_none_or(|last| t - last >= MOTOR_DESYNC_EVENT_REFRACTORY_S)
                     {
                         events.push((k, t));
                         last_event_time[k] = Some(t);

@@ -73,7 +73,7 @@ pub fn plot_psd_db_heatmap(
 
     let fft_padded_len = window_size_samples.next_power_of_two();
     let freq_step = sr_value / fft_padded_len as f64;
-    let num_unique_freqs = if fft_padded_len % 2 == 0 {
+    let num_unique_freqs = if fft_padded_len.is_multiple_of(2) {
         fft_padded_len / 2 + 1
     } else {
         fft_padded_len.div_ceil(2)
@@ -163,7 +163,7 @@ pub fn plot_psd_db_heatmap(
                 let mut amp_unfilt_linear_psd = unfilt_spec[i].norm_sqr() as f64 * psd_scale;
                 let mut amp_filt_linear_psd = filt_spec[i].norm_sqr() as f64 * psd_scale;
 
-                let is_nyquist = fft_padded_len % 2 == 0 && i == num_unique_freqs - 1;
+                let is_nyquist = fft_padded_len.is_multiple_of(2) && i == num_unique_freqs - 1;
 
                 if i > 0 && !is_nyquist {
                     amp_unfilt_linear_psd *= 2.0;
