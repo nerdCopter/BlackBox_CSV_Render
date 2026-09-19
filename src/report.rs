@@ -11,12 +11,14 @@ use std::path::Path;
 use crate::axis_names::{AXIS_COUNT, AXIS_NAMES};
 use crate::constants::{
     MOTOR_DESYNC_REPORT_MAX_TIMES, MOTOR_OSCILLATION_FREQ_MAX_HZ, MOTOR_OSCILLATION_FREQ_MIN_HZ,
-    MOTOR_OSCILLATION_SECONDS_TO_MS, MOTOR_OSCILLATION_WINDOW_S,
+    MOTOR_OSCILLATION_SECONDS_TO_MS, MOTOR_OSCILLATION_WINDOW_S, RATIO_TO_PERCENT,
+    STICK_DIST_FULL_STICK_RC_COMMAND,
 };
 use crate::data_analysis::filter_response::{
     AllFilterConfigs, DynamicNotchConfig, RpmFilterConfig,
 };
 use crate::data_analysis::optimal_p_estimation::{OptimalPAnalysis, PRecommendation};
+use crate::data_analysis::stick_distribution::StickDistributionResult;
 use crate::data_analysis::transfer_function_estimation::Confidence;
 use crate::plot_functions::motor_desync::{
     fallback_oscillation_overlaps, DesyncConfidence, MotorDesyncResult,
@@ -65,6 +67,7 @@ pub struct FlightReport {
     pub motor_results: Vec<MotorOscillationResult>,
     pub motor_desync_results: Vec<MotorDesyncResult>,
     pub rc_command_steps: Vec<RcCommandStepResult>,
+    pub stick_distribution_results: Vec<StickDistributionResult>,
     pub png_links: Vec<String>,
     /// Human-readable labels of plot types that were enabled but produced no plottable data.
     pub skipped_plots: Vec<String>,
@@ -669,6 +672,86 @@ pub fn generate_markdown_report(
             )?;
             writeln!(md)?;
         }
+    }
+
+    // --- Stick Position & Rate Analysis ---
+    let has_stick_distribution_data = report
+        .stick_distribution_results
+        .iter()
+        .any(|r| r.peak_stick.is_some_and(|p| p > 0.0));
+    if has_stick_distribution_data {
+        writeln!(md, "## Stick Position & Rate Analysis")?;
+        writeln!(md)?;
+        writeln!(
+            md,
+            "| Axis | Peak Stick | Center | Mid | High | Saturation (s) | Saturation Events | Center Reversal Rate (Hz) |"
+        )?;
+        writeln!(
+            md,
+            "|------|------------|--------|-----|------|-----------------|--------------------|---------------------------|"
+        )?;
+        for r in &report.stick_distribution_results {
+            if r.peak_stick.map_or(true, |p| p <= 0.0) {
+                writeln!(
+                    md,
+                    "| {} | N/A | N/A | N/A | N/A | N/A | N/A | N/A |",
+                    r.axis_name
+                )?;
+                continue;
+            }
+            let peak_stick_pct =
+                r.peak_stick.unwrap_or(0.0) / STICK_DIST_FULL_STICK_RC_COMMAND * RATIO_TO_PERCENT;
+            let reversal_rate = r
+                .center_reversal_rate_hz
+                .map_or("N/A".into(), |v| format!("{:.2}", v));
+            writeln!(
+                md,
+                "| {} | {:.0}% | {:.0}% | {:.0}% | {:.0}% | {:.1} | {} | {} |",
+                r.axis_name,
+                peak_stick_pct,
+                r.center_pct,
+                r.mid_pct,
+                r.high_pct,
+                r.saturation_time_s,
+                r.saturation_event_count,
+                reversal_rate
+            )?;
+        }
+        writeln!(md)?;
+        writeln!(
+            md,
+            "Peak Stick is the highest |rc_command| this flight reached, as a % of true full-stick range (both Betaflight and EmuFlight clamp rcCommand to +/-500 before the rate curve). Center/Mid/High are % of flight time spent below 15%, 15-75%, and above 75% of that same true full-stick range — not this axis's own peak. Saturation is time spent above 95% of true full-stick; Saturation Events counts separate excursions above that threshold, not cumulative time. A flight whose Peak Stick never reaches 95% cannot register a Saturation Event."
+        )?;
+        writeln!(md)?;
+
+        writeln!(
+            md,
+            "| Axis | P95 Setpoint (deg/s) | P95 Gyro Achieved (deg/s) | Configured Max Rate (deg/s) | Rate Headroom (P95) |"
+        )?;
+        writeln!(
+            md,
+            "|------|----------------------|----------------------------|------------------------------|----------------------|"
+        )?;
+        for r in &report.stick_distribution_results {
+            let p95_setpoint = r.p95_setpoint.map_or("N/A".into(), |v| format!("{:.0}", v));
+            let p95_gyro = r.p95_gyro.map_or("N/A".into(), |v| format!("{:.0}", v));
+            let configured_max_rate = r
+                .configured_max_rate
+                .map_or("N/A".into(), |v| format!("{:.0}", v));
+            let rate_headroom = r
+                .rate_headroom_pct
+                .map_or("N/A".into(), |v| format!("{:.0}%", v));
+            writeln!(
+                md,
+                "| {} | {} | {} | {} | {} |",
+                r.axis_name, p95_setpoint, p95_gyro, configured_max_rate, rate_headroom
+            )?;
+        }
+        writeln!(
+            md,
+            "\nP95 Setpoint/P95 Gyro Achieved use the 95th percentile, not the flight's raw maximum — a single crash/tumble sample can put raw max gyro rate an order of magnitude above the rest of the flight. Configured Max Rate is the setpoint at full stick deflection, computed from this log's own rc_rates/rc_expo/rates/rates_type/rate_limits headers — N/A when the header set is incomplete. Rate Headroom is the unused portion of Configured Max Rate: 100% minus (P95 Setpoint as a % of Configured Max Rate). For tracking quality (how closely gyro follows setpoint), see the Step Response Analysis section above — not duplicated here."
+        )?;
+        writeln!(md)?;
     }
 
     // --- Generated Plots ---

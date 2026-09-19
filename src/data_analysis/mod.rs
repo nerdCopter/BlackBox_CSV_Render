@@ -7,7 +7,10 @@ pub mod fft_utils;
 pub mod filter_delay;
 pub mod filter_response;
 pub mod optimal_p_estimation;
+pub mod rate_curve;
 pub mod spectral_analysis;
+pub mod stick_distribution;
+pub mod threshold_events;
 pub mod torque_inertia_profiler;
 pub mod transfer_function_estimation;
 

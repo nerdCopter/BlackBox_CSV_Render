@@ -267,6 +267,29 @@ pub const RC_STEP_MIN_COUNT_FOR_ASSESSMENT: usize = 20;
 pub const COLOR_D_TERM_FILT: &RGBColor = &GREEN; // Use green for filtered D-term (distinct from gyro blue/amber)
 pub const COLOR_D_TERM_UNFILT: &RGBColor = &ORANGE; // Use orange for unfiltered D-term (distinct from gyro yellow)
 
+// Stick Position Distribution. Zone boundaries are % of true full-stick |rc_command|
+// (STICK_DIST_FULL_STICK_RC_COMMAND), not this log's own peak — Betaflight and EmuFlight both
+// clamp rcCommand[Roll/Pitch/Yaw] to +/-500 before the rate curve (rc.c/fc_rc.c), independent
+// of the rate-curve computation below (see RATE_CURVE_* — configured max rate is reported
+// separately). Report-only (no plot): see src/data_analysis/stick_distribution.rs.
+pub const STICK_DIST_FULL_STICK_RC_COMMAND: f64 = 500.0; // True full-stick |rc_command|, per firmware rcCommand clamp
+pub const STICK_DIST_CENTER_THRESHOLD_PCT: f64 = 15.0; // Below this: Center zone (fine tracking)
+pub const STICK_DIST_HIGH_THRESHOLD_PCT: f64 = 75.0; // Above this: High zone (large maneuvering input)
+pub const STICK_DIST_SATURATION_THRESHOLD_PCT: f64 = 95.0; // Above this: Saturation (near/at full stick)
+
+// Rate curve (RC Rate/Expo/Super Rate -> configured max setpoint, deg/s). Mirrors
+// applyBetaflightRates/applyRaceFlightRates/applyKissRates/applyActualRates/applyQuickRates in
+// Betaflight's fc/rc.c and EmuFlight's fc/fc_rc.c, evaluated at full stick deflection
+// (rcCommandf = rcCommandfAbs = 1.0), matching how each firmware computes its own max rate
+// internally (Betaflight: `maxRcRate[i] = applyRates(i, 1.0f, 1.0f)`). Verified byte-identical
+// between the two firmware source trees for Betaflight/RaceFlight/KISS/Actual (Sept 2026);
+// Quick is Betaflight-only, EmuFlight's rates_type enum tops out at Actual.
+pub const RATE_CURVE_RC_RATE_INCREMENTAL: f64 = 14.54; // rcRate correction above RATE_CURVE_SUPER_EXPO_THRESHOLD
+pub const RATE_CURVE_SUPER_EXPO_THRESHOLD: f64 = 2.0; // rcRate/100 above this triggers the incremental correction
+pub const RATE_CURVE_SETPOINT_LIMIT_DPS: f64 = 1998.0; // Firmware-wide absolute setpoint ceiling; KISS/Quick self-clamp to this internally
+pub const RATE_CURVE_DEFAULT_RATE_LIMIT_DPS: f64 = 1998.0; // Default per-axis rate_limit when the header key is absent (EmuFlight never logs it; matches Betaflight's compiled-in default)
+pub const RATE_CURVE_SUPER_FACTOR_MIN: f64 = 0.01; // Floor for the 1/(1-x) super-rate denominator, matches firmware's constrainf floor
+
 // Step Response Plot
 pub const COLOR_STEP_RESPONSE_LOW_SP: &RGBColor = &LIGHTBLUE;
 pub const COLOR_STEP_RESPONSE_HIGH_SP: &RGBColor = &ORANGE;
