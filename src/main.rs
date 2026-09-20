@@ -28,11 +28,14 @@ use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, Aircra
 use crate::data_input::bbl_reader::print_block_separator;
 use crate::types::{InputExpansionResult, LogParseResult, StepResponseResults};
 
-/// Whether a discovery-time "Skipping ..." warning has already printed this run. Gates
+/// Whether a discovery-time "Skipping ..." warning has printed since the last reset. Gates
 /// `print_discovery_skip_warning` so a whole contiguous group of such warnings (which can come
 /// from either `expand_input_paths`'s direct-file-argument branch or a recursive
 /// `find_csv_files_in_dir_impl` directory walk) shares exactly one leading blank line, rather
-/// than each warning line getting its own.
+/// than each warning line getting its own. `expand_one_bbl_file` resets this back to `false`
+/// after a successful eager `.bbl`/`.bfl` export (e.g. under `--estimate-optimal-p`) prints its
+/// own separated block, so a warning group interrupted by that export still gets its own
+/// leading blank line instead of silently attaching to the export block.
 static PRINTED_DISCOVERY_WARNING: AtomicBool = AtomicBool::new(false);
 
 /// Prints a discovery-time "Skipping ..." warning, inserting one blank line via
@@ -497,6 +500,11 @@ fn expand_one_bbl_file(
             if let Some(dir) = scratch_dir {
                 scratch_dirs.push(dir);
             }
+            // This eager export just printed its own separated block, so it — not the
+            // preceding warning group — is now the last thing on screen. Reset the flag so
+            // the next discovery warning (if any) gets its own leading blank line instead of
+            // silently attaching to this export block.
+            PRINTED_DISCOVERY_WARNING.store(false, Ordering::Relaxed);
         }
         Err(err) => eprintln!("⚠️  Skipping BBL file {}: {}", bbl_path.display(), err),
     }
