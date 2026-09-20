@@ -175,6 +175,7 @@ use crate::constants::{
 };
 
 // Specific plot function imports
+use crate::data_analysis::stick_distribution::analyze_stick_distribution;
 use crate::plot_functions::motor_desync::{detect_motor_desync, fallback_oscillation_overlaps};
 use crate::plot_functions::plot_bode::plot_bode_analysis;
 use crate::plot_functions::plot_d_term_heatmap::plot_d_term_heatmap;
@@ -2129,6 +2130,11 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         vec![]
     };
 
+    // Report-only statistics, not a plot — always computed regardless of --core/--extended/
+    // --step/--bode/--desync, same as Metadata and PID Tuning.
+    let stick_distribution_results =
+        analyze_stick_distribution(&all_log_data, Some(&header_metadata));
+
     // --- Filter configuration (from header metadata, independent of CSV data) ---
     let filter_config = Some(filter_response::parse_filter_config(&header_metadata));
     let dynamic_notch = filter_response::extract_dynamic_notch_range(Some(&header_metadata));
@@ -2290,7 +2296,6 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
             format!("{root_name_string}_RC_Command_Activity_stacked.png"),
         );
     }
-
     // --- Markdown Report ---
     // Must run after all plots so png_links is complete.
     let report_filename = format!("{root_name_string}_report.md");
@@ -2310,6 +2315,7 @@ INFO: Skipping Step Response input data filtering for {input_file_str}: {reason}
         motor_results,
         motor_desync_results,
         rc_command_steps,
+        stick_distribution_results,
         png_links,
         skipped_plots,
         filter_config,

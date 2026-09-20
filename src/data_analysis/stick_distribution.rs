@@ -1,0 +1,337 @@
+// src/data_analysis/stick_distribution.rs
+
+use crate::axis_names::AXIS_NAMES;
+use crate::constants::{
+    RATIO_TO_PERCENT, STICK_DIST_CENTER_THRESHOLD_PCT, STICK_DIST_FULL_STICK_RC_COMMAND,
+    STICK_DIST_HIGH_THRESHOLD_PCT, STICK_DIST_SATURATION_THRESHOLD_PCT, UNIFIED_Y_AXIS_PERCENTILE,
+};
+use crate::data_analysis::rate_curve::{configured_max_rate, parse_rate_curve_config};
+use crate::data_analysis::threshold_events::count_rising_edge_events;
+use crate::data_input::log_data::LogRowData;
+
+/// Per-axis stick position distribution and rate-utilization statistics.
+/// Zone percentages are relative to true full-stick `rc_command` (`STICK_DIST_FULL_STICK_RC_COMMAND`),
+/// not this flight's own peak — a flight that never reaches full stick cannot register
+/// Saturation just by exceeding a fraction of its own already-partial peak. Independent of
+/// `configured_max_rate` below.
+pub struct StickDistributionResult {
+    pub axis_name: String,
+    /// Peak |rc_command| observed for this axis, reported for context — not the zone reference.
+    /// `None` when the axis has fewer than two RC Command samples.
+    pub peak_stick: Option<f64>,
+    pub center_pct: f64,
+    pub mid_pct: f64,
+    pub high_pct: f64,
+    /// % of flight time above the Saturation threshold — a subset of `high_pct`, not additive.
+    pub saturation_pct: f64,
+    pub saturation_time_s: f64,
+    /// Count of discrete transitions into Saturation (>95%) from below — how many separate
+    /// times the stick hit the extreme, not how long each one lasted (`saturation_time_s`).
+    pub saturation_event_count: u32,
+    /// 95th percentile of |setpoint|/|gyro| for this axis, not the raw maximum — a single
+    /// crash/tumble sample can put raw max gyro rate an order of magnitude above every other
+    /// sample in the flight (same outlier problem `plot_setpoint_vs_gyro`'s Y-axis scaling
+    /// guards against).
+    pub p95_setpoint: Option<f64>,
+    pub p95_gyro: Option<f64>,
+    /// Sign-reversal rate of RC Command while inside the Center zone, in Hz — reversal count
+    /// divided by time actually spent in the Center zone, not by total flight time, so it
+    /// isn't diluted by however much of the flight was spent outside Center.
+    /// `None` when the axis spent no time in the Center zone.
+    pub center_reversal_rate_hz: Option<f64>,
+    /// Setpoint at full stick deflection, computed from the header's `rates_type`/`rc_rates`/
+    /// `rc_expo`/`rates`/`rate_limits` rate-curve configuration (see
+    /// `data_analysis::rate_curve`). `None` when the header lacks a complete rate-curve config.
+    pub configured_max_rate: Option<f64>,
+    /// `p95_setpoint / configured_max_rate * 100` — how much of the configured ceiling this
+    /// flight's P95 setpoint reached. `None` when either input is `None`, or
+    /// `configured_max_rate` is not a positive value.
+    pub rate_headroom_pct: Option<f64>,
+}
+
+#[derive(Default)]
+struct StickZoneStats {
+    peak_stick: Option<f64>,
+    center_pct: f64,
+    mid_pct: f64,
+    high_pct: f64,
+    saturation_pct: f64,
+    saturation_time_s: f64,
+    saturation_event_count: u32,
+    center_reversal_rate_hz: Option<f64>,
+}
+
+/// Walks one axis's (time, rc_command) samples and computes zone-time percentages and the
+/// Center-zone reversal rate.
+///
+/// Each interval `[points[i], points[i+1])` is classified by the value at its start (the
+/// same sample-and-hold weighting `detect_rc_command_steps` uses for plateau timing), and its
+/// duration credited to that zone — so the result is time-weighted, not sample-count-weighted.
+fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
+    if points.len() < 2 {
+        return StickZoneStats::default();
+    }
+
+    let peak = points.iter().fold(0.0_f64, |acc, (_, v)| acc.max(v.abs()));
+
+    // Normalized (time, % of true full-stick) series, shared by the zone/reversal loop below
+    // and by the Saturation Events count, which delegates to the generic level-crossing counter
+    // rather than duplicating its own rising-edge state machine.
+    let pct_points: Vec<(f64, f64)> = points
+        .iter()
+        .map(|(t, v)| {
+            (
+                *t,
+                (v.abs() / STICK_DIST_FULL_STICK_RC_COMMAND) * RATIO_TO_PERCENT,
+            )
+        })
+        .collect();
+    let saturation_event_count =
+        count_rising_edge_events(&pct_points, STICK_DIST_SATURATION_THRESHOLD_PCT);
+
+    let mut center_time = 0.0_f64;
+    let mut mid_time = 0.0_f64;
+    let mut high_time = 0.0_f64;
+    let mut saturation_time = 0.0_f64;
+    let mut total_time = 0.0_f64;
+    let mut reversal_count: u64 = 0;
+    let mut prev_sign: Option<f64> = None;
+
+    for window in points.windows(2) {
+        let (t0, v0) = window[0];
+        let (t1, _) = window[1];
+        let dt = t1 - t0;
+        if !dt.is_finite() || dt <= 0.0 {
+            continue;
+        }
+        total_time += dt;
+
+        let pct = (v0.abs() / STICK_DIST_FULL_STICK_RC_COMMAND) * RATIO_TO_PERCENT;
+        if pct < STICK_DIST_CENTER_THRESHOLD_PCT {
+            center_time += dt;
+        } else if pct < STICK_DIST_HIGH_THRESHOLD_PCT {
+            mid_time += dt;
+        } else {
+            high_time += dt;
+        }
+        if pct >= STICK_DIST_SATURATION_THRESHOLD_PCT {
+            saturation_time += dt;
+        }
+
+        // Reversal = a sign change of rc_command while continuously inside the Center zone.
+        // Leaving the Center zone resets tracking, so a real transit out to Mid/High and back
+        // is never miscounted as a center-jitter reversal. An exact-zero sample is ambiguous
+        // (no sign) and leaves the tracked sign unchanged rather than breaking continuity.
+        if pct >= STICK_DIST_CENTER_THRESHOLD_PCT {
+            prev_sign = None;
+        } else if v0 != 0.0 {
+            let sign = v0.signum();
+            if let Some(prev) = prev_sign {
+                if prev != sign {
+                    reversal_count += 1;
+                }
+            }
+            prev_sign = Some(sign);
+        }
+    }
+
+    if total_time <= 0.0 {
+        return StickZoneStats {
+            peak_stick: Some(peak),
+            ..Default::default()
+        };
+    }
+
+    StickZoneStats {
+        peak_stick: Some(peak),
+        center_pct: (center_time / total_time) * RATIO_TO_PERCENT,
+        mid_pct: (mid_time / total_time) * RATIO_TO_PERCENT,
+        high_pct: (high_time / total_time) * RATIO_TO_PERCENT,
+        saturation_pct: (saturation_time / total_time) * RATIO_TO_PERCENT,
+        saturation_time_s: saturation_time,
+        saturation_event_count,
+        // Density of reversals within Center-zone dwell time, not diluted by time spent
+        // outside it — two flights with identical center-jitter behavior but different
+        // center-zone occupancy should report the same rate here.
+        center_reversal_rate_hz: (center_time > 0.0).then(|| reversal_count as f64 / center_time),
+    }
+}
+
+/// 95th percentile of `values`, sorting in place. Mirrors the Y-axis scaling percentile used
+/// by `plot_setpoint_vs_gyro`/`plot_gyro_vs_unfilt`. `None` when `values` is empty.
+fn percentile_95(values: &mut [f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_by(|a, b| a.total_cmp(b));
+    let idx = ((values.len() - 1) as f64 * UNIFIED_Y_AXIS_PERCENTILE).floor() as usize;
+    Some(values[idx])
+}
+
+/// Computes per-axis stick position distribution and rate-utilization statistics for the
+/// markdown report. Report-only — no plot is generated; `rc_command` (the pre-rate-curve stick
+/// input) is already visualized over time by `plot_rc_command_activity`, and a deflection
+/// histogram/CDF plot tried for this feature added confusion without adding information the
+/// report table doesn't already state directly.
+pub fn analyze_stick_distribution(
+    log_data: &[LogRowData],
+    header_metadata: Option<&[(String, String)]>,
+) -> Vec<StickDistributionResult> {
+    let axis_count = AXIS_NAMES.len();
+    let rate_curve_config = header_metadata.and_then(parse_rate_curve_config);
+
+    let mut rc_points: Vec<Vec<(f64, f64)>> = vec![Vec::new(); axis_count];
+    let mut setpoint_abs: Vec<Vec<f64>> = vec![Vec::new(); axis_count];
+    let mut gyro_abs: Vec<Vec<f64>> = vec![Vec::new(); axis_count];
+
+    for row in log_data {
+        let Some(time) = row.time_sec else {
+            continue;
+        };
+        #[allow(clippy::needless_range_loop)]
+        for axis in 0..axis_count {
+            if let Some(rc) = row.rc_command[axis] {
+                rc_points[axis].push((time, rc));
+            }
+            if let Some(sp) = row.setpoint[axis] {
+                setpoint_abs[axis].push(sp.abs());
+            }
+            if let Some(g) = row.gyro[axis] {
+                gyro_abs[axis].push(g.abs());
+            }
+        }
+    }
+
+    let mut results = Vec::with_capacity(axis_count);
+
+    for axis in 0..axis_count {
+        let stats = analyze_stick_zones(&rc_points[axis]);
+        let p95_setpoint = percentile_95(&mut setpoint_abs[axis]);
+        let p95_gyro = percentile_95(&mut gyro_abs[axis]);
+
+        let max_rate = rate_curve_config
+            .as_ref()
+            .and_then(|config| configured_max_rate(config, axis));
+        // Headroom is the unused portion of the configured range, not the used portion.
+        let rate_headroom_pct = match (p95_setpoint, max_rate) {
+            (Some(sp), Some(max)) if max > 0.0 => {
+                Some(RATIO_TO_PERCENT - (sp.abs() / max) * RATIO_TO_PERCENT)
+            }
+            _ => None,
+        };
+
+        results.push(StickDistributionResult {
+            axis_name: AXIS_NAMES[axis].to_string(),
+            peak_stick: stats.peak_stick,
+            center_pct: stats.center_pct,
+            mid_pct: stats.mid_pct,
+            high_pct: stats.high_pct,
+            saturation_pct: stats.saturation_pct,
+            saturation_time_s: stats.saturation_time_s,
+            saturation_event_count: stats.saturation_event_count,
+            p95_setpoint,
+            p95_gyro,
+            center_reversal_rate_hz: stats.center_reversal_rate_hz,
+            configured_max_rate: max_rate,
+            rate_headroom_pct,
+        });
+    }
+
+    results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn points_from(values: &[f64]) -> Vec<(f64, f64)> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i as f64 * 0.01, v))
+            .collect()
+    }
+
+    #[test]
+    fn all_center_gives_full_center_pct_and_no_saturation() {
+        // Full stick (500.0, the true full-stick reference) only ever appears as the trailing
+        // endpoint of the last interval, so every timed interval is classified by the 50.0
+        // (10% of true full stick) value that starts it.
+        let points = points_from(&[50.0, 50.0, 50.0, 50.0, 50.0, 500.0]);
+        let stats = analyze_stick_zones(&points);
+        assert_eq!(stats.peak_stick, Some(500.0));
+        assert!((stats.center_pct - 100.0).abs() < 1e-9);
+        assert_eq!(stats.mid_pct, 0.0);
+        assert_eq!(stats.high_pct, 0.0);
+        assert_eq!(stats.saturation_time_s, 0.0);
+    }
+
+    #[test]
+    fn full_stick_is_saturation() {
+        // Peak sample itself (pct=100%) is excluded from timed intervals (windows(2) uses it
+        // only as the endpoint of the prior interval), so hold it for two samples to measure it.
+        let points = points_from(&[500.0, 500.0, 0.0]);
+        let stats = analyze_stick_zones(&points);
+        assert!(stats.saturation_time_s > 0.0);
+        assert!(stats.high_pct > 0.0);
+        assert_eq!(stats.saturation_event_count, 1);
+    }
+
+    #[test]
+    fn saturation_events_count_separate_excursions_not_samples() {
+        // Two separate trips into saturation (>95% of true full stick), each held for two
+        // samples, separated by a return to center — must count as 2 events, not 4.
+        let points = points_from(&[500.0, 500.0, 0.0, 0.0, 500.0, 500.0, 0.0]);
+        let stats = analyze_stick_zones(&points);
+        assert_eq!(stats.saturation_event_count, 2);
+    }
+
+    #[test]
+    fn saturation_pct_is_share_of_total_time_and_a_true_subset_of_high_pct() {
+        // 2 intervals Center (10%), 2 High-not-Saturation (80%), 2 Saturation (100%) — 6 equal
+        // intervals total. High must include the Saturation intervals (66.7%), while
+        // Saturation itself is only its own slice (33.3%), not equal to High.
+        let points = points_from(&[50.0, 50.0, 400.0, 400.0, 500.0, 500.0, 0.0]);
+        let stats = analyze_stick_zones(&points);
+        assert!((stats.high_pct - (200.0 / 3.0)).abs() < 1e-9);
+        assert!((stats.saturation_pct - (100.0 / 3.0)).abs() < 1e-9);
+        assert!(stats.saturation_pct < stats.high_pct);
+    }
+
+    #[test]
+    fn saturation_requires_true_full_stick_not_flight_peak() {
+        // Regression for IT#163: a flight whose peak never exceeds 59% of true full stick
+        // (296 of 500, from a real reported log) must not register Saturation just because a
+        // sample exceeds 95% of that flight's own partial peak.
+        let points = points_from(&[296.0, 296.0, 0.0]);
+        let stats = analyze_stick_zones(&points);
+        assert_eq!(stats.peak_stick, Some(296.0));
+        assert_eq!(stats.saturation_time_s, 0.0);
+        assert_eq!(stats.saturation_event_count, 0);
+    }
+
+    #[test]
+    fn reversal_counted_only_inside_center_zone() {
+        // +500 -> -500 (pct=100%, outside Center) must not count.
+        // +50 -> -50 (pct=10%, inside Center) must count.
+        let points = points_from(&[500.0, -500.0, 50.0, -50.0, 50.0]);
+        let stats = analyze_stick_zones(&points);
+        assert_eq!(stats.center_reversal_rate_hz.map(|r| r > 0.0), Some(true));
+    }
+
+    #[test]
+    fn zero_deflection_log_is_fully_center() {
+        // 0% of true full stick is below the Center threshold regardless of this flight's own
+        // (zero) peak, so the whole flight counts as Center time.
+        let points = points_from(&[0.0, 0.0, 0.0]);
+        let stats = analyze_stick_zones(&points);
+        assert_eq!(stats.peak_stick, Some(0.0));
+        assert_eq!(stats.center_pct, 100.0);
+    }
+
+    #[test]
+    fn fewer_than_two_samples_returns_default() {
+        let stats = analyze_stick_zones(&points_from(&[1.0]));
+        assert_eq!(stats.peak_stick, None);
+    }
+}
