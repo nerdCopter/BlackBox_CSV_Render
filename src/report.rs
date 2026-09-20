@@ -691,7 +691,7 @@ pub fn generate_markdown_report(
             "|------|------------|--------|-----|------|-----------------|--------------------|---------------------------|"
         )?;
         for r in &report.stick_distribution_results {
-            if r.peak_stick.map_or(true, |p| p <= 0.0) {
+            if r.peak_stick.is_none_or(|p| p <= 0.0) {
                 writeln!(
                     md,
                     "| {} | N/A | N/A | N/A | N/A | N/A | N/A | N/A |",
