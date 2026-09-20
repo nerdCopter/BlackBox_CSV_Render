@@ -69,9 +69,9 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
 === TIME WINDOW ===
 
   --start <seconds>  Trim analysis to this offset onward, relative to the
-                     log's first row. Omit to start at the log start.
-  --end <seconds>    Trim analysis up to this offset, relative to the log's
-                     first row. Omit to end at the log end.
+                     start of the log. Omit to start at the log start.
+  --end <seconds>    Trim analysis up to this offset, relative to the
+                     start of the log. Omit to end at the log end.
                      Independent — use either or both. Applies before every
                      analysis and plot (step response may skip if the
                      trimmed window is too short).
@@ -113,7 +113,7 @@ Arguments can be in any order. Wildcards (e.g., *.csv) are shell-expanded and wo
 
 ### Time-Window Trim: How To Pick `--start`/`--end`
 
-`--start`/`--end` are seconds relative to the log's first row (`0s` = log start). Trimming drops
+`--start`/`--end` are seconds relative to the start of the log (`0s` = log start). Trimming drops
 every row outside the window before any plot or analysis runs, so it affects every Phase 2
 analysis and plot — except `--estimate-optimal-p`'s Phase 1 aircraft profiling, which always
 re-reads the full file regardless of `--start`/`--end`, and Motor Desync Detection's baseline

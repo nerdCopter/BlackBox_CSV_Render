@@ -28,11 +28,14 @@ use crate::data_analysis::torque_inertia_profiler::{extract_punch_ratios, Aircra
 use crate::data_input::bbl_reader::print_block_separator;
 use crate::types::{InputExpansionResult, LogParseResult, StepResponseResults};
 
-/// Whether a discovery-time "Skipping ..." warning has already printed this run. Gates
+/// Whether a discovery-time "Skipping ..." warning has printed since the last reset. Gates
 /// `print_discovery_skip_warning` so a whole contiguous group of such warnings (which can come
 /// from either `expand_input_paths`'s direct-file-argument branch or a recursive
 /// `find_csv_files_in_dir_impl` directory walk) shares exactly one leading blank line, rather
-/// than each warning line getting its own.
+/// than each warning line getting its own. `expand_one_bbl_file` resets this back to `false`
+/// after every eager `.bbl`/`.bfl` export attempt (e.g. under `--estimate-optimal-p`), whether it
+/// succeeds or fails, so a warning group interrupted by that attempt still gets its own leading
+/// blank line instead of silently attaching to whatever the export attempt printed.
 static PRINTED_DISCOVERY_WARNING: AtomicBool = AtomicBool::new(false);
 
 /// Prints a discovery-time "Skipping ..." warning, inserting one blank line via
@@ -156,9 +159,9 @@ struct AnalysisOptions {
     pub debug_mode: bool,
     pub show_butterworth: bool,
     pub estimate_optimal_p: bool,
-    /// Trim start, in seconds relative to the log's first row. `None` = log start.
+    /// Trim start, in seconds relative to the start of the log. `None` = log start.
     pub trim_start: Option<f64>,
-    /// Trim end, in seconds relative to the log's first row. `None` = log end.
+    /// Trim end, in seconds relative to the start of the log. `None` = log end.
     pub trim_end: Option<f64>,
     /// Raw `--start` argument text, as typed. Used verbatim in the output filename suffix so
     /// two distinct user-supplied values can never collide there, unlike a rounded re-format
@@ -481,14 +484,21 @@ fn expand_one_bbl_file(
         return;
     }
 
-    match expand_bbl_to_scratch_csvs(
+    let result = expand_bbl_to_scratch_csvs(
         bbl_path,
         bbl_opts.force_export,
         bbl_opts.keep,
         bbl_opts.keep_base_dir,
         bbl_opts.colliding_stems,
         debug_mode,
-    ) {
+    );
+    // Whether this eager export succeeds or fails, something else (an export's own separated
+    // block, or — on failure — the "Skipping BBL file" message below) is now the last thing on
+    // screen, not the preceding discovery-warning group. Reset unconditionally so the next
+    // discovery warning (if any) gets its own leading blank line instead of silently attaching
+    // to whatever this export attempt printed.
+    PRINTED_DISCOVERY_WARNING.store(false, Ordering::Relaxed);
+    match result {
         Ok((flights, scratch_dir)) => {
             for (scratch_csv_path, origin_dir) in flights {
                 bbl_origin_dirs.insert(scratch_csv_path.clone(), origin_dir);
@@ -696,9 +706,9 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("--- TIME WINDOW ---");
     eprintln!();
     eprintln!("  --start <seconds>  Trim analysis to this offset onward, relative to the");
-    eprintln!("                     log's first row. Omit to start at the log start.");
-    eprintln!("  --end <seconds>    Trim analysis up to this offset, relative to the log's");
-    eprintln!("                     first row. Omit to end at the log end.");
+    eprintln!("                     start of the log. Omit to start at the log start.");
+    eprintln!("  --end <seconds>    Trim analysis up to this offset, relative to the");
+    eprintln!("                     start of the log. Omit to end at the log end.");
     eprintln!("                     Independent — use either or both. Applies before every");
     eprintln!("                     analysis and plot (step response may skip if the");
     eprintln!("                     trimmed window is too short).");
