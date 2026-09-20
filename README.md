@@ -39,7 +39,7 @@ Usage: ./BlackBox_CSV_Render <input1> [<input2> ...] [OPTIONS]
   <inputX>: CSV, BBL, or BFL files, directories, or wildcards (*.csv, *.bbl, *.bfl). Header
             files auto-excluded. A multi-flight .bbl/.bfl can produce one report per eligible flight.
   -O, --output-dir <directory>: Output directory (default: source folder).
-  -R, --recursive: Recursively find CSV/BBL files in subdirectories.
+  -R, --recursive: Recursively find CSV/BBL/BFL files in subdirectories.
   -F, --force-export: Export .bbl flights bbl_parser would otherwise skip as low-value
                        (very short / low data density / minimal gyro activity).
   -K, --keep: Keep the exported .csv/.headers.csv files (source folder, or -O/--output-dir)

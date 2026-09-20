@@ -170,8 +170,8 @@ struct AnalysisOptions {
 }
 
 use crate::constants::{
-    DEFAULT_SETPOINT_THRESHOLD, EXCLUDE_END_S, EXCLUDE_START_S, FRAME_LENGTH_S,
-    TRIM_START_DEFAULT_S,
+    BBL_EXTENSION, BFL_EXTENSION, CSV_EXTENSION, DEFAULT_SETPOINT_THRESHOLD, EXCLUDE_END_S,
+    EXCLUDE_START_S, FRAME_LENGTH_S, HEADERS_CSV_SUFFIX, HEADER_CSV_SUFFIX, TRIM_START_DEFAULT_S,
 };
 
 // Specific plot function imports
@@ -268,7 +268,14 @@ struct BblExpansionOptions<'a> {
 /// (e.g. BrainFPV) write to the SD card, while `.bbl` is the name Betaflight Configurator and
 /// `blackbox_decode` conventionally use — so both are routed through the same BBL expansion path.
 fn is_bbl_extension(extension: &str) -> bool {
-    extension.eq_ignore_ascii_case("bbl") || extension.eq_ignore_ascii_case("bfl")
+    extension.eq_ignore_ascii_case(BBL_EXTENSION) || extension.eq_ignore_ascii_case(BFL_EXTENSION)
+}
+
+/// True for a lowercased path ending in `.header.csv` or `.headers.csv` — a `blackbox_decode`-style
+/// metadata sidecar, not a flight-log CSV. Caller must lowercase `lowercase_path` first (both
+/// callers already do, for their own case-insensitive matching needs).
+fn is_header_csv_path(lowercase_path: &str) -> bool {
+    lowercase_path.ends_with(HEADER_CSV_SUFFIX) || lowercase_path.ends_with(HEADERS_CSV_SUFFIX)
 }
 
 /// Pre-scans every `.bbl`/`.BBL` file reachable from `input_paths` (recursing into directories
@@ -372,12 +379,10 @@ fn expand_input_paths(
             // It's a file, validate CSV/BBL extension before adding
             if let Some(extension) = input_path.extension() {
                 let extension = extension.to_string_lossy();
-                if extension.eq_ignore_ascii_case("csv") {
+                if extension.eq_ignore_ascii_case(CSV_EXTENSION) {
                     // Skip header files (these are metadata files, not flight logs)
                     let lowercase_path = input_path_str.to_ascii_lowercase();
-                    if lowercase_path.ends_with(".header.csv")
-                        || lowercase_path.ends_with(".headers.csv")
-                    {
+                    if is_header_csv_path(&lowercase_path) {
                         print_discovery_skip_warning(&format!(
                             "⚠️  Skipping header file: {input_path_str}"
                         ));
@@ -611,12 +616,11 @@ fn find_csv_files_in_dir_impl(
             // Check if it's a CSV or BBL file
             if let Some(extension) = path.extension() {
                 let extension = extension.to_string_lossy();
-                if extension.eq_ignore_ascii_case("csv") {
+                if extension.eq_ignore_ascii_case(CSV_EXTENSION) {
                     // Skip header files (these are metadata files, not flight logs)
                     if let Some(path_str) = path.to_str() {
                         let lowercase = path_str.to_ascii_lowercase();
-                        if lowercase.ends_with(".header.csv") || lowercase.ends_with(".headers.csv")
-                        {
+                        if is_header_csv_path(&lowercase) {
                             print_discovery_skip_warning(&format!(
                                 "⚠️  Skipping header file: {path_str}"
                             ));
@@ -659,7 +663,7 @@ fn print_usage_and_exit(program_name: &str) {
     );
     eprintln!("            files auto-excluded. A multi-flight .bbl/.bfl can produce one report per eligible flight.");
     eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
-    eprintln!("  -R, --recursive: Recursively find CSV/BBL files in subdirectories.");
+    eprintln!("  -R, --recursive: Recursively find CSV/BBL/BFL files in subdirectories.");
     eprintln!("  -F, --force-export: Export .bbl flights bbl_parser would otherwise skip as");
     eprintln!("            low-value (very short / low data density / minimal gyro activity).");
     eprintln!("  -K, --keep: Keep the exported .csv/.headers.csv files (source folder, or");
