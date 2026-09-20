@@ -496,23 +496,9 @@ pub const BBL_DISAMBIGUATOR_MASK: u64 = 0xFF_FFFF;
 /// ceiling for a real collision, purely a guaranteed loop-termination bound.
 pub const RENAME_PAIR_MAX_ATTEMPTS: u32 = 10_000;
 
-/// File extension (without the leading dot) that Betaflight Configurator and `blackbox_decode`
-/// conventionally use for a binary blackbox log. Compared case-insensitively in `main.rs`'s
-/// `is_bbl_extension`.
+// Accepted input file extensions/suffixes (case-insensitive extension match).
 pub const BBL_EXTENSION: &str = "bbl";
-/// File extension (without the leading dot) some flight controllers (e.g. BrainFPV) write to
-/// the SD card for the same binary blackbox log format as `BBL_EXTENSION`. Compared
-/// case-insensitively in `main.rs`'s `is_bbl_extension`.
 pub const BFL_EXTENSION: &str = "bfl";
-/// File extension (without the leading dot) for a flight-log CSV, whether hand-decoded via
-/// `blackbox_decode` or produced by this program's own BBL scratch-export. Compared
-/// case-insensitively in `main.rs`'s input discovery.
 pub const CSV_EXTENSION: &str = "csv";
-/// Lowercase filename suffix identifying a `blackbox_decode`-style header sidecar file (singular
-/// form), which carries flight metadata rather than sample rows and must be excluded from the
-/// flight-log CSV list. Compared against an already-lowercased path in `main.rs`'s input
-/// discovery.
 pub const HEADER_CSV_SUFFIX: &str = ".header.csv";
-/// Lowercase filename suffix identifying a `blackbox_decode`-style header sidecar file (plural
-/// form — the one this program's own BBL scratch-export produces). See `HEADER_CSV_SUFFIX`.
 pub const HEADERS_CSV_SUFFIX: &str = ".headers.csv";
