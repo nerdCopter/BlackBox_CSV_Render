@@ -263,6 +263,14 @@ struct BblExpansionOptions<'a> {
     colliding_stems: &'a HashSet<String>,
 }
 
+/// True for a `.bbl`/`.BBL` or `.bfl`/`.BFL` extension (case-insensitive). Both extensions name
+/// the same binary blackbox log container — `.bfl` is the raw filename some flight controllers
+/// (e.g. BrainFPV) write to the SD card, while `.bbl` is the name Betaflight Configurator and
+/// `blackbox_decode` conventionally use — so both are routed through the same BBL expansion path.
+fn is_bbl_extension(extension: &str) -> bool {
+    extension.eq_ignore_ascii_case("bbl") || extension.eq_ignore_ascii_case("bfl")
+}
+
 /// Pre-scans every `.bbl`/`.BBL` file reachable from `input_paths` (recursing into directories
 /// when `recursive`, matching `find_csv_files_in_dir`'s own inclusion rules) and returns the
 /// case-insensitive basenames that appear more than once. Must run to completion *before* any
@@ -303,7 +311,7 @@ fn collect_bbl_stems(
     if path.is_file() {
         if path
             .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("bbl"))
+            .is_some_and(|ext| is_bbl_extension(&ext.to_string_lossy()))
         {
             if let Some(stem) = path.file_stem() {
                 *stem_counts
@@ -376,7 +384,7 @@ fn expand_input_paths(
                     } else {
                         csv_files.push(input_path_str.clone());
                     }
-                } else if extension.eq_ignore_ascii_case("bbl") {
+                } else if is_bbl_extension(&extension) {
                     expand_one_bbl_file(
                         input_path,
                         bbl_opts,
@@ -621,7 +629,7 @@ fn find_csv_files_in_dir_impl(
                             path.display()
                         ));
                     }
-                } else if extension.eq_ignore_ascii_case("bbl") {
+                } else if is_bbl_extension(&extension) {
                     expand_one_bbl_file(
                         &path,
                         bbl_opts,
@@ -647,9 +655,9 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("--- INPUT/OUTPUT OPTIONS ---");
     eprintln!();
     eprintln!(
-        "  <inputX>: CSV or BBL files, directories, or wildcards (*.csv, *.bbl). Header files"
+        "  <inputX>: CSV, BBL, or BFL files, directories, or wildcards (*.csv, *.bbl, *.bfl). Header"
     );
-    eprintln!("            auto-excluded. A multi-flight .bbl can produce one report per eligible flight.");
+    eprintln!("            files auto-excluded. A multi-flight .bbl/.bfl can produce one report per eligible flight.");
     eprintln!("  -O, --output-dir <directory>: Output directory (default: source folder).");
     eprintln!("  -R, --recursive: Recursively find CSV/BBL files in subdirectories.");
     eprintln!("  -F, --force-export: Export .bbl flights bbl_parser would otherwise skip as");
@@ -2631,7 +2639,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let is_deferred_bbl = !bbl_opts.eager
                 && Path::new(input_file_str)
                     .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("bbl"));
+                    .is_some_and(|ext| is_bbl_extension(&ext.to_string_lossy()));
             if is_deferred_bbl {
                 let bbl_path = Path::new(input_file_str);
                 match expand_bbl_to_scratch_csvs(
@@ -2975,6 +2983,40 @@ mod bbl_input_expansion_tests {
         assert!(bbl_origin_dirs.is_empty());
         assert!(scratch_dirs.is_empty());
         cleanup(&path);
+    }
+
+    /// `.bfl`/`.BFL` (either case) is a synonym for `.bbl`/`.BBL` and must be dispatched to BBL
+    /// expansion by `expand_input_paths` the same way, not skipped as an unsupported file. Uses
+    /// the deferred (`eager: false`) path so dispatch is verified by the raw path being pushed
+    /// unchanged, without needing valid binary BBL frame data.
+    #[test]
+    fn bfl_extension_is_accepted_alongside_bbl() {
+        for file_name in ["flight.bfl", "flight.BFL", "flight.Bfl"] {
+            let path = write_garbage_file(file_name);
+            let empty_collisions = HashSet::new();
+            let bbl_opts = BblExpansionOptions {
+                force_export: false,
+                keep: false,
+                keep_base_dir: None,
+                eager: false,
+                colliding_stems: &empty_collisions,
+            };
+            let (csv_files, _skipped_subdirs, bbl_origin_dirs, scratch_dirs) = expand_input_paths(
+                &[path.to_string_lossy().to_string()],
+                false,
+                bbl_opts,
+                false,
+            );
+
+            assert_eq!(
+                csv_files,
+                vec![path.to_string_lossy().to_string()],
+                "{file_name} must be dispatched as a deferred BBL placeholder, not skipped"
+            );
+            assert!(bbl_origin_dirs.is_empty());
+            assert!(scratch_dirs.is_empty());
+            cleanup(&path);
+        }
     }
 
     /// An input file with neither a `.csv` nor `.bbl` extension is skipped without affecting
