@@ -156,9 +156,9 @@ struct AnalysisOptions {
     pub debug_mode: bool,
     pub show_butterworth: bool,
     pub estimate_optimal_p: bool,
-    /// Trim start, in seconds relative to the log's first row. `None` = log start.
+    /// Trim start, in seconds relative to the start of the log. `None` = log start.
     pub trim_start: Option<f64>,
-    /// Trim end, in seconds relative to the log's first row. `None` = log end.
+    /// Trim end, in seconds relative to the start of the log. `None` = log end.
     pub trim_end: Option<f64>,
     /// Raw `--start` argument text, as typed. Used verbatim in the output filename suffix so
     /// two distinct user-supplied values can never collide there, unlike a rounded re-format
@@ -696,9 +696,9 @@ fn print_usage_and_exit(program_name: &str) {
     eprintln!("--- TIME WINDOW ---");
     eprintln!();
     eprintln!("  --start <seconds>  Trim analysis to this offset onward, relative to the");
-    eprintln!("                     log's first row. Omit to start at the log start.");
-    eprintln!("  --end <seconds>    Trim analysis up to this offset, relative to the log's");
-    eprintln!("                     first row. Omit to end at the log end.");
+    eprintln!("                     start of the log. Omit to start at the log start.");
+    eprintln!("  --end <seconds>    Trim analysis up to this offset, relative to the");
+    eprintln!("                     start of the log. Omit to end at the log end.");
     eprintln!("                     Independent — use either or both. Applies before every");
     eprintln!("                     analysis and plot (step response may skip if the");
     eprintln!("                     trimmed window is too short).");
