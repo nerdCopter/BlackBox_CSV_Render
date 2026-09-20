@@ -678,7 +678,7 @@ pub fn generate_markdown_report(
     let has_stick_distribution_data = report
         .stick_distribution_results
         .iter()
-        .any(|r| r.peak_stick.is_some_and(|p| p > 0.0));
+        .any(|r| r.peak_stick.is_some());
     if has_stick_distribution_data {
         writeln!(md, "## Stick Position & Rate Analysis")?;
         writeln!(md)?;
@@ -691,7 +691,7 @@ pub fn generate_markdown_report(
             "|------|------------|--------|-----|------|------------|-----------------|--------------------|---------------------------|"
         )?;
         for r in &report.stick_distribution_results {
-            if r.peak_stick.is_none_or(|p| p <= 0.0) {
+            if r.peak_stick.is_none() {
                 writeln!(
                     md,
                     "| {} | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |",
@@ -721,7 +721,7 @@ pub fn generate_markdown_report(
         writeln!(md)?;
         writeln!(
             md,
-            "Peak Stick is the highest |rc_command| this flight reached, as a % of true full-stick range (both Betaflight and EmuFlight clamp rcCommand to +/-500 before the rate curve). Center/Mid/High are % of flight time spent below 15%, 15-75%, and above 75% of that same true full-stick range — not this axis's own peak; these three always sum to 100%. Saturation is the % of flight time above 95% — a subset of High, not additional to it. Saturation (s) and Saturation Events report that same threshold in seconds and as a count of separate excursions, not cumulative time. A flight whose Peak Stick never reaches 95% cannot register a Saturation Event. Any percentage above 0% that would otherwise round to 0% displays as \"<1%\"."
+            "Peak Stick is the highest |rc_command| this flight reached, as a % of true full-stick range (both Betaflight and EmuFlight clamp rcCommand to +/-500 before the rate curve). Center/Mid/High are % of flight time spent below 15%, 15-75%, and above 75% of that same true full-stick range — not this axis's own peak; these three always sum to 100%. Saturation is the % of flight time above 95% — a subset of High, not additional to it. Saturation (s) and Saturation Events report that same threshold in seconds and as a count of separate excursions, not cumulative time. A flight whose Peak Stick never reaches 95% cannot register a Saturation Event."
         )?;
         writeln!(md)?;
 
@@ -739,9 +739,7 @@ pub fn generate_markdown_report(
             let configured_max_rate = r
                 .configured_max_rate
                 .map_or("N/A".into(), |v| format!("{:.0}", v));
-            let rate_headroom = r
-                .rate_headroom_pct
-                .map_or("N/A".into(), |v| format!("{:.0}%", v));
+            let rate_headroom = r.rate_headroom_pct.map_or("N/A".into(), fmt_zone_pct);
             writeln!(
                 md,
                 "| {} | {} | {} | {} | {} |",
@@ -780,14 +778,10 @@ pub fn generate_markdown_report(
     Ok(())
 }
 
-/// Formats a zone-time percentage, showing "<1%" instead of "0%" for a genuinely nonzero
-/// value that would otherwise round away to nothing (e.g. 0.34% displayed with `{:.0}`).
+/// Formats a percentage with one decimal place, so a small nonzero value (e.g. 0.34%)
+/// doesn't round away to "0%" under whole-number formatting.
 fn fmt_zone_pct(pct: f64) -> String {
-    if pct > 0.0 && pct < 0.5 {
-        "<1%".to_string()
-    } else {
-        format!("{:.0}%", pct)
-    }
+    format!("{:.1}%", pct)
 }
 
 fn fmt_static_filter(f: &crate::data_analysis::filter_response::FilterConfig) -> String {
