@@ -495,3 +495,10 @@ pub const BBL_DISAMBIGUATOR_MASK: u64 = 0xFF_FFFF;
 /// Defensive cap on `rename_pair_unique`'s fallback counter (`bbl_reader.rs`) — not a realistic
 /// ceiling for a real collision, purely a guaranteed loop-termination bound.
 pub const RENAME_PAIR_MAX_ATTEMPTS: u32 = 10_000;
+
+// Accepted input file extensions/suffixes (case-insensitive extension match).
+pub const BBL_EXTENSION: &str = "bbl";
+pub const BFL_EXTENSION: &str = "bfl";
+pub const CSV_EXTENSION: &str = "csv";
+pub const HEADER_CSV_SUFFIX: &str = ".header.csv";
+pub const HEADERS_CSV_SUFFIX: &str = ".headers.csv";
