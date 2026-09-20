@@ -33,9 +33,9 @@ use crate::types::{InputExpansionResult, LogParseResult, StepResponseResults};
 /// from either `expand_input_paths`'s direct-file-argument branch or a recursive
 /// `find_csv_files_in_dir_impl` directory walk) shares exactly one leading blank line, rather
 /// than each warning line getting its own. `expand_one_bbl_file` resets this back to `false`
-/// after a successful eager `.bbl`/`.bfl` export (e.g. under `--estimate-optimal-p`) prints its
-/// own separated block, so a warning group interrupted by that export still gets its own
-/// leading blank line instead of silently attaching to the export block.
+/// after every eager `.bbl`/`.bfl` export attempt (e.g. under `--estimate-optimal-p`), whether it
+/// succeeds or fails, so a warning group interrupted by that attempt still gets its own leading
+/// blank line instead of silently attaching to whatever the export attempt printed.
 static PRINTED_DISCOVERY_WARNING: AtomicBool = AtomicBool::new(false);
 
 /// Prints a discovery-time "Skipping ..." warning, inserting one blank line via
@@ -484,14 +484,21 @@ fn expand_one_bbl_file(
         return;
     }
 
-    match expand_bbl_to_scratch_csvs(
+    let result = expand_bbl_to_scratch_csvs(
         bbl_path,
         bbl_opts.force_export,
         bbl_opts.keep,
         bbl_opts.keep_base_dir,
         bbl_opts.colliding_stems,
         debug_mode,
-    ) {
+    );
+    // Whether this eager export succeeds or fails, something else (an export's own separated
+    // block, or — on failure — the "Skipping BBL file" message below) is now the last thing on
+    // screen, not the preceding discovery-warning group. Reset unconditionally so the next
+    // discovery warning (if any) gets its own leading blank line instead of silently attaching
+    // to whatever this export attempt printed.
+    PRINTED_DISCOVERY_WARNING.store(false, Ordering::Relaxed);
+    match result {
         Ok((flights, scratch_dir)) => {
             for (scratch_csv_path, origin_dir) in flights {
                 bbl_origin_dirs.insert(scratch_csv_path.clone(), origin_dir);
@@ -500,11 +507,6 @@ fn expand_one_bbl_file(
             if let Some(dir) = scratch_dir {
                 scratch_dirs.push(dir);
             }
-            // This eager export just printed its own separated block, so it — not the
-            // preceding warning group — is now the last thing on screen. Reset the flag so
-            // the next discovery warning (if any) gets its own leading blank line instead of
-            // silently attaching to this export block.
-            PRINTED_DISCOVERY_WARNING.store(false, Ordering::Relaxed);
         }
         Err(err) => eprintln!("⚠️  Skipping BBL file {}: {}", bbl_path.display(), err),
     }
