@@ -684,17 +684,17 @@ pub fn generate_markdown_report(
         writeln!(md)?;
         writeln!(
             md,
-            "| Axis | Peak Stick | Center | Mid | High | Saturation (s) | Saturation Events | Center Reversal Rate (Hz) |"
+            "| Axis | Peak Stick | Center | Mid | High | Saturation | Saturation (s) | Saturation Events | Center Reversal Rate (Hz) |"
         )?;
         writeln!(
             md,
-            "|------|------------|--------|-----|------|-----------------|--------------------|---------------------------|"
+            "|------|------------|--------|-----|------|------------|-----------------|--------------------|---------------------------|"
         )?;
         for r in &report.stick_distribution_results {
             if r.peak_stick.is_none_or(|p| p <= 0.0) {
                 writeln!(
                     md,
-                    "| {} | N/A | N/A | N/A | N/A | N/A | N/A | N/A |",
+                    "| {} | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |",
                     r.axis_name
                 )?;
                 continue;
@@ -706,12 +706,13 @@ pub fn generate_markdown_report(
                 .map_or("N/A".into(), |v| format!("{:.2}", v));
             writeln!(
                 md,
-                "| {} | {:.0}% | {:.0}% | {:.0}% | {:.0}% | {:.1} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} | {:.1} | {} | {} |",
                 r.axis_name,
-                peak_stick_pct,
-                r.center_pct,
-                r.mid_pct,
-                r.high_pct,
+                fmt_zone_pct(peak_stick_pct),
+                fmt_zone_pct(r.center_pct),
+                fmt_zone_pct(r.mid_pct),
+                fmt_zone_pct(r.high_pct),
+                fmt_zone_pct(r.saturation_pct),
                 r.saturation_time_s,
                 r.saturation_event_count,
                 reversal_rate
@@ -720,7 +721,7 @@ pub fn generate_markdown_report(
         writeln!(md)?;
         writeln!(
             md,
-            "Peak Stick is the highest |rc_command| this flight reached, as a % of true full-stick range (both Betaflight and EmuFlight clamp rcCommand to +/-500 before the rate curve). Center/Mid/High are % of flight time spent below 15%, 15-75%, and above 75% of that same true full-stick range — not this axis's own peak. Saturation is time spent above 95% of true full-stick; Saturation Events counts separate excursions above that threshold, not cumulative time. A flight whose Peak Stick never reaches 95% cannot register a Saturation Event."
+            "Peak Stick is the highest |rc_command| this flight reached, as a % of true full-stick range (both Betaflight and EmuFlight clamp rcCommand to +/-500 before the rate curve). Center/Mid/High are % of flight time spent below 15%, 15-75%, and above 75% of that same true full-stick range — not this axis's own peak; these three always sum to 100%. Saturation is the % of flight time above 95% — a subset of High, not additional to it. Saturation (s) and Saturation Events report that same threshold in seconds and as a count of separate excursions, not cumulative time. A flight whose Peak Stick never reaches 95% cannot register a Saturation Event. Any percentage above 0% that would otherwise round to 0% displays as \"<1%\"."
         )?;
         writeln!(md)?;
 
@@ -777,6 +778,16 @@ pub fn generate_markdown_report(
 
     fs::write(output_path, md)?;
     Ok(())
+}
+
+/// Formats a zone-time percentage, showing "<1%" instead of "0%" for a genuinely nonzero
+/// value that would otherwise round away to nothing (e.g. 0.34% displayed with `{:.0}`).
+fn fmt_zone_pct(pct: f64) -> String {
+    if pct > 0.0 && pct < 0.5 {
+        "<1%".to_string()
+    } else {
+        format!("{:.0}%", pct)
+    }
 }
 
 fn fmt_static_filter(f: &crate::data_analysis::filter_response::FilterConfig) -> String {

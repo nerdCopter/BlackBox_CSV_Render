@@ -22,6 +22,8 @@ pub struct StickDistributionResult {
     pub center_pct: f64,
     pub mid_pct: f64,
     pub high_pct: f64,
+    /// % of flight time above the Saturation threshold — a subset of `high_pct`, not additive.
+    pub saturation_pct: f64,
     pub saturation_time_s: f64,
     /// Count of discrete transitions into Saturation (>95%) from below — how many separate
     /// times the stick hit the extreme, not how long each one lasted (`saturation_time_s`).
@@ -53,6 +55,7 @@ struct StickZoneStats {
     center_pct: f64,
     mid_pct: f64,
     high_pct: f64,
+    saturation_pct: f64,
     saturation_time_s: f64,
     saturation_event_count: u32,
     center_reversal_rate_hz: Option<f64>,
@@ -144,6 +147,7 @@ fn analyze_stick_zones(points: &[(f64, f64)]) -> StickZoneStats {
         center_pct: (center_time / total_time) * RATIO_TO_PERCENT,
         mid_pct: (mid_time / total_time) * RATIO_TO_PERCENT,
         high_pct: (high_time / total_time) * RATIO_TO_PERCENT,
+        saturation_pct: (saturation_time / total_time) * RATIO_TO_PERCENT,
         saturation_time_s: saturation_time,
         saturation_event_count,
         // Density of reversals within Center-zone dwell time, not diluted by time spent
@@ -222,6 +226,7 @@ pub fn analyze_stick_distribution(
             center_pct: stats.center_pct,
             mid_pct: stats.mid_pct,
             high_pct: stats.high_pct,
+            saturation_pct: stats.saturation_pct,
             saturation_time_s: stats.saturation_time_s,
             saturation_event_count: stats.saturation_event_count,
             p95_setpoint,
@@ -279,6 +284,18 @@ mod tests {
         let points = points_from(&[500.0, 500.0, 0.0, 0.0, 500.0, 500.0, 0.0]);
         let stats = analyze_stick_zones(&points);
         assert_eq!(stats.saturation_event_count, 2);
+    }
+
+    #[test]
+    fn saturation_pct_is_share_of_total_time_and_a_true_subset_of_high_pct() {
+        // 2 intervals Center (10%), 2 High-not-Saturation (80%), 2 Saturation (100%) — 6 equal
+        // intervals total. High must include the Saturation intervals (66.7%), while
+        // Saturation itself is only its own slice (33.3%), not equal to High.
+        let points = points_from(&[50.0, 50.0, 400.0, 400.0, 500.0, 500.0, 0.0]);
+        let stats = analyze_stick_zones(&points);
+        assert!((stats.high_pct - (200.0 / 3.0)).abs() < 1e-9);
+        assert!((stats.saturation_pct - (100.0 / 3.0)).abs() < 1e-9);
+        assert!(stats.saturation_pct < stats.high_pct);
     }
 
     #[test]
