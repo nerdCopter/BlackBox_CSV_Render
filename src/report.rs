@@ -131,7 +131,7 @@ pub fn generate_markdown_report(
     }
     writeln!(md)?;
 
-    // --- Filter Configuration ---
+    // --- Gyro Filter Configuration ---
     if let Some(ref fc) = report.filter_config {
         let axis_labels = ["Roll", "Pitch", "Yaw"];
         // Only emit section if at least one axis has any filter configured
@@ -141,11 +141,19 @@ pub fn generate_markdown_report(
                 || fc.gyro[i].dynamic_lpf1.is_some()
                 || fc.gyro[i].imuf.is_some()
         });
+        // IMUF / Pseudo-Kalman is an EmuFlight-only concept; only add the column
+        // when at least one axis actually has it configured (i.e. EmuFlight logs).
+        let has_imuf = (0..3).any(|i| fc.gyro[i].imuf.is_some());
         if has_any {
-            writeln!(md, "## Filter Configuration")?;
+            writeln!(md, "## Gyro Filter Configuration")?;
             writeln!(md)?;
-            writeln!(md, "| Axis | LPF1 | LPF2 | IMUF / Pseudo-Kalman |")?;
-            writeln!(md, "|------|------|------|----------------------|")?;
+            if has_imuf {
+                writeln!(md, "| Axis | LPF1 | LPF2 | IMUF / Pseudo-Kalman |")?;
+                writeln!(md, "|------|------|------|----------------------|")?;
+            } else {
+                writeln!(md, "| Axis | LPF1 | LPF2 |")?;
+                writeln!(md, "|------|------|------|")?;
+            }
             for (i, label) in axis_labels.iter().enumerate() {
                 let lpf1 =
                     fmt_filter_stage(fc.gyro[i].lpf1.as_ref(), fc.gyro[i].dynamic_lpf1.as_ref());
@@ -153,8 +161,12 @@ pub fn generate_markdown_report(
                     .lpf2
                     .as_ref()
                     .map_or("—".into(), fmt_static_filter);
-                let imuf = fc.gyro[i].imuf.as_ref().map_or("—".into(), fmt_imuf);
-                writeln!(md, "| {} | {} | {} | {} |", label, lpf1, lpf2, imuf)?;
+                if has_imuf {
+                    let imuf = fc.gyro[i].imuf.as_ref().map_or("—".into(), fmt_imuf);
+                    writeln!(md, "| {} | {} | {} | {} |", label, lpf1, lpf2, imuf)?;
+                } else {
+                    writeln!(md, "| {} | {} | {} |", label, lpf1, lpf2)?;
+                }
             }
             writeln!(md)?;
 

@@ -139,14 +139,12 @@ caveats below).
    between "flag holds" and "flag disappears" isn't a fixed number of seconds and can flip on trim
    values close together. Motor Desync Detection is exempt from this: see below.
 
-**Motor Desync Detection specifically:** fixed in IT #182. The `Possible`/`De Facto`/`Fallback`
-tiers (`src/plot_functions/motor_desync.rs`) always score each motor against statistics built from
-the **full, untrimmed log** — its own high-command runs elsewhere in the flight, their eRPM
-baseline, and (for `Possible`) a 90th-percentile eRPM reference — regardless of `--start`/`--end`.
-Only which flagged events get *reported* is restricted to the trimmed window. A tight trim can
-therefore make the `Motor_vs_eRPM` plot readable without losing the table flag, unlike before the
-fix. `--estimate-optimal-p` in particular still splits across trim and no-trim — see the Phase
-1/Phase 2 note above and `OVERVIEW.md`.
+**Motor Desync Detection specifically:** its baseline statistics always use the **full, untrimmed
+log**, regardless of `--start`/`--end` — only which flagged events get *reported* is restricted to
+the trimmed window. A tight trim can therefore make the `Motor_vs_eRPM` plot readable without
+losing the table flag. `--estimate-optimal-p` similarly still splits across trim and no-trim — see
+the Phase 1/Phase 2 note above. See [OVERVIEW.md](OVERVIEW.md#core-functionality) for the exact
+per-tier baseline mechanics.
 
 ### Output
 
@@ -174,7 +172,7 @@ fix. `--estimate-optimal-p` in particular still splits across trim and no-trim �
 
 #### Markdown Report (always generated)
 
-- `*_report.md` — Structured flight report written alongside PNGs on every run. Sections: Metadata (firmware, PIDs, sample rate, trimmed time window when `--start`/`--end` was used, gyroUnfilt source), Filter Configuration (LPF1/LPF2/IMUF/Pseudo-Kalman table, Dynamic Notch, RPM filter), PID Tuning, Step Response Analysis (Roll/Pitch with P:D assessment and setpoint authority), Gyro Analysis (filtering delay, confidence, spectrum peaks per axis), D-Term Analysis (filtering delay with N/A reason, spectrum peaks), Motor Oscillation (per-motor sliding-window spectrum check, catches a brief burst a whole-log average would dilute away), Motor Desync Detection (per-motor motor[N] vs eRPM[N] divergence, self-relative to that same motor's own behavior elsewhere in the flight; De Facto/Possible confidence tiers; requires bidirectional DShot telemetry), Stick Input Smoothness (RC Command step detection, with an rc_smoothing recommendation when an axis is classified Blocky), Stick Position & Rate Analysis (computed regardless of plot selection, not gated by `--core`/`--extended`/etc. — per-axis Peak Stick and Center/Mid/High/Saturation zone-time percentages relative to true full-stick deflection (not this flight's own peak), Saturation Events, Center-zone reversal rate, P95 Setpoint/P95 Gyro Achieved, and Configured Max Rate/Rate Headroom from the header's rate-curve config; omitted from the report only when no axis has at least two usable RC Command samples), links to all generated PNGs, and a Skipped Plots list naming any enabled plot type with no plottable data for any axis, unless a stale PNG from an earlier run causes it to be classified as generated instead. Optimal P Estimation and Bode Analysis sections appear when those features are active.
+- `*_report.md` — Structured flight report written alongside PNGs on every run. Sections: Metadata, Gyro Filter Configuration, PID Tuning, Step Response Analysis, Gyro Analysis, D-Term Analysis, Motor Oscillation, Motor Desync Detection, Stick Input Smoothness, Stick Position & Rate Analysis, PNG links, and a Skipped Plots list. Optimal P Estimation and Bode Analysis sections appear when those features are active. See [OVERVIEW.md](OVERVIEW.md#generated-reports) for exact per-section content and omission conditions.
 
 #### Console Output:
 - Current P:D ratio and peak analysis with response assessment
